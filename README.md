@@ -1,7 +1,10 @@
 # Wookie Platform
 
-For a quickstart guide go [Here](docs/quickstart.md)
-Wookie is under the Apache 2.0 License, for more information see [LICENSE](LICENSE)
+[![Build Status](https://travis-ci.org/Webtrends/wookie.svg?branch=master)](https://travis-ci.org/Webtrends/wookie?branch=master)
+
+Fastest way to get going with Wookie check out the [Quickstart Guide](docs/quickstart.md).
+
+Wookie is Licensed under the Apache 2.0 License, for more information see [LICENSE](LICENSE)
 
 The Wookie platform repository contains the core, supporting components and a test library. It is built primarily on Scala and [Akka](http://akka.io). It contains example projects as well as Maven archetypes for creating various service and creating a component. Wookie is split into 2 primary components, the Wookie library and the system components. The Wookie library is comprised of the of the following components:
 
