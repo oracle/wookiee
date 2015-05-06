@@ -36,7 +36,7 @@ object SockoRouteManager {
     methods foreach { method =>
       handlerMap.getOrElseUpdate(method.toUpperCase, List()).forall { it => it._1 != name } match {
         case true => handlerMap.put(method.toUpperCase, handlerMap(method.toUpperCase) :+ (name, handler))
-        case false => externalLogger.info(s"Socko Route Handler $name already added, discarding")
+        case false => externalLogger.debug(s"Socko Route Handler $name already added, discarding")
       }
     }
   }
