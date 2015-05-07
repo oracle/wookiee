@@ -70,7 +70,7 @@ class SockoHttpServer extends HActor with ComponentHelper {
   protected def bindHttpServer : Unit = {
     log.info(s"Trying to bind to port ${config.port}")
 
-    webServer = Some(new WebServer(config, routes, context.system))
+    webServer = Some(new WebServer(config, context.system, {server => new SockoRequestHandler(server, routes)}))
     Runtime.getRuntime.addShutdownHook(new Thread {
       override def run: Unit = {
         shutdownHttpServer
