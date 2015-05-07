@@ -45,6 +45,8 @@ class WebSocketSpec extends TestKitSpecificationWithJUnit(ActorSystem("test")) w
   addWebSocketWorker("test", classOf[ServerWorker])
   addWebSocketWorker("test/caps", classOf[ServerWorkerCaps])
 
+  Thread.sleep(5000)
+
   sequential
   
   "WebSocket Server" should {
