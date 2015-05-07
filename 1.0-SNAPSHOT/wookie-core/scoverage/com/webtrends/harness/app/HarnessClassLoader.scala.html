@@ -1,0 +1,1424 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/app/HarnessClassLoader.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.app
+</span>20 <span style=''>
+</span>21 <span style=''>import java.io.InputStream
+</span>22 <span style=''>import java.net._
+</span>23 <span style=''>import com.webtrends.harness.service.ServiceClassLoader
+</span>24 <span style=''>import scala.util.{Failure, Success, Try}
+</span>25 <span style=''>
+</span>26 <span style=''>class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty[URL], parent) {
+</span>27 <span style=''>
+</span>28 <span style=''>  private var childLoaders: Seq[ServiceClassLoader] = </span><span style='background: #AEF1AE'>Nil</span><span style=''>
+</span>29 <span style=''>
+</span>30 <span style=''>  /**
+</span>31 <span style=''>   * Adds a sequence of urls to load into this class loader
+</span>32 <span style=''>   * @param urls
+</span>33 <span style=''>   */
+</span>34 <span style=''>  def addURLs(urls: Seq[URL]) = </span><span style='background: #F0ADAD'>urls foreach {
+</span>35 <span style=''></span><span style='background: #F0ADAD'>    addURL(_)</span><span style=''>
+</span>36 <span style=''>  }
+</span>37 <span style=''>
+</span>38 <span style=''>  /**
+</span>39 <span style=''>   * Add the child service loader so it can be used to search for classes in child loaders
+</span>40 <span style=''>   * @param loader an instance of ServiceClassLoader
+</span>41 <span style=''>   */
+</span>42 <span style=''>  def addChildLoader(loader: ServiceClassLoader) = </span><span style='background: #F0ADAD'>childLoaders = childLoaders ++ Seq(loader)</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  /**
+</span>45 <span style=''>   * ClassLoader overrides
+</span>46 <span style=''>   */
+</span>47 <span style=''>  override def loadClass(name: String, resolve: Boolean): Class[_] = {
+</span>48 <span style=''>    // First, check if the class has already been loaded
+</span>49 <span style=''>    </span><span style='background: #AEF1AE'>Try(super.loadClass(name, resolve))</span><span style=''> match {
+</span>50 <span style=''>      case Success(v) => v
+</span>51 <span style=''>      case Failure(_) => </span><span style='background: #F0ADAD'>loadClassFromChildren(name, resolve) getOrElse (throw new ClassNotFoundException("Could not locate the class " + name))</span><span style=''>
+</span>52 <span style=''>    }
+</span>53 <span style=''>  }
+</span>54 <span style=''>
+</span>55 <span style=''>  override def getResource(name: String): URL = {
+</span>56 <span style=''>    </span><span style='background: #F0ADAD'>Try(super.getResource(name))</span><span style=''> match {
+</span>57 <span style=''>      case Success(v) if </span><span style='background: #F0ADAD'>v != null</span><span style=''> => v
+</span>58 <span style=''>      case _ => </span><span style='background: #F0ADAD'>getResourceFromChildren(name)</span><span style=''>
+</span>59 <span style=''>    }
+</span>60 <span style=''>  }
+</span>61 <span style=''>
+</span>62 <span style=''>  override def getResources(name: String): java.util.Enumeration[URL] = {
+</span>63 <span style=''>    </span><span style='background: #AEF1AE'>super.getResources(name)</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  override def getResourceAsStream(name: String): InputStream = {
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>super.getResourceAsStream(name)</span><span style=''>
+</span>68 <span style=''>    //    val url: URL = getResource(name)
+</span>69 <span style=''>    //
+</span>70 <span style=''>    //    Try(
+</span>71 <span style=''>    //      {if (url == null) {
+</span>72 <span style=''>    //        null
+</span>73 <span style=''>    //      }
+</span>74 <span style=''>    //      val urlc = url.openConnection
+</span>75 <span style=''>    //      val is = urlc.getInputStream
+</span>76 <span style=''>    //      if (urlc.isInstanceOf[JarURLConnection]) {
+</span>77 <span style=''>    //        val juc = urlc.asInstanceOf[JarURLConnection]
+</span>78 <span style=''>    //        val jar = juc.getJarFile
+</span>79 <span style=''>    //        closeables synchronized {
+</span>80 <span style=''>    //          if (!closeables.containsKey(jar)) {
+</span>81 <span style=''>    //            closeables.put(jar, null)
+</span>82 <span style=''>    //          }
+</span>83 <span style=''>    //        }
+</span>84 <span style=''>    //      }
+</span>85 <span style=''>    //      else if (urlc.isInstanceOf[FileURLConnection]) {
+</span>86 <span style=''>    //        closeables synchronized {
+</span>87 <span style=''>    //          closeables.put(is, null)
+</span>88 <span style=''>    //        }
+</span>89 <span style=''>    //      }
+</span>90 <span style=''>    //      return is
+</span>91 <span style=''>    //    }) match {
+</span>92 <span style=''>    //      case Success(v) if v != null => v
+</span>93 <span style=''>    //      case _ => getResourceAsStreamFromChildren(name)
+</span>94 <span style=''>    //    }
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  private def loadClassFromChildren(name: String, resolve: Boolean): Option[Class[_]] = {
+</span>98 <span style=''>    if (</span><span style='background: #F0ADAD'>childLoaders.isEmpty</span><span style=''>) {
+</span>99 <span style=''>      </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>100 <span style=''>    }
+</span>101 <span style=''>    else {
+</span>102 <span style=''>      </span><span style='background: #F0ADAD'>this.synchronized {
+</span>103 <span style=''></span><span style='background: #F0ADAD'>        // Get the loaded class
+</span>104 <span style=''></span><span style='background: #F0ADAD'>        childLoaders.filterNot(_.getLoadedClass(name) == None) match {
+</span>105 <span style=''></span><span style='background: #F0ADAD'>          case Nil =>
+</span>106 <span style=''></span><span style='background: #F0ADAD'>            var ret: Option[Class[_]] = None
+</span>107 <span style=''></span><span style='background: #F0ADAD'>            for (value <- childLoaders; if ret == None) {
+</span>108 <span style=''></span><span style='background: #F0ADAD'>              ret = value.loadClassLocally(name, resolve)
+</span>109 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>110 <span style=''></span><span style='background: #F0ADAD'>            ret
+</span>111 <span style=''></span><span style='background: #F0ADAD'>          case list => // Return the first if already loaded
+</span>112 <span style=''></span><span style='background: #F0ADAD'>            list.headOption.get.getLoadedClass(name)
+</span>113 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>114 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>115 <span style=''>    }
+</span>116 <span style=''>  }
+</span>117 <span style=''>
+</span>118 <span style=''>  private def getResourceFromChildren(name: String): URL = {
+</span>119 <span style=''>    if (</span><span style='background: #F0ADAD'>childLoaders.isEmpty</span><span style=''>) {
+</span>120 <span style=''>      </span><span style='background: #F0ADAD'>null</span><span style=''>
+</span>121 <span style=''>    }
+</span>122 <span style=''>    else {
+</span>123 <span style=''>      (</span><span style='background: #F0ADAD'>for {
+</span>124 <span style=''></span><span style='background: #F0ADAD'>        value <- childLoaders
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        url = value.findResource(name)
+</span>126 <span style=''></span><span style='background: #F0ADAD'>        if (url != null)
+</span>127 <span style=''></span><span style='background: #F0ADAD'>      } yield url).headOption match {
+</span>128 <span style=''></span><span style='background: #F0ADAD'>        case Some(url) => url
+</span>129 <span style=''></span><span style='background: #F0ADAD'>        case None => null
+</span>130 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>131 <span style=''>    }
+</span>132 <span style=''>  }
+</span>133 <span style=''>
+</span>134 <span style=''>  private def getResourcesFromChildren(name: String): java.util.Enumeration[URL] = {
+</span>135 <span style=''>    </span><span style='background: #F0ADAD'>Try(super.getResources(name)).get</span><span style=''>
+</span>136 <span style=''>  }
+</span>137 <span style=''>
+</span>138 <span style=''>  private def getResourceAsStreamFromChildren(name: String): InputStream = {
+</span>139 <span style=''>    if (</span><span style='background: #F0ADAD'>childLoaders.isEmpty</span><span style=''>) {
+</span>140 <span style=''>      </span><span style='background: #F0ADAD'>null</span><span style=''>
+</span>141 <span style=''>    }
+</span>142 <span style=''>    else {
+</span>143 <span style=''>      (</span><span style='background: #F0ADAD'>for {
+</span>144 <span style=''></span><span style='background: #F0ADAD'>        value <- childLoaders
+</span>145 <span style=''></span><span style='background: #F0ADAD'>        url = value.getResourceAsStream(name)
+</span>146 <span style=''></span><span style='background: #F0ADAD'>        if (url != null)
+</span>147 <span style=''></span><span style='background: #F0ADAD'>      } yield url).headOption match {
+</span>148 <span style=''></span><span style='background: #F0ADAD'>        case Some(url) => url
+</span>149 <span style=''></span><span style='background: #F0ADAD'>        case None => null
+</span>150 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>151 <span style=''>    }
+</span>152 <span style=''>  }
+</span>153 <span style=''>
+</span>154 <span style=''>}
+</span>155 <span style=''>
+</span>156 <span style=''>object HarnessClassLoader {
+</span>157 <span style=''>  def apply(parent: ClassLoader) = </span><span style='background: #AEF1AE'>new HarnessClassLoader(parent)</span><span style=''>
+</span>158 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          438
+        </td>
+        <td>
+          1070
+          -
+          1073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          1196
+          -
+          1224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          urls.foreach[Unit](((x$1: java.net.URL) =&gt; HarnessClassLoader.this.addURL(x$1)))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          1215
+          -
+          1224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.addURL
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.addURL(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          442
+        </td>
+        <td>
+          1465
+          -
+          1465
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.webtrends.harness.service.ServiceClassLoader]
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          1468
+          -
+          1479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.apply[com.webtrends.harness.service.ServiceClassLoader](loader)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          1437
+          -
+          1479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessClassLoader.childLoaders_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders_=(HarnessClassLoader.this.childLoaders.++[com.webtrends.harness.service.ServiceClassLoader, Seq[com.webtrends.harness.service.ServiceClassLoader]](collection.this.Seq.apply[com.webtrends.harness.service.ServiceClassLoader](loader))(collection.this.Seq.canBuildFrom[com.webtrends.harness.service.ServiceClassLoader]))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          1452
+          -
+          1479
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.++[com.webtrends.harness.service.ServiceClassLoader, Seq[com.webtrends.harness.service.ServiceClassLoader]](collection.this.Seq.apply[com.webtrends.harness.service.ServiceClassLoader](loader))(collection.this.Seq.canBuildFrom[com.webtrends.harness.service.ServiceClassLoader])
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          1656
+          -
+          1686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.loadClass
+        </td>
+        <td style="background: #AEF1AE">
+          HarnessClassLoader.super.loadClass(name, resolve)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          1652
+          -
+          1687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Class[?0]](HarnessClassLoader.super.loadClass(name, resolve))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          1748
+          -
+          1867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.loadClassFromChildren(name, resolve).getOrElse[Class[_]](throw new java.this.lang.ClassNotFoundException(&quot;Could not locate the class &quot;.+(name)))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          1796
+          -
+          1866
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.ClassNotFoundException(&quot;Could not locate the class &quot;.+(name))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          1933
+          -
+          1961
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[java.net.URL](HarnessClassLoader.super.getResource(name))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          1937
+          -
+          1960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.getResource
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.super.getResource(name)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          1995
+          -
+          2004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          v.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          2026
+          -
+          2055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessClassLoader.getResourceFromChildren
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.getResourceFromChildren(name)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          453
+        </td>
+        <td>
+          2145
+          -
+          2169
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.getResources
+        </td>
+        <td style="background: #AEF1AE">
+          HarnessClassLoader.super.getResources(name)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          2245
+          -
+          2276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.getResourceAsStream
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.super.getResourceAsStream(name)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          3264
+          -
+          3284
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          3294
+          -
+          3298
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          3294
+          -
+          3298
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          468
+        </td>
+        <td>
+          3322
+          -
+          3789
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #F0ADAD">
+          this.synchronized[Option[Class[_]]](HarnessClassLoader.this.childLoaders.filterNot(((x$2: com.webtrends.harness.service.ServiceClassLoader) =&gt; x$2.getLoadedClass(name).==(scala.None))) match {
+  case immutable.this.Nil =&gt; {
+    var ret: Option[Class[_]] = scala.None;
+    HarnessClassLoader.this.childLoaders.withFilter(((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret.==(scala.None))).foreach[Unit](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret = value.loadClassLocally(name, resolve)));
+    ret
+  }
+  case (list @ _) =&gt; list.headOption.get.getLoadedClass(name)
+})
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          3322
+          -
+          3789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #F0ADAD">
+          this.synchronized[Option[Class[_]]](HarnessClassLoader.this.childLoaders.filterNot(((x$2: com.webtrends.harness.service.ServiceClassLoader) =&gt; x$2.getLoadedClass(name).==(scala.None))) match {
+  case immutable.this.Nil =&gt; {
+    var ret: Option[Class[_]] = scala.None;
+    HarnessClassLoader.this.childLoaders.withFilter(((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret.==(scala.None))).foreach[Unit](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret = value.loadClassLocally(name, resolve)));
+    ret
+  }
+  case (list @ _) =&gt; list.headOption.get.getLoadedClass(name)
+})
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          3382
+          -
+          3436
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filterNot
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.filterNot(((x$2: com.webtrends.harness.service.ServiceClassLoader) =&gt; x$2.getLoadedClass(name).==(scala.None)))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          3405
+          -
+          3435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.getLoadedClass(name).==(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          3431
+          -
+          3435
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          3507
+          -
+          3511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          3555
+          -
+          3566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          ret.==(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          3524
+          -
+          3627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.FilterMonadic.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.withFilter(((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret.==(scala.None))).foreach[Unit](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; ret = value.loadClassLocally(name, resolve)))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          3562
+          -
+          3566
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          3590
+          -
+          3627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceClassLoader.loadClassLocally
+        </td>
+        <td style="background: #F0ADAD">
+          value.loadClassLocally(name, resolve)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          3731
+          -
+          3771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceClassLoader.getLoadedClass
+        </td>
+        <td style="background: #F0ADAD">
+          list.headOption.get.getLoadedClass(name)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          3870
+          -
+          3890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          3900
+          -
+          3904
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          3900
+          -
+          3904
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          3949
+          -
+          3949
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)]
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          3943
+          -
+          3943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.net.URL](value, url)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          3949
+          -
+          3949
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[java.net.URL]
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          3979
+          -
+          4003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.findResource
+        </td>
+        <td style="background: #F0ADAD">
+          value.findResource(name)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          4016
+          -
+          4027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          url.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          3929
+          -
+          4058
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.map[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL), Seq[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)]](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; {
+  val url: java.net.URL = value.findResource(name);
+  scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.net.URL](value, url)
+}))(collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)]).withFilter(((x$3: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL)) =&gt; (x$3: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.net.URL)(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)((value @ _), (url @ _)) =&gt; url.!=(null)
+})).map[java.net.URL, Seq[java.net.URL]](((x$4: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL)) =&gt; (x$4: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.net.URL)(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)((value @ _), (url @ _)) =&gt; url
+}))(collection.this.Seq.canBuildFrom[java.net.URL]).headOption
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          3929
+          -
+          4130
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.map[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL), Seq[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)]](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; {
+  val url: java.net.URL = value.findResource(name);
+  scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.net.URL](value, url)
+}))(collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)]).withFilter(((x$3: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL)) =&gt; (x$3: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.net.URL)(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)((value @ _), (url @ _)) =&gt; url.!=(null)
+})).map[java.net.URL, Seq[java.net.URL]](((x$4: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL)) =&gt; (x$4: (com.webtrends.harness.service.ServiceClassLoader, java.net.URL) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.net.URL)(com.webtrends.harness.service.ServiceClassLoader, java.net.URL)((value @ _), (url @ _)) =&gt; url
+}))(collection.this.Seq.canBuildFrom[java.net.URL]).headOption match {
+  case (x: java.net.URL)Some[java.net.URL]((url @ _)) =&gt; url
+  case scala.None =&gt; null
+}
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          4118
+          -
+          4122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          4231
+          -
+          4264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Try.get
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[java.util.Enumeration[java.net.URL]](HarnessClassLoader.super.getResources(name)).get
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          480
+        </td>
+        <td>
+          4235
+          -
+          4259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.getResources
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.super.getResources(name)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          4355
+          -
+          4375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          4385
+          -
+          4389
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          4385
+          -
+          4389
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          4434
+          -
+          4434
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)]
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          4434
+          -
+          4434
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[java.io.InputStream]
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          4428
+          -
+          4428
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream](value, url)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          4464
+          -
+          4495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.getResourceAsStream
+        </td>
+        <td style="background: #F0ADAD">
+          value.getResourceAsStream(name)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          4508
+          -
+          4519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          url.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          4414
+          -
+          4550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.map[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream), Seq[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)]](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; {
+  val url: java.io.InputStream = value.getResourceAsStream(name);
+  scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream](value, url)
+}))(collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)]).withFilter(((x$5: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)) =&gt; (x$5: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.io.InputStream)(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)((value @ _), (url @ _)) =&gt; url.!=(null)
+})).map[java.io.InputStream, Seq[java.io.InputStream]](((x$6: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)) =&gt; (x$6: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.io.InputStream)(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)((value @ _), (url @ _)) =&gt; url
+}))(collection.this.Seq.canBuildFrom[java.io.InputStream]).headOption
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          4414
+          -
+          4622
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessClassLoader.this.childLoaders.map[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream), Seq[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)]](((value: com.webtrends.harness.service.ServiceClassLoader) =&gt; {
+  val url: java.io.InputStream = value.getResourceAsStream(name);
+  scala.Tuple2.apply[com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream](value, url)
+}))(collection.this.Seq.canBuildFrom[(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)]).withFilter(((x$5: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)) =&gt; (x$5: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.io.InputStream)(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)((value @ _), (url @ _)) =&gt; url.!=(null)
+})).map[java.io.InputStream, Seq[java.io.InputStream]](((x$6: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)) =&gt; (x$6: (com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream) @unchecked) match {
+  case (_1: com.webtrends.harness.service.ServiceClassLoader, _2: java.io.InputStream)(com.webtrends.harness.service.ServiceClassLoader, java.io.InputStream)((value @ _), (url @ _)) =&gt; url
+}))(collection.this.Seq.canBuildFrom[java.io.InputStream]).headOption match {
+  case (x: java.io.InputStream)Some[java.io.InputStream]((url @ _)) =&gt; url
+  case scala.None =&gt; null
+}
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          4610
+          -
+          4614
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          4700
+          -
+          4730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessClassLoader.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new HarnessClassLoader(parent)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

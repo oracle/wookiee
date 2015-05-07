@@ -1,0 +1,2091 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/ComponentHelper.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor.{ActorRef, Actor}
+</span>23 <span style=''>import akka.pattern.ask
+</span>24 <span style=''>import akka.util.Timeout
+</span>25 <span style=''>import com.webtrends.harness.logging.Logger
+</span>26 <span style=''>import scala.concurrent.duration._
+</span>27 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>28 <span style=''>
+</span>29 <span style=''>import scala.concurrent.{Await, Promise, Future}
+</span>30 <span style=''>import scala.util.{Failure, Success}
+</span>31 <span style=''>
+</span>32 <span style=''>/**
+</span>33 <span style=''> * This is a helper class that enables developers who use to trait to interact with the ComponentManager
+</span>34 <span style=''> * easily on the harness
+</span>35 <span style=''> */
+</span>36 <span style=''>trait ComponentHelper {
+</span>37 <span style=''>  this: Actor =>
+</span>38 <span style=''>
+</span>39 <span style=''>  import context.dispatcher
+</span>40 <span style=''>  var componentManagerInitialized = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>41 <span style=''>  var componentManager:Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>   * This should only be called once to initialize the component manager actor. Will retry when called
+</span>45 <span style=''>   * as many methods require this to work.
+</span>46 <span style=''>   */
+</span>47 <span style=''>  def initComponentHelper : Future[ActorRef] = {
+</span>48 <span style=''>    val p = </span><span style='background: #AEF1AE'>Promise[ActorRef]()</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>    def awaitComponentManager(timeOut: Deadline) {
+</span>51 <span style=''>      if (</span><span style='background: #AEF1AE'>timeOut.isOverdue() && </span><span style='background: #F0ADAD'>!componentManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>52 <span style=''></span><span style='background: #F0ADAD'>        componentManagerInitialized = true
+</span>53 <span style=''></span><span style='background: #F0ADAD'>        p failure ComponentException("Component Manager", "Failed to get component manager")
+</span>54 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>55 <span style=''>      </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        case Success(s) =>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          componentManager = Some(s)
+</span>58 <span style=''></span><span style='background: #AEF1AE'>          componentManagerInitialized = true
+</span>59 <span style=''></span><span style='background: #AEF1AE'>          p success s
+</span>60 <span style=''></span><span style='background: #AEF1AE'>        case Failure(f) => </span><span style='background: #F0ADAD'>awaitComponentManager(timeOut)</span><span style='background: #AEF1AE'>
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>62 <span style=''>    }
+</span>63 <span style=''>
+</span>64 <span style=''>    </span><span style='background: #AEF1AE'>componentManager</span><span style=''> match {
+</span>65 <span style=''>      case Some(cm) => </span><span style='background: #F0ADAD'>p success cm</span><span style=''>
+</span>66 <span style=''>      case None =>
+</span>67 <span style=''>        if (</span><span style='background: #AEF1AE'>!componentManagerInitialized</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>68 <span style=''></span><span style='background: #AEF1AE'>          val deadline = 5 seconds fromNow
+</span>69 <span style=''></span><span style='background: #AEF1AE'>          awaitComponentManager(deadline)
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''> else {
+</span>71 <span style=''>          </span><span style='background: #F0ADAD'>p failure ComponentException("Component Manager", "Component manager did not initialize")</span><span style=''>
+</span>72 <span style=''>        }
+</span>73 <span style=''>    }
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>p.future</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  /**
+</span>78 <span style=''>   * Wrapper function around request that allows the developer to not have to deal with the
+</span>79 <span style=''>   * ComponentResponse return object, and just deal with the message that they care about
+</span>80 <span style=''>   *
+</span>81 <span style=''>   * @param name name of the component
+</span>82 <span style=''>   * @param msg msg to send to the component
+</span>83 <span style=''>   * @return
+</span>84 <span style=''>   */
+</span>85 <span style=''>  def unwrapRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[U] = {
+</span>86 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[U]()</span><span style=''>
+</span>87 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, msg).mapTo[ComponentResponse[U]] onComplete {
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => p success s.resp
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>90 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>91 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>92 <span style=''>  }
+</span>93 <span style=''>
+</span>94 <span style=''>  def request[T](name:String, msg:Any, childName:Option[String]=None) : Future[ComponentResponse[T]] =
+</span>95 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, ComponentRequest(msg, childName))</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>  /**
+</span>98 <span style=''>   * Simplest way to make a request directly to a component, will return a Future holding whatever the component returns
+</span>99 <span style=''>   * @param name Name of the component
+</span>100 <span style=''>   * @param msg Message to send it
+</span>101 <span style=''>   */
+</span>102 <span style=''>  def unwrapSelfRequest[T](name:String, msg:AnyRef) : Future[T] = {
+</span>103 <span style=''>    </span><span style='background: #F0ADAD'>unwrapRequest[msg.type, T](name, ComponentRequest[msg.type](msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
+</span>104 <span style=''>  }
+</span>105 <span style=''>
+</span>106 <span style=''>  /**
+</span>107 <span style=''>   * Wrapper function that allows developer to make requests to components individually without having to know about the
+</span>108 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
+</span>109 <span style=''>   *
+</span>110 <span style=''>   * @param name name of the component
+</span>111 <span style=''>   * @param msg message you want to send to the component
+</span>112 <span style=''>   * @return
+</span>113 <span style=''>   */
+</span>114 <span style=''>  def componentRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[ComponentResponse[U]] = {
+</span>115 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ComponentResponse[U]]()</span><span style=''>
+</span>116 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>117 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>118 <span style=''></span><span style='background: #F0ADAD'>        (cm ? Request(name, msg))(msg.timeout).mapTo[ComponentResponse[U]] onComplete {
+</span>119 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => p success s
+</span>120 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
+</span>121 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>122 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>123 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>124 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  def selfMessage(name:String, msg:Any) =
+</span>128 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>  /**
+</span>131 <span style=''>   * Wrapper function that will allow you to send any message in and it will
+</span>132 <span style=''>   * wrap the msg within a ComponentMessage case class
+</span>133 <span style=''>   *
+</span>134 <span style=''>   * @param name       name of component
+</span>135 <span style=''>   * @param msg        message to send
+</span>136 <span style=''>   * @param childName  name of component's child, or 'self' if one wants to hit the component itself
+</span>137 <span style=''>   */
+</span>138 <span style=''>  def message(name:String, msg:Any, childName:Option[String]=None) =
+</span>139 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, childName))</span><span style=''>
+</span>140 <span style=''>
+</span>141 <span style=''>  /**
+</span>142 <span style=''>   * Wrapper function that allows the developer to message components individually without having to know about the
+</span>143 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
+</span>144 <span style=''>   *
+</span>145 <span style=''>   * @param name name of the component
+</span>146 <span style=''>   * @param msg message you want to send to the component
+</span>147 <span style=''>   */
+</span>148 <span style=''>  def componentMessage[T](name:String, msg:ComponentMessage[T]) = {
+</span>149 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>150 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>151 <span style=''></span><span style='background: #F0ADAD'>        cm ! Message(name, msg)
+</span>152 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => throw f
+</span>153 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>154 <span style=''>  }
+</span>155 <span style=''>
+</span>156 <span style=''>  /**
+</span>157 <span style=''>   * Wrapper function that allows developers to get the actor reference for a particular component
+</span>158 <span style=''>   *
+</span>159 <span style=''>   * @param name the name of the component
+</span>160 <span style=''>   * @param timeout implicit timeout value
+</span>161 <span style=''>   * @return
+</span>162 <span style=''>   */
+</span>163 <span style=''>  def getComponent(name:String)(implicit timeout:Timeout) : Future[ActorRef] = {
+</span>164 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ActorRef]()</span><span style=''>
+</span>165 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>166 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>167 <span style=''></span><span style='background: #F0ADAD'>        (cm ? GetComponent(name))(timeout).mapTo[Option[ActorRef]] onComplete {
+</span>168 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) =>
+</span>169 <span style=''></span><span style='background: #F0ADAD'>            s match {
+</span>170 <span style=''></span><span style='background: #F0ADAD'>              case Some(ref) => p success ref
+</span>171 <span style=''></span><span style='background: #F0ADAD'>              case None => p failure ComponentNotFoundException("Component Manager", s"component $name not found")
+</span>172 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>173 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
+</span>174 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>175 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>176 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>177 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>178 <span style=''>  }
+</span>179 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          849
+        </td>
+        <td>
+          1323
+          -
+          1328
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          1371
+          -
+          1375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          851
+        </td>
+        <td>
+          1596
+          -
+          1615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Promise.apply[akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          857
+        </td>
+        <td>
+          1731
+          -
+          1876
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ComponentHelper.this.componentManagerInitialized_=(true);
+  p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Failed to get component manager&quot;))
+}
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          853
+        </td>
+        <td>
+          1678
+          -
+          1729
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          timeOut.isOverdue().&amp;&amp;(ComponentHelper.this.componentManagerInitialized.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          859
+        </td>
+        <td>
+          1674
+          -
+          1674
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          1674
+          -
+          1674
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          852
+        </td>
+        <td>
+          1701
+          -
+          1729
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentManagerInitialized.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          1741
+          -
+          1775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentManagerInitialized_=
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentManagerInitialized_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          855
+        </td>
+        <td>
+          1794
+          -
+          1868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentException.apply(&quot;Component Manager&quot;, &quot;Failed to get component manager&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          1784
+          -
+          1868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Failed to get component manager&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          1955
+          -
+          1963
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          1906
+          -
+          1940
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentFullName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ComponentFullName
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          869
+        </td>
+        <td>
+          1965
+          -
+          1965
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          1955
+          -
+          1963
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.second
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(1).second
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          1955
+          -
+          1956
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          1883
+          -
+          2174
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ComponentFullName).resolveOne()(util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)).onComplete[Any](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; {
+    ComponentHelper.this.componentManager_=(scala.Some.apply[akka.actor.ActorRef](s));
+    ComponentHelper.this.componentManagerInitialized_=(true);
+    p.success(s)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; awaitComponentManager(timeOut)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          864
+        </td>
+        <td>
+          2034
+          -
+          2041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](s)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          865
+        </td>
+        <td>
+          2015
+          -
+          2041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentManager_=
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.componentManager_=(scala.Some.apply[akka.actor.ActorRef](s))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          2052
+          -
+          2086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentManagerInitialized_=
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.componentManagerInitialized_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          2097
+          -
+          2108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #AEF1AE">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          2136
+          -
+          2166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.awaitComponentManager
+        </td>
+        <td style="background: #F0ADAD">
+          awaitComponentManager(timeOut)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          2186
+          -
+          2202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentManager
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.componentManager
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          2234
+          -
+          2246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(cm)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          2278
+          -
+          2306
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHelper.this.componentManagerInitialized.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          2308
+          -
+          2404
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val deadline: scala.concurrent.duration.DurationConversions.fromNowConvert.R = scala.concurrent.duration.`package`.DurationInt(5).seconds[concurrent.duration.fromNow.type](scala.concurrent.duration.`package`.fromNow)(duration.this.DurationConversions.fromNowConvert);
+  awaitComponentManager(deadline)
+}
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          875
+        </td>
+        <td>
+          2345
+          -
+          2352
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.fromNow
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.fromNow
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          2335
+          -
+          2352
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds[concurrent.duration.fromNow.type](scala.concurrent.duration.`package`.fromNow)(duration.this.DurationConversions.fromNowConvert)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          874
+        </td>
+        <td>
+          2335
+          -
+          2336
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          2337
+          -
+          2337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.fromNowConvert
+        </td>
+        <td style="background: #AEF1AE">
+          duration.this.DurationConversions.fromNowConvert
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          878
+        </td>
+        <td>
+          2363
+          -
+          2394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.awaitComponentManager
+        </td>
+        <td style="background: #AEF1AE">
+          awaitComponentManager(deadline)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          2422
+          -
+          2511
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Component manager did not initialize&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          2422
+          -
+          2511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Component manager did not initialize&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          2432
+          -
+          2511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentException.apply(&quot;Component Manager&quot;, &quot;Component manager did not initialize&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          2532
+          -
+          2540
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #AEF1AE">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          2934
+          -
+          2946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[U]()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          2951
+          -
+          3104
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentRequest[T, Nothing](name, msg).mapTo[com.webtrends.harness.component.ComponentResponse[U]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[U]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[U]])).onComplete[scala.concurrent.Promise[U]](((x0$2: scala.util.Try[com.webtrends.harness.component.ComponentResponse[U]]) =&gt; x0$2 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[U])scala.util.Success[com.webtrends.harness.component.ComponentResponse[U]]((s @ _)) =&gt; p.success(s.resp)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[U]]((f @ _)) =&gt; p.failure(f)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          888
+        </td>
+        <td>
+          3007
+          -
+          3007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          3045
+          -
+          3061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s.resp)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          885
+        </td>
+        <td>
+          3055
+          -
+          3061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.resp
+        </td>
+        <td style="background: #F0ADAD">
+          s.resp
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          887
+        </td>
+        <td>
+          3087
+          -
+          3098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          890
+        </td>
+        <td>
+          3109
+          -
+          3117
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          891
+        </td>
+        <td>
+          3253
+          -
+          3253
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentRequest.apply$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          3230
+          -
+          3286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentRequest
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentRequest[Any, T](name, ComponentRequest.apply[Any](msg, childName, ComponentRequest.apply$default$3[Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          3253
+          -
+          3285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentRequest.apply[Any](msg, childName, ComponentRequest.apply$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          3616
+          -
+          3616
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentRequest.apply$default$3[msg.type]
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          3632
+          -
+          3667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](ComponentManager.ComponentRef)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          3567
+          -
+          3669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.unwrapRequest
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.unwrapRequest[msg.type, T](name, ComponentRequest.apply[msg.type](msg, scala.Some.apply[String](ComponentManager.ComponentRef), ComponentRequest.apply$default$3[msg.type]))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          3637
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentManager.ComponentRef
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentManager.ComponentRef
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          3600
+          -
+          3668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentRequest.apply[msg.type](msg, scala.Some.apply[String](ComponentManager.ComponentRef), ComponentRequest.apply$default$3[msg.type])
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          4124
+          -
+          4155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.component.ComponentResponse[U]]()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          4160
+          -
+          4441
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.initComponentHelper.onComplete[Any](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((cm @ _)) =&gt; akka.pattern.`package`.ask(cm).?(Request.apply[T](name, msg))(msg.timeout).mapTo[com.webtrends.harness.component.ComponentResponse[U]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[U]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[U]])).onComplete[scala.concurrent.Promise[com.webtrends.harness.component.ComponentResponse[U]]](((x0$4: scala.util.Try[com.webtrends.harness.component.ComponentResponse[U]]) =&gt; x0$4 match {
+    case (value: com.webtrends.harness.component.ComponentResponse[U])scala.util.Success[com.webtrends.harness.component.ComponentResponse[U]]((s @ _)) =&gt; p.success(s)
+    case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[U]]((f @ _)) =&gt; p.failure(f)
+  }))(ComponentHelper.this.context.dispatcher)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; p.failure(f)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          907
+        </td>
+        <td>
+          4180
+          -
+          4180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          905
+        </td>
+        <td>
+          4227
+          -
+          4398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(cm).?(Request.apply[T](name, msg))(msg.timeout).mapTo[com.webtrends.harness.component.ComponentResponse[U]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[U]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[U]])).onComplete[scala.concurrent.Promise[com.webtrends.harness.component.ComponentResponse[U]]](((x0$4: scala.util.Try[com.webtrends.harness.component.ComponentResponse[U]]) =&gt; x0$4 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[U])scala.util.Success[com.webtrends.harness.component.ComponentResponse[U]]((s @ _)) =&gt; p.success(s)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[U]]((f @ _)) =&gt; p.failure(f)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          4294
+          -
+          4294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          901
+        </td>
+        <td>
+          4253
+          -
+          4264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          msg.timeout
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          4233
+          -
+          4251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.Request.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Request.apply[T](name, msg)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          4336
+          -
+          4347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          903
+        </td>
+        <td>
+          4377
+          -
+          4388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          906
+        </td>
+        <td>
+          4424
+          -
+          4435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          4446
+          -
+          4454
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          911
+        </td>
+        <td>
+          4551
+          -
+          4586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](ComponentManager.ComponentRef)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          4506
+          -
+          4588
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentMessage[Any](name, ComponentMessage.apply[Any](msg, scala.Some.apply[String](ComponentManager.ComponentRef)))
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          4556
+          -
+          4585
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentManager.ComponentRef
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentManager.ComponentRef
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          4529
+          -
+          4587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentMessage.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentMessage.apply[Any](msg, scala.Some.apply[String](ComponentManager.ComponentRef))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          5016
+          -
+          5048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentMessage.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentMessage.apply[Any](msg, childName)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          4993
+          -
+          5049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.componentMessage[Any](name, ComponentMessage.apply[Any](msg, childName))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          920
+        </td>
+        <td>
+          5460
+          -
+          5460
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          921
+        </td>
+        <td>
+          5440
+          -
+          5569
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.initComponentHelper.onComplete[Unit](((x0$5: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$5 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((cm @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(cm).!(Message.apply[T](name, msg))(ComponentHelper.this.self)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; throw f
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          917
+        </td>
+        <td>
+          5510
+          -
+          5510
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.self
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          5512
+          -
+          5530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.Message.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Message.apply[T](name, msg)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          5507
+          -
+          5530
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(cm).!(Message.apply[T](name, msg))(ComponentHelper.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          919
+        </td>
+        <td>
+          5556
+          -
+          5563
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw f
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          922
+        </td>
+        <td>
+          5883
+          -
+          5902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          5907
+          -
+          6365
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.initComponentHelper.onComplete[Any](((x0$6: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$6 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((cm @ _)) =&gt; akka.pattern.`package`.ask(cm).?(GetComponent.apply(name))(timeout).mapTo[Option[akka.actor.ActorRef]]((ClassTag.apply[Option[akka.actor.ActorRef]](classOf[scala.Option]): scala.reflect.ClassTag[Option[akka.actor.ActorRef]])).onComplete[scala.concurrent.Promise[akka.actor.ActorRef]](((x0$7: scala.util.Try[Option[akka.actor.ActorRef]]) =&gt; x0$7 match {
+    case (value: Option[akka.actor.ActorRef])scala.util.Success[Option[akka.actor.ActorRef]]((s @ _)) =&gt; s match {
+      case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((ref @ _)) =&gt; p.success(ref)
+      case scala.None =&gt; p.failure(ComponentNotFoundException.apply(&quot;Component Manager&quot;, scala.StringContext.apply(&quot;component &quot;, &quot; not found&quot;).s(name)))
+    }
+    case (exception: Throwable)scala.util.Failure[Option[akka.actor.ActorRef]]((f @ _)) =&gt; p.failure(f)
+  }))(ComponentHelper.this.context.dispatcher)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; p.failure(f)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          933
+        </td>
+        <td>
+          5927
+          -
+          5927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          5980
+          -
+          5998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.GetComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetComponent.apply(name)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          931
+        </td>
+        <td>
+          5974
+          -
+          6322
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(cm).?(GetComponent.apply(name))(timeout).mapTo[Option[akka.actor.ActorRef]]((ClassTag.apply[Option[akka.actor.ActorRef]](classOf[scala.Option]): scala.reflect.ClassTag[Option[akka.actor.ActorRef]])).onComplete[scala.concurrent.Promise[akka.actor.ActorRef]](((x0$7: scala.util.Try[Option[akka.actor.ActorRef]]) =&gt; x0$7 match {
+  case (value: Option[akka.actor.ActorRef])scala.util.Success[Option[akka.actor.ActorRef]]((s @ _)) =&gt; s match {
+    case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((ref @ _)) =&gt; p.success(ref)
+    case scala.None =&gt; p.failure(ComponentNotFoundException.apply(&quot;Component Manager&quot;, scala.StringContext.apply(&quot;component &quot;, &quot; not found&quot;).s(name)))
+  }
+  case (exception: Throwable)scala.util.Failure[Option[akka.actor.ActorRef]]((f @ _)) =&gt; p.failure(f)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          6033
+          -
+          6033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          924
+        </td>
+        <td>
+          6129
+          -
+          6142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ref)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          6228
+          -
+          6256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;component &quot;, &quot; not found&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          925
+        </td>
+        <td>
+          6207
+          -
+          6226
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Component Manager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          6170
+          -
+          6257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(ComponentNotFoundException.apply(&quot;Component Manager&quot;, scala.StringContext.apply(&quot;component &quot;, &quot; not found&quot;).s(name)))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          6180
+          -
+          6257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentNotFoundException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentNotFoundException.apply(&quot;Component Manager&quot;, scala.StringContext.apply(&quot;component &quot;, &quot; not found&quot;).s(name))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          929
+        </td>
+        <td>
+          6301
+          -
+          6312
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          6348
+          -
+          6359
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          6370
+          -
+          6378
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

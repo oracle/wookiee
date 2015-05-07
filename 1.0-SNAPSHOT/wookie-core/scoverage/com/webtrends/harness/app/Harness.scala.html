@@ -1,0 +1,2084 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/app/Harness.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.app
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor.{UnhandledMessage, Props, ActorRef, ActorSystem}
+</span>22 <span style=''>import akka.pattern._
+</span>23 <span style=''>import com.typesafe.config.Config
+</span>24 <span style=''>import com.webtrends.harness.UnhandledEventListener
+</span>25 <span style=''>import com.webtrends.harness.app.HarnessActor.ShutdownSystem
+</span>26 <span style=''>import com.webtrends.harness.logging.Logger
+</span>27 <span style=''>import scala.concurrent.Await
+</span>28 <span style=''>import scala.concurrent.duration._
+</span>29 <span style=''>import scala.util.Failure
+</span>30 <span style=''>import scala.util.Success
+</span>31 <span style=''>
+</span>32 <span style=''>/**
+</span>33 <span style=''> * @author Michael Cuthbert on 10/30/14.
+</span>34 <span style=''> */
+</span>35 <span style=''>object Harness {
+</span>36 <span style=''>  protected[harness] var system: Option[ActorSystem] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>37 <span style=''>  def getActorSystem = </span><span style='background: #AEF1AE'>system</span><span style=''>
+</span>38 <span style=''>  protected[harness] var log: Option[Logger] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>39 <span style=''>  def getLogger = </span><span style='background: #AEF1AE'>log</span><span style=''>
+</span>40 <span style=''>  protected[harness] var rootActor: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>41 <span style=''>  def getRootActor = </span><span style='background: #AEF1AE'>rootActor</span><span style=''>
+</span>42 <span style=''>  val externalLogger = </span><span style='background: #AEF1AE'>Logger.getLogger(this.getClass)</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  /**
+</span>45 <span style=''>   * Restart the actor system
+</span>46 <span style=''>   */
+</span>47 <span style=''>  def restartActorSystem = {
+</span>48 <span style=''>    </span><span style='background: #F0ADAD'>log.get.info("Restarting the actor system")</span><span style=''>
+</span>49 <span style=''>    </span><span style='background: #F0ADAD'>system</span><span style=''> match {
+</span>50 <span style=''>      case Some(sys) =>
+</span>51 <span style=''>        </span><span style='background: #F0ADAD'>shutdownActorSystem(false) {
+</span>52 <span style=''></span><span style='background: #F0ADAD'>          startActorSystem()
+</span>53 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>54 <span style=''>      case _ =>
+</span>55 <span style=''>        </span><span style='background: #F0ADAD'>externalLogger.info("There is no actor system so starting up now")</span><span style=''>
+</span>56 <span style=''>        </span><span style='background: #F0ADAD'>startActorSystem()</span><span style=''>
+</span>57 <span style=''>    }
+</span>58 <span style=''>  }
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>   * Force a shutdown of the ActorSystem and the application's process.
+</span>62 <span style=''>   */
+</span>63 <span style=''>  def shutdown = {
+</span>64 <span style=''>    </span><span style='background: #F0ADAD'>log.get.info("Shutting down the harness")</span><span style=''>
+</span>65 <span style=''>    </span><span style='background: #F0ADAD'>new Thread("lifecycle") {
+</span>66 <span style=''></span><span style='background: #F0ADAD'>      override def run() {
+</span>67 <span style=''></span><span style='background: #F0ADAD'>        Thread.sleep(10)
+</span>68 <span style=''></span><span style='background: #F0ADAD'>        shutdownActorSystem(false) {
+</span>69 <span style=''></span><span style='background: #F0ADAD'>          System.exit(0)
+</span>70 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>71 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>72 <span style=''></span><span style='background: #F0ADAD'>    }.start()</span><span style=''>
+</span>73 <span style=''>  }
+</span>74 <span style=''>
+</span>75 <span style=''>  /**
+</span>76 <span style=''>   * Start the actor system
+</span>77 <span style=''>   */
+</span>78 <span style=''>  def startActorSystem(config:Option[Config]=None) = {
+</span>79 <span style=''>    try {
+</span>80 <span style=''>      </span><span style='background: #AEF1AE'>externalLogger.info("Creating the actor system")
+</span>81 <span style=''></span><span style='background: #AEF1AE'>      system = config match {
+</span>82 <span style=''></span><span style='background: #AEF1AE'>        case None => </span><span style='background: #F0ADAD'>Some(HarnessActorSystem())</span><span style='background: #AEF1AE'>
+</span>83 <span style=''></span><span style='background: #AEF1AE'>        case c => Some(HarnessActorSystem(c))
+</span>84 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      // add the unhandled message listener so we can debug messages easily that are not being handled
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      val listener = system.get.actorOf(Props(new UnhandledEventListener))
+</span>87 <span style=''></span><span style='background: #AEF1AE'>      system.get.eventStream.subscribe(listener, classOf[UnhandledMessage])
+</span>88 <span style=''></span><span style='background: #AEF1AE'>
+</span>89 <span style=''></span><span style='background: #AEF1AE'>      log = Some(Logger(this.getClass, system.get))
+</span>90 <span style=''></span><span style='background: #AEF1AE'>      log.get.info("Creating main harness actor")
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      implicit val sys = system.get
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      rootActor = Some(system.get.actorOf(HarnessActor.props, "system"))
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      log.get.info("Harness Started")</span><span style=''>
+</span>94 <span style=''>    }
+</span>95 <span style=''>    catch {
+</span>96 <span style=''>      case t: Throwable =>
+</span>97 <span style=''>        </span><span style='background: #F0ADAD'>externalLogger.error(s"The actor system could not be started: ${t.getMessage}", t)</span><span style=''>
+</span>98 <span style=''>        </span><span style='background: #F0ADAD'>sys.exit(0)</span><span style=''>
+</span>99 <span style=''>    }
+</span>100 <span style=''>  }
+</span>101 <span style=''>
+</span>102 <span style=''>  /**
+</span>103 <span style=''>   * Shutdown the actor system
+</span>104 <span style=''>   */
+</span>105 <span style=''>  def shutdownActorSystem(block: Boolean)(f: => Unit) = {
+</span>106 <span style=''>    </span><span style='background: #AEF1AE'>log.get.info("Shutting down the main actor")</span><span style=''>
+</span>107 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>108 <span style=''>
+</span>109 <span style=''>    // We will tell the main actor that we are shutting down. This allows it to shutdown
+</span>110 <span style=''>    // its children and perform any needed cleanup.
+</span>111 <span style=''>    val fut = </span><span style='background: #AEF1AE'>gracefulStop(rootActor.get, 15 seconds, ShutdownSystem)</span><span style=''>
+</span>112 <span style=''>    </span><span style='background: #AEF1AE'>fut.onComplete {
+</span>113 <span style=''></span><span style='background: #AEF1AE'>      case Success(shutdown) =>
+</span>114 <span style=''></span><span style='background: #AEF1AE'>        log.get.info("Now shutting down the the system itself")
+</span>115 <span style=''></span><span style='background: #AEF1AE'>        system.get.shutdown
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        // Wait for termination if it is not already complete
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        system.get.awaitTermination()
+</span>118 <span style=''></span><span style='background: #AEF1AE'>
+</span>119 <span style=''></span><span style='background: #AEF1AE'>        // Set our flags
+</span>120 <span style=''></span><span style='background: #AEF1AE'>        system = None
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        log = None
+</span>122 <span style=''></span><span style='background: #AEF1AE'>        rootActor = None
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        externalLogger.info("The actor system has terminated")
+</span>124 <span style=''></span><span style='background: #AEF1AE'>        // Call the passed function
+</span>125 <span style=''></span><span style='background: #AEF1AE'>        f
+</span>126 <span style=''></span><span style='background: #AEF1AE'>      case Failure(reason) =>
+</span>127 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.get.error("We were unable to properly shutdown the main actor", reason)</span><span style='background: #AEF1AE'>
+</span>128 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>System.exit(0)</span><span style='background: #AEF1AE'>
+</span>129 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>    if (block) {
+</span>132 <span style=''>      </span><span style='background: #F0ADAD'>Await.result(fut, 15 seconds)</span><span style=''>
+</span>133 <span style=''>    }
+</span>134 <span style=''>  }
+</span>135 <span style=''>
+</span>136 <span style=''>  /**
+</span>137 <span style=''>   * Add a shutdown hook so when the process is shut down that we cleanup cleanly
+</span>138 <span style=''>   */
+</span>139 <span style=''>  def addShutdownHook: Unit = {
+</span>140 <span style=''>    </span><span style='background: #AEF1AE'>Runtime.getRuntime.addShutdownHook(new Thread(new Runnable {
+</span>141 <span style=''></span><span style='background: #AEF1AE'>      def run = {
+</span>142 <span style=''></span><span style='background: #AEF1AE'>        system match {
+</span>143 <span style=''></span><span style='background: #AEF1AE'>          case Some(sys) =>
+</span>144 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>sys.log.info("The shutdown hook has been called")</span><span style='background: #AEF1AE'>
+</span>145 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>shutdownActorSystem(true) {
+</span>146 <span style=''></span><span style='background: #F0ADAD'>              externalLogger.info("Successfully shut down")
+</span>147 <span style=''></span><span style='background: #F0ADAD'>            }</span><span style='background: #AEF1AE'>
+</span>148 <span style=''></span><span style='background: #AEF1AE'>          case _ => externalLogger.info("Successfully shut down")
+</span>149 <span style=''></span><span style='background: #AEF1AE'>
+</span>150 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>151 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>152 <span style=''></span><span style='background: #AEF1AE'>    }))</span><span style=''>
+</span>153 <span style=''>  }
+</span>154 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          1293
+          -
+          1297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          1321
+          -
+          1327
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.system
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          1375
+          -
+          1379
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          1398
+          -
+          1401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.log
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          1457
+          -
+          1461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          1483
+          -
+          1492
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.rootActor
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.rootActor
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          1533
+          -
+          1546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #AEF1AE">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          1516
+          -
+          1547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.getLogger
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.logging.Logger.getLogger(this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          1624
+          -
+          1667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.log.get.info(&quot;Restarting the actor system&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          1672
+          -
+          1678
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.system
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.system
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          1719
+          -
+          1786
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.shutdownActorSystem
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.shutdownActorSystem(false)(Harness.this.startActorSystem(Harness.this.startActorSystem$default$1))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          1739
+          -
+          1744
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          1758
+          -
+          1776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.startActorSystem
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.startActorSystem(Harness.this.startActorSystem$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          1758
+          -
+          1758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.startActorSystem$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.startActorSystem$default$1
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          1811
+          -
+          1877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.externalLogger.info(&quot;There is no actor system so starting up now&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          1886
+          -
+          1886
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.startActorSystem$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.startActorSystem$default$1
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          1886
+          -
+          1904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.startActorSystem
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.startActorSystem(Harness.this.startActorSystem$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2023
+          -
+          2064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.log.get.info(&quot;Shutting down the harness&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2069
+          -
+          2240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.start
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  final class $anon extends java.this.lang.Thread {
+    def &lt;init&gt;(): &lt;$anon: Thread&gt; = {
+      $anon.super.&lt;init&gt;(&quot;lifecycle&quot;);
+      ()
+    };
+    override def run(): Unit = {
+      java.this.lang.Thread.sleep(10L);
+      {
+        Harness.this.shutdownActorSystem(false)(java.this.lang.System.exit(0));
+        ()
+      }
+    }
+  };
+  new $anon()
+}.start()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          2357
+          -
+          3041
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  Harness.this.externalLogger.info(&quot;Creating the actor system&quot;);
+  Harness.this.system_=(config match {
+    case scala.None =&gt; scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(HarnessActorSystem.apply$default$1))
+    case (c @ _) =&gt; scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(c))
+  });
+  val listener: akka.actor.ActorRef = Harness.this.system.get.actorOf(akka.actor.Props.apply[com.webtrends.harness.UnhandledEventListener](new com.webtrends.harness.UnhandledEventListener())((ClassTag.apply[com.webtrends.harness.UnhandledEventListener](classOf[com.webtrends.harness.UnhandledEventListener]): scala.reflect.ClassTag[com.webtrends.harness.UnhandledEventListener])));
+  Harness.this.system.get.eventStream.subscribe(listener, classOf[akka.actor.UnhandledMessage]);
+  Harness.this.log_=(scala.Some.apply[com.webtrends.harness.logging.Logger](com.webtrends.harness.logging.Logger.apply[Class[?0]](this.getClass(), Harness.this.system.get)(event.this.LogSource.fromAnyClass[?0])));
+  Harness.this.log.get.info(&quot;Creating main harness actor&quot;);
+  implicit val sys: akka.actor.ActorSystem = Harness.this.system.get;
+  Harness.this.rootActor_=(scala.Some.apply[akka.actor.ActorRef](Harness.this.system.get.actorOf(HarnessActor.props()(sys), &quot;system&quot;)));
+  Harness.this.log.get.info(&quot;Harness Started&quot;)
+}
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2357
+          -
+          2405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.externalLogger.info(&quot;Creating the actor system&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2412
+          -
+          2537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.system_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system_=(config match {
+  case scala.None =&gt; scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(HarnessActorSystem.apply$default$1))
+  case (c @ _) =&gt; scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(c))
+})
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2462
+          -
+          2482
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActorSystem.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActorSystem.apply(HarnessActorSystem.apply$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2462
+          -
+          2462
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActorSystem.apply$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActorSystem.apply$default$1
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2457
+          -
+          2483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(HarnessActorSystem.apply$default$1))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2502
+          -
+          2529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorSystem](HarnessActorSystem.apply(c))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2507
+          -
+          2528
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActorSystem.apply
+        </td>
+        <td style="background: #AEF1AE">
+          HarnessActorSystem.apply(c)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2681
+          -
+          2714
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.UnhandledEventListener](new com.webtrends.harness.UnhandledEventListener())((ClassTag.apply[com.webtrends.harness.UnhandledEventListener](classOf[com.webtrends.harness.UnhandledEventListener]): scala.reflect.ClassTag[com.webtrends.harness.UnhandledEventListener]))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          2687
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.UnhandledEventListener.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.webtrends.harness.UnhandledEventListener()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2662
+          -
+          2715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get.actorOf(akka.actor.Props.apply[com.webtrends.harness.UnhandledEventListener](new com.webtrends.harness.UnhandledEventListener())((ClassTag.apply[com.webtrends.harness.UnhandledEventListener](classOf[com.webtrends.harness.UnhandledEventListener]): scala.reflect.ClassTag[com.webtrends.harness.UnhandledEventListener])))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2722
+          -
+          2791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.EventStream.subscribe
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get.eventStream.subscribe(listener, classOf[akka.actor.UnhandledMessage])
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2817
+          -
+          2830
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #AEF1AE">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2810
+          -
+          2843
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.logging.Logger.apply[Class[?0]](this.getClass(), Harness.this.system.get)(event.this.LogSource.fromAnyClass[?0])
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2799
+          -
+          2844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.log_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log_=(scala.Some.apply[com.webtrends.harness.logging.Logger](com.webtrends.harness.logging.Logger.apply[Class[?0]](this.getClass(), Harness.this.system.get)(event.this.LogSource.fromAnyClass[?0])))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2816
+          -
+          2816
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          akka.event.LogSource.fromAnyClass
+        </td>
+        <td style="background: #AEF1AE">
+          event.this.LogSource.fromAnyClass[?0]
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2832
+          -
+          2842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2805
+          -
+          2844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.logging.Logger](com.webtrends.harness.logging.Logger.apply[Class[?0]](this.getClass(), Harness.this.system.get)(event.this.LogSource.fromAnyClass[?0]))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          2851
+          -
+          2894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log.get.info(&quot;Creating main harness actor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          2920
+          -
+          2930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          2993
+          -
+          3001
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;system&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          2937
+          -
+          3003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.rootActor_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.rootActor_=(scala.Some.apply[akka.actor.ActorRef](Harness.this.system.get.actorOf(HarnessActor.props()(sys), &quot;system&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          2973
+          -
+          2991
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.props
+        </td>
+        <td style="background: #AEF1AE">
+          HarnessActor.props()(sys)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          2949
+          -
+          3003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](Harness.this.system.get.actorOf(HarnessActor.props()(sys), &quot;system&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          2954
+          -
+          3002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get.actorOf(HarnessActor.props()(sys), &quot;system&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3010
+          -
+          3041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log.get.info(&quot;Harness Started&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3118
+          -
+          3158
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The actor system could not be started: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3116
+          -
+          3173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;The actor system could not be started: &quot;, &quot;&quot;).s(t.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3159
+          -
+          3171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          t.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3095
+          -
+          3177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.externalLogger.error(scala.StringContext.apply(&quot;The actor system could not be started: &quot;, &quot;&quot;).s(t.getMessage()), t)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3172
+          -
+          3173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3186
+          -
+          3197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.sys.exit
+        </td>
+        <td style="background: #F0ADAD">
+          scala.sys.`package`.exit(0)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3314
+          -
+          3358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log.get.info(&quot;Shutting down the main actor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3605
+          -
+          3615
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(15).seconds
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3605
+          -
+          3607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          15
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3577
+          -
+          3632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.GracefulStopSupport.gracefulStop
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.gracefulStop(Harness.this.rootActor.get, scala.concurrent.duration.`package`.DurationInt(15).seconds, com.webtrends.harness.app.HarnessActor.ShutdownSystem)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3590
+          -
+          3603
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.rootActor.get
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3617
+          -
+          3631
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ShutdownSystem
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.ShutdownSystem
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          3637
+          -
+          4221
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          fut.onComplete[Unit](((x0$1: scala.util.Try[Boolean]) =&gt; x0$1 match {
+  case (value: Boolean)scala.util.Success[Boolean]((shutdown @ _)) =&gt; {
+    Harness.this.log.get.info(&quot;Now shutting down the the system itself&quot;);
+    Harness.this.system.get.shutdown();
+    Harness.this.system.get.awaitTermination();
+    Harness.this.system_=(scala.None);
+    Harness.this.log_=(scala.None);
+    Harness.this.rootActor_=(scala.None);
+    Harness.this.externalLogger.info(&quot;The actor system has terminated&quot;);
+    f
+  }
+  case (exception: Throwable)scala.util.Failure[Boolean]((reason @ _)) =&gt; {
+    Harness.this.log.get.error(&quot;We were unable to properly shutdown the main actor&quot;, reason);
+    java.this.lang.System.exit(0)
+  }
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3694
+          -
+          3749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log.get.info(&quot;Now shutting down the the system itself&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3758
+          -
+          3777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorSystem.shutdown
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get.shutdown()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3848
+          -
+          3877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorSystem.awaitTermination
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system.get.awaitTermination()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3921
+          -
+          3925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          3912
+          -
+          3925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.system_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3934
+          -
+          3944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.log_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.log_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3940
+          -
+          3944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          3953
+          -
+          3969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.rootActor_=
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.rootActor_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3965
+          -
+          3969
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3978
+          -
+          4032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.externalLogger.info(&quot;The actor system has terminated&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          4117
+          -
+          4192
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.log.get.error(&quot;We were unable to properly shutdown the main actor&quot;, reason)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          4201
+          -
+          4215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.exit
+        </td>
+        <td style="background: #F0ADAD">
+          java.this.lang.System.exit(0)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          4227
+          -
+          4227
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          4227
+          -
+          4227
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4246
+          -
+          4275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Await.result[Boolean](fut, scala.concurrent.duration.`package`.DurationInt(15).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          4264
+          -
+          4274
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(15).seconds
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4246
+          -
+          4275
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Await.result[Boolean](fut, scala.concurrent.duration.`package`.DurationInt(15).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          4264
+          -
+          4266
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          15
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          4452
+          -
+          4814
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.this.lang.Thread({
+  final class $anon extends Object with Runnable {
+    def &lt;init&gt;(): &lt;$anon: Runnable&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def run: Unit = Harness.this.system match {
+      case (x: akka.actor.ActorSystem)Some[akka.actor.ActorSystem]((sys @ _)) =&gt; {
+        sys.log.info(&quot;The shutdown hook has been called&quot;);
+        {
+          Harness.this.shutdownActorSystem(true)(Harness.this.externalLogger.info(&quot;Successfully shut down&quot;));
+          ()
+        }
+      }
+      case _ =&gt; Harness.this.externalLogger.info(&quot;Successfully shut down&quot;)
+    }
+  };
+  new $anon()
+})
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          4463
+          -
+          4466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          4417
+          -
+          4815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Runtime.addShutdownHook
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.Runtime.getRuntime().addShutdownHook(new java.this.lang.Thread({
+  final class $anon extends Object with Runnable {
+    def &lt;init&gt;(): &lt;$anon: Runnable&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def run: Unit = Harness.this.system match {
+      case (x: akka.actor.ActorSystem)Some[akka.actor.ActorSystem]((sys @ _)) =&gt; {
+        sys.log.info(&quot;The shutdown hook has been called&quot;);
+        {
+          Harness.this.shutdownActorSystem(true)(Harness.this.externalLogger.info(&quot;Successfully shut down&quot;));
+          ()
+        }
+      }
+      case _ =&gt; Harness.this.externalLogger.info(&quot;Successfully shut down&quot;)
+    }
+  };
+  new $anon()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          4504
+          -
+          4510
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.system
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.system
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          4559
+          -
+          4608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.info
+        </td>
+        <td style="background: #F0ADAD">
+          sys.log.info(&quot;The shutdown hook has been called&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          4647
+          -
+          4647
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          4641
+          -
+          4645
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          4621
+          -
+          4722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.shutdownActorSystem
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.shutdownActorSystem(true)(Harness.this.externalLogger.info(&quot;Successfully shut down&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          4663
+          -
+          4708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.this.externalLogger.info(&quot;Successfully shut down&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          4743
+          -
+          4788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Harness.this.externalLogger.info(&quot;Successfully shut down&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

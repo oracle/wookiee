@@ -1,0 +1,1229 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/Component.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor.{ActorRef, Status}
+</span>22 <span style=''>import akka.pattern.ask
+</span>23 <span style=''>import akka.util.Timeout
+</span>24 <span style=''>import scala.concurrent.duration._
+</span>25 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>26 <span style=''>import com.webtrends.harness.app.HActor
+</span>27 <span style=''>import com.webtrends.harness.app.HarnessActor.ConfigChange
+</span>28 <span style=''>
+</span>29 <span style=''>import scala.util.{Failure, Success}
+</span>30 <span style=''>
+</span>31 <span style=''>sealed class ComponentMessages()
+</span>32 <span style=''>case class StartComponent() extends ComponentMessages
+</span>33 <span style=''>case class StopComponent() extends ComponentMessages
+</span>34 <span style=''>case class ComponentRequest[T](msg:T, name:Option[String]=None, timeout:Timeout=5 seconds) extends ComponentMessages
+</span>35 <span style=''>case class ComponentMessage[T](msg:T, name:Option[String]=None) extends ComponentMessages
+</span>36 <span style=''>
+</span>37 <span style=''>case class ComponentResponse[T](resp:T)
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''> * Each system component needs to extend this class so that it is loaded up correctly
+</span>41 <span style=''> */
+</span>42 <span style=''>abstract class Component(name:String) extends HActor with ComponentHelper {
+</span>43 <span style=''>
+</span>44 <span style=''>  import context.dispatcher
+</span>45 <span style=''>  lazy val config = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  protected def defaultChildName:Option[String] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  /**
+</span>50 <span style=''>   * Components will typically receive a couple type of messages
+</span>51 <span style=''>   * 1. Start - Will execute after all components have loaded
+</span>52 <span style=''>   * 2. Stop - Will execute prior to shutdown of the harness
+</span>53 <span style=''>   *
+</span>54 <span style=''>   * @return
+</span>55 <span style=''>   */
+</span>56 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>57 <span style=''></span><span style='background: #AEF1AE'>    case StartComponent => start
+</span>58 <span style=''></span><span style='background: #AEF1AE'>    case StopComponent => </span><span style='background: #F0ADAD'>stop</span><span style='background: #AEF1AE'>
+</span>59 <span style=''></span><span style='background: #AEF1AE'>    case ConfigChange => </span><span style='background: #F0ADAD'>log.info("No special config change functionality for this component.")</span><span style='background: #AEF1AE'>
+</span>60 <span style=''></span><span style='background: #AEF1AE'>    case ComponentRequest(msg, name, timeout) =>
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      val caller = </span><span style='background: #F0ADAD'>sender</span><span style='background: #AEF1AE'>
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>getChildActor(name)</span><span style='background: #AEF1AE'> match {
+</span>63 <span style=''></span><span style='background: #AEF1AE'>        case Some(a) => </span><span style='background: #F0ADAD'>(a ? msg)(timeout) onComplete {
+</span>64 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => caller ! ComponentResponse(s)
+</span>65 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => caller ! Status.Failure(f)
+</span>66 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style='background: #AEF1AE'>
+</span>67 <span style=''></span><span style='background: #AEF1AE'>        case None => </span><span style='background: #F0ADAD'>sender ! Status.Failure(ComponentException(this.getClass.getName, s"$name actor not found"))</span><span style='background: #AEF1AE'>
+</span>68 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    case ComponentMessage(msg, name) =>
+</span>70 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>getChildActor(name)</span><span style='background: #AEF1AE'> match {
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        case Some(a) => </span><span style='background: #F0ADAD'>a ! msg</span><span style='background: #AEF1AE'>
+</span>72 <span style=''></span><span style='background: #AEF1AE'>        case None => </span><span style='background: #F0ADAD'>log.warn("Failed to send message to child actor [$name] for Component")</span><span style='background: #AEF1AE'>
+</span>73 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>74 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>75 <span style=''>
+</span>76 <span style=''>  /**
+</span>77 <span style=''>   * Gets the child actor based on a name, if name is None then checks the default child name,
+</span>78 <span style=''>   * if default child name is none then if will check to see if there is only a single child
+</span>79 <span style=''>   * and return that single child
+</span>80 <span style=''>   *
+</span>81 <span style=''>   * @param name
+</span>82 <span style=''>   * @return
+</span>83 <span style=''>   */
+</span>84 <span style=''>  protected def getChildActor(name:Option[String]) : Option[ActorRef] = {
+</span>85 <span style=''>    name match {
+</span>86 <span style=''>      case Some(ComponentManager.ComponentRef) => </span><span style='background: #F0ADAD'>Some(self)</span><span style=''>
+</span>87 <span style=''>      case Some(n) => </span><span style='background: #F0ADAD'>context.child(n)</span><span style=''>
+</span>88 <span style=''>      case None =>
+</span>89 <span style=''>        </span><span style='background: #F0ADAD'>defaultChildName</span><span style=''> match {
+</span>90 <span style=''>          case Some(dn) => </span><span style='background: #F0ADAD'>context.child(dn)</span><span style=''>
+</span>91 <span style=''>          case None =>
+</span>92 <span style=''>            if (</span><span style='background: #F0ADAD'>context.children.size == 1</span><span style=''>) {
+</span>93 <span style=''>              </span><span style='background: #F0ADAD'>Some(context.children.head)</span><span style=''>
+</span>94 <span style=''>            } else {
+</span>95 <span style=''>              </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>96 <span style=''>            }
+</span>97 <span style=''>        }
+</span>98 <span style=''>    }
+</span>99 <span style=''>  }
+</span>100 <span style=''>
+</span>101 <span style=''>  /**
+</span>102 <span style=''>   * Starts the component
+</span>103 <span style=''>   */
+</span>104 <span style=''>  def start = {
+</span>105 <span style=''>    // after completion of this, we need to send the started message from the component
+</span>106 <span style=''>    </span><span style='background: #AEF1AE'>context.parent ! ComponentStarted(self.path.name)</span><span style=''>
+</span>107 <span style=''>  }
+</span>108 <span style=''>
+</span>109 <span style=''>  /**
+</span>110 <span style=''>   * Any logic to stop the component
+</span>111 <span style=''>   */
+</span>112 <span style=''>  def stop = </span><span style='background: #F0ADAD'>{}</span><span style=''>
+</span>113 <span style=''>}
+</span>114 <span style=''>
+</span>115 <span style=''>object Component {
+</span>116 <span style=''>  def getActorPath() : String = {
+</span>117 <span style=''>    </span><span style='background: #F0ADAD'>s"${HarnessConstants.ComponentName}/"</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          1693
+          -
+          1723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          1775
+          -
+          1779
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          2024
+          -
+          2822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          Component.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case StartComponent =&gt; Component.this.start
+      case StopComponent =&gt; Component.this.stop
+      case com.webtrends.harness.app.HarnessActor.ConfigChange =&gt; Component.this.log.info(&quot;No special config change functionality for this component.&quot;)
+      case (msg: Any, name: Option[String], timeout: akka.util.Timeout)com.webtrends.harness.component.ComponentRequest[Any]((msg @ _), (name @ _), (timeout @ _)) =&gt; {
+        val caller: akka.actor.ActorRef = Component.this.sender();
+        Component.this.getChildActor(name) match {
+          case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((a @ _)) =&gt; akka.pattern.`package`.ask(a).?(msg)(timeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+            case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(caller).!(ComponentResponse.apply[Any](s))(Component.this.self)
+            case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(Component.this.self)
+          }))(Component.this.context.dispatcher)
+          case scala.None =&gt; akka.this.actor.`package`.actorRef2Scala(Component.this.sender()).!(akka.actor.Status.Failure.apply(ComponentException.apply(this.getClass().getName(), scala.StringContext.apply(&quot;&quot;, &quot; actor not found&quot;).s(name))))(Component.this.self)
+        }
+      }
+      case (msg: Any, name: Option[String])com.webtrends.harness.component.ComponentMessage[Any]((msg @ _), (name @ _)) =&gt; Component.this.getChildActor(name) match {
+        case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((a @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(a).!(msg)(Component.this.self)
+        case scala.None =&gt; Component.this.log.warn(&quot;Failed to send message to child actor [$name] for Component&quot;)
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case StartComponent =&gt; true
+      case StopComponent =&gt; true
+      case com.webtrends.harness.app.HarnessActor.ConfigChange =&gt; true
+      case (msg: Any, name: Option[String], timeout: akka.util.Timeout)com.webtrends.harness.component.ComponentRequest[Any]((msg @ _), (name @ _), (timeout @ _)) =&gt; true
+      case (msg: Any, name: Option[String])com.webtrends.harness.component.ComponentMessage[Any]((msg @ _), (name @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          816
+        </td>
+        <td>
+          2038
+          -
+          2038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          2067
+          -
+          2072
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.start
+        </td>
+        <td style="background: #AEF1AE">
+          Component.this.start
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          2099
+          -
+          2103
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.stop
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.stop
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          2129
+          -
+          2199
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.log.info(&quot;No special config change functionality for this component.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          795
+        </td>
+        <td>
+          2268
+          -
+          2274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          2281
+          -
+          2300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.getChildActor
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.getChildActor(name)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          2333
+          -
+          2489
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(a).?(msg)(timeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(caller).!(ComponentResponse.apply[Any](s))(Component.this.self)
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(Component.this.self)
+}))(Component.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          2352
+          -
+          2352
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          2403
+          -
+          2423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentResponse.apply[Any](s)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          2394
+          -
+          2423
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(caller).!(ComponentResponse.apply[Any](s))(Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          2401
+          -
+          2401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          2460
+          -
+          2460
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          2462
+          -
+          2479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(f)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          2453
+          -
+          2479
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          810
+        </td>
+        <td>
+          2518
+          -
+          2518
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          2554
+          -
+          2575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getName
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass().getName()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          809
+        </td>
+        <td>
+          2520
+          -
+          2603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(ComponentException.apply(this.getClass().getName(), scala.StringContext.apply(&quot;&quot;, &quot; actor not found&quot;).s(name)))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          2511
+          -
+          2603
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(Component.this.sender()).!(akka.actor.Status.Failure.apply(ComponentException.apply(this.getClass().getName(), scala.StringContext.apply(&quot;&quot;, &quot; actor not found&quot;).s(name))))(Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          2511
+          -
+          2517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          2535
+          -
+          2602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentException.apply(this.getClass().getName(), scala.StringContext.apply(&quot;&quot;, &quot; actor not found&quot;).s(name))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          2577
+          -
+          2601
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; actor not found&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          2658
+          -
+          2677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.getChildActor
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.getChildActor(name)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          2712
+          -
+          2712
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          814
+        </td>
+        <td>
+          2710
+          -
+          2717
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(a).!(msg)(Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          2739
+          -
+          2810
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.log.warn(&quot;Failed to send message to child actor [$name] for Component&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          3234
+          -
+          3244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          3239
+          -
+          3243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          3267
+          -
+          3283
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.child
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.child(n)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          3311
+          -
+          3327
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.defaultChildName
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.defaultChildName
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          822
+        </td>
+        <td>
+          3363
+          -
+          3380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.child
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.child(dn)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          823
+        </td>
+        <td>
+          3420
+          -
+          3446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.children.size.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          3469
+          -
+          3490
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #F0ADAD">
+          Component.this.context.children.head
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          3464
+          -
+          3491
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](Component.this.context.children.head)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          3464
+          -
+          3491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](Component.this.context.children.head)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          828
+        </td>
+        <td>
+          3527
+          -
+          3531
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          3527
+          -
+          3531
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          831
+        </td>
+        <td>
+          3730
+          -
+          3762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentStarted.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentStarted.apply(Component.this.self.path.name)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          830
+        </td>
+        <td>
+          3747
+          -
+          3761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #AEF1AE">
+          Component.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          3713
+          -
+          3762
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(Component.this.context.parent).!(ComponentStarted.apply(Component.this.self.path.name))(Component.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          3713
+          -
+          3727
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          Component.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          3728
+          -
+          3728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          Component.this.self
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          3830
+          -
+          3832
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          3897
+          -
+          3927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          836
+        </td>
+        <td>
+          3928
+          -
+          3930
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          3895
+          -
+          3896
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          3893
+          -
+          3930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;).s(com.webtrends.harness.HarnessConstants.ComponentName)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

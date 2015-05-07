@@ -1,0 +1,796 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/authentication/CIDRRules.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.authentication
+</span>21 <span style=''>
+</span>22 <span style=''>import java.net.InetAddress
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.japi.Util._
+</span>25 <span style=''>import com.typesafe.config.Config
+</span>26 <span style=''>import com.webtrends.harness.logging.Logger
+</span>27 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>28 <span style=''>import org.apache.commons.net.util.SubnetUtils
+</span>29 <span style=''>
+</span>30 <span style=''>/**
+</span>31 <span style=''> * @author Michael Cuthbert on 2/23/15.
+</span>32 <span style=''> */
+</span>33 <span style=''>case class CIDRRules(cidrAllow:Seq[String], cidrDeny:Seq[String]) {
+</span>34 <span style=''>
+</span>35 <span style=''>  private val log = </span><span style='background: #F0ADAD'>Logger.getLogger(getClass)</span><span style=''>
+</span>36 <span style=''>
+</span>37 <span style=''>  private lazy val allow = { </span><span style='background: #F0ADAD'>cidrAllow map (x => new SubnetUtils(x.trim).getInfo)</span><span style=''> }
+</span>38 <span style=''>  private lazy val deny = { </span><span style='background: #F0ADAD'>cidrDeny map (x => new SubnetUtils(x.trim).getInfo)</span><span style=''> }
+</span>39 <span style=''>
+</span>40 <span style=''>  def checkCidrRules(ip:InetAddress) : Boolean = {
+</span>41 <span style=''>    try {
+</span>42 <span style=''>      </span><span style='background: #F0ADAD'>deny.count(_.isInRange(ip.getHostAddress)) match {
+</span>43 <span style=''></span><span style='background: #F0ADAD'>        case 0 if allow.length > 0 =>
+</span>44 <span style=''></span><span style='background: #F0ADAD'>          // No denies, but we must match against allows
+</span>45 <span style=''></span><span style='background: #F0ADAD'>          allow.count(_.isInRange(ip.getHostAddress)) match {
+</span>46 <span style=''></span><span style='background: #F0ADAD'>            case 0 =>
+</span>47 <span style=''></span><span style='background: #F0ADAD'>              // Not explicitly denied, but no allow matches
+</span>48 <span style=''></span><span style='background: #F0ADAD'>              false
+</span>49 <span style=''></span><span style='background: #F0ADAD'>            case _ =>
+</span>50 <span style=''></span><span style='background: #F0ADAD'>              // Not denies and matches an allow
+</span>51 <span style=''></span><span style='background: #F0ADAD'>              true
+</span>52 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>53 <span style=''></span><span style='background: #F0ADAD'>        case 0 =>
+</span>54 <span style=''></span><span style='background: #F0ADAD'>          // No denies and no allows to match against
+</span>55 <span style=''></span><span style='background: #F0ADAD'>          true
+</span>56 <span style=''></span><span style='background: #F0ADAD'>        case _ =>
+</span>57 <span style=''></span><span style='background: #F0ADAD'>          // Denied
+</span>58 <span style=''></span><span style='background: #F0ADAD'>          false
+</span>59 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>60 <span style=''>    } catch {
+</span>61 <span style=''>      case iae:IllegalArgumentException =>
+</span>62 <span style=''>        </span><span style='background: #F0ADAD'>log.info("CIDR rules do not support IPv6 yet", iae)</span><span style=''>
+</span>63 <span style=''>        </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>64 <span style=''>    }
+</span>65 <span style=''>  }
+</span>66 <span style=''>}
+</span>67 <span style=''>
+</span>68 <span style=''>object CIDRRules {
+</span>69 <span style=''>  def apply(config:Config) : CIDRRules = {
+</span>70 <span style=''>    val c = </span><span style='background: #F0ADAD'>ConfigUtil.prepareSubConfig(config, "cidr-rules")</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>    </span><span style='background: #F0ADAD'>CIDRRules(immutableSeq(c getStringList ("allow") toArray (Array.empty[String])),
+</span>73 <span style=''></span><span style='background: #F0ADAD'>              immutableSeq(c getStringList ("deny") toArray (Array.empty[String])))</span><span style=''>
+</span>74 <span style=''>  }
+</span>75 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          1165
+          -
+          1173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          1148
+          -
+          1174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.getLogger
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.logging.Logger.getLogger(CIDRRules.this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          1225
+          -
+          1256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.net.util.SubnetUtils.getInfo
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.commons.net.util.SubnetUtils(x.trim()).getInfo()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          1205
+          -
+          1257
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.cidrAllow.map[org.apache.commons.net.util.SubnetUtils#SubnetInfo, Seq[org.apache.commons.net.util.SubnetUtils#SubnetInfo]](((x: String) =&gt; new org.apache.commons.net.util.SubnetUtils(x.trim()).getInfo()))(collection.this.Seq.canBuildFrom[org.apache.commons.net.util.SubnetUtils#SubnetInfo])
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          1215
+          -
+          1215
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.commons.net.util.SubnetUtils#SubnetInfo]
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          1297
+          -
+          1297
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.commons.net.util.SubnetUtils#SubnetInfo]
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          1307
+          -
+          1338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.net.util.SubnetUtils.getInfo
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.commons.net.util.SubnetUtils(x.trim()).getInfo()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          1288
+          -
+          1339
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.cidrDeny.map[org.apache.commons.net.util.SubnetUtils#SubnetInfo, Seq[org.apache.commons.net.util.SubnetUtils#SubnetInfo]](((x: String) =&gt; new org.apache.commons.net.util.SubnetUtils(x.trim()).getInfo()))(collection.this.Seq.canBuildFrom[org.apache.commons.net.util.SubnetUtils#SubnetInfo])
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          1433
+          -
+          1450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostAddress
+        </td>
+        <td style="background: #F0ADAD">
+          ip.getHostAddress()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          1410
+          -
+          1452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.count
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.deny.count(((x$1: org.apache.commons.net.util.SubnetUtils#SubnetInfo) =&gt; x$1.isInRange(ip.getHostAddress())))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          1410
+          -
+          1971
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.deny.count(((x$1: org.apache.commons.net.util.SubnetUtils#SubnetInfo) =&gt; x$1.isInRange(ip.getHostAddress()))) match {
+  case 0 if CIDRRules.this.allow.length.&gt;(0) =&gt; CIDRRules.this.allow.count(((x$2: org.apache.commons.net.util.SubnetUtils#SubnetInfo) =&gt; x$2.isInRange(ip.getHostAddress()))) match {
+    case 0 =&gt; false
+    case _ =&gt; true
+  }
+  case 0 =&gt; true
+  case _ =&gt; false
+}
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          1421
+          -
+          1451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.net.util.SubnetUtils.SubnetInfo.isInRange
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.isInRange(ip.getHostAddress())
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          1479
+          -
+          1495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.allow.length.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          1566
+          -
+          1609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.count
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.allow.count(((x$2: org.apache.commons.net.util.SubnetUtils#SubnetInfo) =&gt; x$2.isInRange(ip.getHostAddress())))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          1578
+          -
+          1608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.net.util.SubnetUtils.SubnetInfo.isInRange
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.isInRange(ip.getHostAddress())
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          1590
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostAddress
+        </td>
+        <td style="background: #F0ADAD">
+          ip.getHostAddress()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          1715
+          -
+          1720
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          1806
+          -
+          1810
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          1905
+          -
+          1909
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          1958
+          -
+          1963
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          2037
+          -
+          2088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.this.log.info(&quot;CIDR rules do not support IPv6 yet&quot;, iae)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          2097
+          -
+          2102
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          2190
+          -
+          2239
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(config, &quot;cidr-rules&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          2303
+          -
+          2322
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          2285
+          -
+          2292
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;allow&quot;
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          2255
+          -
+          2324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.japi.Util.immutableSeq
+        </td>
+        <td style="background: #F0ADAD">
+          akka.japi.Util.immutableSeq[String](c.getStringList(&quot;allow&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          2245
+          -
+          2409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.authentication.CIDRRules.apply
+        </td>
+        <td style="background: #F0ADAD">
+          CIDRRules.apply(akka.japi.Util.immutableSeq[String](c.getStringList(&quot;allow&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))), akka.japi.Util.immutableSeq[String](c.getStringList(&quot;deny&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          2268
+          -
+          2323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.List.toArray
+        </td>
+        <td style="background: #F0ADAD">
+          c.getStringList(&quot;allow&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          2353
+          -
+          2407
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.List.toArray
+        </td>
+        <td style="background: #F0ADAD">
+          c.getStringList(&quot;deny&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          2387
+          -
+          2406
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          2370
+          -
+          2376
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;deny&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          2340
+          -
+          2408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.japi.Util.immutableSeq
+        </td>
+        <td style="background: #F0ADAD">
+          akka.japi.Util.immutableSeq[String](c.getStringList(&quot;deny&quot;).toArray[String](scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

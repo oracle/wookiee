@@ -1,0 +1,1329 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/logging/BaseLogProcessor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.logging
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.util.Helpers
+</span>22 <span style=''>import org.slf4j.MDC
+</span>23 <span style=''>
+</span>24 <span style=''>private[harness] trait BaseLogProcessor {
+</span>25 <span style=''>
+</span>26 <span style=''>  val sourceThread = </span><span style='background: #AEF1AE'>"sourceThread"</span><span style=''>
+</span>27 <span style=''>  val sourceTime = </span><span style='background: #AEF1AE'>"sourceTime"</span><span style=''>
+</span>28 <span style=''>  val akkaSource = </span><span style='background: #AEF1AE'>"akkaSource"</span><span style=''>
+</span>29 <span style=''>
+</span>30 <span style=''>  /**
+</span>31 <span style=''>   * Make sure we have Java friendly Object instances
+</span>32 <span style=''>   * @param params
+</span>33 <span style=''>   * @return
+</span>34 <span style=''>   */
+</span>35 <span style=''>  protected def transformParams(params: Seq[Any]) = </span><span style='background: #AEF1AE'>params.map(_.asInstanceOf[Object])</span><span style=''>
+</span>36 <span style=''>
+</span>37 <span style=''>  /**
+</span>38 <span style=''>   * Format the given string template. this is only used when receiving an event which includes
+</span>39 <span style=''>   * a throwable. this is due to the fact that SLF4J does not allow template arguments when including
+</span>40 <span style=''>   * a throwable in its calls.
+</span>41 <span style=''>   * @param template
+</span>42 <span style=''>   * @param arg
+</span>43 <span style=''>   * @return
+</span>44 <span style=''>   */
+</span>45 <span style=''>  protected def format(template: String, arg: Seq[Any]): String = {
+</span>46 <span style=''>    val sb = </span><span style='background: #F0ADAD'>new java.lang.StringBuilder(64)</span><span style=''>
+</span>47 <span style=''>    var p = </span><span style='background: #F0ADAD'>0</span><span style=''>
+</span>48 <span style=''>    var rest = template
+</span>49 <span style=''>    while (</span><span style='background: #F0ADAD'>p < arg.length</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>50 <span style=''></span><span style='background: #F0ADAD'>      val index = rest.indexOf("{}")
+</span>51 <span style=''></span><span style='background: #F0ADAD'>      if (index == -1) {
+</span>52 <span style=''></span><span style='background: #F0ADAD'>        sb.append(rest).append(" WARNING arguments left: ").append(arg.length - p)
+</span>53 <span style=''></span><span style='background: #F0ADAD'>        rest = ""
+</span>54 <span style=''></span><span style='background: #F0ADAD'>        p = arg.length
+</span>55 <span style=''></span><span style='background: #F0ADAD'>      } else {
+</span>56 <span style=''></span><span style='background: #F0ADAD'>        sb.append(rest.substring(0, index)).append(arg(p))
+</span>57 <span style=''></span><span style='background: #F0ADAD'>        rest = rest.substring(index + 2)
+</span>58 <span style=''></span><span style='background: #F0ADAD'>        p += 1
+</span>59 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>60 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>61 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(rest).toString</span><span style=''>
+</span>62 <span style=''>  }
+</span>63 <span style=''>
+</span>64 <span style=''>  @inline
+</span>65 <span style=''>  protected final def withContext(thread: Thread, timestamp: Long, altSource: Option[String])(logStatement: => Unit) {
+</span>66 <span style=''>    if (</span><span style='background: #AEF1AE'>!thread.getName.equals(Thread.currentThread.getName)</span><span style=''>) {
+</span>67 <span style=''>      </span><span style='background: #F0ADAD'>MDC.put(sourceThread, thread.getName)</span><span style=''>
+</span>68 <span style=''>    }
+</span>69 <span style=''>
+</span>70 <span style=''>    </span><span style='background: #AEF1AE'>MDC.put(akkaSource, if (altSource.isDefined) altSource.get else "")</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>MDC.put(sourceTime, Helpers.currentTimeMillisToUTCString(timestamp))</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    try </span><span style='background: #AEF1AE'>logStatement</span><span style=''> finally </span><span style='background: #AEF1AE'>{
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      MDC.remove(akkaSource)
+</span>75 <span style=''></span><span style='background: #AEF1AE'>      MDC.remove(sourceThread)
+</span>76 <span style=''></span><span style='background: #AEF1AE'>      MDC.remove(sourceTime)
+</span>77 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>78 <span style=''>  }
+</span>79 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          2100
+        </td>
+        <td>
+          889
+          -
+          903
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;sourceThread&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2101
+        </td>
+        <td>
+          923
+          -
+          935
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;sourceTime&quot;
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          2102
+        </td>
+        <td>
+          955
+          -
+          967
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;akkaSource&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2105
+        </td>
+        <td>
+          1119
+          -
+          1153
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          params.map[Object, Seq[Object]](((x$1: Any) =&gt; x$1.asInstanceOf[Object]))(collection.this.Seq.canBuildFrom[Object])
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2104
+        </td>
+        <td>
+          1129
+          -
+          1129
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[Object]
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2103
+        </td>
+        <td>
+          1130
+          -
+          1152
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.asInstanceOf[Object]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2106
+        </td>
+        <td>
+          1527
+          -
+          1558
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.lang.StringBuilder(64)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2107
+        </td>
+        <td>
+          1571
+          -
+          1572
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2125
+        </td>
+        <td>
+          1624
+          -
+          1624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.while$1
+        </td>
+        <td style="background: #F0ADAD">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2128
+        </td>
+        <td>
+          1601
+          -
+          1601
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2127
+        </td>
+        <td>
+          1601
+          -
+          1601
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2109
+        </td>
+        <td>
+          1608
+          -
+          1622
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td style="background: #F0ADAD">
+          p.&lt;(arg.length)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2126
+        </td>
+        <td>
+          1624
+          -
+          1955
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  {
+    val index: Int = rest.indexOf(&quot;{}&quot;);
+    if (index.==(-1))
+      {
+        sb.append(rest).append(&quot; WARNING arguments left: &quot;).append(arg.length.-(p));
+        rest = &quot;&quot;;
+        p = arg.length
+      }
+    else
+      {
+        sb.append(rest.substring(0, index)).append(arg.apply(p));
+        rest = rest.substring(index.+(2));
+        p = p.+(1)
+      }
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2108
+        </td>
+        <td>
+          1612
+          -
+          1622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.length
+        </td>
+        <td style="background: #F0ADAD">
+          arg.length
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2110
+        </td>
+        <td>
+          1644
+          -
+          1662
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.indexOf
+        </td>
+        <td style="background: #F0ADAD">
+          rest.indexOf(&quot;{}&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          2111
+        </td>
+        <td>
+          1673
+          -
+          1684
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          index.==(-1)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          2117
+        </td>
+        <td>
+          1686
+          -
+          1819
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  sb.append(rest).append(&quot; WARNING arguments left: &quot;).append(arg.length.-(p));
+  rest = &quot;&quot;;
+  p = arg.length
+}
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          2113
+        </td>
+        <td>
+          1755
+          -
+          1769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td style="background: #F0ADAD">
+          arg.length.-(p)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          2112
+        </td>
+        <td>
+          1719
+          -
+          1746
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; WARNING arguments left: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          2114
+        </td>
+        <td>
+          1696
+          -
+          1770
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(rest).append(&quot; WARNING arguments left: &quot;).append(arg.length.-(p))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2115
+        </td>
+        <td>
+          1786
+          -
+          1788
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2116
+        </td>
+        <td>
+          1801
+          -
+          1811
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.length
+        </td>
+        <td style="background: #F0ADAD">
+          arg.length
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          2124
+        </td>
+        <td>
+          1825
+          -
+          1949
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  sb.append(rest.substring(0, index)).append(arg.apply(p));
+  rest = rest.substring(index.+(2));
+  p = p.+(1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2120
+        </td>
+        <td>
+          1835
+          -
+          1885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(rest.substring(0, index)).append(arg.apply(p))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2119
+        </td>
+        <td>
+          1878
+          -
+          1884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          arg.apply(p)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2118
+        </td>
+        <td>
+          1845
+          -
+          1869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td style="background: #F0ADAD">
+          rest.substring(0, index)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2122
+        </td>
+        <td>
+          1901
+          -
+          1926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td style="background: #F0ADAD">
+          rest.substring(index.+(2))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2121
+        </td>
+        <td>
+          1916
+          -
+          1925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #F0ADAD">
+          index.+(2)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          2123
+        </td>
+        <td>
+          1935
+          -
+          1941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #F0ADAD">
+          p.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2129
+        </td>
+        <td>
+          1960
+          -
+          1984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuilder.toString
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(rest).toString()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2137
+        </td>
+        <td>
+          2123
+          -
+          2123
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2131
+        </td>
+        <td>
+          2127
+          -
+          2179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          thread.getName().equals(java.this.lang.Thread.currentThread().getName()).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2136
+        </td>
+        <td>
+          2123
+          -
+          2123
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2130
+        </td>
+        <td>
+          2150
+          -
+          2178
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.getName
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.Thread.currentThread().getName()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2134
+        </td>
+        <td>
+          2189
+          -
+          2226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.put
+        </td>
+        <td style="background: #F0ADAD">
+          org.slf4j.MDC.put(BaseLogProcessor.this.sourceThread, thread.getName())
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2133
+        </td>
+        <td>
+          2211
+          -
+          2225
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.getName
+        </td>
+        <td style="background: #F0ADAD">
+          thread.getName()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2132
+        </td>
+        <td>
+          2197
+          -
+          2209
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.sourceThread
+        </td>
+        <td style="background: #F0ADAD">
+          BaseLogProcessor.this.sourceThread
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2135
+        </td>
+        <td>
+          2189
+          -
+          2226
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.slf4j.MDC.put
+        </td>
+        <td style="background: #F0ADAD">
+          org.slf4j.MDC.put(BaseLogProcessor.this.sourceThread, thread.getName())
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2138
+        </td>
+        <td>
+          2246
+          -
+          2256
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.akkaSource
+        </td>
+        <td style="background: #AEF1AE">
+          BaseLogProcessor.this.akkaSource
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2140
+        </td>
+        <td>
+          2283
+          -
+          2296
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          altSource.get
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2143
+        </td>
+        <td>
+          2302
+          -
+          2304
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2139
+        </td>
+        <td>
+          2262
+          -
+          2281
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          altSource.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2142
+        </td>
+        <td>
+          2302
+          -
+          2304
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2141
+        </td>
+        <td>
+          2283
+          -
+          2296
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          altSource.get
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          2144
+        </td>
+        <td>
+          2238
+          -
+          2305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.put
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.MDC.put(BaseLogProcessor.this.akkaSource, if (altSource.isDefined)
+  altSource.get
+else
+  &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2147
+        </td>
+        <td>
+          2310
+          -
+          2378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.put
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.MDC.put(BaseLogProcessor.this.sourceTime, akka.util.Helpers.currentTimeMillisToUTCString(timestamp))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2146
+        </td>
+        <td>
+          2330
+          -
+          2377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Helpers.currentTimeMillisToUTCString
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Helpers.currentTimeMillisToUTCString(timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2145
+        </td>
+        <td>
+          2318
+          -
+          2328
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.sourceTime
+        </td>
+        <td style="background: #AEF1AE">
+          BaseLogProcessor.this.sourceTime
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2155
+        </td>
+        <td>
+          2409
+          -
+          2505
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  org.slf4j.MDC.remove(BaseLogProcessor.this.akkaSource);
+  org.slf4j.MDC.remove(BaseLogProcessor.this.sourceThread);
+  org.slf4j.MDC.remove(BaseLogProcessor.this.sourceTime)
+}
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2148
+        </td>
+        <td>
+          2388
+          -
+          2400
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.logStatement
+        </td>
+        <td style="background: #AEF1AE">
+          logStatement
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2149
+        </td>
+        <td>
+          2428
+          -
+          2438
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.akkaSource
+        </td>
+        <td style="background: #AEF1AE">
+          BaseLogProcessor.this.akkaSource
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2150
+        </td>
+        <td>
+          2417
+          -
+          2439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.remove
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.MDC.remove(BaseLogProcessor.this.akkaSource)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2152
+        </td>
+        <td>
+          2446
+          -
+          2470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.remove
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.MDC.remove(BaseLogProcessor.this.sourceThread)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2151
+        </td>
+        <td>
+          2457
+          -
+          2469
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.sourceThread
+        </td>
+        <td style="background: #AEF1AE">
+          BaseLogProcessor.this.sourceThread
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          2154
+        </td>
+        <td>
+          2477
+          -
+          2499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.MDC.remove
+        </td>
+        <td style="background: #AEF1AE">
+          org.slf4j.MDC.remove(BaseLogProcessor.this.sourceTime)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          2153
+        </td>
+        <td>
+          2488
+          -
+          2498
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.logging.BaseLogProcessor.sourceTime
+        </td>
+        <td style="background: #AEF1AE">
+          BaseLogProcessor.this.sourceTime
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

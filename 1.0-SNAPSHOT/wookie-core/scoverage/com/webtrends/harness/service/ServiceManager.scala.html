@@ -1,0 +1,4237 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/service/ServiceManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.service
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
+</span>22 <span style=''>import akka.actor._
+</span>23 <span style=''>import com.typesafe.config.{ConfigFactory, Config}
+</span>24 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>25 <span style=''>import com.webtrends.harness.app.{PrepareForShutdown, HActor}
+</span>26 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>27 <span style=''>import com.webtrends.harness.logging.LoggingAdapter
+</span>28 <span style=''>import com.webtrends.harness.service.ServiceManager.RestartService
+</span>29 <span style=''>import com.webtrends.harness.service.ServiceManager.{GetMetaDataByName, ServicesReady}
+</span>30 <span style=''>import com.webtrends.harness.service.messages.{LoadService, GetMetaData, Ready}
+</span>31 <span style=''>import com.webtrends.harness.service.meta.ServiceMetaData
+</span>32 <span style=''>import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange, SystemReady}
+</span>33 <span style=''>import java.io.{FilenameFilter, File}
+</span>34 <span style=''>import java.nio.file._
+</span>35 <span style=''>import scala.Predef._
+</span>36 <span style=''>import scala.concurrent.duration._
+</span>37 <span style=''>import scala.concurrent.Future
+</span>38 <span style=''>import scala.util.control.Exception._
+</span>39 <span style=''>
+</span>40 <span style=''>/**
+</span>41 <span style=''> * Request to return service meta data
+</span>42 <span style=''> */
+</span>43 <span style=''>class ServiceManager extends PrepareForShutdown with ServiceLoader {
+</span>44 <span style=''>
+</span>45 <span style=''>  import context.dispatcher
+</span>46 <span style=''>
+</span>47 <span style=''>  override val supervisorStrategy =
+</span>48 <span style=''>    </span><span style='background: #AEF1AE'>OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute) {
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      case _: ActorInitializationException => </span><span style='background: #F0ADAD'>Stop</span><span style='background: #AEF1AE'>
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      case _: DeathPactException => </span><span style='background: #F0ADAD'>Stop</span><span style='background: #AEF1AE'>
+</span>51 <span style=''></span><span style='background: #AEF1AE'>      case _: ActorKilledException => </span><span style='background: #F0ADAD'>Restart</span><span style='background: #AEF1AE'>
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      case _: Exception => </span><span style='background: #F0ADAD'>Restart</span><span style='background: #AEF1AE'>
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      case _: Throwable => </span><span style='background: #F0ADAD'>Escalate</span><span style='background: #AEF1AE'>
+</span>54 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  override def preStart {
+</span>57 <span style=''>
+</span>58 <span style=''>    </span><span style='background: #AEF1AE'>load(context)</span><span style=''>
+</span>59 <span style=''>    // Tell the harness that the services are loaded. The parent will then
+</span>60 <span style=''>    // tell us when it is ready so that the services can be notified
+</span>61 <span style=''>    </span><span style='background: #AEF1AE'>context.parent ! ServicesReady</span><span style=''>
+</span>62 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Service manager started: {}", context.self.path)</span><span style=''>
+</span>63 <span style=''>  }
+</span>64 <span style=''>
+</span>65 <span style=''>  override def postStop(): Unit = {
+</span>66 <span style=''>    // Kill any custom class loaders
+</span>67 <span style=''>    </span><span style='background: #AEF1AE'>services.values foreach {
+</span>68 <span style=''></span><span style='background: #AEF1AE'>      p =>
+</span>69 <span style=''></span><span style='background: #AEF1AE'>        if (p._2.isDefined) </span><span style='background: #F0ADAD'>p._2.get.close</span><span style=''>
+</span>70 <span style=''>    }
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>services.clear</span><span style=''>
+</span>72 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Service manager stopped: {}", context.self.path)</span><span style=''>
+</span>73 <span style=''>  }
+</span>74 <span style=''>
+</span>75 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>super.receive orElse {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>    case SystemReady =>
+</span>77 <span style=''></span><span style='background: #AEF1AE'>      log.info("Notifying Services that we are completely ready.")
+</span>78 <span style=''></span><span style='background: #AEF1AE'>      context.children foreach {
+</span>79 <span style=''></span><span style='background: #AEF1AE'>        p => p ! Ready(getServiceMeta(Some(p.path)).head)
+</span>80 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>81 <span style=''></span><span style='background: #AEF1AE'>
+</span>82 <span style=''></span><span style='background: #AEF1AE'>    case GetMetaData(path) =>
+</span>83 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.info("We have received a message to get service meta data")</span><span style='background: #AEF1AE'>
+</span>84 <span style=''></span><span style='background: #AEF1AE'>      val meta = </span><span style='background: #F0ADAD'>getServiceMeta(path)</span><span style='background: #AEF1AE'>
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      path match {
+</span>86 <span style=''></span><span style='background: #AEF1AE'>        case None => </span><span style='background: #F0ADAD'>sender() ! meta</span><span style='background: #AEF1AE'> // Asked for all services
+</span>87 <span style=''></span><span style='background: #AEF1AE'>        case _ => </span><span style='background: #F0ADAD'>sender() ! meta.head</span><span style='background: #AEF1AE'> // Asked for only a specific service
+</span>88 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>89 <span style=''></span><span style='background: #AEF1AE'>
+</span>90 <span style=''></span><span style='background: #AEF1AE'>    case LoadService(name, clazz) =>
+</span>91 <span style=''></span><span style='background: #AEF1AE'>      log.info(s"We have received a message to load service $name")
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      sender ! loadService(name, clazz)
+</span>93 <span style=''></span><span style='background: #AEF1AE'>
+</span>94 <span style=''></span><span style='background: #AEF1AE'>    case GetMetaDataByName(service) =>
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.info("We have received a message to get service meta data")</span><span style='background: #AEF1AE'>
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption</span><span style='background: #AEF1AE'> match {
+</span>97 <span style=''></span><span style='background: #AEF1AE'>        case Some(meta) => </span><span style='background: #F0ADAD'>sender() ! meta</span><span style='background: #AEF1AE'>
+</span>98 <span style=''></span><span style='background: #AEF1AE'>        case None => </span><span style='background: #F0ADAD'>sender() ! Status.Failure(new NoSuchElementException(s"Could not locate the meta information for service $service"))</span><span style='background: #AEF1AE'>
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>100 <span style=''></span><span style='background: #AEF1AE'>
+</span>101 <span style=''></span><span style='background: #AEF1AE'>    case RestartService(service) =>
+</span>102 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.info(s"We have received a message to restart the service ${service}")</span><span style='background: #AEF1AE'>
+</span>103 <span style=''></span><span style='background: #AEF1AE'>      val meta = </span><span style='background: #F0ADAD'>services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption</span><span style='background: #AEF1AE'> match {
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        case Some(meta) => </span><span style='background: #F0ADAD'>services.get(meta).get._1 ! Kill</span><span style='background: #AEF1AE'>
+</span>105 <span style=''></span><span style='background: #AEF1AE'>        case None </span><span style='background: #F0ADAD'>=></span><span style='background: #AEF1AE'>
+</span>106 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>107 <span style=''></span><span style='background: #AEF1AE'>
+</span>108 <span style=''></span><span style='background: #AEF1AE'>    case c: ConfigChange =>
+</span>109 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.info("Sending config change message to all services...")</span><span style='background: #AEF1AE'>
+</span>110 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>context.children foreach {
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        p => p ! c</span><span style='background: #AEF1AE'>
+</span>112 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>113 <span style=''></span><span style='background: #AEF1AE'>
+</span>114 <span style=''></span><span style='background: #AEF1AE'>    case Terminated(service) =>
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.info("Service {} terminated", service.path.name)</span><span style='background: #AEF1AE'>
+</span>116 <span style=''></span><span style='background: #AEF1AE'>      // Find and nuke the classloader
+</span>117 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>services.filter(_._1.akkaPath.equals(service.path.toString)) foreach {
+</span>118 <span style=''></span><span style='background: #F0ADAD'>        p =>
+</span>119 <span style=''></span><span style='background: #F0ADAD'>          if (p._2._2.isDefined) {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>            p._2._2.get.close
+</span>121 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>122 <span style=''></span><span style='background: #F0ADAD'>          services.remove(p._1)</span><span style='background: #AEF1AE'>
+</span>123 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>124 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>125 <span style=''>
+</span>126 <span style=''>  private def getServiceMeta(servicePath: Option[ActorPath]): Seq[ServiceMetaData] = {
+</span>127 <span style=''>    try {
+</span>128 <span style=''>      </span><span style='background: #AEF1AE'>log.debug("Service meta requested")
+</span>129 <span style=''></span><span style='background: #AEF1AE'>      servicePath match {
+</span>130 <span style=''></span><span style='background: #AEF1AE'>        case None =>
+</span>131 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>services.keys.toSeq</span><span style='background: #AEF1AE'>
+</span>132 <span style=''></span><span style='background: #AEF1AE'>        case _ =>
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          Seq(services.filter(p => ActorPath.fromString(p._1.akkaPath).equals(servicePath.get)).keys.headOption.get)
+</span>134 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>135 <span style=''>    } catch {
+</span>136 <span style=''>      case e: Throwable =>
+</span>137 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Error fetching service meta information", e)</span><span style=''>
+</span>138 <span style=''>        </span><span style='background: #F0ADAD'>Nil</span><span style=''>
+</span>139 <span style=''>    }
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>
+</span>143 <span style=''>  /**
+</span>144 <span style=''>   * This is the health of the current object, by default will be NORMAL
+</span>145 <span style=''>   * In general this should be overridden to define the health of the current object
+</span>146 <span style=''>   * For objects that simply manage other objects you shouldn't need to do anything
+</span>147 <span style=''>   * else, as the health of the children components would be handled by their own
+</span>148 <span style=''>   * CheckHealth function
+</span>149 <span style=''>   *
+</span>150 <span style=''>   * @return
+</span>151 <span style=''>   */
+</span>152 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>153 <span style=''>    </span><span style='background: #F0ADAD'>log.debug("Service health requested")</span><span style=''>
+</span>154 <span style=''>    </span><span style='background: #F0ADAD'>Future {
+</span>155 <span style=''></span><span style='background: #F0ADAD'>      if (services.size == 0) {
+</span>156 <span style=''></span><span style='background: #F0ADAD'>          HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, "There are no services currently installed")
+</span>157 <span style=''></span><span style='background: #F0ADAD'>      } else if (context.children.size != services.size) {
+</span>158 <span style=''></span><span style='background: #F0ADAD'>          HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, s"There are ${services.size} installed, but only ${context.children.size} that were successfully loaded")
+</span>159 <span style=''></span><span style='background: #F0ADAD'>      } else {
+</span>160 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent(ServiceManager.ServiceManagerName, ComponentState.NORMAL, s"Currently managing ${services.size} service(s)")
+</span>161 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>162 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>163 <span style=''>  }
+</span>164 <span style=''>}
+</span>165 <span style=''>
+</span>166 <span style=''>object ServiceManager extends LoggingAdapter {
+</span>167 <span style=''>
+</span>168 <span style=''>  val ServiceManagerName = </span><span style='background: #AEF1AE'>"service-manager"</span><span style=''>
+</span>169 <span style=''>
+</span>170 <span style=''>  @SerialVersionUID(1L) case class ServicesReady()
+</span>171 <span style=''>
+</span>172 <span style=''>  @SerialVersionUID(1L) case class GetMetaDataByName(name: String)
+</span>173 <span style=''>
+</span>174 <span style=''>  @SerialVersionUID(1L) case class RestartService(name: String)
+</span>175 <span style=''>
+</span>176 <span style=''>  def props: Props = </span><span style='background: #AEF1AE'>Props[ServiceManager]</span><span style=''>
+</span>177 <span style=''>
+</span>178 <span style=''>  /**
+</span>179 <span style=''>   * Load the configuration files for the deployed services
+</span>180 <span style=''>   * @param sysConfig
+</span>181 <span style=''>   * @return
+</span>182 <span style=''>   */
+</span>183 <span style=''>  def loadConfigs(sysConfig: Config): Seq[Config] = {
+</span>184 <span style=''>    </span><span style='background: #AEF1AE'>serviceDir(sysConfig)</span><span style=''> match {
+</span>185 <span style=''>      case Some(s) =>
+</span>186 <span style=''>        val dirs = </span><span style='background: #F0ADAD'>s.listFiles.filter(_.isDirectory)</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>        val configs = </span><span style='background: #F0ADAD'>dirs flatMap {
+</span>189 <span style=''></span><span style='background: #F0ADAD'>          dir =>
+</span>190 <span style=''></span><span style='background: #F0ADAD'>            val path = dir.getPath.concat("/conf")
+</span>191 <span style=''></span><span style='background: #F0ADAD'>            log.info("Checking the directory {} for any *.conf files to load", path)
+</span>192 <span style=''></span><span style='background: #F0ADAD'>            for {
+</span>193 <span style=''></span><span style='background: #F0ADAD'>              file <- getConfigFiles(path)
+</span>194 <span style=''></span><span style='background: #F0ADAD'>              conf = allCatch either (ConfigFactory.parseFile(file)) match {
+</span>195 <span style=''></span><span style='background: #F0ADAD'>                case Left(fail) => log.error(s"Could not load the config file ${file.getAbsolutePath}", fail); None
+</span>196 <span style=''></span><span style='background: #F0ADAD'>                case Right(value) => Some(value)
+</span>197 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>198 <span style=''></span><span style='background: #F0ADAD'>              if (conf.isDefined)
+</span>199 <span style=''></span><span style='background: #F0ADAD'>            } yield conf.get</span><span style=''>
+</span>200 <span style=''>        }
+</span>201 <span style=''>        </span><span style='background: #F0ADAD'>configs</span><span style=''>
+</span>202 <span style=''>      case None => </span><span style='background: #AEF1AE'>Seq()</span><span style=''>
+</span>203 <span style=''>    }
+</span>204 <span style=''>  }
+</span>205 <span style=''>
+</span>206 <span style=''>  /**
+</span>207 <span style=''>   * Get the services directory
+</span>208 <span style=''>   * @param config The systems main config
+</span>209 <span style=''>   * @return The service root path, this is option, so if none then not found
+</span>210 <span style=''>   */
+</span>211 <span style=''>  def serviceDir(config: Config): Option[File] = {
+</span>212 <span style=''>    val file = </span><span style='background: #AEF1AE'>FileSystems.getDefault.getPath(config.getString(HarnessConstants.KeyServicePath)).toFile</span><span style=''>
+</span>213 <span style=''>    if (</span><span style='background: #AEF1AE'>file.exists()</span><span style=''>) {
+</span>214 <span style=''>      </span><span style='background: #AEF1AE'>Some(file)</span><span style=''>
+</span>215 <span style=''>    } else {
+</span>216 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>217 <span style=''>    }
+</span>218 <span style=''>  }
+</span>219 <span style=''>
+</span>220 <span style=''>  private def getConfigFiles(path: String): Seq[File] = {
+</span>221 <span style=''>    val root = </span><span style='background: #F0ADAD'>new File(path)</span><span style=''>
+</span>222 <span style=''>    </span><span style='background: #F0ADAD'>root.exists</span><span style=''> match {
+</span>223 <span style=''>      case true =>
+</span>224 <span style=''>        </span><span style='background: #F0ADAD'>root.listFiles(new FilenameFilter {
+</span>225 <span style=''></span><span style='background: #F0ADAD'>          def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
+</span>226 <span style=''></span><span style='background: #F0ADAD'>        })</span><span style=''>
+</span>227 <span style=''>      case false =>
+</span>228 <span style=''>        </span><span style='background: #F0ADAD'>Seq.empty</span><span style=''>
+</span>229 <span style=''>    }
+</span>230 <span style=''>  }
+</span>231 <span style=''>
+</span>232 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3071
+        </td>
+        <td>
+          1958
+          -
+          1959
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3080
+        </td>
+        <td>
+          1902
+          -
+          2184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.OneForOneStrategy.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.OneForOneStrategy.apply(3, scala.concurrent.duration.`package`.DurationInt(1).minute, akka.actor.OneForOneStrategy.apply$default$3)(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,akka.actor.SupervisorStrategy.Directive] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; akka.actor.SupervisorStrategy.Directive&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: akka.actor.SupervisorStrategy.Directive](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (_: akka.actor.ActorInitializationException) =&gt; akka.actor.SupervisorStrategy.Stop
+      case (_: akka.actor.DeathPactException) =&gt; akka.actor.SupervisorStrategy.Stop
+      case (_: akka.actor.ActorKilledException) =&gt; akka.actor.SupervisorStrategy.Restart
+      case (_: Exception) =&gt; akka.actor.SupervisorStrategy.Restart
+      case (_: Throwable) =&gt; akka.actor.SupervisorStrategy.Escalate
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Throwable): Boolean = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (_: akka.actor.ActorInitializationException) =&gt; true
+      case (_: akka.actor.DeathPactException) =&gt; true
+      case (_: akka.actor.ActorKilledException) =&gt; true
+      case (_: Exception) =&gt; true
+      case (_: Throwable) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,akka.actor.SupervisorStrategy.Directive]))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3073
+        </td>
+        <td>
+          1902
+          -
+          1902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.OneForOneStrategy.apply$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.OneForOneStrategy.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3070
+        </td>
+        <td>
+          1937
+          -
+          1938
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3079
+        </td>
+        <td>
+          1968
+          -
+          1968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          3072
+        </td>
+        <td>
+          1958
+          -
+          1966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.minute
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(1).minute
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          3074
+        </td>
+        <td>
+          2016
+          -
+          2020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          3075
+        </td>
+        <td>
+          2057
+          -
+          2061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          3076
+        </td>
+        <td>
+          2100
+          -
+          2107
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3077
+        </td>
+        <td>
+          2135
+          -
+          2142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3078
+        </td>
+        <td>
+          2170
+          -
+          2178
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Escalate
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Escalate
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3082
+        </td>
+        <td>
+          2217
+          -
+          2230
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceLoader.load
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.load(ServiceManager.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          3081
+        </td>
+        <td>
+          2222
+          -
+          2229
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.context
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3085
+        </td>
+        <td>
+          2394
+          -
+          2394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3084
+        </td>
+        <td>
+          2396
+          -
+          2409
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.ServicesReady
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.service.ServiceManager.ServicesReady
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3083
+        </td>
+        <td>
+          2379
+          -
+          2393
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          3086
+        </td>
+        <td>
+          2379
+          -
+          2409
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.context.parent).!(com.webtrends.harness.service.ServiceManager.ServicesReady)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3089
+        </td>
+        <td>
+          2414
+          -
+          2472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.log.info(&quot;Service manager started: {}&quot;, ServiceManager.this.context.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3088
+        </td>
+        <td>
+          2454
+          -
+          2471
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.context.self.path
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          3087
+        </td>
+        <td>
+          2423
+          -
+          2452
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Service manager started: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          3095
+        </td>
+        <td>
+          2555
+          -
+          2634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.services.values.foreach[Unit](((p: (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader])) =&gt; if (p._2.isDefined)
+  p._2.get.close()
+else
+  ()))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          3091
+        </td>
+        <td>
+          2620
+          -
+          2634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.close
+        </td>
+        <td style="background: #F0ADAD">
+          p._2.get.close()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          3094
+        </td>
+        <td>
+          2600
+          -
+          2600
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          3090
+        </td>
+        <td>
+          2604
+          -
+          2618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          3093
+        </td>
+        <td>
+          2600
+          -
+          2600
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          3092
+        </td>
+        <td>
+          2620
+          -
+          2634
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.net.URLClassLoader.close
+        </td>
+        <td style="background: #F0ADAD">
+          p._2.get.close()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          3096
+        </td>
+        <td>
+          2645
+          -
+          2659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.clear
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.services.clear()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3098
+        </td>
+        <td>
+          2704
+          -
+          2721
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.context.self.path
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3097
+        </td>
+        <td>
+          2673
+          -
+          2702
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Service manager stopped: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          3099
+        </td>
+        <td>
+          2664
+          -
+          2722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.log.info(&quot;Service manager stopped: {}&quot;, ServiceManager.this.context.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          3163
+        </td>
+        <td>
+          2774
+          -
+          2774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          3164
+        </td>
+        <td>
+          2753
+          -
+          4596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; {
+        ServiceManager.this.log.info(&quot;Notifying Services that we are completely ready.&quot;);
+        ServiceManager.this.context.children.foreach[Unit](((p: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(p).!(com.webtrends.harness.service.messages.Ready.apply(ServiceManager.this.getServiceMeta(scala.Some.apply[akka.actor.ActorPath](p.path)).head))(ServiceManager.this.self)))
+      }
+      case (service: Option[akka.actor.ActorPath])com.webtrends.harness.service.messages.GetMetaData((path @ _)) =&gt; {
+        ServiceManager.this.log.info(&quot;We have received a message to get service meta data&quot;);
+        val meta: Seq[com.webtrends.harness.service.meta.ServiceMetaData] = ServiceManager.this.getServiceMeta(path);
+        path match {
+          case scala.None =&gt; akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta)(ServiceManager.this.self)
+          case _ =&gt; akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta.head)(ServiceManager.this.self)
+        }
+      }
+      case (name: String, clazz: Class[_ &lt;: com.webtrends.harness.service.Service])com.webtrends.harness.service.messages.LoadService((name @ _), (clazz @ _)) =&gt; {
+        ServiceManager.this.log.info(scala.StringContext.apply(&quot;We have received a message to load service &quot;, &quot;&quot;).s(name));
+        akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(ServiceManager.this.loadService[_$1](name, clazz, ServiceManager.this.loadService$default$3[Nothing]))(ServiceManager.this.self)
+      }
+      case (name: String)com.webtrends.harness.service.ServiceManager.GetMetaDataByName((service @ _)) =&gt; {
+        ServiceManager.this.log.info(&quot;We have received a message to get service meta data&quot;);
+        ServiceManager.this.services.filter(((x$1: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$1._1.name.equalsIgnoreCase(service))).keys.headOption match {
+          case (x: com.webtrends.harness.service.meta.ServiceMetaData)Some[com.webtrends.harness.service.meta.ServiceMetaData]((meta @ _)) =&gt; akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta)(ServiceManager.this.self)
+          case scala.None =&gt; akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(akka.actor.Status.Failure.apply(new scala.`package`.NoSuchElementException(scala.StringContext.apply(&quot;Could not locate the meta information for service &quot;, &quot;&quot;).s(service))))(ServiceManager.this.self)
+        }
+      }
+      case (name: String)com.webtrends.harness.service.ServiceManager.RestartService((service @ _)) =&gt; {
+        ServiceManager.this.log.info(scala.StringContext.apply(&quot;We have received a message to restart the service &quot;, &quot;&quot;).s(service));
+        val meta: Unit = ServiceManager.this.services.filter(((x$2: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$2._1.name.equalsIgnoreCase(service))).keys.headOption match {
+          case (x: com.webtrends.harness.service.meta.ServiceMetaData)Some[com.webtrends.harness.service.meta.ServiceMetaData]((meta @ _)) =&gt; actor.this.ActorSelection.toScala(ServiceManager.this.services.get(meta).get._1).!(akka.actor.Kill)(ServiceManager.this.self)
+          case scala.None =&gt; ()
+        };
+        ()
+      }
+      case (c @ (_: com.webtrends.harness.app.HarnessActor.ConfigChange)) =&gt; {
+        ServiceManager.this.log.info(&quot;Sending config change message to all services...&quot;);
+        ServiceManager.this.context.children.foreach[Unit](((p: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(p).!(c)(ServiceManager.this.self)))
+      }
+      case (actor: akka.actor.ActorRef)(existenceConfirmed: Boolean, addressTerminated: Boolean)akka.actor.Terminated((service @ _)) =&gt; {
+        ServiceManager.this.log.info(&quot;Service {} terminated&quot;, service.path.name);
+        ServiceManager.this.services.filter(((x$3: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$3._1.akkaPath.equals(service.path.toString()))).foreach[Option[(akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader])]](((p: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; {
+          if (p._2._2.isDefined)
+            p._2._2.get.close()
+          else
+            ();
+          ServiceManager.this.services.remove(p._1)
+        }))
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; true
+      case (service: Option[akka.actor.ActorPath])com.webtrends.harness.service.messages.GetMetaData((path @ _)) =&gt; true
+      case (name: String, clazz: Class[_ &lt;: com.webtrends.harness.service.Service])com.webtrends.harness.service.messages.LoadService((name @ _), (clazz @ _)) =&gt; true
+      case (name: String)com.webtrends.harness.service.ServiceManager.GetMetaDataByName((service @ _)) =&gt; true
+      case (name: String)com.webtrends.harness.service.ServiceManager.RestartService((service @ _)) =&gt; true
+      case (c @ (_: com.webtrends.harness.app.HarnessActor.ConfigChange)) =&gt; true
+      case (actor: akka.actor.ActorRef)(existenceConfirmed: Boolean, addressTerminated: Boolean)akka.actor.Terminated((service @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          3100
+        </td>
+        <td>
+          2806
+          -
+          2866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.log.info(&quot;Notifying Services that we are completely ready.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          3107
+        </td>
+        <td>
+          2873
+          -
+          2957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.context.children.foreach[Unit](((p: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(p).!(com.webtrends.harness.service.messages.Ready.apply(ServiceManager.this.getServiceMeta(scala.Some.apply[akka.actor.ActorPath](p.path)).head))(ServiceManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3106
+        </td>
+        <td>
+          2913
+          -
+          2957
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(p).!(com.webtrends.harness.service.messages.Ready.apply(ServiceManager.this.getServiceMeta(scala.Some.apply[akka.actor.ActorPath](p.path)).head))(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3103
+        </td>
+        <td>
+          2923
+          -
+          2956
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.getServiceMeta(scala.Some.apply[akka.actor.ActorPath](p.path)).head
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3105
+        </td>
+        <td>
+          2915
+          -
+          2915
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3102
+        </td>
+        <td>
+          2938
+          -
+          2950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorPath](p.path)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3101
+        </td>
+        <td>
+          2943
+          -
+          2949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          p.path
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          3104
+        </td>
+        <td>
+          2917
+          -
+          2957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.Ready.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.service.messages.Ready.apply(ServiceManager.this.getServiceMeta(scala.Some.apply[akka.actor.ActorPath](p.path)).head)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          3108
+        </td>
+        <td>
+          3003
+          -
+          3066
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(&quot;We have received a message to get service meta data&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          3109
+        </td>
+        <td>
+          3084
+          -
+          3104
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.getServiceMeta
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.getServiceMeta(path)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          3112
+        </td>
+        <td>
+          3145
+          -
+          3160
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          3111
+        </td>
+        <td>
+          3154
+          -
+          3154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          3110
+        </td>
+        <td>
+          3145
+          -
+          3153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3116
+        </td>
+        <td>
+          3205
+          -
+          3225
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta.head)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3115
+        </td>
+        <td>
+          3214
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3114
+        </td>
+        <td>
+          3216
+          -
+          3225
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #F0ADAD">
+          meta.head
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          3113
+        </td>
+        <td>
+          3205
+          -
+          3213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          3118
+        </td>
+        <td>
+          3315
+          -
+          3376
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.log.info(scala.StringContext.apply(&quot;We have received a message to load service &quot;, &quot;&quot;).s(name))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          3117
+        </td>
+        <td>
+          3324
+          -
+          3375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;We have received a message to load service &quot;, &quot;&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3121
+        </td>
+        <td>
+          3392
+          -
+          3416
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceLoader.loadService
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.loadService[_$1](name, clazz, ServiceManager.this.loadService$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3120
+        </td>
+        <td>
+          3392
+          -
+          3392
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceLoader.loadService$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.loadService$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3123
+        </td>
+        <td>
+          3383
+          -
+          3416
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(ServiceManager.this.loadService[_$1](name, clazz, ServiceManager.this.loadService$default$3[Nothing]))(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3119
+        </td>
+        <td>
+          3383
+          -
+          3389
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          3122
+        </td>
+        <td>
+          3390
+          -
+          3390
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          3124
+        </td>
+        <td>
+          3463
+          -
+          3526
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(&quot;We have received a message to get service meta data&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          3125
+        </td>
+        <td>
+          3549
+          -
+          3584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._1.name.equalsIgnoreCase(service)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          3126
+        </td>
+        <td>
+          3533
+          -
+          3601
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.filter(((x$1: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$1._1.name.equalsIgnoreCase(service))).keys.headOption
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          3127
+        </td>
+        <td>
+          3637
+          -
+          3645
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          3129
+        </td>
+        <td>
+          3637
+          -
+          3652
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(meta)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          3128
+        </td>
+        <td>
+          3646
+          -
+          3646
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3133
+        </td>
+        <td>
+          3685
+          -
+          3790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(new scala.`package`.NoSuchElementException(scala.StringContext.apply(&quot;Could not locate the meta information for service &quot;, &quot;&quot;).s(service)))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3130
+        </td>
+        <td>
+          3674
+          -
+          3682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3132
+        </td>
+        <td>
+          3700
+          -
+          3789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.NoSuchElementException.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.`package`.NoSuchElementException(scala.StringContext.apply(&quot;Could not locate the meta information for service &quot;, &quot;&quot;).s(service))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3135
+        </td>
+        <td>
+          3674
+          -
+          3790
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ServiceManager.this.sender()).!(akka.actor.Status.Failure.apply(new scala.`package`.NoSuchElementException(scala.StringContext.apply(&quot;Could not locate the meta information for service &quot;, &quot;&quot;).s(service))))(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3134
+        </td>
+        <td>
+          3683
+          -
+          3683
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          3131
+        </td>
+        <td>
+          3727
+          -
+          3788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not locate the meta information for service &quot;, &quot;&quot;).s(service)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          3145
+        </td>
+        <td>
+          3833
+          -
+          3833
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          3136
+        </td>
+        <td>
+          3851
+          -
+          3914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;We have received a message to restart the service &quot;, &quot;&quot;).s(service)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          3137
+        </td>
+        <td>
+          3842
+          -
+          3915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(scala.StringContext.apply(&quot;We have received a message to restart the service &quot;, &quot;&quot;).s(service))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3139
+        </td>
+        <td>
+          3933
+          -
+          4001
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.filter(((x$2: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$2._1.name.equalsIgnoreCase(service))).keys.headOption
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          3138
+        </td>
+        <td>
+          3949
+          -
+          3984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._1.name.equalsIgnoreCase(service)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          3142
+        </td>
+        <td>
+          4063
+          -
+          4063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          3141
+        </td>
+        <td>
+          4065
+          -
+          4069
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Kill
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Kill
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          3143
+        </td>
+        <td>
+          4037
+          -
+          4069
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorSelection.!
+        </td>
+        <td style="background: #F0ADAD">
+          actor.this.ActorSelection.toScala(ServiceManager.this.services.get(meta).get._1).!(akka.actor.Kill)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          3140
+        </td>
+        <td>
+          4037
+          -
+          4062
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.get(meta).get._1
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          3144
+        </td>
+        <td>
+          4088
+          -
+          4090
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          3146
+        </td>
+        <td>
+          4134
+          -
+          4194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(&quot;Sending config change message to all services...&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          3149
+        </td>
+        <td>
+          4201
+          -
+          4246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.context.children.foreach[Unit](((p: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(p).!(c)(ServiceManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          3148
+        </td>
+        <td>
+          4241
+          -
+          4246
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(p).!(c)(ServiceManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          3147
+        </td>
+        <td>
+          4243
+          -
+          4243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          3151
+        </td>
+        <td>
+          4328
+          -
+          4345
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          service.path.name
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          3150
+        </td>
+        <td>
+          4303
+          -
+          4326
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Service {} terminated&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          3152
+        </td>
+        <td>
+          4294
+          -
+          4346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(&quot;Service {} terminated&quot;, service.path.name)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3154
+        </td>
+        <td>
+          4408
+          -
+          4451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equals
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._1.akkaPath.equals(service.path.toString())
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3153
+        </td>
+        <td>
+          4429
+          -
+          4450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          service.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          3162
+        </td>
+        <td>
+          4392
+          -
+          4584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.filter(((x$3: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; x$3._1.akkaPath.equals(service.path.toString()))).foreach[Option[(akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader])]](((p: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; {
+  if (p._2._2.isDefined)
+    p._2._2.get.close()
+  else
+    ();
+  ServiceManager.this.services.remove(p._1)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          3159
+        </td>
+        <td>
+          4486
+          -
+          4486
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          3155
+        </td>
+        <td>
+          4490
+          -
+          4507
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          p._2._2.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          3158
+        </td>
+        <td>
+          4486
+          -
+          4486
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3157
+        </td>
+        <td>
+          4523
+          -
+          4540
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.net.URLClassLoader.close
+        </td>
+        <td style="background: #F0ADAD">
+          p._2._2.get.close()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          3156
+        </td>
+        <td>
+          4523
+          -
+          4540
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLClassLoader.close
+        </td>
+        <td style="background: #F0ADAD">
+          p._2._2.get.close()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3160
+        </td>
+        <td>
+          4579
+          -
+          4583
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          3161
+        </td>
+        <td>
+          4563
+          -
+          4584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.remove
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.remove(p._1)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          3172
+        </td>
+        <td>
+          4701
+          -
+          4956
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ServiceManager.this.log.debug(&quot;Service meta requested&quot;);
+  servicePath match {
+    case scala.None =&gt; ServiceManager.this.services.keys.toSeq
+    case _ =&gt; collection.this.Seq.apply[com.webtrends.harness.service.meta.ServiceMetaData](ServiceManager.this.services.filter(((p: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; akka.actor.ActorPath.fromString(p._1.akkaPath).equals(servicePath.get))).keys.headOption.get)
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          3165
+        </td>
+        <td>
+          4701
+          -
+          4736
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.log.debug(&quot;Service meta requested&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          3166
+        </td>
+        <td>
+          4794
+          -
+          4813
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.keys.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3169
+        </td>
+        <td>
+          4867
+          -
+          4926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.equals
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.ActorPath.fromString(p._1.akkaPath).equals(servicePath.get)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3171
+        </td>
+        <td>
+          4842
+          -
+          4948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.apply[com.webtrends.harness.service.meta.ServiceMetaData](ServiceManager.this.services.filter(((p: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; akka.actor.ActorPath.fromString(p._1.akkaPath).equals(servicePath.get))).keys.headOption.get)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3168
+        </td>
+        <td>
+          4910
+          -
+          4925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          servicePath.get
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3170
+        </td>
+        <td>
+          4846
+          -
+          4947
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.services.filter(((p: (com.webtrends.harness.service.meta.ServiceMetaData, (akka.actor.ActorSelection, Option[com.webtrends.harness.service.ServiceClassLoader]))) =&gt; akka.actor.ActorPath.fromString(p._1.akkaPath).equals(servicePath.get))).keys.headOption.get
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          3167
+        </td>
+        <td>
+          4888
+          -
+          4901
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.meta.ServiceMetaData.akkaPath
+        </td>
+        <td style="background: #AEF1AE">
+          p._1.akkaPath
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          3173
+        </td>
+        <td>
+          5006
+          -
+          5061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.error(&quot;Error fetching service meta information&quot;, e)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          3174
+        </td>
+        <td>
+          5070
+          -
+          5073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          3175
+        </td>
+        <td>
+          5534
+          -
+          5571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.debug(&quot;Service health requested&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3210
+        </td>
+        <td>
+          5576
+          -
+          6160
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](if (ServiceManager.this.services.size.==(0))
+  com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;There are no services currently installed&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+else
+  if (ServiceManager.this.context.children.size.!=(ServiceManager.this.services.size))
+    com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;There are &quot;, &quot; installed, but only &quot;, &quot; that were successfully loaded&quot;).s(ServiceManager.this.services.size, ServiceManager.this.context.children.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  else
+    com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Currently managing &quot;, &quot; service(s)&quot;).s(ServiceManager.this.services.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(ServiceManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          3209
+        </td>
+        <td>
+          5583
+          -
+          5583
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          3176
+        </td>
+        <td>
+          5595
+          -
+          5613
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.size.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3178
+        </td>
+        <td>
+          5678
+          -
+          5701
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3181
+        </td>
+        <td>
+          5627
+          -
+          5627
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3180
+        </td>
+        <td>
+          5627
+          -
+          5627
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3183
+        </td>
+        <td>
+          5627
+          -
+          5747
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;There are no services currently installed&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3177
+        </td>
+        <td>
+          5643
+          -
+          5676
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.ServiceManagerName
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.ServiceManagerName
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3179
+        </td>
+        <td>
+          5703
+          -
+          5746
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;There are no services currently installed&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          3182
+        </td>
+        <td>
+          5627
+          -
+          5747
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;There are no services currently installed&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          3208
+        </td>
+        <td>
+          5761
+          -
+          6154
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (ServiceManager.this.context.children.size.!=(ServiceManager.this.services.size))
+  com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;There are &quot;, &quot; installed, but only &quot;, &quot; that were successfully loaded&quot;).s(ServiceManager.this.services.size, ServiceManager.this.context.children.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+else
+  com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Currently managing &quot;, &quot; service(s)&quot;).s(ServiceManager.this.services.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          3184
+        </td>
+        <td>
+          5790
+          -
+          5803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.size
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.size
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          3185
+        </td>
+        <td>
+          5765
+          -
+          5803
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.context.children.size.!=(ServiceManager.this.services.size)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3193
+        </td>
+        <td>
+          5893
+          -
+          5997
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;There are &quot;, &quot; installed, but only &quot;, &quot; that were successfully loaded&quot;).s(ServiceManager.this.services.size, ServiceManager.this.context.children.size)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3187
+        </td>
+        <td>
+          5868
+          -
+          5891
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3196
+        </td>
+        <td>
+          5817
+          -
+          5998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;There are &quot;, &quot; installed, but only &quot;, &quot; that were successfully loaded&quot;).s(ServiceManager.this.services.size, ServiceManager.this.context.children.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3190
+        </td>
+        <td>
+          5966
+          -
+          5997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; that were successfully loaded&quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3189
+        </td>
+        <td>
+          5921
+          -
+          5943
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; installed, but only &quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3192
+        </td>
+        <td>
+          5944
+          -
+          5965
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.size
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.context.children.size
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3186
+        </td>
+        <td>
+          5833
+          -
+          5866
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.ServiceManagerName
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.ServiceManagerName
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3195
+        </td>
+        <td>
+          5817
+          -
+          5817
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3194
+        </td>
+        <td>
+          5817
+          -
+          5817
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3197
+        </td>
+        <td>
+          5817
+          -
+          5998
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;There are &quot;, &quot; installed, but only &quot;, &quot; that were successfully loaded&quot;).s(ServiceManager.this.services.size, ServiceManager.this.context.children.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3188
+        </td>
+        <td>
+          5895
+          -
+          5906
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;There are &quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          3191
+        </td>
+        <td>
+          5907
+          -
+          5920
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.size
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.size
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3202
+        </td>
+        <td>
+          6119
+          -
+          6132
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.size
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.services.size
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3205
+        </td>
+        <td>
+          6022
+          -
+          6022
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3199
+        </td>
+        <td>
+          6073
+          -
+          6094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3198
+        </td>
+        <td>
+          6038
+          -
+          6071
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.ServiceManagerName
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.ServiceManagerName
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3207
+        </td>
+        <td>
+          6022
+          -
+          6146
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Currently managing &quot;, &quot; service(s)&quot;).s(ServiceManager.this.services.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3201
+        </td>
+        <td>
+          6133
+          -
+          6145
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; service(s)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3204
+        </td>
+        <td>
+          6022
+          -
+          6022
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3203
+        </td>
+        <td>
+          6096
+          -
+          6145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Currently managing &quot;, &quot; service(s)&quot;).s(ServiceManager.this.services.size)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3206
+        </td>
+        <td>
+          6022
+          -
+          6146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ServiceManager.ServiceManagerName, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Currently managing &quot;, &quot; service(s)&quot;).s(ServiceManager.this.services.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          3200
+        </td>
+        <td>
+          6098
+          -
+          6118
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Currently managing &quot;
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          3211
+        </td>
+        <td>
+          6243
+          -
+          6260
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;service-manager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          3212
+        </td>
+        <td>
+          6468
+          -
+          6489
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.service.ServiceManager]()((ClassTag.apply[com.webtrends.harness.service.ServiceManager](classOf[com.webtrends.harness.service.ServiceManager]): scala.reflect.ClassTag[com.webtrends.harness.service.ServiceManager]))
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          3213
+        </td>
+        <td>
+          6656
+          -
+          6677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.serviceDir
+        </td>
+        <td style="background: #AEF1AE">
+          ServiceManager.this.serviceDir(sysConfig)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          3214
+        </td>
+        <td>
+          6727
+          -
+          6738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td style="background: #F0ADAD">
+          s.listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          3216
+        </td>
+        <td>
+          6727
+          -
+          6760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[java.io.File](s.listFiles()).filter(((x$4: java.io.File) =&gt; x$4.isDirectory()))
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          3215
+        </td>
+        <td>
+          6746
+          -
+          6759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.isDirectory
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.isDirectory()
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          3235
+        </td>
+        <td>
+          6784
+          -
+          7333
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[java.io.File](dirs).flatMap[com.typesafe.config.Config, Array[com.typesafe.config.Config]](((dir: java.io.File) =&gt; {
+  val path: String = dir.getPath().concat(&quot;/conf&quot;);
+  ServiceManager.this.log.info(&quot;Checking the directory {} for any *.conf files to load&quot;, path);
+  ServiceManager.this.getConfigFiles(path).map[(java.io.File, Option[com.typesafe.config.Config]), Seq[(java.io.File, Option[com.typesafe.config.Config])]](((file: java.io.File) =&gt; {
+  val conf: Option[com.typesafe.config.Config] = scala.util.control.Exception.allCatch[Nothing].either[com.typesafe.config.Config](com.typesafe.config.ConfigFactory.parseFile(file)) match {
+    case (a: Throwable)scala.util.Left[Throwable,com.typesafe.config.Config]((fail @ _)) =&gt; {
+      ServiceManager.this.log.error(scala.StringContext.apply(&quot;Could not load the config file &quot;, &quot;&quot;).s(file.getAbsolutePath()), fail);
+      scala.None
+    }
+    case (b: com.typesafe.config.Config)scala.util.Right[Throwable,com.typesafe.config.Config]((value @ _)) =&gt; scala.Some.apply[com.typesafe.config.Config](value)
+  };
+  scala.Tuple2.apply[java.io.File, Option[com.typesafe.config.Config]](file, conf)
+}))(collection.this.Seq.canBuildFrom[(java.io.File, Option[com.typesafe.config.Config])]).withFilter(((x$5: (java.io.File, Option[com.typesafe.config.Config])) =&gt; (x$5: (java.io.File, Option[com.typesafe.config.Config]) @unchecked) match {
+  case (_1: java.io.File, _2: Option[com.typesafe.config.Config])(java.io.File, Option[com.typesafe.config.Config])((file @ _), (conf @ _)) =&gt; conf.isDefined
+})).map[com.typesafe.config.Config, Seq[com.typesafe.config.Config]](((x$6: (java.io.File, Option[com.typesafe.config.Config])) =&gt; (x$6: (java.io.File, Option[com.typesafe.config.Config]) @unchecked) match {
+    case (_1: java.io.File, _2: Option[com.typesafe.config.Config])(java.io.File, Option[com.typesafe.config.Config])((file @ _), (conf @ _)) =&gt; conf.get
+  }))(collection.this.Seq.canBuildFrom[com.typesafe.config.Config])
+}))(scala.this.Array.canBuildFrom[com.typesafe.config.Config]((ClassTag.apply[com.typesafe.config.Config](classOf[com.typesafe.config.Config]): scala.reflect.ClassTag[com.typesafe.config.Config])))
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          3234
+        </td>
+        <td>
+          6789
+          -
+          6789
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[com.typesafe.config.Config]((ClassTag.apply[com.typesafe.config.Config](classOf[com.typesafe.config.Config]): scala.reflect.ClassTag[com.typesafe.config.Config]))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          3217
+        </td>
+        <td>
+          6839
+          -
+          6866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #F0ADAD">
+          dir.getPath().concat(&quot;/conf&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          3218
+        </td>
+        <td>
+          6879
+          -
+          6951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.info(&quot;Checking the directory {} for any *.conf files to load&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          3229
+        </td>
+        <td>
+          6989
+          -
+          6989
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(java.io.File, Option[com.typesafe.config.Config])]
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          3232
+        </td>
+        <td>
+          6989
+          -
+          6989
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.typesafe.config.Config]
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          3228
+        </td>
+        <td>
+          6984
+          -
+          6984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[java.io.File, Option[com.typesafe.config.Config]](file, conf)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          3233
+        </td>
+        <td>
+          6964
+          -
+          7333
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.generic.FilterMonadic.map
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.getConfigFiles(path).map[(java.io.File, Option[com.typesafe.config.Config]), Seq[(java.io.File, Option[com.typesafe.config.Config])]](((file: java.io.File) =&gt; {
+  val conf: Option[com.typesafe.config.Config] = scala.util.control.Exception.allCatch[Nothing].either[com.typesafe.config.Config](com.typesafe.config.ConfigFactory.parseFile(file)) match {
+    case (a: Throwable)scala.util.Left[Throwable,com.typesafe.config.Config]((fail @ _)) =&gt; {
+      ServiceManager.this.log.error(scala.StringContext.apply(&quot;Could not load the config file &quot;, &quot;&quot;).s(file.getAbsolutePath()), fail);
+      scala.None
+    }
+    case (b: com.typesafe.config.Config)scala.util.Right[Throwable,com.typesafe.config.Config]((value @ _)) =&gt; scala.Some.apply[com.typesafe.config.Config](value)
+  };
+  scala.Tuple2.apply[java.io.File, Option[com.typesafe.config.Config]](file, conf)
+}))(collection.this.Seq.canBuildFrom[(java.io.File, Option[com.typesafe.config.Config])]).withFilter(((x$5: (java.io.File, Option[com.typesafe.config.Config])) =&gt; (x$5: (java.io.File, Option[com.typesafe.config.Config]) @unchecked) match {
+  case (_1: java.io.File, _2: Option[com.typesafe.config.Config])(java.io.File, Option[com.typesafe.config.Config])((file @ _), (conf @ _)) =&gt; conf.isDefined
+})).map[com.typesafe.config.Config, Seq[com.typesafe.config.Config]](((x$6: (java.io.File, Option[com.typesafe.config.Config])) =&gt; (x$6: (java.io.File, Option[com.typesafe.config.Config]) @unchecked) match {
+  case (_1: java.io.File, _2: Option[com.typesafe.config.Config])(java.io.File, Option[com.typesafe.config.Config])((file @ _), (conf @ _)) =&gt; conf.get
+}))(collection.this.Seq.canBuildFrom[com.typesafe.config.Config])
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          3220
+        </td>
+        <td>
+          7034
+          -
+          7081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.control.Exception.Catch.either
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.control.Exception.allCatch[Nothing].either[com.typesafe.config.Config](com.typesafe.config.ConfigFactory.parseFile(file))
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          3219
+        </td>
+        <td>
+          7051
+          -
+          7080
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.ConfigFactory.parseFile
+        </td>
+        <td style="background: #F0ADAD">
+          com.typesafe.config.ConfigFactory.parseFile(file)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3226
+        </td>
+        <td>
+          7201
+          -
+          7205
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3223
+        </td>
+        <td>
+          7170
+          -
+          7190
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.getAbsolutePath
+        </td>
+        <td style="background: #F0ADAD">
+          file.getAbsolutePath()
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3225
+        </td>
+        <td>
+          7125
+          -
+          7199
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          ServiceManager.this.log.error(scala.StringContext.apply(&quot;Could not load the config file &quot;, &quot;&quot;).s(file.getAbsolutePath()), fail)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3222
+        </td>
+        <td>
+          7191
+          -
+          7192
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3221
+        </td>
+        <td>
+          7137
+          -
+          7169
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not load the config file &quot;
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          3224
+        </td>
+        <td>
+          7135
+          -
+          7192
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not load the config file &quot;, &quot;&quot;).s(file.getAbsolutePath())
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          3227
+        </td>
+        <td>
+          7243
+          -
+          7254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.typesafe.config.Config](value)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          3230
+        </td>
+        <td>
+          7289
+          -
+          7303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          conf.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          3231
+        </td>
+        <td>
+          7325
+          -
+          7333
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          conf.get
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          3236
+        </td>
+        <td>
+          7352
+          -
+          7359
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[com.typesafe.config.Config](configs)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          3237
+        </td>
+        <td>
+          7379
+          -
+          7384
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.apply[Nothing]()
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          3238
+        </td>
+        <td>
+          7627
+          -
+          7715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.toFile
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.FileSystems.getDefault().getPath(config.getString(com.webtrends.harness.HarnessConstants.KeyServicePath)).toFile()
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          3239
+        </td>
+        <td>
+          7724
+          -
+          7737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.exists
+        </td>
+        <td style="background: #AEF1AE">
+          file.exists()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          3241
+        </td>
+        <td>
+          7747
+          -
+          7757
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[java.io.File](file)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          3240
+        </td>
+        <td>
+          7747
+          -
+          7757
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[java.io.File](file)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          3243
+        </td>
+        <td>
+          7777
+          -
+          7781
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          3242
+        </td>
+        <td>
+          7777
+          -
+          7781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          3244
+        </td>
+        <td>
+          7866
+          -
+          7880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(path)
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          3245
+        </td>
+        <td>
+          7885
+          -
+          7896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.exists
+        </td>
+        <td style="background: #F0ADAD">
+          root.exists()
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          3247
+        </td>
+        <td>
+          7947
+          -
+          7950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          3249
+        </td>
+        <td>
+          7932
+          -
+          8058
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[java.io.File](root.listFiles({
+  final class $anon extends Object with java.io.FilenameFilter {
+    def &lt;init&gt;(): &lt;$anon: java.io.FilenameFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def accept(dir: java.io.File, name: String): Boolean = name.endsWith(&quot;.conf&quot;)
+  };
+  new $anon()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          3248
+        </td>
+        <td>
+          7932
+          -
+          8058
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td style="background: #F0ADAD">
+          root.listFiles({
+  final class $anon extends Object with java.io.FilenameFilter {
+    def &lt;init&gt;(): &lt;$anon: java.io.FilenameFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def accept(dir: java.io.File, name: String): Boolean = name.endsWith(&quot;.conf&quot;)
+  };
+  new $anon()
+})
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          3246
+        </td>
+        <td>
+          8025
+          -
+          8047
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.endsWith
+        </td>
+        <td style="background: #F0ADAD">
+          name.endsWith(&quot;.conf&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          3250
+        </td>
+        <td>
+          8087
+          -
+          8096
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.empty
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.empty[Nothing]
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
