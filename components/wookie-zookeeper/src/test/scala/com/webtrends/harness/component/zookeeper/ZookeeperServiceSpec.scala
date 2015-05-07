@@ -41,7 +41,7 @@ class ZookeeperServiceSpec
   implicit val to = Timeout(2 seconds)
 
   Await.result(zkActor ? Identify("xyz123"), 2 seconds)
-
+  Thread.sleep(1000)
   lazy val service = ZookeeperService()
   sequential
 
