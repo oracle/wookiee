@@ -1,0 +1,3307 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/metrics/MetricsActor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.metrics
+</span>21 <span style=''>
+</span>22 <span style=''>import java.net.{InetSocketAddress, InetAddress}
+</span>23 <span style=''>import java.util.concurrent.TimeUnit
+</span>24 <span style=''>
+</span>25 <span style=''>import akka.actor.{Props, Actor}
+</span>26 <span style=''>import com.codahale.metrics.{MetricFilter, ScheduledReporter, JmxReporter}
+</span>27 <span style=''>import com.codahale.metrics.graphite.{Graphite, GraphiteReporter}
+</span>28 <span style=''>import com.webtrends.harness.component.messages.{GetMetric, StatusRequest}
+</span>29 <span style=''>import com.webtrends.harness.component.metrics.messages._
+</span>30 <span style=''>import com.webtrends.harness.component.metrics.monitoring.MonitoringSettings
+</span>31 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent, ActorHealth}
+</span>32 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>33 <span style=''>import net.liftweb.json._
+</span>34 <span style=''>
+</span>35 <span style=''>import scala.concurrent.Future
+</span>36 <span style=''>import scala.util.Try
+</span>37 <span style=''>
+</span>38 <span style=''>/**
+</span>39 <span style=''> * @author Michael Cuthbert on 11/19/14.
+</span>40 <span style=''> */
+</span>41 <span style=''>object MetricsActor {
+</span>42 <span style=''>  def props(settings:MonitoringSettings): Props = </span><span style='background: #AEF1AE'>Props(classOf[MetricsActor], settings)</span><span style=''>
+</span>43 <span style=''>}
+</span>44 <span style=''>
+</span>45 <span style=''>class MetricsActor(settings:MonitoringSettings) extends Actor with ActorLoggingAdapter with ActorHealth {
+</span>46 <span style=''>  import context.dispatcher
+</span>47 <span style=''>
+</span>48 <span style=''>  private[metrics] var jmxReporter: Option[JmxReporter] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>49 <span style=''>  private[metrics] var graphiteReporter: Option[GraphiteReporter] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>50 <span style=''>  private[metrics] var jvmGraphiteReporter: Option[GraphiteReporter] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  def receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>53 <span style=''></span><span style='background: #AEF1AE'>    case StatusRequest(format) =>
+</span>54 <span style=''></span><span style='background: #AEF1AE'>      val metrics = </span><span style='background: #F0ADAD'>new MetricsWriter().getMetrics(settings.GraphiteIncludeVMMetrics)</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>      format match {
+</span>56 <span style=''></span><span style='background: #AEF1AE'>        case "string" =>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>log.debug("Fetching the metrics in string format")</span><span style='background: #AEF1AE'>
+</span>58 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>sender ! compact(render(metrics))</span><span style='background: #AEF1AE'>
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        case _ =>
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>log.debug("Fetching the metrics in json format")</span><span style='background: #AEF1AE'>
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>sender ! metrics</span><span style='background: #AEF1AE'>
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>63 <span style=''></span><span style='background: #AEF1AE'>
+</span>64 <span style=''></span><span style='background: #AEF1AE'>    case GetMetric(name) =>
+</span>65 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.debug(s"Fetching metric $name")</span><span style='background: #AEF1AE'>
+</span>66 <span style=''></span><span style='background: #AEF1AE'>      val reg = </span><span style='background: #F0ADAD'>MetricBuilder.registry</span><span style='background: #AEF1AE'>
+</span>67 <span style=''></span><span style='background: #AEF1AE'>      val i = </span><span style='background: #F0ADAD'>0</span><span style='background: #AEF1AE'>
+</span>68 <span style=''></span><span style='background: #AEF1AE'>
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    case RemoveMetric(metric) => </span><span style='background: #F0ADAD'>MetricBuilder.remove(metric)</span><span style='background: #AEF1AE'>
+</span>70 <span style=''></span><span style='background: #AEF1AE'>
+</span>71 <span style=''></span><span style='background: #AEF1AE'>    case o: MetricObservation => o match {
+</span>72 <span style=''></span><span style='background: #AEF1AE'>      case o: CounterObservation =>
+</span>73 <span style=''></span><span style='background: #AEF1AE'>        MetricBuilder(o).inc(o.delta)
+</span>74 <span style=''></span><span style='background: #AEF1AE'>      case o: GaugeObservation =>
+</span>75 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>MetricBuilder(o).setValue(o.value)</span><span style='background: #AEF1AE'>
+</span>76 <span style=''></span><span style='background: #AEF1AE'>      case o: HistogramObservation =>
+</span>77 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>MetricBuilder(o).update(o.value)</span><span style='background: #AEF1AE'>
+</span>78 <span style=''></span><span style='background: #AEF1AE'>      case o: MeterObservation =>
+</span>79 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>MetricBuilder(o).mark(o.events)</span><span style='background: #AEF1AE'>
+</span>80 <span style=''></span><span style='background: #AEF1AE'>      case o: TimerObservation =>
+</span>81 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>MetricBuilder(o).update(o.elapsed, o.unit)</span><span style='background: #AEF1AE'>
+</span>82 <span style=''></span><span style='background: #AEF1AE'>    }
+</span>83 <span style=''></span><span style='background: #AEF1AE'>    case _ </span><span style='background: #F0ADAD'>=></span><span style='background: #AEF1AE'> // Just eat it
+</span>84 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>  override def preStart() {
+</span>87 <span style=''>    // Subscribe to events
+</span>88 <span style=''>    </span><span style='background: #AEF1AE'>MetricsEventBus.subscribe(self)</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>    if (</span><span style='background: #AEF1AE'>settings.GraphiteEnabled</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>91 <span style=''></span><span style='background: #F0ADAD'>      graphiteReporter = Some(GraphiteReporter.forRegistry(MetricBuilder())
+</span>92 <span style=''></span><span style='background: #F0ADAD'>        .prefixedWith("%s.%s.%s".format(settings.MetricPrefix,
+</span>93 <span style=''></span><span style='background: #F0ADAD'>        InetAddress.getLocalHost.getHostName.split("\\.")(0),
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        settings.ApplicationName.replace(' ', '_').toLowerCase))
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        .build(new Graphite(new InetSocketAddress(settings.GraphiteHost,
+</span>96 <span style=''></span><span style='background: #F0ADAD'>        settings.GraphitePort))))
+</span>97 <span style=''></span><span style='background: #F0ADAD'>
+</span>98 <span style=''></span><span style='background: #F0ADAD'>      jvmGraphiteReporter = Some(GraphiteReporter.forRegistry(MetricBuilder.jvmRegistry)
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        .prefixedWith("%s.%s.%s.jvm".format(settings.MetricPrefix,
+</span>100 <span style=''></span><span style='background: #F0ADAD'>        InetAddress.getLocalHost.getHostName.split("\\.")(0),
+</span>101 <span style=''></span><span style='background: #F0ADAD'>        settings.ApplicationName.replace(' ', '_').toLowerCase))
+</span>102 <span style=''></span><span style='background: #F0ADAD'>        .build(new Graphite(new InetSocketAddress(settings.GraphiteHost,
+</span>103 <span style=''></span><span style='background: #F0ADAD'>        settings.GraphitePort))))
+</span>104 <span style=''></span><span style='background: #F0ADAD'>
+</span>105 <span style=''></span><span style='background: #F0ADAD'>      graphiteReporter.get.start(settings.GraphiteInterval, TimeUnit.MINUTES)
+</span>106 <span style=''></span><span style='background: #F0ADAD'>      jvmGraphiteReporter.get.start(settings.GraphiteInterval, TimeUnit.MINUTES)
+</span>107 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>108 <span style=''>
+</span>109 <span style=''>    // Start the JMX engine
+</span>110 <span style=''>    </span><span style='background: #AEF1AE'>MetricBuilder.registerJvmMetrics</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>    if (</span><span style='background: #AEF1AE'>settings.JmxEnabled</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>113 <span style=''></span><span style='background: #F0ADAD'>      jmxReporter = Some(JmxReporter.forRegistry(MetricBuilder()).build)
+</span>114 <span style=''></span><span style='background: #F0ADAD'>      jmxReporter.get.start
+</span>115 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>116 <span style=''>
+</span>117 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Metrics manager started: {}", context.self.path)</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  override def postStop() = {
+</span>121 <span style=''>    // Un-subscribe to events
+</span>122 <span style=''>    </span><span style='background: #AEF1AE'>MetricsEventBus.unsubscribe(self)</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>    </span><span style='background: #AEF1AE'>graphiteReporter</span><span style=''> match {
+</span>125 <span style=''>      case Some(reporter) =>
+</span>126 <span style=''>        // Flush our data
+</span>127 <span style=''>        </span><span style='background: #F0ADAD'>reporter.asInstanceOf[ScheduledReporter].report</span><span style=''>
+</span>128 <span style=''>        </span><span style='background: #F0ADAD'>reporter.close</span><span style=''>
+</span>129 <span style=''>        </span><span style='background: #F0ADAD'>graphiteReporter = None</span><span style=''>
+</span>130 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>131 <span style=''>      // do nothing
+</span>132 <span style=''>    }
+</span>133 <span style=''>    </span><span style='background: #AEF1AE'>jvmGraphiteReporter</span><span style=''> match {
+</span>134 <span style=''>      case Some(reporter) =>
+</span>135 <span style=''>        // Flush our data
+</span>136 <span style=''>        </span><span style='background: #F0ADAD'>reporter.asInstanceOf[ScheduledReporter].report</span><span style=''>
+</span>137 <span style=''>        </span><span style='background: #F0ADAD'>reporter.close</span><span style=''>
+</span>138 <span style=''>        </span><span style='background: #F0ADAD'>jvmGraphiteReporter = None</span><span style=''>
+</span>139 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>140 <span style=''>      // do nothing
+</span>141 <span style=''>    }
+</span>142 <span style=''>
+</span>143 <span style=''>    </span><span style='background: #AEF1AE'>jmxReporter</span><span style=''> match {
+</span>144 <span style=''>      case Some(reporter) =>
+</span>145 <span style=''>        </span><span style='background: #F0ADAD'>reporter.stop</span><span style=''>
+</span>146 <span style=''>        </span><span style='background: #F0ADAD'>jmxReporter = None</span><span style=''>
+</span>147 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>148 <span style=''>      // do nothing
+</span>149 <span style=''>    }
+</span>150 <span style=''>
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>MetricBuilder.registry.removeMatching(MetricFilter.ALL)</span><span style=''>
+</span>152 <span style=''>    </span><span style='background: #AEF1AE'>MetricBuilder.jvmRegistry.removeMatching(MetricFilter.ALL)</span><span style=''>
+</span>153 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Metrics manager stopped: {}", context.self.path)</span><span style=''>
+</span>154 <span style=''>  }
+</span>155 <span style=''>
+</span>156 <span style=''>  /**
+</span>157 <span style=''>   * This is the health of the current object, by default will be NORMAL
+</span>158 <span style=''>   * In general this should be overridden to define the health of the current object
+</span>159 <span style=''>   * For objects that simply manage other objects you shouldn't need to do anything
+</span>160 <span style=''>   * else, as the health of the children components would be handled by their own
+</span>161 <span style=''>   * CheckHealth function
+</span>162 <span style=''>   *
+</span>163 <span style=''>   * @return
+</span>164 <span style=''>   */
+</span>165 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>166 <span style=''>    </span><span style='background: #AEF1AE'>Future {
+</span>167 <span style=''></span><span style='background: #AEF1AE'>      Try({
+</span>168 <span style=''></span><span style='background: #AEF1AE'>        log.debug("MetricsActor health requested")
+</span>169 <span style=''></span><span style='background: #AEF1AE'>        settings.GraphiteEnabled match {
+</span>170 <span style=''></span><span style='background: #AEF1AE'>          case true =>
+</span>171 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Currently sending metrics to graphite at %s:%d"
+</span>172 <span style=''></span><span style='background: #F0ADAD'>              .format(settings.GraphiteHost, settings.GraphitePort))</span><span style='background: #AEF1AE'>
+</span>173 <span style=''></span><span style='background: #AEF1AE'>          case false =>
+</span>174 <span style=''></span><span style='background: #AEF1AE'>            HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Currently not sending metrics to graphite")
+</span>175 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>176 <span style=''></span><span style='background: #AEF1AE'>      }).recover({
+</span>177 <span style=''></span><span style='background: #AEF1AE'>        case e: Exception => </span><span style='background: #F0ADAD'>HealthComponent(Metrics.MetricsName, ComponentState.CRITICAL, "An error occurred checking the metrics health: ".concat(e.getMessage))</span><span style='background: #AEF1AE'>
+</span>178 <span style=''></span><span style='background: #AEF1AE'>      }).get
+</span>179 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>180 <span style=''>  }
+</span>181 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          1602
+          -
+          1640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.metrics.MetricsActor], settings)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          1837
+          -
+          1841
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          1910
+          -
+          1914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          1986
+          -
+          1990
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2008
+          -
+          3067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (format: String)com.webtrends.harness.component.messages.StatusRequest((format @ _)) =&gt; {
+        val metrics: net.liftweb.json.JValue = new MetricsWriter().getMetrics(MetricsActor.this.settings.GraphiteIncludeVMMetrics);
+        format match {
+          case &quot;string&quot; =&gt; {
+            MetricsActor.this.log.debug(&quot;Fetching the metrics in string format&quot;);
+            akka.this.actor.`package`.actorRef2Scala(MetricsActor.this.sender()).!(net.liftweb.json.`package`.compact(net.liftweb.json.`package`.render(metrics)))(MetricsActor.this.self)
+          }
+          case _ =&gt; {
+            MetricsActor.this.log.debug(&quot;Fetching the metrics in json format&quot;);
+            akka.this.actor.`package`.actorRef2Scala(MetricsActor.this.sender()).!(metrics)(MetricsActor.this.self)
+          }
+        }
+      }
+      case (name: String)com.webtrends.harness.component.messages.GetMetric((name @ _)) =&gt; {
+        MetricsActor.this.log.debug(scala.StringContext.apply(&quot;Fetching metric &quot;, &quot;&quot;).s(name));
+        val reg: com.codahale.metrics.MetricRegistry = MetricBuilder.registry;
+        val i: Int = 0;
+        ()
+      }
+      case (metric: com.webtrends.harness.component.metrics.metrictype.Metric)com.webtrends.harness.component.metrics.messages.RemoveMetric((metric @ _)) =&gt; {
+        MetricBuilder.remove(metric);
+        ()
+      }
+      case (o @ (_: com.webtrends.harness.component.metrics.messages.MetricObservation)) =&gt; o match {
+        case (o @ (_: com.webtrends.harness.component.metrics.messages.CounterObservation)) =&gt; MetricBuilder.apply(o).inc(o.delta.toLong)
+        case (o @ (_: com.webtrends.harness.component.metrics.messages.GaugeObservation)) =&gt; MetricBuilder.apply(o).setValue(o.value)
+        case (o @ (_: com.webtrends.harness.component.metrics.messages.HistogramObservation)) =&gt; MetricBuilder.apply(o).update(o.value)
+        case (o @ (_: com.webtrends.harness.component.metrics.messages.MeterObservation)) =&gt; MetricBuilder.apply(o).mark(o.events)
+        case (o @ (_: com.webtrends.harness.component.metrics.messages.TimerObservation)) =&gt; MetricBuilder.apply(o).update(o.elapsed, o.unit)
+      }
+      case _ =&gt; ()
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (format: String)com.webtrends.harness.component.messages.StatusRequest((format @ _)) =&gt; true
+      case (name: String)com.webtrends.harness.component.messages.GetMetric((name @ _)) =&gt; true
+      case (metric: com.webtrends.harness.component.metrics.metrictype.Metric)com.webtrends.harness.component.metrics.messages.RemoveMetric((metric @ _)) =&gt; true
+      case (o @ (_: com.webtrends.harness.component.metrics.messages.MetricObservation)) =&gt; true
+      case _ =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2022
+          -
+          2022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2078
+          -
+          2143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsWriter.getMetrics
+        </td>
+        <td style="background: #F0ADAD">
+          new MetricsWriter().getMetrics(MetricsActor.this.settings.GraphiteIncludeVMMetrics)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2109
+          -
+          2142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteIncludeVMMetrics
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteIncludeVMMetrics
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2200
+          -
+          2250
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.log.debug(&quot;Fetching the metrics in string format&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2270
+          -
+          2294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.compact
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compact(net.liftweb.json.`package`.render(metrics))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2278
+          -
+          2293
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.render
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.render(metrics)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          2261
+          -
+          2294
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MetricsActor.this.sender()).!(net.liftweb.json.`package`.compact(net.liftweb.json.`package`.render(metrics)))(MetricsActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2261
+          -
+          2267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          2268
+          -
+          2268
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          2323
+          -
+          2371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.log.debug(&quot;Fetching the metrics in json format&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          2382
+          -
+          2398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MetricsActor.this.sender()).!(metrics)(MetricsActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          2389
+          -
+          2389
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          2382
+          -
+          2388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          2433
+          -
+          2433
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          2442
+          -
+          2477
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.log.debug(scala.StringContext.apply(&quot;Fetching metric &quot;, &quot;&quot;).s(name))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          2452
+          -
+          2476
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Fetching metric &quot;, &quot;&quot;).s(name)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          2494
+          -
+          2516
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.registry
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.registry
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          2531
+          -
+          2532
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          2567
+          -
+          2595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.remove
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.remove(metric)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          2587
+          -
+          2587
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2684
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Counter.inc
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.apply(o).inc(o.delta.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2705
+          -
+          2712
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #AEF1AE">
+          o.delta.toLong
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2756
+          -
+          2790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.UpdatableGauge.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.apply(o).setValue(o.value)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2782
+          -
+          2789
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.messages.GaugeObservation.value
+        </td>
+        <td style="background: #F0ADAD">
+          o.value
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2861
+          -
+          2868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.messages.HistogramObservation.value
+        </td>
+        <td style="background: #F0ADAD">
+          o.value
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2837
+          -
+          2869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Histogram.update
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.apply(o).update(o.value)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2912
+          -
+          2943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Meter.mark
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.apply(o).mark(o.events)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2934
+          -
+          2942
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.messages.MeterObservation.events
+        </td>
+        <td style="background: #F0ADAD">
+          o.events
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2986
+          -
+          3028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Timer.update
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.apply(o).update(o.elapsed, o.unit)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          3021
+          -
+          3027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.messages.TimerObservation.unit
+        </td>
+        <td style="background: #F0ADAD">
+          o.unit
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          3010
+          -
+          3019
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.messages.TimerObservation.elapsed
+        </td>
+        <td style="background: #F0ADAD">
+          o.elapsed
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          3046
+          -
+          3048
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          3128
+          -
+          3159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsEventBus.subscribe
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsEventBus.subscribe(MetricsActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          3154
+          -
+          3158
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3195
+          -
+          4126
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  MetricsActor.this.graphiteReporter_=(scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.apply()).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))));
+  MetricsActor.this.jvmGraphiteReporter_=(scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.jvmRegistry).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s.jvm&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))));
+  MetricsActor.this.graphiteReporter.get.start(MetricsActor.this.settings.GraphiteInterval.toLong, MINUTES);
+  MetricsActor.this.jvmGraphiteReporter.get.start(MetricsActor.this.settings.GraphiteInterval.toLong, MINUTES)
+}
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          3169
+          -
+          3193
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteEnabled
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.settings.GraphiteEnabled
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          3165
+          -
+          3165
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          3165
+          -
+          3165
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3222
+          -
+          3569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.apply()).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort))))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          3256
+          -
+          3271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.apply
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.apply()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3203
+          -
+          3569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.graphiteReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.graphiteReporter_=(scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.apply()).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          3313
+          -
+          3334
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.MetricPrefix
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.MetricPrefix
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          3295
+          -
+          3461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;%s.%s.%s&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          3295
+          -
+          3305
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%s.%s.%s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          3344
+          -
+          3396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          3406
+          -
+          3460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.toLowerCase
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3491
+          -
+          3566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetSocketAddress.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3227
+          -
+          3568
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.graphite.GraphiteReporter.Builder.build
+        </td>
+        <td style="background: #F0ADAD">
+          com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.apply()).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          3513
+          -
+          3534
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteHost
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteHost
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3478
+          -
+          3567
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.graphite.Graphite.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3544
+          -
+          3565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphitePort
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphitePort
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3577
+          -
+          3960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jvmGraphiteReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jvmGraphiteReporter_=(scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.jvmRegistry).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s.jvm&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3633
+          -
+          3658
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.jvmRegistry
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.jvmRegistry
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3599
+          -
+          3960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.codahale.metrics.graphite.GraphiteReporter](com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.jvmRegistry).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s.jvm&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort))))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3682
+          -
+          3696
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%s.%s.%s.jvm&quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3704
+          -
+          3725
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.MetricPrefix
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.MetricPrefix
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3682
+          -
+          3852
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;%s.%s.%s.jvm&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3735
+          -
+          3787
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3797
+          -
+          3851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.toLowerCase
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3604
+          -
+          3959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.graphite.GraphiteReporter.Builder.build
+        </td>
+        <td style="background: #F0ADAD">
+          com.codahale.metrics.graphite.GraphiteReporter.forRegistry(MetricBuilder.jvmRegistry).prefixedWith(scala.this.Predef.augmentString(&quot;%s.%s.%s.jvm&quot;).format(MetricsActor.this.settings.MetricPrefix, java.net.InetAddress.getLocalHost().getHostName().split(&quot;\\.&quot;).apply(0), MetricsActor.this.settings.ApplicationName.replace(' ', '_').toLowerCase())).build(new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3904
+          -
+          3925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteHost
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteHost
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3869
+          -
+          3958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.graphite.Graphite.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.graphite.Graphite(new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3882
+          -
+          3957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetSocketAddress.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.net.InetSocketAddress(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3935
+          -
+          3956
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphitePort
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphitePort
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3995
+          -
+          4020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteInterval.toLong
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3968
+          -
+          4039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.start
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.graphiteReporter.get.start(MetricsActor.this.settings.GraphiteInterval.toLong, MINUTES)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          4022
+          -
+          4038
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          MINUTES
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          4076
+          -
+          4101
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteInterval.toLong
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          4046
+          -
+          4120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.start
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jvmGraphiteReporter.get.start(MetricsActor.this.settings.GraphiteInterval.toLong, MINUTES)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          4103
+          -
+          4119
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          MINUTES
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          4160
+          -
+          4192
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.registerJvmMetrics
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.registerJvmMetrics
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          4223
+          -
+          4331
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  MetricsActor.this.jmxReporter_=(scala.Some.apply[com.codahale.metrics.JmxReporter](com.codahale.metrics.JmxReporter.forRegistry(MetricBuilder.apply()).build()));
+  MetricsActor.this.jmxReporter.get.start()
+}
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          4198
+          -
+          4198
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          4198
+          -
+          4198
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          4202
+          -
+          4221
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.JmxEnabled
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.settings.JmxEnabled
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4245
+          -
+          4297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.codahale.metrics.JmxReporter](com.codahale.metrics.JmxReporter.forRegistry(MetricBuilder.apply()).build())
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          4250
+          -
+          4296
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.JmxReporter.Builder.build
+        </td>
+        <td style="background: #F0ADAD">
+          com.codahale.metrics.JmxReporter.forRegistry(MetricBuilder.apply()).build()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4231
+          -
+          4297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jmxReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jmxReporter_=(scala.Some.apply[com.codahale.metrics.JmxReporter](com.codahale.metrics.JmxReporter.forRegistry(MetricBuilder.apply()).build()))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          4304
+          -
+          4325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.JmxReporter.start
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jmxReporter.get.start()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          4346
+          -
+          4375
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Metrics manager started: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          4337
+          -
+          4395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.log.info(&quot;Metrics manager started: {}&quot;, MetricsActor.this.context.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          4377
+          -
+          4394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.context.self.path
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          4493
+          -
+          4497
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          4465
+          -
+          4498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsEventBus.unsubscribe
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsEventBus.unsubscribe(MetricsActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          4504
+          -
+          4520
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.graphiteReporter
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.graphiteReporter
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          4592
+          -
+          4639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.report
+        </td>
+        <td style="background: #F0ADAD">
+          reporter.asInstanceOf[com.codahale.metrics.ScheduledReporter].report()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          4648
+          -
+          4662
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.close
+        </td>
+        <td style="background: #F0ADAD">
+          reporter.close()
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          4671
+          -
+          4694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.graphiteReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.graphiteReporter_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          4690
+          -
+          4694
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          4708
+          -
+          4710
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          4741
+          -
+          4760
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jvmGraphiteReporter
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.jvmGraphiteReporter
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          4832
+          -
+          4879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.report
+        </td>
+        <td style="background: #F0ADAD">
+          reporter.asInstanceOf[com.codahale.metrics.ScheduledReporter].report()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          4888
+          -
+          4902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ScheduledReporter.close
+        </td>
+        <td style="background: #F0ADAD">
+          reporter.close()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          4911
+          -
+          4937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jvmGraphiteReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jvmGraphiteReporter_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          4933
+          -
+          4937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          4951
+          -
+          4953
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          4985
+          -
+          4996
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jmxReporter
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.jmxReporter
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          5042
+          -
+          5055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.JmxReporter.stop
+        </td>
+        <td style="background: #F0ADAD">
+          reporter.stop()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          5064
+          -
+          5082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.jmxReporter_=
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.jmxReporter_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          5078
+          -
+          5082
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          5096
+          -
+          5098
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          5130
+          -
+          5185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.removeMatching
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.registry.removeMatching(com.codahale.metrics.MetricFilter.ALL)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          5168
+          -
+          5184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.codahale.metrics.MetricFilter.ALL
+        </td>
+        <td style="background: #AEF1AE">
+          com.codahale.metrics.MetricFilter.ALL
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          5231
+          -
+          5247
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.codahale.metrics.MetricFilter.ALL
+        </td>
+        <td style="background: #AEF1AE">
+          com.codahale.metrics.MetricFilter.ALL
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          5190
+          -
+          5248
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.removeMatching
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.jvmRegistry.removeMatching(com.codahale.metrics.MetricFilter.ALL)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          5262
+          -
+          5291
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Metrics manager stopped: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          5253
+          -
+          5311
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.log.info(&quot;Metrics manager stopped: {}&quot;, MetricsActor.this.context.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          5293
+          -
+          5310
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.context.self.path
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          5765
+          -
+          6442
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](scala.util.Try.apply[com.webtrends.harness.health.HealthComponent]({
+  MetricsActor.this.log.debug(&quot;MetricsActor health requested&quot;);
+  MetricsActor.this.settings.GraphiteEnabled match {
+    case true =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Currently sending metrics to graphite at %s:%d&quot;).format(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+    case false =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Currently not sending metrics to graphite&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  }
+}).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;An error occurred checking the metrics health: &quot;.concat(e.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent])).get)(MetricsActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          5772
+          -
+          5772
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          5794
+          -
+          5836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.log.debug(&quot;MetricsActor health requested&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          5845
+          -
+          5869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteEnabled
+        </td>
+        <td style="background: #AEF1AE">
+          MetricsActor.this.settings.GraphiteEnabled
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          5913
+          -
+          6090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Currently sending metrics to graphite at %s:%d&quot;).format(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          5973
+          -
+          6021
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Currently sending metrics to graphite at %s:%d&quot;
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          5913
+          -
+          5913
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          5950
+          -
+          5971
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          5929
+          -
+          5948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.Metrics.MetricsName
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.MetricsName
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          5913
+          -
+          5913
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          6067
+          -
+          6088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphitePort
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphitePort
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          6044
+          -
+          6065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.monitoring.MonitoringSettings.GraphiteHost
+        </td>
+        <td style="background: #F0ADAD">
+          MetricsActor.this.settings.GraphiteHost
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          5973
+          -
+          6089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Currently sending metrics to graphite at %s:%d&quot;).format(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort)
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          6187
+          -
+          6230
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Currently not sending metrics to graphite&quot;
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          6164
+          -
+          6185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          6127
+          -
+          6127
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          6143
+          -
+          6162
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.Metrics.MetricsName
+        </td>
+        <td style="background: #AEF1AE">
+          Metrics.MetricsName
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          6127
+          -
+          6127
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          6127
+          -
+          6231
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Currently not sending metrics to graphite&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          6259
+          -
+          6259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricsActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          6352
+          -
+          6401
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;An error occurred checking the metrics health: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          6290
+          -
+          6290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          6352
+          -
+          6422
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;An error occurred checking the metrics health: &quot;.concat(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          6290
+          -
+          6423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;An error occurred checking the metrics health: &quot;.concat(e.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          6327
+          -
+          6350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          6409
+          -
+          6421
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          6290
+          -
+          6290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          6306
+          -
+          6325
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.Metrics.MetricsName
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.MetricsName
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          5780
+          -
+          6436
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Try.get
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[com.webtrends.harness.health.HealthComponent]({
+  MetricsActor.this.log.debug(&quot;MetricsActor health requested&quot;);
+  MetricsActor.this.settings.GraphiteEnabled match {
+    case true =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Currently sending metrics to graphite at %s:%d&quot;).format(MetricsActor.this.settings.GraphiteHost, MetricsActor.this.settings.GraphitePort), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+    case false =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Currently not sending metrics to graphite&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  }
+}).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; com.webtrends.harness.health.HealthComponent.apply(Metrics.MetricsName, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;An error occurred checking the metrics health: &quot;.concat(e.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent])).get
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
