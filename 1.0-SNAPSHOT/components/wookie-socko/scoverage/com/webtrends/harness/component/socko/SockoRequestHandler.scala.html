@@ -1,0 +1,5513 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/SockoRequestHandler.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.socko
+</span>2 <span style=''>
+</span>3 <span style=''>import java.net.InetAddress
+</span>4 <span style=''>import java.text.SimpleDateFormat
+</span>5 <span style=''>import java.util.Calendar
+</span>6 <span style=''>
+</span>7 <span style=''>import io.netty.buffer.Unpooled
+</span>8 <span style=''>import io.netty.channel._
+</span>9 <span style=''>import io.netty.handler.codec.TooLongFrameException
+</span>10 <span style=''>import io.netty.handler.codec.http.{HttpContent, HttpResponseStatus, _}
+</span>11 <span style=''>import io.netty.handler.codec.http.websocketx._
+</span>12 <span style=''>import io.netty.handler.ssl.SslHandler
+</span>13 <span style=''>import io.netty.handler.timeout.{IdleState, IdleStateEvent}
+</span>14 <span style=''>import org.mashupbots.socko.events._
+</span>15 <span style=''>import org.mashupbots.socko.infrastructure.{Logger, CharsetUtil}
+</span>16 <span style=''>import org.mashupbots.socko.webserver.WebServer
+</span>17 <span style=''>
+</span>18 <span style=''>class SockoRequestHandler(server: WebServer, routes: PartialFunction[SockoEvent, Unit]) extends ChannelInboundHandlerAdapter with Logger {
+</span>19 <span style=''>  val ip = </span><span style='background: #AEF1AE'>InetAddress.getLocalHost.getHostAddress</span><span style=''>
+</span>20 <span style=''>
+</span>21 <span style=''>  /**
+</span>22 <span style=''>   * WebSocket handshaker used when closing web sockets
+</span>23 <span style=''>   */
+</span>24 <span style=''>  private var wsHandshaker: WebSocketServerHandshaker = </span><span style='background: #AEF1AE'>null</span><span style=''>
+</span>25 <span style=''>
+</span>26 <span style=''>  /**
+</span>27 <span style=''>   * Details of the initial HTTP that kicked off HTTP Chunk or WebSocket processing
+</span>28 <span style=''>   */
+</span>29 <span style=''>  private var initialHttpRequest: Option[InitialHttpRequestMessage] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>30 <span style=''>
+</span>31 <span style=''>  private val httpConfig = </span><span style='background: #AEF1AE'>HttpEventConfig(
+</span>32 <span style=''></span><span style='background: #AEF1AE'>    server.config.serverName,
+</span>33 <span style=''></span><span style='background: #AEF1AE'>    server.config.http.minCompressibleContentSizeInBytes,
+</span>34 <span style=''></span><span style='background: #AEF1AE'>    server.config.http.maxCompressibleContentSizeInBytes,
+</span>35 <span style=''></span><span style='background: #AEF1AE'>    server.config.http.compressibleContentTypes,
+</span>36 <span style=''></span><span style='background: #AEF1AE'>    server.webLogWriter)</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  /**
+</span>39 <span style=''>   * Web socket processing configuration
+</span>40 <span style=''>   */
+</span>41 <span style=''>  private lazy val wsConfig = </span><span style='background: #F0ADAD'>WebSocketEventConfig(server.config.serverName, server.webLogWriter)</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  /**
+</span>44 <span style=''>   * Handle idle state timeouts so we can close idle connections
+</span>45 <span style=''>   */
+</span>46 <span style=''>  override def userEventTriggered(ctx: ChannelHandlerContext, evt: Object) = {
+</span>47 <span style=''>    evt match {
+</span>48 <span style=''>      case idleStateEvent: IdleStateEvent =>
+</span>49 <span style=''>        if (</span><span style='background: #F0ADAD'>idleStateEvent.state() == IdleState.ALL_IDLE</span><span style=''>) {
+</span>50 <span style=''>          </span><span style='background: #F0ADAD'>ctx.close()</span><span style=''>
+</span>51 <span style=''>        }
+</span>52 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''>
+</span>53 <span style=''>      // Ignore
+</span>54 <span style=''>    }
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  override def channelRead(ctx: ChannelHandlerContext, e: AnyRef) {
+</span>58 <span style=''>    def fixInvalid(httpRequest: HttpRequest) {
+</span>59 <span style=''>      </span><span style='background: #AEF1AE'>HttpHeaders.getHost(httpRequest)</span><span style=''> match {
+</span>60 <span style=''>        case null | "" => </span><span style='background: #F0ADAD'>HttpHeaders.setHost(httpRequest, ip)</span><span style=''>
+</span>61 <span style=''>        case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>62 <span style=''>      }
+</span>63 <span style=''>    }
+</span>64 <span style=''>
+</span>65 <span style=''>    e match {
+</span>66 <span style=''>      case httpRequest: FullHttpRequest =>
+</span>67 <span style=''>        </span><span style='background: #AEF1AE'>fixInvalid(httpRequest)</span><span style=''>
+</span>68 <span style=''>        val event = </span><span style='background: #AEF1AE'>HttpRequestEvent(ctx, httpRequest, httpConfig)</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>        </span><span style='background: #AEF1AE'>log.debug("HTTP FULL REQUEST {} CHANNEL={} {}", event.endPoint, ctx.name, "")</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>        if (</span><span style='background: #AEF1AE'>event.request.isWebSocketUpgrade</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>73 <span style=''></span><span style='background: #F0ADAD'>          val wsctx = WebSocketHandshakeEvent(ctx, httpRequest, httpConfig)
+</span>74 <span style=''></span><span style='background: #F0ADAD'>          routes(wsctx)
+</span>75 <span style=''></span><span style='background: #F0ADAD'>          doWebSocketHandshake(wsctx)
+</span>76 <span style=''></span><span style='background: #F0ADAD'>          initialHttpRequest = Some(new InitialHttpRequestMessage(event.request, event.createdOn))
+</span>77 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''> else {
+</span>78 <span style=''>          </span><span style='background: #AEF1AE'>routes(event)</span><span style=''>
+</span>79 <span style=''>        }
+</span>80 <span style=''>
+</span>81 <span style=''>      case httpRequest: HttpRequest =>
+</span>82 <span style=''>        </span><span style='background: #F0ADAD'>fixInvalid(httpRequest)</span><span style=''>
+</span>83 <span style=''>        val event = </span><span style='background: #F0ADAD'>HttpRequestEvent(ctx, httpRequest, httpConfig)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("HTTP REQUEST {} CHANNEL={} {}", event.endPoint, ctx.name, "")</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>        </span><span style='background: #F0ADAD'>validateFirstChunk(event)</span><span style=''>
+</span>88 <span style=''>        </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>89 <span style=''>        </span><span style='background: #F0ADAD'>initialHttpRequest = Some(new InitialHttpRequestMessage(event.request, event.createdOn))</span><span style=''>
+</span>90 <span style=''>
+</span>91 <span style=''>      case httpLastChunk: LastHttpContent =>
+</span>92 <span style=''>        val event = </span><span style='background: #F0ADAD'>HttpLastChunkEvent(ctx, initialHttpRequest.get, httpLastChunk, httpConfig)</span><span style=''>
+</span>93 <span style=''>
+</span>94 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("HTTP LAST CHUNK {} CHANNEL={} {}", event.endPoint, ctx.name, "")</span><span style=''>
+</span>95 <span style=''>
+</span>96 <span style=''>        </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>97 <span style=''>        </span><span style='background: #F0ADAD'>validateLastChunk(event)</span><span style=''>
+</span>98 <span style=''>
+</span>99 <span style=''>      case httpChunk: HttpContent =>
+</span>100 <span style=''>        val event = </span><span style='background: #F0ADAD'>HttpChunkEvent(ctx, initialHttpRequest.get, httpChunk, httpConfig)</span><span style=''>
+</span>101 <span style=''>        </span><span style='background: #F0ADAD'>initialHttpRequest.get.totalChunkContentLength += httpChunk.content.readableBytes</span><span style=''>
+</span>102 <span style=''>
+</span>103 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("HTTP CHUNK {} CHANNEL={} {}", event.endPoint, ctx.name, "")</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>        </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>106 <span style=''>
+</span>107 <span style=''>      case wsFrame: WebSocketFrame =>
+</span>108 <span style=''>        val event = </span><span style='background: #F0ADAD'>WebSocketFrameEvent(ctx, initialHttpRequest.get, wsFrame, wsConfig)</span><span style=''>
+</span>109 <span style=''>
+</span>110 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("WS {} CHANNEL={} {}", event.endPoint, ctx.name, "")</span><span style=''>
+</span>111 <span style=''>
+</span>112 <span style=''>        wsFrame match {
+</span>113 <span style=''>          case f: TextWebSocketFrame =>
+</span>114 <span style=''>            </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>115 <span style=''>
+</span>116 <span style=''>          case f: BinaryWebSocketFrame =>
+</span>117 <span style=''>            </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>118 <span style=''>
+</span>119 <span style=''>          case f: ContinuationWebSocketFrame =>
+</span>120 <span style=''>            </span><span style='background: #F0ADAD'>routes(event)</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>          case f: CloseWebSocketFrame =>
+</span>123 <span style=''>            </span><span style='background: #F0ADAD'>wsHandshaker.close(ctx.channel, f)</span><span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>          case f: PingWebSocketFrame =>
+</span>126 <span style=''>            // Send pong frame
+</span>127 <span style=''>            </span><span style='background: #F0ADAD'>ctx.writeAndFlush(new PongWebSocketFrame(f.isFinalFragment, f.rsv, f.content))</span><span style=''>
+</span>128 <span style=''>
+</span>129 <span style=''>          case f: PongWebSocketFrame =>
+</span>130 <span style=''>            // Ignore
+</span>131 <span style=''>            </span><span style='background: #F0ADAD'>wsFrame.release</span><span style=''>
+</span>132 <span style=''>
+</span>133 <span style=''>          case _ =>
+</span>134 <span style=''>            </span><span style='background: #F0ADAD'>throw new UnsupportedOperationException("Web socket frame not supported: " + wsFrame.getClass.getName)</span><span style=''>
+</span>135 <span style=''>        }
+</span>136 <span style=''>
+</span>137 <span style=''>      case _ =>
+</span>138 <span style=''>        </span><span style='background: #F0ADAD'>throw new UnsupportedOperationException(e.getClass.toString + " not supported")</span><span style=''>
+</span>139 <span style=''>    }
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>  /**
+</span>143 <span style=''>   * Check if it is valid to process chunks and store state information.
+</span>144 <span style=''>   *
+</span>145 <span style=''>   * An exception is thrown if invalid.
+</span>146 <span style=''>   *
+</span>147 <span style=''>   * @param event HTTP request event that is chunked
+</span>148 <span style=''>   */
+</span>149 <span style=''>  private def validateFirstChunk(event: HttpRequestEvent) {
+</span>150 <span style=''>    if (</span><span style='background: #F0ADAD'>isAggreatingChunks(event.context.channel)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>151 <span style=''></span><span style='background: #F0ADAD'>      if (event.request.isChunked) {
+</span>152 <span style=''></span><span style='background: #F0ADAD'>        if (initialHttpRequest.isDefined) {
+</span>153 <span style=''></span><span style='background: #F0ADAD'>          throw new IllegalStateException("New chunk started before the previous chunk ended")
+</span>154 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>155 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>156 <span style=''></span><span style='background: #F0ADAD'>      if (!event.request.isChunked && initialHttpRequest.isDefined) {
+</span>157 <span style=''></span><span style='background: #F0ADAD'>        throw new IllegalStateException("New request received before the previous chunk ended")
+</span>158 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>159 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>if (event.request.isChunked) {
+</span>160 <span style=''></span><span style='background: #F0ADAD'>      throw new IllegalStateException("Received a chunk when chunks should have been aggreated")
+</span>161 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>162 <span style=''>  }
+</span>163 <span style=''>
+</span>164 <span style=''>  /**
+</span>165 <span style=''>   * Check for last chunk
+</span>166 <span style=''>   */
+</span>167 <span style=''>  private def validateLastChunk(event: HttpLastChunkEvent) {
+</span>168 <span style=''>    if (</span><span style='background: #F0ADAD'>isAggreatingChunks(event.context.channel)</span><span style=''>) {
+</span>169 <span style=''>      </span><span style='background: #F0ADAD'>initialHttpRequest = None</span><span style=''>
+</span>170 <span style=''>    } else {
+</span>171 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Received a chunk when chunks should have been aggreated")</span><span style=''>
+</span>172 <span style=''>    }
+</span>173 <span style=''>  }
+</span>174 <span style=''>
+</span>175 <span style=''>  /**
+</span>176 <span style=''>   * If there is an unhandled exception log and close
+</span>177 <span style=''>   */
+</span>178 <span style=''>  override def exceptionCaught(ctx: ChannelHandlerContext, e: Throwable) {
+</span>179 <span style=''>    </span><span style='background: #F0ADAD'>log.error("Exception caught in HttpRequestHandler", e)</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>    e match {
+</span>182 <span style=''>      // Cannot find route
+</span>183 <span style=''>      case ex: MatchError => </span><span style='background: #F0ADAD'>writeErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, ex)</span><span style=''>
+</span>184 <span style=''>      // Request data size too big
+</span>185 <span style=''>      case ex: TooLongFrameException => </span><span style='background: #F0ADAD'>writeErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, ex)</span><span style=''>
+</span>186 <span style=''>      // Websockets not supported at this route
+</span>187 <span style=''>      case ex: UnsupportedOperationException => </span><span style='background: #F0ADAD'>writeErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, ex)</span><span style=''>
+</span>188 <span style=''>      // Websockets handshake error
+</span>189 <span style=''>      case ex: WebSocketHandshakeException => </span><span style='background: #F0ADAD'>writeErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, ex)</span><span style=''>
+</span>190 <span style=''>      // Catch all
+</span>191 <span style=''>      case ex => {
+</span>192 <span style=''>        try {
+</span>193 <span style=''>          </span><span style='background: #F0ADAD'>log.debug("Error handling request", ex)
+</span>194 <span style=''></span><span style='background: #F0ADAD'>          ctx.channel.close</span><span style=''>
+</span>195 <span style=''>        } catch {
+</span>196 <span style=''>          case ex2: Throwable => </span><span style='background: #F0ADAD'>log.debug("Error closing channel", ex2)</span><span style=''>
+</span>197 <span style=''>        }
+</span>198 <span style=''>      }
+</span>199 <span style=''>    }
+</span>200 <span style=''>  }
+</span>201 <span style=''>
+</span>202 <span style=''>  /**
+</span>203 <span style=''>   * Write HTTP error response and close the channel
+</span>204 <span style=''>   *
+</span>205 <span style=''>   * @param ctx Channel Event
+</span>206 <span style=''>   * @param status HTTP error status indicating the nature of the error
+</span>207 <span style=''>   * @param ex Exception
+</span>208 <span style=''>   */
+</span>209 <span style=''>  private def writeErrorResponse(ctx: ChannelHandlerContext, status: HttpResponseStatus, ex: Throwable) {
+</span>210 <span style=''>    val sf = </span><span style='background: #F0ADAD'>new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S Z")</span><span style=''>
+</span>211 <span style=''>
+</span>212 <span style=''>    val msg = </span><span style='background: #F0ADAD'>"Failure: %s\n\n%s\n\n%s".format(
+</span>213 <span style=''></span><span style='background: #F0ADAD'>      status.toString(),
+</span>214 <span style=''></span><span style='background: #F0ADAD'>      if (ex == null) "" else ex.getMessage,
+</span>215 <span style=''></span><span style='background: #F0ADAD'>      sf.format(Calendar.getInstance().getTime()))</span><span style=''>
+</span>216 <span style=''>
+</span>217 <span style=''>    // Write HTTP Response
+</span>218 <span style=''>    val bytes = </span><span style='background: #F0ADAD'>s"Failure: ${status}\r\n\r\n${ex.getMessage}\r\n".getBytes(CharsetUtil.UTF_8)</span><span style=''>
+</span>219 <span style=''>    val content = </span><span style='background: #F0ADAD'>Unpooled.wrappedBuffer(bytes)</span><span style=''>
+</span>220 <span style=''>    val response = </span><span style='background: #F0ADAD'>new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content)</span><span style=''>
+</span>221 <span style=''>    </span><span style='background: #F0ADAD'>response.headers.set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8")</span><span style=''>
+</span>222 <span style=''>
+</span>223 <span style=''>    // Close the connection as soon as the error message is sent.
+</span>224 <span style=''>    </span><span style='background: #F0ADAD'>ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE)</span><span style=''>
+</span>225 <span style=''>  }
+</span>226 <span style=''>
+</span>227 <span style=''>  /**
+</span>228 <span style=''>   * When channel open, add it to our channel group so we know which channels are
+</span>229 <span style=''>   * opened.
+</span>230 <span style=''>   *
+</span>231 <span style=''>   * Note that when a channel closes, `allChannels` automatically removes it.
+</span>232 <span style=''>   */
+</span>233 <span style=''>  override def channelActive(ctx: ChannelHandlerContext) {
+</span>234 <span style=''>    </span><span style='background: #AEF1AE'>server.allChannels.add(ctx.channel)</span><span style=''>
+</span>235 <span style=''>  }
+</span>236 <span style=''>
+</span>237 <span style=''>  /**
+</span>238 <span style=''>   * Performs web socket handshake
+</span>239 <span style=''>   *
+</span>240 <span style=''>   * @param event Handshake event
+</span>241 <span style=''>   */
+</span>242 <span style=''>  private def doWebSocketHandshake(event: WebSocketHandshakeEvent): Unit = {
+</span>243 <span style=''>    if (</span><span style='background: #F0ADAD'>!event.isAuthorized</span><span style=''>) {
+</span>244 <span style=''>      </span><span style='background: #F0ADAD'>throw new UnsupportedOperationException("Websocket not supported at this end point")</span><span style=''>
+</span>245 <span style=''>    }
+</span>246 <span style=''>
+</span>247 <span style=''>    val wsFactory = </span><span style='background: #F0ADAD'>new WebSocketServerHandshakerFactory(
+</span>248 <span style=''></span><span style='background: #F0ADAD'>      createWebSocketLocation(event),
+</span>249 <span style=''></span><span style='background: #F0ADAD'>      if (event.authorizedSubprotocols == "") null else event.authorizedSubprotocols,
+</span>250 <span style=''></span><span style='background: #F0ADAD'>      false,
+</span>251 <span style=''></span><span style='background: #F0ADAD'>      event.maxFrameSize)</span><span style=''>
+</span>252 <span style=''>    </span><span style='background: #F0ADAD'>wsHandshaker = wsFactory.newHandshaker(event.nettyHttpRequest)</span><span style=''>
+</span>253 <span style=''>    if (</span><span style='background: #F0ADAD'>wsHandshaker == null</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>254 <span style=''></span><span style='background: #F0ADAD'>      WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(event.context.channel)
+</span>255 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.UPGRADE_REQUIRED.code, 0)
+</span>256 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
+</span>257 <span style=''></span><span style='background: #F0ADAD'>      val id = event.webSocketId
+</span>258 <span style=''></span><span style='background: #F0ADAD'>      val future = wsHandshaker.handshake(event.context.channel, event.nettyHttpRequest)
+</span>259 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.SWITCHING_PROTOCOLS.code, 0)
+</span>260 <span style=''></span><span style='background: #F0ADAD'>
+</span>261 <span style=''></span><span style='background: #F0ADAD'>      // Register websockets with the manager
+</span>262 <span style=''></span><span style='background: #F0ADAD'>      server.webSocketConnections.allWebSocketChannels.add(event.context.channel)
+</span>263 <span style=''></span><span style='background: #F0ADAD'>
+</span>264 <span style=''></span><span style='background: #F0ADAD'>      // Callback on complete AFTER data sent to the client
+</span>265 <span style=''></span><span style='background: #F0ADAD'>      if (event.onComplete.isDefined) {
+</span>266 <span style=''></span><span style='background: #F0ADAD'>        class OnCompleteListender extends ChannelFutureListener {
+</span>267 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
+</span>268 <span style=''></span><span style='background: #F0ADAD'>            event.onComplete.get(id)
+</span>269 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>270 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>271 <span style=''></span><span style='background: #F0ADAD'>        future.addListener(new OnCompleteListender())
+</span>272 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>273 <span style=''></span><span style='background: #F0ADAD'>
+</span>274 <span style=''></span><span style='background: #F0ADAD'>      // Callback on close - after the web socket connection (netty channel) is closed
+</span>275 <span style=''></span><span style='background: #F0ADAD'>      if (event.onClose.isDefined) {
+</span>276 <span style=''></span><span style='background: #F0ADAD'>        class OnCloseListender extends ChannelFutureListener {
+</span>277 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
+</span>278 <span style=''></span><span style='background: #F0ADAD'>            event.onClose.get(id)
+</span>279 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>280 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>281 <span style=''></span><span style='background: #F0ADAD'>        event.context.channel.closeFuture.addListener(new OnCloseListender())
+</span>282 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>283 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>284 <span style=''>  }
+</span>285 <span style=''>
+</span>286 <span style=''>  /**
+</span>287 <span style=''>   * Creates the web socket location - basically the same as the URL but http is replaced with ws
+</span>288 <span style=''>   */
+</span>289 <span style=''>  private def createWebSocketLocation(e: WebSocketHandshakeEvent): String = {
+</span>290 <span style=''>    val sb = </span><span style='background: #F0ADAD'>new StringBuilder</span><span style=''>
+</span>291 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(if (isSSLConnection(e.context.channel)) "wss" else "ws")</span><span style=''>
+</span>292 <span style=''>    </span><span style='background: #F0ADAD'>sb.append("://")</span><span style=''>
+</span>293 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.request.headers.get(HttpHeaders.Names.HOST))</span><span style=''>
+</span>294 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.endPoint.uri)</span><span style=''>
+</span>295 <span style=''>    </span><span style='background: #F0ADAD'>sb.toString</span><span style=''>
+</span>296 <span style=''>  }
+</span>297 <span style=''>
+</span>298 <span style=''>  /**
+</span>299 <span style=''>   * Check if SSL is being used
+</span>300 <span style=''>   */
+</span>301 <span style=''>  private def isSSLConnection(channel: Channel): Boolean = {
+</span>302 <span style=''>    (</span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[SslHandler]) != null</span><span style=''>)
+</span>303 <span style=''>  }
+</span>304 <span style=''>
+</span>305 <span style=''>  /**
+</span>306 <span style=''>   * Check if this channel is aggregating chunks
+</span>307 <span style=''>   */
+</span>308 <span style=''>  private def isAggreatingChunks(channel: Channel): Boolean = {
+</span>309 <span style=''>    (</span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[HttpObjectAggregator]) != null</span><span style=''>)
+</span>310 <span style=''>  }
+</span>311 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          408
+        </td>
+        <td>
+          766
+          -
+          805
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostAddress
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.InetAddress.getLocalHost().getHostAddress()
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          409
+        </td>
+        <td>
+          931
+          -
+          935
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          410
+        </td>
+        <td>
+          1103
+          -
+          1107
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          416
+        </td>
+        <td>
+          1136
+          -
+          1372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpEventConfig.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.events.HttpEventConfig.apply(SockoRequestHandler.this.server.config.serverName, SockoRequestHandler.this.server.config.http.minCompressibleContentSizeInBytes, SockoRequestHandler.this.server.config.http.maxCompressibleContentSizeInBytes, SockoRequestHandler.this.server.config.http.compressibleContentTypes, SockoRequestHandler.this.server.webLogWriter)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          411
+        </td>
+        <td>
+          1157
+          -
+          1181
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.serverName
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.config.serverName
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          412
+        </td>
+        <td>
+          1187
+          -
+          1239
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.HttpConfig.minCompressibleContentSizeInBytes
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.config.http.minCompressibleContentSizeInBytes
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          413
+        </td>
+        <td>
+          1245
+          -
+          1297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.HttpConfig.maxCompressibleContentSizeInBytes
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.config.http.maxCompressibleContentSizeInBytes
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          414
+        </td>
+        <td>
+          1303
+          -
+          1346
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.HttpConfig.compressibleContentTypes
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.config.http.compressibleContentTypes
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          415
+        </td>
+        <td>
+          1352
+          -
+          1371
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServer.webLogWriter
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.webLogWriter
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          418
+        </td>
+        <td>
+          1504
+          -
+          1523
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServer.webLogWriter
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.server.webLogWriter
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          417
+        </td>
+        <td>
+          1478
+          -
+          1502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.serverName
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.server.config.serverName
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          419
+        </td>
+        <td>
+          1457
+          -
+          1524
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketEventConfig.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.WebSocketEventConfig.apply(SockoRequestHandler.this.server.config.serverName, SockoRequestHandler.this.server.webLogWriter)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          424
+        </td>
+        <td>
+          1751
+          -
+          1751
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          420
+        </td>
+        <td>
+          1755
+          -
+          1799
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          idleStateEvent.state().==(ALL_IDLE)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          425
+        </td>
+        <td>
+          1751
+          -
+          1751
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          421
+        </td>
+        <td>
+          1813
+          -
+          1824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.close
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.close()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          423
+        </td>
+        <td>
+          1813
+          -
+          1824
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ctx.close();
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          422
+        </td>
+        <td>
+          1822
+          -
+          1822
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          426
+        </td>
+        <td>
+          1848
+          -
+          1850
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          427
+        </td>
+        <td>
+          1999
+          -
+          2031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.getHost
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.handler.codec.http.HttpHeaders.getHost(httpRequest)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          429
+        </td>
+        <td>
+          2066
+          -
+          2102
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.setHost
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpHeaders.setHost(httpRequest, SockoRequestHandler.this.ip)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          428
+        </td>
+        <td>
+          2099
+          -
+          2101
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.ip
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.ip
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          2118
+          -
+          2120
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          431
+        </td>
+        <td>
+          2201
+          -
+          2224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.fixInvalid
+        </td>
+        <td style="background: #AEF1AE">
+          fixInvalid(httpRequest)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          433
+        </td>
+        <td>
+          2245
+          -
+          2291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.events.HttpRequestEvent.apply(ctx, httpRequest, SockoRequestHandler.this.httpConfig)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          432
+        </td>
+        <td>
+          2280
+          -
+          2290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.httpConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.httpConfig
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          436
+        </td>
+        <td>
+          2365
+          -
+          2373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          438
+        </td>
+        <td>
+          2301
+          -
+          2378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.log.debug(&quot;HTTP FULL REQUEST {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          2349
+          -
+          2363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.endPoint
+        </td>
+        <td style="background: #AEF1AE">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          2375
+          -
+          2377
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          434
+        </td>
+        <td>
+          2311
+          -
+          2347
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;HTTP FULL REQUEST {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          2392
+          -
+          2424
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.CurrentHttpRequestMessage.isWebSocketUpgrade
+        </td>
+        <td style="background: #AEF1AE">
+          event.request.isWebSocketUpgrade
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          2426
+          -
+          2674
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val wsctx: org.mashupbots.socko.events.WebSocketHandshakeEvent = org.mashupbots.socko.events.WebSocketHandshakeEvent.apply(ctx, httpRequest, SockoRequestHandler.this.httpConfig);
+  SockoRequestHandler.this.routes.apply(wsctx);
+  SockoRequestHandler.this.doWebSocketHandshake(wsctx);
+  SockoRequestHandler.this.initialHttpRequest_=(scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          2450
+          -
+          2503
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.apply(ctx, httpRequest, SockoRequestHandler.this.httpConfig)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          2492
+          -
+          2502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.httpConfig
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.httpConfig
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          442
+        </td>
+        <td>
+          2514
+          -
+          2527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(wsctx)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          2538
+          -
+          2565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.doWebSocketHandshake
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.doWebSocketHandshake(wsctx)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          2647
+          -
+          2662
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.SockoEvent.createdOn
+        </td>
+        <td style="background: #F0ADAD">
+          event.createdOn
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          2576
+          -
+          2664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest_=(scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          2597
+          -
+          2664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          2632
+          -
+          2645
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.request
+        </td>
+        <td style="background: #F0ADAD">
+          event.request
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          2602
+          -
+          2663
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.InitialHttpRequestMessage.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          2692
+          -
+          2705
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          2692
+          -
+          2705
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          2764
+          -
+          2787
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.fixInvalid
+        </td>
+        <td style="background: #F0ADAD">
+          fixInvalid(httpRequest)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          2808
+          -
+          2854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpRequestEvent.apply(ctx, httpRequest, SockoRequestHandler.this.httpConfig)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          453
+        </td>
+        <td>
+          2843
+          -
+          2853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.httpConfig
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.httpConfig
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          2923
+          -
+          2931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          2907
+          -
+          2921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.endPoint
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          2864
+          -
+          2936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;HTTP REQUEST {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          2874
+          -
+          2905
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HTTP REQUEST {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          2933
+          -
+          2935
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          2946
+          -
+          2971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.validateFirstChunk
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.validateFirstChunk(event)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          2980
+          -
+          2993
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          3073
+          -
+          3088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.SockoEvent.createdOn
+        </td>
+        <td style="background: #F0ADAD">
+          event.createdOn
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          3023
+          -
+          3090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          3058
+          -
+          3071
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.request
+        </td>
+        <td style="background: #F0ADAD">
+          event.request
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          3028
+          -
+          3089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.InitialHttpRequestMessage.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          3002
+          -
+          3090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest_=(scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          3157
+          -
+          3231
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpLastChunkEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpLastChunkEvent.apply(ctx, SockoRequestHandler.this.initialHttpRequest.get, httpLastChunk, SockoRequestHandler.this.httpConfig)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          468
+        </td>
+        <td>
+          3220
+          -
+          3230
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.httpConfig
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.httpConfig
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          3181
+          -
+          3203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.get
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          3303
+          -
+          3311
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          3241
+          -
+          3316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          3287
+          -
+          3301
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpLastChunkEvent.endPoint
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          3251
+          -
+          3285
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          3313
+          -
+          3315
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          3326
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          3348
+          -
+          3372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.validateLastChunk
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.validateLastChunk(event)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          3486
+          -
+          3496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.httpConfig
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.httpConfig
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          3451
+          -
+          3473
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.get
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          3431
+          -
+          3497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpChunkEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpChunkEvent.apply(ctx, SockoRequestHandler.this.initialHttpRequest.get, httpChunk, SockoRequestHandler.this.httpConfig)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          3506
+          -
+          3587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td style="background: #F0ADAD">
+          ev$1.totalChunkContentLength.+(httpChunk.content().readableBytes())
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          480
+        </td>
+        <td>
+          3556
+          -
+          3587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.ByteBuf.readableBytes
+        </td>
+        <td style="background: #F0ADAD">
+          httpChunk.content().readableBytes()
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          3506
+          -
+          3587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.InitialHttpRequestMessage.totalChunkContentLength_=
+        </td>
+        <td style="background: #F0ADAD">
+          ev$1.totalChunkContentLength_=(ev$1.totalChunkContentLength.+(httpChunk.content().readableBytes()))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          3597
+          -
+          3667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;HTTP CHUNK {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          3607
+          -
+          3636
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HTTP CHUNK {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3664
+          -
+          3666
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          3654
+          -
+          3662
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          3638
+          -
+          3652
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpChunkEvent.endPoint
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          3677
+          -
+          3690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          3750
+          -
+          3817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketFrameEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.WebSocketFrameEvent.apply(ctx, SockoRequestHandler.this.initialHttpRequest.get, wsFrame, SockoRequestHandler.this.wsConfig)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          3775
+          -
+          3797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.get
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          3860
+          -
+          3874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketFrameEvent.endPoint
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          3827
+          -
+          3889
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;WS {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          3837
+          -
+          3858
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;WS {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          3886
+          -
+          3888
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          3876
+          -
+          3884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          3967
+          -
+          3980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          4036
+          -
+          4049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          4111
+          -
+          4124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.routes.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          4198
+          -
+          4209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.channel()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          4197
+          -
+          4197
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          4179
+          -
+          4213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker.close
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.wsHandshaker.close(ctx.channel(), f)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          4316
+          -
+          4375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.PongWebSocketFrame.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.websocketx.PongWebSocketFrame(f.isFinalFragment(), f.rsv(), f.content())
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          4315
+          -
+          4315
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          4365
+          -
+          4374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.DefaultByteBufHolder.content
+        </td>
+        <td style="background: #F0ADAD">
+          f.content()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          4358
+          -
+          4363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketFrame.rsv
+        </td>
+        <td style="background: #F0ADAD">
+          f.rsv()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          4298
+          -
+          4376
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.writeAndFlush
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.writeAndFlush(new io.netty.handler.codec.http.websocketx.PongWebSocketFrame(f.isFinalFragment(), f.rsv(), f.content()))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          4339
+          -
+          4356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketFrame.isFinalFragment
+        </td>
+        <td style="background: #F0ADAD">
+          f.isFinalFragment()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          4452
+          -
+          4467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.DefaultByteBufHolder.release
+        </td>
+        <td style="background: #F0ADAD">
+          wsFrame.release()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          4460
+          -
+          4460
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          4501
+          -
+          4603
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Web socket frame not supported: &quot;.+(wsFrame.getClass().getName()))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          4639
+          -
+          4718
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(e.getClass().toString().+(&quot; not supported&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          4986
+          -
+          5027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.isAggreatingChunks
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.isAggreatingChunks(event.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          5005
+          -
+          5026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          5029
+          -
+          5404
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  if (event.request.isChunked)
+    if (SockoRequestHandler.this.initialHttpRequest.isDefined)
+      throw new java.this.lang.IllegalStateException(&quot;New chunk started before the previous chunk ended&quot;)
+    else
+      ()
+  else
+    ();
+  if (event.request.isChunked.unary_!.&amp;&amp;(SockoRequestHandler.this.initialHttpRequest.isDefined))
+    throw new java.this.lang.IllegalStateException(&quot;New request received before the previous chunk ended&quot;)
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          5041
+          -
+          5064
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.CurrentHttpRequestMessage.isChunked
+        </td>
+        <td style="background: #F0ADAD">
+          event.request.isChunked
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          5037
+          -
+          5037
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          5037
+          -
+          5037
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          5076
+          -
+          5076
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          5080
+          -
+          5108
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          5076
+          -
+          5076
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          5076
+          -
+          5216
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (SockoRequestHandler.this.initialHttpRequest.isDefined)
+  throw new java.this.lang.IllegalStateException(&quot;New chunk started before the previous chunk ended&quot;)
+else
+  ()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          5122
+          -
+          5206
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;New chunk started before the previous chunk ended&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          5122
+          -
+          5206
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;New chunk started before the previous chunk ended&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          5263
+          -
+          5291
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          5231
+          -
+          5231
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          5235
+          -
+          5291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          event.request.isChunked.unary_!.&amp;&amp;(SockoRequestHandler.this.initialHttpRequest.isDefined)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          5231
+          -
+          5231
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          5303
+          -
+          5390
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;New request received before the previous chunk ended&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          5303
+          -
+          5390
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;New request received before the previous chunk ended&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          5410
+          -
+          5410
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          5414
+          -
+          5437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.CurrentHttpRequestMessage.isChunked
+        </td>
+        <td style="background: #F0ADAD">
+          event.request.isChunked
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          5410
+          -
+          5410
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          5410
+          -
+          5543
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (event.request.isChunked)
+  throw new java.this.lang.IllegalStateException(&quot;Received a chunk when chunks should have been aggreated&quot;)
+else
+  ()
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          5447
+          -
+          5537
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Received a chunk when chunks should have been aggreated&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          5447
+          -
+          5537
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Received a chunk when chunks should have been aggreated&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          5656
+          -
+          5697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.isAggreatingChunks
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.isAggreatingChunks(event.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          5675
+          -
+          5696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          5707
+          -
+          5732
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          5707
+          -
+          5732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          5728
+          -
+          5732
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          5752
+          -
+          5842
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Received a chunk when chunks should have been aggreated&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          5752
+          -
+          5842
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Received a chunk when chunks should have been aggreated&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          5999
+          -
+          6053
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.error(&quot;Exception caught in HttpRequestHandler&quot;, e)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          6125
+          -
+          6182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND, ex)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          6149
+          -
+          6177
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          6282
+          -
+          6312
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          6258
+          -
+          6317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST, ex)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          6414
+          -
+          6473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST, ex)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          6438
+          -
+          6468
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          6580
+          -
+          6610
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          6556
+          -
+          6615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST, ex)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          6678
+          -
+          6745
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  SockoRequestHandler.this.log.debug(&quot;Error handling request&quot;, ex);
+  {
+    ctx.channel().close();
+    ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          6678
+          -
+          6717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;Error handling request&quot;, ex)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          6740
+          -
+          6740
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          6728
+          -
+          6745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.Channel.close
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.channel().close()
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          6797
+          -
+          6836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.log.debug(&quot;Error closing channel&quot;, ex2)
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          7182
+          -
+          7229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.text.SimpleDateFormat.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.text.SimpleDateFormat(&quot;yyyy-MM-dd HH:mm:ss.S Z&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          7245
+          -
+          7399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failure: %s\n\n%s\n\n%s&quot;).format(status.toString(), if (ex.==(null))
+  &quot;&quot;
+else
+  ex.getMessage(), sf.format(java.util.Calendar.getInstance().getTime()))
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          7245
+          -
+          7270
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure: %s\n\n%s\n\n%s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          7285
+          -
+          7302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.toString
+        </td>
+        <td style="background: #F0ADAD">
+          status.toString()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          7326
+          -
+          7328
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          7334
+          -
+          7347
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          7334
+          -
+          7347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          7314
+          -
+          7324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          ex.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          7326
+          -
+          7328
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          7355
+          -
+          7398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.text.DateFormat.format
+        </td>
+        <td style="background: #F0ADAD">
+          sf.format(java.util.Calendar.getInstance().getTime())
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          7365
+          -
+          7397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.getTime
+        </td>
+        <td style="background: #F0ADAD">
+          java.util.Calendar.getInstance().getTime()
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          7446
+          -
+          7456
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          7488
+          -
+          7493
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\r\\n&quot;
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          7444
+          -
+          7521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failure: &quot;, &quot;\\r\\n\\r\\n&quot;, &quot;\\r\\n&quot;).s(status, ex.getMessage()).getBytes(org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          7503
+          -
+          7520
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          7464
+          -
+          7473
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\r\\n\\r\\n&quot;
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          7474
+          -
+          7487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          7540
+          -
+          7569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.Unpooled.wrappedBuffer
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.buffer.Unpooled.wrappedBuffer(bytes)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          7589
+          -
+          7655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(io.netty.handler.codec.http.HttpVersion.HTTP_1_1, status, content)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          7617
+          -
+          7637
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpVersion.HTTP_1_1
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpVersion.HTTP_1_1
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          7660
+          -
+          7741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.set
+        </td>
+        <td style="background: #F0ADAD">
+          response.headers().set(&quot;Content-Type&quot;, &quot;text/plain; charset=UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          7813
+          -
+          7881
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelFuture.addListener
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.writeAndFlush(response).addListener(io.netty.channel.ChannelFutureListener.CLOSE)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          7853
+          -
+          7880
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          7852
+          -
+          7852
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          8140
+          -
+          8175
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.group.DefaultChannelGroup.add
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRequestHandler.this.server.allChannels.add(ctx.channel())
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          8163
+          -
+          8174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.channel()
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          8162
+          -
+          8162
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          8348
+          -
+          8348
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          8352
+          -
+          8371
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          event.isAuthorized.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          8348
+          -
+          8348
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          8381
+          -
+          8465
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Websocket not supported at this end point&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          8381
+          -
+          8465
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Websocket not supported at this end point&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          8493
+          -
+          8693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory(SockoRequestHandler.this.createWebSocketLocation(event), if (event.authorizedSubprotocols.==(&quot;&quot;))
+  null
+else
+  event.authorizedSubprotocols, false, event.maxFrameSize)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          8537
+          -
+          8567
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.createWebSocketLocation
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.createWebSocketLocation(event)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          8625
+          -
+          8653
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
+        </td>
+        <td style="background: #F0ADAD">
+          event.authorizedSubprotocols
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          8615
+          -
+          8619
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          8579
+          -
+          8613
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          event.authorizedSubprotocols.==(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          8625
+          -
+          8653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
+        </td>
+        <td style="background: #F0ADAD">
+          event.authorizedSubprotocols
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          8615
+          -
+          8619
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          8661
+          -
+          8666
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          8674
+          -
+          8692
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.maxFrameSize
+        </td>
+        <td style="background: #F0ADAD">
+          event.maxFrameSize
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          8698
+          -
+          8760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.wsHandshaker_=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.wsHandshaker_=(wsFactory.newHandshaker(event.nettyHttpRequest))
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          8713
+          -
+          8760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.newHandshaker
+        </td>
+        <td style="background: #F0ADAD">
+          wsFactory.newHandshaker(event.nettyHttpRequest)
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          8737
+          -
+          8759
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.nettyHttpRequest
+        </td>
+        <td style="background: #F0ADAD">
+          event.nettyHttpRequest
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          8791
+          -
+          8960
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(event.context.channel());
+  event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.UPGRADE_REQUIRED.code(), 0L)
+}
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          8769
+          -
+          8789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.wsHandshaker.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          8799
+          -
+          8885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(event.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          8863
+          -
+          8884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          8892
+          -
+          8954
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.writeWebLog
+        </td>
+        <td style="background: #F0ADAD">
+          event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.UPGRADE_REQUIRED.code(), 0L)
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          8952
+          -
+          8953
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          8910
+          -
+          8950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.code
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.UPGRADE_REQUIRED.code()
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          8966
+          -
+          10028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val id: String = event.webSocketId;
+  val future: io.netty.channel.ChannelFuture = SockoRequestHandler.this.wsHandshaker.handshake(event.context.channel(), event.nettyHttpRequest);
+  event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code(), 0L);
+  SockoRequestHandler.this.server.webSocketConnections.allWebSocketChannels.add(event.context.channel());
+  if (event.onComplete.isDefined)
+    {
+      class OnCompleteListender extends Object with io.netty.channel.ChannelFutureListener {
+        def &lt;init&gt;(): OnCompleteListender = {
+          OnCompleteListender.super.&lt;init&gt;();
+          ()
+        };
+        def operationComplete(future: io.netty.channel.ChannelFuture): Unit = event.onComplete.get.apply(id)
+      };
+      future.addListener(new OnCompleteListender())
+    }
+  else
+    ();
+  if (event.onClose.isDefined)
+    {
+      class OnCloseListender extends Object with io.netty.channel.ChannelFutureListener {
+        def &lt;init&gt;(): OnCloseListender = {
+          OnCloseListender.super.&lt;init&gt;();
+          ()
+        };
+        def operationComplete(future: io.netty.channel.ChannelFuture): Unit = event.onClose.get.apply(id)
+      };
+      {
+        event.context.channel().closeFuture().addListener(new OnCloseListender());
+        ()
+      }
+    }
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          8983
+          -
+          9000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.webSocketId
+        </td>
+        <td style="background: #F0ADAD">
+          event.webSocketId
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          9043
+          -
+          9064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          9020
+          -
+          9089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker.handshake
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.wsHandshaker.handshake(event.context.channel(), event.nettyHttpRequest)
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          9066
+          -
+          9088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.nettyHttpRequest
+        </td>
+        <td style="background: #F0ADAD">
+          event.nettyHttpRequest
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          9114
+          -
+          9157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.code
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code()
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          9096
+          -
+          9161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.writeWebLog
+        </td>
+        <td style="background: #F0ADAD">
+          event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code(), 0L)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          9159
+          -
+          9160
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          615
+        </td>
+        <td>
+          9268
+          -
+          9289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          9215
+          -
+          9290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.group.DefaultChannelGroup.add
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.server.webSocketConnections.allWebSocketChannels.add(event.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          9390
+          -
+          9635
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  class OnCompleteListender extends Object with io.netty.channel.ChannelFutureListener {
+    def &lt;init&gt;(): OnCompleteListender = {
+      OnCompleteListender.super.&lt;init&gt;();
+      ()
+    };
+    def operationComplete(future: io.netty.channel.ChannelFuture): Unit = event.onComplete.get.apply(id)
+  };
+  future.addListener(new OnCompleteListender())
+}
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          623
+        </td>
+        <td>
+          9358
+          -
+          9358
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          617
+        </td>
+        <td>
+          9362
+          -
+          9388
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          event.onComplete.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          9358
+          -
+          9358
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          618
+        </td>
+        <td>
+          9527
+          -
+          9551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          event.onComplete.get.apply(id)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          9582
+          -
+          9627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelFuture.addListener
+        </td>
+        <td style="background: #F0ADAD">
+          future.addListener(new OnCompleteListender())
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          9601
+          -
+          9626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.OnCompleteListender.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new OnCompleteListender()
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          9730
+          -
+          9730
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          9734
+          -
+          9757
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          event.onClose.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          9759
+          -
+          10022
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  class OnCloseListender extends Object with io.netty.channel.ChannelFutureListener {
+    def &lt;init&gt;(): OnCloseListender = {
+      OnCloseListender.super.&lt;init&gt;();
+      ()
+    };
+    def operationComplete(future: io.netty.channel.ChannelFuture): Unit = event.onClose.get.apply(id)
+  };
+  {
+    event.context.channel().closeFuture().addListener(new OnCloseListender());
+    ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          9730
+          -
+          9730
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          9893
+          -
+          9914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          event.onClose.get.apply(id)
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          9945
+          -
+          10014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelFuture.addListener
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel().closeFuture().addListener(new OnCloseListender())
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          9991
+          -
+          10013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.OnCloseListender.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new OnCloseListender()
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          9990
+          -
+          9990
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          10235
+          -
+          10252
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.`package`.StringBuilder()
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          636
+        </td>
+        <td>
+          10307
+          -
+          10312
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wss&quot;
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          10318
+          -
+          10322
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ws&quot;
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          10271
+          -
+          10305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.isSSLConnection
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.isSSLConnection(e.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          10318
+          -
+          10322
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ws&quot;
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          10257
+          -
+          10323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(if (SockoRequestHandler.this.isSSLConnection(e.context.channel()))
+  &quot;wss&quot;
+else
+  &quot;ws&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          10287
+          -
+          10304
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          e.context.channel()
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          10307
+          -
+          10312
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wss&quot;
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          10328
+          -
+          10344
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(&quot;://&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          10359
+          -
+          10404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.ImmutableHttpHeaders.get
+        </td>
+        <td style="background: #F0ADAD">
+          e.request.headers.get(&quot;Host&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          10349
+          -
+          10405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(e.request.headers.get(&quot;Host&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          10410
+          -
+          10435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(e.endPoint.uri)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          10420
+          -
+          10434
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.EndPoint.uri
+        </td>
+        <td style="background: #F0ADAD">
+          e.endPoint.uri
+        </td>
+      </tr><tr>
+        <td>
+          295
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          10440
+          -
+          10451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.toString
+        </td>
+        <td style="background: #F0ADAD">
+          sb.toString()
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          10567
+          -
+          10616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          channel.pipeline().get[io.netty.handler.ssl.SslHandler](classOf[io.netty.handler.ssl.SslHandler]).!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          10753
+          -
+          10812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          channel.pipeline().get[io.netty.handler.codec.http.HttpObjectAggregator](classOf[io.netty.handler.codec.http.HttpObjectAggregator]).!=(null)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

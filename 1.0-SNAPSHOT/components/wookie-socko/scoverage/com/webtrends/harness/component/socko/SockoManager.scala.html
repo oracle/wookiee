@@ -1,0 +1,2458 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/SockoManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.socko
+</span>20 <span style=''>
+</span>21 <span style=''>import java.io.File
+</span>22 <span style=''>
+</span>23 <span style=''>import akka.actor.Props
+</span>24 <span style=''>import com.webtrends.harness.app.HarnessActor.SystemReady
+</span>25 <span style=''>import com.webtrends.harness.component.socko.client.SockoClient
+</span>26 <span style=''>import com.webtrends.harness.component.socko.route.{SockoRouteHandler, SockoRouteManager}
+</span>27 <span style=''>import com.webtrends.harness.component.{Component, ComponentStarted}
+</span>28 <span style=''>import com.webtrends.harness.utils.{AkkaUtil, ConfigUtil}
+</span>29 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus}
+</span>30 <span style=''>import org.mashupbots.socko.handlers.{StaticContentHandler, StaticContentHandlerConfig, StaticFileRequest, StaticResourceRequest}
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.collection.JavaConverters._
+</span>33 <span style=''>
+</span>34 <span style=''>case class HttpRunning()
+</span>35 <span style=''>case class AddSockoHandler(name:String, handler:SockoRouteHandler, method: String)
+</span>36 <span style=''>case class SockoContentRequest(event:HttpRequestEvent)
+</span>37 <span style=''>
+</span>38 <span style=''>class SockoManager(name:String) extends Component(name) with Socko with SockoClient {
+</span>39 <span style=''>
+</span>40 <span style=''>  val staticContentHandlerConfig =
+</span>41 <span style=''>    if (</span><span style='background: #AEF1AE'>config.hasPath(SockoManager.KeyRootPaths)</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      val rootPaths = config.getStringList(SockoManager.KeyRootPaths).asScala
+</span>43 <span style=''></span><span style='background: #AEF1AE'>      if (rootPaths.length > 0) {
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>Some(StaticContentHandlerConfig(
+</span>45 <span style=''></span><span style='background: #F0ADAD'>          rootFilePaths = rootPaths,
+</span>46 <span style=''></span><span style='background: #F0ADAD'>          serverCacheMaxFileSize = ConfigUtil.getDefaultValue(SockoManager.KeyServerCacheMaxFileSize, config.getInt, 0),
+</span>47 <span style=''></span><span style='background: #F0ADAD'>          serverCacheTimeoutSeconds = ConfigUtil.getDefaultValue(SockoManager.KeyServerCacheTimeoutSeconds, config.getInt, 0),
+</span>48 <span style=''></span><span style='background: #F0ADAD'>          browserCacheTimeoutSeconds = ConfigUtil.getDefaultValue(SockoManager.KeyBrowserCacheTimeoutSeconds, config.getInt, 0)
+</span>49 <span style=''></span><span style='background: #F0ADAD'>        ))</span><span style='background: #AEF1AE'>
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        None
+</span>52 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>53 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''> else {
+</span>54 <span style=''>      </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>55 <span style=''>    }
+</span>56 <span style=''>
+</span>57 <span style=''>  /**
+</span>58 <span style=''>   * We add super.receive because if you override the receive message from the component
+</span>59 <span style=''>   * and then do not include super.receive it will not handle messages from the
+</span>60 <span style=''>   * ComponentManager correctly and basically not start up properly
+</span>61 <span style=''>   *
+</span>62 <span style=''>   * @return
+</span>63 <span style=''>   */
+</span>64 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>super.receive orElse {
+</span>65 <span style=''></span><span style='background: #AEF1AE'>    case HttpRunning => context.parent ! ComponentStarted(self.path.name)
+</span>66 <span style=''></span><span style='background: #AEF1AE'>    case AddSockoHandler(cName, handler, method) => SockoRouteManager.addHandler(cName, handler, method)
+</span>67 <span style=''></span><span style='background: #AEF1AE'>    case SockoContentRequest(event) => </span><span style='background: #F0ADAD'>handleStaticContentRequest(event)</span><span style='background: #AEF1AE'>
+</span>68 <span style=''></span><span style='background: #AEF1AE'>    case SystemReady =>
+</span>69 <span style=''></span><span style='background: #AEF1AE'>      sockoServer match {
+</span>70 <span style=''></span><span style='background: #AEF1AE'>        case Some(s) => s ! HttpStartProcessing
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        case None </span><span style='background: #F0ADAD'>=></span><span style='background: #AEF1AE'> // ignore
+</span>72 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>73 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>  /**
+</span>76 <span style=''>   * Start function will start any child actors that will be managed by the ComponentManager
+</span>77 <span style=''>   * @return
+</span>78 <span style=''>   */
+</span>79 <span style=''>  override def start = {
+</span>80 <span style=''>    // start the static file handler if the rootpaths have been set
+</span>81 <span style=''>    </span><span style='background: #AEF1AE'>staticContentHandlerConfig</span><span style=''> match {
+</span>82 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>AkkaUtil.initActorFromConfig(Props(classOf[StaticContentHandler], c), SockoManager.StaticFileHandlerName)</span><span style=''>
+</span>83 <span style=''>      case None => </span><span style='background: #AEF1AE'>log.debug("Static Content Handler not enabled.")</span><span style=''>
+</span>84 <span style=''>    }
+</span>85 <span style=''>    </span><span style='background: #AEF1AE'>startSocko</span><span style=''>
+</span>86 <span style=''>    //startSockoClient
+</span>87 <span style=''>  }
+</span>88 <span style=''>
+</span>89 <span style=''>  /**
+</span>90 <span style=''>   * Stop will execute any cleanup work to be done for the child actors
+</span>91 <span style=''>   * if not necessary this can be deleted
+</span>92 <span style=''>   * @return
+</span>93 <span style=''>   */
+</span>94 <span style=''>  override def stop = {
+</span>95 <span style=''>    </span><span style='background: #F0ADAD'>super.stop</span><span style=''>
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>stopSocko</span><span style=''>
+</span>97 <span style=''>  }
+</span>98 <span style=''>
+</span>99 <span style=''>  def handleStaticContentRequest(event:HttpRequestEvent) = {
+</span>100 <span style=''>    </span><span style='background: #F0ADAD'>context.child(SockoManager.StaticFileHandlerName)</span><span style=''> match {
+</span>101 <span style=''>      case Some(s) =>
+</span>102 <span style=''>        </span><span style='background: #F0ADAD'>ConfigUtil.getDefaultValue(SockoManager.KeyFileType, config.getString, "file")</span><span style=''> match {
+</span>103 <span style=''>          case "jar" =>
+</span>104 <span style=''>            </span><span style='background: #F0ADAD'>s ! StaticResourceRequest(event, staticContentHandlerConfig.get.rootFilePaths(0))</span><span style=''>
+</span>105 <span style=''>          case _ =>
+</span>106 <span style=''>            // check if file exists first otherwise we get a FileNotFoundException
+</span>107 <span style=''>            val f = </span><span style='background: #F0ADAD'>new File(staticContentHandlerConfig.get.rootFilePaths(0) + "/" + event.endPoint.path)</span><span style=''>
+</span>108 <span style=''>            if (</span><span style='background: #F0ADAD'>f.exists()</span><span style=''>) {
+</span>109 <span style=''>              </span><span style='background: #F0ADAD'>s ! StaticFileRequest(event, f)</span><span style=''>
+</span>110 <span style=''>            }
+</span>111 <span style=''>        }
+</span>112 <span style=''>
+</span>113 <span style=''>      case None => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NOT_FOUND)</span><span style=''>
+</span>114 <span style=''>    }
+</span>115 <span style=''>  }
+</span>116 <span style=''>}
+</span>117 <span style=''>
+</span>118 <span style=''>object SockoManager {
+</span>119 <span style=''>  val ComponentName = </span><span style='background: #AEF1AE'>"wookie-socko"</span><span style=''>
+</span>120 <span style=''>
+</span>121 <span style=''>  val KeyNumHandlerRoutees = </span><span style='background: #AEF1AE'>"wookie-socko.num-handler-routees"</span><span style=''>
+</span>122 <span style=''>  val StaticFileHandlerName = </span><span style='background: #AEF1AE'>"static-file-handler"</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>  val StaticContentRoot = </span><span style='background: #AEF1AE'>"wookie-socko.static-content"</span><span style=''>
+</span>125 <span style=''>  val KeyRootPaths = </span><span style='background: #AEF1AE'>s"$StaticContentRoot.rootPaths"</span><span style=''>
+</span>126 <span style=''>  val KeyServerCacheMaxFileSize = </span><span style='background: #AEF1AE'>s"$StaticContentRoot.serverCacheMaxFileSize"</span><span style=''>
+</span>127 <span style=''>  val KeyServerCacheTimeoutSeconds = </span><span style='background: #AEF1AE'>s"$StaticContentRoot.serverCacheTimeoutSeconds"</span><span style=''>
+</span>128 <span style=''>  val KeyBrowserCacheTimeoutSeconds = </span><span style='background: #AEF1AE'>s"$StaticContentRoot.browserCacheTimeoutSeconds"</span><span style=''>
+</span>129 <span style=''>  val KeyFileType = </span><span style='background: #AEF1AE'>s"$StaticContentRoot.type"</span><span style=''>
+</span>130 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          1711
+          -
+          1752
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.config.hasPath(SockoManager.KeyRootPaths)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          1754
+          -
+          2374
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val rootPaths: scala.collection.mutable.Buffer[String] = scala.collection.JavaConverters.asScalaBufferConverter[String](SockoManager.this.config.getStringList(SockoManager.KeyRootPaths)).asScala;
+  if (rootPaths.length.&gt;(0))
+    scala.Some.apply[org.mashupbots.socko.handlers.StaticContentHandlerConfig]({
+      &lt;artifact&gt; val x$1: scala.collection.mutable.Buffer[String] @scala.reflect.internal.annotations.uncheckedBounds = rootPaths;
+      &lt;artifact&gt; val x$2: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheMaxFileSize, {
+        ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+      }, 0);
+      &lt;artifact&gt; val x$3: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheTimeoutSeconds, {
+        ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+      }, 0);
+      &lt;artifact&gt; val x$4: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyBrowserCacheTimeoutSeconds, {
+        ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+      }, 0);
+      &lt;artifact&gt; val x$5: java.io.File = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$2;
+      &lt;artifact&gt; val x$6: org.mashupbots.socko.infrastructure.LocalCache = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$3;
+      org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply(x$1, x$5, x$6, x$2, x$3, x$4)
+    })
+  else
+    scala.None
+}
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          1726
+          -
+          1751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyRootPaths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.KeyRootPaths
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          1778
+          -
+          1833
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsScala.asScala
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[String](SockoManager.this.config.getStringList(SockoManager.KeyRootPaths)).asScala
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          1778
+          -
+          1825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getStringList
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.config.getStringList(SockoManager.KeyRootPaths)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          1799
+          -
+          1824
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyRootPaths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.KeyRootPaths
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          1844
+          -
+          1864
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          rootPaths.length.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          1881
+          -
+          1881
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          1876
+          -
+          2332
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.handlers.StaticContentHandlerConfig]({
+  &lt;artifact&gt; val x$1: scala.collection.mutable.Buffer[String] @scala.reflect.internal.annotations.uncheckedBounds = rootPaths;
+  &lt;artifact&gt; val x$2: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheMaxFileSize, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$3: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheTimeoutSeconds, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$4: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyBrowserCacheTimeoutSeconds, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$5: java.io.File = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$2;
+  &lt;artifact&gt; val x$6: org.mashupbots.socko.infrastructure.LocalCache = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$3;
+  org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply(x$1, x$5, x$6, x$2, x$3, x$4)
+})
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          321
+        </td>
+        <td>
+          1881
+          -
+          1881
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          1876
+          -
+          2332
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.handlers.StaticContentHandlerConfig]({
+  &lt;artifact&gt; val x$1: scala.collection.mutable.Buffer[String] @scala.reflect.internal.annotations.uncheckedBounds = rootPaths;
+  &lt;artifact&gt; val x$2: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheMaxFileSize, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$3: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheTimeoutSeconds, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$4: Int = com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyBrowserCacheTimeoutSeconds, {
+    ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+  }, 0);
+  &lt;artifact&gt; val x$5: java.io.File = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$2;
+  &lt;artifact&gt; val x$6: org.mashupbots.socko.infrastructure.LocalCache = org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply$default$3;
+  org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply(x$1, x$5, x$6, x$2, x$3, x$4)
+})
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          1881
+          -
+          2331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticContentHandlerConfig.apply(x$1, x$5, x$6, x$2, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          2048
+          -
+          2061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.config.getInt(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          309
+        </td>
+        <td>
+          2008
+          -
+          2046
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyServerCacheMaxFileSize
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.KeyServerCacheMaxFileSize
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          1981
+          -
+          2065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheMaxFileSize, {
+  ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+}, 0)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          2063
+          -
+          2064
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          2132
+          -
+          2173
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyServerCacheTimeoutSeconds
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.KeyServerCacheTimeoutSeconds
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          2105
+          -
+          2192
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyServerCacheTimeoutSeconds, {
+  ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+}, 0)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          2190
+          -
+          2191
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          2175
+          -
+          2188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.config.getInt(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          2319
+          -
+          2320
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          2304
+          -
+          2317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.config.getInt(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          2260
+          -
+          2302
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyBrowserCacheTimeoutSeconds
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.KeyBrowserCacheTimeoutSeconds
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          2233
+          -
+          2321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](SockoManager.KeyBrowserCacheTimeoutSeconds, {
+  ((x$1: String) =&gt; SockoManager.this.config.getInt(x$1))
+}, 0)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          2356
+          -
+          2360
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          2356
+          -
+          2360
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          2388
+          -
+          2392
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          2388
+          -
+          2392
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          2713
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          2692
+          -
+          3107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpRunning =&gt; akka.this.actor.`package`.actorRef2Scala(SockoManager.this.context.parent).!(com.webtrends.harness.component.ComponentStarted.apply(SockoManager.this.self.path.name))(SockoManager.this.self)
+      case (name: String, handler: com.webtrends.harness.component.socko.route.SockoRouteHandler, method: String)com.webtrends.harness.component.socko.AddSockoHandler((cName @ _), (handler @ _), (method @ _)) =&gt; com.webtrends.harness.component.socko.route.SockoRouteManager.addHandler(cName, handler, method)(SockoManager.this.context)
+      case (event: org.mashupbots.socko.events.HttpRequestEvent)com.webtrends.harness.component.socko.SockoContentRequest((event @ _)) =&gt; SockoManager.this.handleStaticContentRequest(event)
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; SockoManager.this.sockoServer match {
+        case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(s).!(HttpStartProcessing)(SockoManager.this.self)
+        case scala.None =&gt; ()
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpRunning =&gt; true
+      case (name: String, handler: com.webtrends.harness.component.socko.route.SockoRouteHandler, method: String)com.webtrends.harness.component.socko.AddSockoHandler((cName @ _), (handler @ _), (method @ _)) =&gt; true
+      case (event: org.mashupbots.socko.events.HttpRequestEvent)com.webtrends.harness.component.socko.SockoContentRequest((event @ _)) =&gt; true
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          2739
+          -
+          2753
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          2754
+          -
+          2754
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          2756
+          -
+          2788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentStarted.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.ComponentStarted.apply(SockoManager.this.self.path.name)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          2773
+          -
+          2787
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          335
+        </td>
+        <td>
+          2739
+          -
+          2788
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(SockoManager.this.context.parent).!(com.webtrends.harness.component.ComponentStarted.apply(SockoManager.this.self.path.name))(SockoManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          2841
+          -
+          2893
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandler
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandler(cName, handler, method)(SockoManager.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          2869
+          -
+          2869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.context
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          2933
+          -
+          2966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.handleStaticContentRequest
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.handleStaticContentRequest(event)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          2997
+          -
+          3008
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.Socko.sockoServer
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.sockoServer
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          3043
+          -
+          3043
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          3041
+          -
+          3064
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(s).!(HttpStartProcessing)(SockoManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          3083
+          -
+          3085
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          345
+        </td>
+        <td>
+          3324
+          -
+          3350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.staticContentHandlerConfig
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.staticContentHandlerConfig
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          3410
+          -
+          3449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(classOf[org.mashupbots.socko.handlers.StaticContentHandler], c)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          3409
+          -
+          3409
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.context
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          3390
+          -
+          3390
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          3381
+          -
+          3486
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig(akka.actor.Props.apply(classOf[org.mashupbots.socko.handlers.StaticContentHandler], c), SockoManager.StaticFileHandlerName, com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3)(SockoManager.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          347
+        </td>
+        <td>
+          3451
+          -
+          3485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticFileHandlerName
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.StaticFileHandlerName
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          3506
+          -
+          3554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.log.debug(&quot;Static Content Handler not enabled.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          3565
+          -
+          3575
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.Socko.startSocko
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.startSocko
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          3565
+          -
+          3565
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          354
+        </td>
+        <td>
+          3771
+          -
+          3781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.stop
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.super.stop
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          3786
+          -
+          3795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.Socko.stopSocko
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.stopSocko
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          3866
+          -
+          3915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.child
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.context.child(SockoManager.StaticFileHandlerName)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          3880
+          -
+          3914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticFileHandlerName
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.StaticFileHandlerName
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          3981
+          -
+          4005
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.KeyFileType
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.KeyFileType
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          3954
+          -
+          4032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[String](SockoManager.KeyFileType, {
+  ((x$1: String) =&gt; SockoManager.this.config.getString(x$1))
+}, &quot;file&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          4025
+          -
+          4031
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;file&quot;
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          4007
+          -
+          4023
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.config.getString(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          4081
+          -
+          4081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          4077
+          -
+          4158
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(s).!(org.mashupbots.socko.handlers.StaticResourceRequest.apply(event, SockoManager.this.staticContentHandlerConfig.get.rootFilePaths.apply(0), org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$3, org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$4))(SockoManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          363
+        </td>
+        <td>
+          4081
+          -
+          4081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          4079
+          -
+          4079
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          362
+        </td>
+        <td>
+          4110
+          -
+          4157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.staticContentHandlerConfig.get.rootFilePaths.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          4081
+          -
+          4158
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticResourceRequest.apply(event, SockoManager.this.staticContentHandlerConfig.get.rootFilePaths.apply(0), org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$3, org.mashupbots.socko.handlers.StaticResourceRequest.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          370
+        </td>
+        <td>
+          4347
+          -
+          4366
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.EndPoint.path
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint.path
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          4341
+          -
+          4344
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          372
+        </td>
+        <td>
+          4282
+          -
+          4367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(SockoManager.this.staticContentHandlerConfig.get.rootFilePaths.apply(0).+(&quot;/&quot;).+(event.endPoint.path))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          368
+        </td>
+        <td>
+          4336
+          -
+          4337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          4291
+          -
+          4366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.staticContentHandlerConfig.get.rootFilePaths.apply(0).+(&quot;/&quot;).+(event.endPoint.path)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          4384
+          -
+          4394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.exists
+        </td>
+        <td style="background: #F0ADAD">
+          f.exists()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          381
+        </td>
+        <td>
+          4380
+          -
+          4380
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          380
+        </td>
+        <td>
+          4380
+          -
+          4380
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          376
+        </td>
+        <td>
+          4416
+          -
+          4443
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticFileRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticFileRequest.apply(event, f, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$3, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          4412
+          -
+          4443
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(s).!(org.mashupbots.socko.handlers.StaticFileRequest.apply(event, f, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$3, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$4))(SockoManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          4412
+          -
+          4443
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(s).!(org.mashupbots.socko.handlers.StaticFileRequest.apply(event, f, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$3, org.mashupbots.socko.handlers.StaticFileRequest.apply$default$4))(SockoManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          375
+        </td>
+        <td>
+          4416
+          -
+          4416
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticFileRequest.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticFileRequest.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          4414
+          -
+          4414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          SockoManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          4416
+          -
+          4416
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.handlers.StaticFileRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.handlers.StaticFileRequest.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          382
+        </td>
+        <td>
+          4509
+          -
+          4537
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          383
+        </td>
+        <td>
+          4488
+          -
+          4538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          384
+        </td>
+        <td>
+          4596
+          -
+          4610
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;wookie-socko&quot;
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          385
+        </td>
+        <td>
+          4641
+          -
+          4675
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;wookie-socko.num-handler-routees&quot;
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          386
+        </td>
+        <td>
+          4706
+          -
+          4727
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;static-file-handler&quot;
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          387
+        </td>
+        <td>
+          4755
+          -
+          4784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;wookie-socko.static-content&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          4806
+          -
+          4837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.rootPaths&quot;).s(SockoManager.this.StaticContentRoot)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          388
+        </td>
+        <td>
+          4808
+          -
+          4809
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          390
+        </td>
+        <td>
+          4809
+          -
+          4826
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticContentRoot
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.StaticContentRoot
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          389
+        </td>
+        <td>
+          4826
+          -
+          4837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.rootPaths&quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          394
+        </td>
+        <td>
+          4875
+          -
+          4892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticContentRoot
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.StaticContentRoot
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          393
+        </td>
+        <td>
+          4892
+          -
+          4916
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.serverCacheMaxFileSize&quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          392
+        </td>
+        <td>
+          4874
+          -
+          4875
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          395
+        </td>
+        <td>
+          4872
+          -
+          4916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.serverCacheMaxFileSize&quot;).s(SockoManager.this.StaticContentRoot)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          397
+        </td>
+        <td>
+          4974
+          -
+          5001
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.serverCacheTimeoutSeconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          396
+        </td>
+        <td>
+          4956
+          -
+          4957
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          399
+        </td>
+        <td>
+          4954
+          -
+          5001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.serverCacheTimeoutSeconds&quot;).s(SockoManager.this.StaticContentRoot)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          398
+        </td>
+        <td>
+          4957
+          -
+          4974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticContentRoot
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.StaticContentRoot
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          400
+        </td>
+        <td>
+          5042
+          -
+          5043
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          403
+        </td>
+        <td>
+          5040
+          -
+          5088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.browserCacheTimeoutSeconds&quot;).s(SockoManager.this.StaticContentRoot)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          402
+        </td>
+        <td>
+          5043
+          -
+          5060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticContentRoot
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.StaticContentRoot
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          401
+        </td>
+        <td>
+          5060
+          -
+          5088
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.browserCacheTimeoutSeconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          406
+        </td>
+        <td>
+          5112
+          -
+          5129
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoManager.StaticContentRoot
+        </td>
+        <td style="background: #AEF1AE">
+          SockoManager.this.StaticContentRoot
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          405
+        </td>
+        <td>
+          5129
+          -
+          5135
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.type&quot;
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          404
+        </td>
+        <td>
+          5111
+          -
+          5112
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          5109
+          -
+          5135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;.type&quot;).s(SockoManager.this.StaticContentRoot)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

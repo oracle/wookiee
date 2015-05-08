@@ -1,0 +1,2515 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/SockoHttpServer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.socko
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor._
+</span>22 <span style=''>import akka.routing.Broadcast
+</span>23 <span style=''>import com.webtrends.harness.app.HActor
+</span>24 <span style=''>import com.webtrends.harness.component.ComponentHelper
+</span>25 <span style=''>import com.webtrends.harness.health._
+</span>26 <span style=''>import com.webtrends.harness.utils.AkkaUtil
+</span>27 <span style=''>import org.mashupbots.socko.routes._
+</span>28 <span style=''>import org.mashupbots.socko.webserver.WebServer
+</span>29 <span style=''>import scala.concurrent.{Promise, Future}
+</span>30 <span style=''>import scala.util.Try
+</span>31 <span style=''>
+</span>32 <span style=''>object SockoHttpServer {
+</span>33 <span style=''>  def props = </span><span style='background: #AEF1AE'>Props(classOf[SockoHttpServer])</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>  val ParamWorker = </span><span style='background: #AEF1AE'>"socko-base"</span><span style=''>
+</span>36 <span style=''>}
+</span>37 <span style=''>
+</span>38 <span style=''>@SerialVersionUID(1L) case class BindServer()
+</span>39 <span style=''>@SerialVersionUID(1L) case class HttpStartProcessing()
+</span>40 <span style=''>@SerialVersionUID(1L) case class ShutdownServer()
+</span>41 <span style=''>
+</span>42 <span style=''>class SockoHttpServer extends HActor with ComponentHelper {
+</span>43 <span style=''>  val config = </span><span style='background: #AEF1AE'>SockoServerSettings.get(context.system)</span><span style=''>
+</span>44 <span style=''>  val routees = </span><span style='background: #AEF1AE'>Try { context.system.settings.config.getInt(SockoManager.KeyNumHandlerRoutees) } getOrElse 5</span><span style=''>
+</span>45 <span style=''>  val router = </span><span style='background: #AEF1AE'>AkkaUtil.initActorFromConfig(Props[SockoHttpWorker], SockoHttpServer.ParamWorker, routees)</span><span style=''>
+</span>46 <span style=''>  var webServer:Option[WebServer] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  override def receive:Receive = </span><span style='background: #AEF1AE'>binding</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>  def binding:Receive = {
+</span>51 <span style=''>    case BindServer => </span><span style='background: #AEF1AE'>bindHttpServer</span><span style=''>
+</span>52 <span style=''>    case HttpStartProcessing => </span><span style='background: #F0ADAD'>context.become(running)</span><span style=''>
+</span>53 <span style=''>  }
+</span>54 <span style=''>
+</span>55 <span style=''>  def running:Receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>56 <span style=''></span><span style='background: #AEF1AE'>    case HttpStartProcessing =>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>      log.debug("Http processing starting.")
+</span>58 <span style=''></span><span style='background: #AEF1AE'>      context.child(SockoHttpServer.ParamWorker).get ! Broadcast(HttpStartProcessing)
+</span>59 <span style=''></span><span style='background: #AEF1AE'>    case ShutdownServer => </span><span style='background: #F0ADAD'>shutdownHttpServer</span><span style='background: #AEF1AE'>
+</span>60 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  /**
+</span>63 <span style=''>   * Base routes for the harness
+</span>64 <span style=''>   *
+</span>65 <span style=''>   */
+</span>66 <span style=''>  val routes = </span><span style='background: #AEF1AE'>Routes({
+</span>67 <span style=''></span><span style='background: #AEF1AE'>    case HttpRequest(request) => router ! SockoWorkerMessage(request)
+</span>68 <span style=''></span><span style='background: #AEF1AE'>  })</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  protected def bindHttpServer : Unit = {
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s"Trying to bind to port ${config.port}")</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    </span><span style='background: #AEF1AE'>webServer = Some(new WebServer(config, context.system, {server => new SockoRequestHandler(server, routes)}))</span><span style=''>
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>Runtime.getRuntime.addShutdownHook(new Thread {
+</span>75 <span style=''></span><span style='background: #AEF1AE'>      override def run: Unit = {
+</span>76 <span style=''></span><span style='background: #AEF1AE'>        shutdownHttpServer
+</span>77 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>78 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>79 <span style=''>    </span><span style='background: #AEF1AE'>Try({
+</span>80 <span style=''></span><span style='background: #AEF1AE'>      webServer.get.start()
+</span>81 <span style=''></span><span style='background: #AEF1AE'>      context.become(running)
+</span>82 <span style=''></span><span style='background: #AEF1AE'>      context.parent ! HttpRunning
+</span>83 <span style=''></span><span style='background: #AEF1AE'>      log.info(s"Bound to port ${config.port}")
+</span>84 <span style=''></span><span style='background: #AEF1AE'>    }).recover({
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      case e:Throwable =>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.error(s"Error trying to bind to the http port ${config.port}", e)</span><span style='background: #AEF1AE'>
+</span>87 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>
+</span>88 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  /**
+</span>92 <span style=''>   * Unbind from the http service
+</span>93 <span style=''>   */
+</span>94 <span style=''>  protected def shutdownHttpServer: Unit = {
+</span>95 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s"Trying to shutdown the http server ${config.hostname} on port ${config.port}")</span><span style=''>
+</span>96 <span style=''>    </span><span style='background: #AEF1AE'>webServer</span><span style=''> match {
+</span>97 <span style=''>      case Some(ws) =>
+</span>98 <span style=''>        </span><span style='background: #AEF1AE'>Try(ws.stop()).recover({
+</span>99 <span style=''></span><span style='background: #AEF1AE'>          case e: Throwable =>
+</span>100 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>log.warning("we were unable to properly shutdown the HttpServer: {}", e.getMessage)</span><span style='background: #AEF1AE'>
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        })</span><span style=''>
+</span>102 <span style=''>      case None </span><span style='background: #F0ADAD'>=></span><span style=''> //ignore
+</span>103 <span style=''>    }
+</span>104 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Http server shutdown complete")</span><span style=''>
+</span>105 <span style=''>    if (</span><span style='background: #AEF1AE'>context != null</span><span style=''>) {
+</span>106 <span style=''>      </span><span style='background: #AEF1AE'>context.become(binding)</span><span style=''>
+</span>107 <span style=''>    }
+</span>108 <span style=''>  }
+</span>109 <span style=''>
+</span>110 <span style=''>  // This should probably be overriden to get some custom information about the health of this actor
+</span>111 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>112 <span style=''>    val p = </span><span style='background: #AEF1AE'>Promise[HealthComponent]</span><span style=''>
+</span>113 <span style=''>    </span><span style='background: #AEF1AE'>webServer</span><span style=''> match {
+</span>114 <span style=''>      case Some(s) => </span><span style='background: #AEF1AE'>p success HealthComponent("socko", ComponentState.NORMAL, s"Web server up and running on port ${config.port}")</span><span style=''>
+</span>115 <span style=''>      case None => </span><span style='background: #F0ADAD'>p success HealthComponent("socko", ComponentState.CRITICAL, "Web server not started")</span><span style=''>
+</span>116 <span style=''>    }
+</span>117 <span style=''>    </span><span style='background: #AEF1AE'>p.future</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          1202
+          -
+          1233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.socko.SockoHttpServer])
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          1255
+          -
+          1267
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;socko-base&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          1498
+          -
+          1537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ExtensionId.get
+        </td>
+        <td style="background: #AEF1AE">
+          SockoServerSettings.get(SockoHttpServer.this.context.system)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          1522
+          -
+          1536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          1554
+          -
+          1646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Int](SockoHttpServer.this.context.system.settings.config.getInt(SockoManager.KeyNumHandlerRoutees)).getOrElse[Int](5)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          1744
+          -
+          1751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.routees
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.routees
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1715
+          -
+          1742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.ParamWorker
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.ParamWorker
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          1662
+          -
+          1752
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig(akka.actor.Props.apply[com.webtrends.harness.component.socko.SockoHttpWorker]()((ClassTag.apply[com.webtrends.harness.component.socko.SockoHttpWorker](classOf[com.webtrends.harness.component.socko.SockoHttpWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.socko.SockoHttpWorker])), SockoHttpServer.ParamWorker, SockoHttpServer.this.routees)(SockoHttpServer.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          1691
+          -
+          1713
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.component.socko.SockoHttpWorker]()((ClassTag.apply[com.webtrends.harness.component.socko.SockoHttpWorker](classOf[com.webtrends.harness.component.socko.SockoHttpWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.socko.SockoHttpWorker]))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          1690
+          -
+          1690
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          1789
+          -
+          1793
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          1828
+          -
+          1835
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.binding
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          1861
+          -
+          1861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          1886
+          -
+          1900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.bindHttpServer
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.bindHttpServer
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          1948
+          -
+          1955
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.running
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.running
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          1933
+          -
+          1956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.context.become(SockoHttpServer.this.running)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          1986
+          -
+          2214
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpStartProcessing =&gt; {
+        SockoHttpServer.this.log.debug(&quot;Http processing starting.&quot;);
+        akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.context.child(SockoHttpServer.ParamWorker).get).!(akka.routing.Broadcast.apply(HttpStartProcessing))(SockoHttpServer.this.self)
+      }
+      case ShutdownServer =&gt; SockoHttpServer.this.shutdownHttpServer
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: Any): Boolean = ((x3.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpStartProcessing =&gt; true
+      case ShutdownServer =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2000
+          -
+          2000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2040
+          -
+          2078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.log.debug(&quot;Http processing starting.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2134
+          -
+          2164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Broadcast.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.routing.Broadcast.apply(HttpStartProcessing)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2085
+          -
+          2131
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.child(SockoHttpServer.ParamWorker).get
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2085
+          -
+          2164
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.context.child(SockoHttpServer.ParamWorker).get).!(akka.routing.Broadcast.apply(HttpStartProcessing))(SockoHttpServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2132
+          -
+          2132
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2099
+          -
+          2126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.ParamWorker
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.ParamWorker
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2192
+          -
+          2210
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.shutdownHttpServer
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.shutdownHttpServer
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2281
+          -
+          2364
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.routes.Routes.apply
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.routes.Routes.apply(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.mashupbots.socko.events.SockoEvent,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.mashupbots.socko.events.SockoEvent =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.mashupbots.socko.events.SockoEvent, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.mashupbots.socko.events.SockoEvent]: org.mashupbots.socko.events.SockoEvent): org.mashupbots.socko.events.SockoEvent @unchecked) match {
+      case org.mashupbots.socko.routes.HttpRequest.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((request @ _)) =&gt; akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.router).!(SockoWorkerMessage.apply(request))(SockoHttpServer.this.self)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.mashupbots.socko.events.SockoEvent): Boolean = ((x1.asInstanceOf[org.mashupbots.socko.events.SockoEvent]: org.mashupbots.socko.events.SockoEvent): org.mashupbots.socko.events.SockoEvent @unchecked) match {
+      case org.mashupbots.socko.routes.HttpRequest.unapply(&lt;unapply-selector&gt;) &lt;unapply&gt; ((request @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.mashupbots.socko.events.SockoEvent,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2288
+          -
+          2288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2323
+          -
+          2329
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.router
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.router
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2323
+          -
+          2359
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.router).!(SockoWorkerMessage.apply(request))(SockoHttpServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          2330
+          -
+          2330
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2332
+          -
+          2359
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoWorkerMessage.apply
+        </td>
+        <td style="background: #AEF1AE">
+          SockoWorkerMessage.apply(request)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2421
+          -
+          2461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Trying to bind to port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2423
+          -
+          2447
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Trying to bind to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2448
+          -
+          2459
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.port
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config.port
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2460
+          -
+          2461
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          2412
+          -
+          2462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.log.info(scala.StringContext.apply(&quot;Trying to bind to port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          2507
+          -
+          2521
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          2485
+          -
+          2575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServer.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.mashupbots.socko.webserver.WebServer(SockoHttpServer.this.config, SockoHttpServer.this.context.system, ((server: org.mashupbots.socko.webserver.WebServer) =&gt; new SockoRequestHandler(server, SockoHttpServer.this.routes)))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          2534
+          -
+          2573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new SockoRequestHandler(server, SockoHttpServer.this.routes)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          2468
+          -
+          2576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.webServer_=
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.webServer_=(scala.Some.apply[org.mashupbots.socko.webserver.WebServer](new org.mashupbots.socko.webserver.WebServer(SockoHttpServer.this.config, SockoHttpServer.this.context.system, ((server: org.mashupbots.socko.webserver.WebServer) =&gt; new SockoRequestHandler(server, SockoHttpServer.this.routes)))))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          2499
+          -
+          2505
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.config
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          2566
+          -
+          2572
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.routes
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.routes
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          2480
+          -
+          2576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.mashupbots.socko.webserver.WebServer](new org.mashupbots.socko.webserver.WebServer(SockoHttpServer.this.config, SockoHttpServer.this.context.system, ((server: org.mashupbots.socko.webserver.WebServer) =&gt; new SockoRequestHandler(server, SockoHttpServer.this.routes))))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          2581
+          -
+          2703
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Runtime.addShutdownHook
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.Runtime.getRuntime().addShutdownHook({
+  final class $anon extends java.this.lang.Thread {
+    def &lt;init&gt;(): &lt;$anon: Thread&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    override def run: Unit = SockoHttpServer.this.shutdownHttpServer
+  };
+  new $anon()
+})
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          2616
+          -
+          2619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          2670
+          -
+          2688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.shutdownHttpServer
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.shutdownHttpServer
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          2720
+          -
+          2741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServer.start
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.webServer.get.start()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2748
+          -
+          2771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.become(SockoHttpServer.this.running)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          2763
+          -
+          2770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.running
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.running
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2778
+          -
+          2792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2778
+          -
+          2806
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.context.parent).!(HttpRunning)(SockoHttpServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2793
+          -
+          2793
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2824
+          -
+          2839
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Bound to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2822
+          -
+          2853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Bound to port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2840
+          -
+          2851
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.port
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config.port
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2852
+          -
+          2853
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2813
+          -
+          2854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.log.info(scala.StringContext.apply(&quot;Bound to port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2708
+          -
+          2998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Unit]({
+  SockoHttpServer.this.webServer.get.start();
+  SockoHttpServer.this.context.become(SockoHttpServer.this.running);
+  akka.actor.`package`.actorRef2Scala(SockoHttpServer.this.context.parent).!(HttpRunning)(SockoHttpServer.this.self);
+  SockoHttpServer.this.log.info(scala.StringContext.apply(&quot;Bound to port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port))
+}).recover[Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Nothing] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Nothing&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1](x4: A1, default: A1 =&gt; B1): B1 = ((x4.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; {
+        SockoHttpServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port), e);
+        throw e
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x4)
+    };
+    final def isDefinedAt(x4: Throwable): Boolean = ((x4.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2870
+          -
+          2870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2869
+          -
+          2869
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2906
+          -
+          2975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port), e)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2970
+          -
+          2971
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          2918
+          -
+          2957
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Error trying to bind to the http port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2916
+          -
+          2971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2958
+          -
+          2969
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.port
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.config.port
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2984
+          -
+          2991
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          3163
+          -
+          3173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          3174
+          -
+          3185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.port
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config.port
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          3110
+          -
+          3146
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Trying to shutdown the http server &quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          3147
+          -
+          3162
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.hostname
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config.hostname
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3099
+          -
+          3188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.log.info(scala.StringContext.apply(&quot;Trying to shutdown the http server &quot;, &quot; on port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.hostname, SockoHttpServer.this.config.port))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          3108
+          -
+          3187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Trying to shutdown the http server &quot;, &quot; on port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.hostname, SockoHttpServer.this.config.port)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          3186
+          -
+          3187
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3193
+          -
+          3202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.webServer
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.webServer
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3242
+          -
+          3404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Unit](ws.stop()).recover[Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x5: A1, default: A1 =&gt; B1): B1 = ((x5.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; SockoHttpServer.this.log.warning(&quot;we were unable to properly shutdown the HttpServer: {}&quot;, e.getMessage())
+      case (defaultCase$ @ _) =&gt; default.apply(x5)
+    };
+    final def isDefinedAt(x5: Throwable): Boolean = ((x5.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3265
+          -
+          3265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3246
+          -
+          3255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServer.stop
+        </td>
+        <td style="background: #AEF1AE">
+          ws.stop()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3380
+          -
+          3392
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3322
+          -
+          3378
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;we were unable to properly shutdown the HttpServer: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3310
+          -
+          3393
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warning
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpServer.this.log.warning(&quot;we were unable to properly shutdown the HttpServer: {}&quot;, e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3421
+          -
+          3423
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3443
+          -
+          3484
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.log.info(&quot;Http server shutdown complete&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3493
+          -
+          3508
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3489
+          -
+          3489
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3489
+          -
+          3489
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3518
+          -
+          3541
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.become(SockoHttpServer.this.binding)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3518
+          -
+          3541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.context.become(SockoHttpServer.this.binding)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3533
+          -
+          3540
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.binding
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3730
+          -
+          3754
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3759
+          -
+          3768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpServer.webServer
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.webServer
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3895
+          -
+          3906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.webserver.WebServerConfig.port
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHttpServer.this.config.port
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3809
+          -
+          3809
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3834
+          -
+          3855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3825
+          -
+          3832
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;socko&quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          3799
+          -
+          3909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #AEF1AE">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(&quot;socko&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Web server up and running on port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3907
+          -
+          3908
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          3809
+          -
+          3809
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          3809
+          -
+          3909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;socko&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Web server up and running on port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          3859
+          -
+          3894
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Web server up and running on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3857
+          -
+          3908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Web server up and running on port &quot;, &quot;&quot;).s(SockoHttpServer.this.config.port)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          3939
+          -
+          3939
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          3929
+          -
+          4014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(&quot;socko&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Web server not started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          3955
+          -
+          3962
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;socko&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          3989
+          -
+          4013
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Web server not started&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          3939
+          -
+          4014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;socko&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Web server not started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          3939
+          -
+          3939
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          3964
+          -
+          3987
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          4025
+          -
+          4033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #AEF1AE">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

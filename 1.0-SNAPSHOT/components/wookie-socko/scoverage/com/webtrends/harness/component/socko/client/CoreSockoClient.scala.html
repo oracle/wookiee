@@ -1,0 +1,2870 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/client/CoreSockoClient.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.socko.client
+</span>21 <span style=''>
+</span>22 <span style=''>import java.io.{BufferedReader, InputStreamReader, DataOutputStream}
+</span>23 <span style=''>import java.net.{URL, HttpURLConnection}
+</span>24 <span style=''>
+</span>25 <span style=''>import akka.pattern.ask
+</span>26 <span style=''>import akka.pattern.pipe
+</span>27 <span style=''>import akka.actor.Props
+</span>28 <span style=''>import akka.util.Timeout
+</span>29 <span style=''>import com.webtrends.harness.app.HActor
+</span>30 <span style=''>
+</span>31 <span style=''>import scala.concurrent.{Promise, Future}
+</span>32 <span style=''>import scala.concurrent.duration.Duration
+</span>33 <span style=''>import scala.util.{Success, Failure}
+</span>34 <span style=''>import scala.collection.JavaConverters._
+</span>35 <span style=''>
+</span>36 <span style=''>/**
+</span>37 <span style=''> * @author Michael Cuthbert on 1/30/15.
+</span>38 <span style=''> */
+</span>39 <span style=''>object CoreSockoClient {
+</span>40 <span style=''>  def props: Props = </span><span style='background: #F0ADAD'>Props[CoreSockoClient]</span><span style=''>
+</span>41 <span style=''>}
+</span>42 <span style=''>
+</span>43 <span style=''>class CoreSockoClient extends HActor {
+</span>44 <span style=''>  import context.dispatcher
+</span>45 <span style=''>
+</span>46 <span style=''>  /**
+</span>47 <span style=''>   * Will route messages to correct behavior, mainly will go to service
+</span>48 <span style=''>   */
+</span>49 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse {
+</span>50 <span style=''></span><span style='background: #F0ADAD'>    case HttpGet(config, path, headers) => service(config, HttpConstants.GET, path, None, headers)
+</span>51 <span style=''></span><span style='background: #F0ADAD'>    case HttpPost(config, path, body, headers) => service(config, HttpConstants.POST, path, Some(body), headers)
+</span>52 <span style=''></span><span style='background: #F0ADAD'>    case HttpPut(config, path, body, headers) => service(config, HttpConstants.PUT, path, Some(body), headers)
+</span>53 <span style=''></span><span style='background: #F0ADAD'>    case HttpDelete(config, path, headers) => service(config, HttpConstants.DELETE, path, None, headers)
+</span>54 <span style=''></span><span style='background: #F0ADAD'>    case HttpOptions(config, path, body, headers) => service(config, HttpConstants.OPTIONS, path, Some(body), headers)
+</span>55 <span style=''></span><span style='background: #F0ADAD'>    case HttpPatch(config, path, body, headers) => service(config, HttpConstants.PATCH, path, Some(body), headers)
+</span>56 <span style=''></span><span style='background: #F0ADAD'>    case HttpPing(config, timeout, path) => pipe(ping(config, timeout, path)) to sender
+</span>57 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  private def getHeaderFields(conn:HttpURLConnection) : Map[String, String] = {
+</span>60 <span style=''>    </span><span style='background: #F0ADAD'>conn.getHeaderFields.asScala map {
+</span>61 <span style=''></span><span style='background: #F0ADAD'>      case (x, y) => x -> y.asScala.mkString(",")
+</span>62 <span style=''></span><span style='background: #F0ADAD'>    } toMap</span><span style=''>
+</span>63 <span style=''>  }
+</span>64 <span style=''>
+</span>65 <span style=''>  def service[T:Manifest](config:HttpConfig, method:String, path:String, body:Option[T], headers:Map[String, String]) = {
+</span>66 <span style=''>    val urlConnection = </span><span style='background: #F0ADAD'>new URL(config.fullPath(path)).openConnection().asInstanceOf[HttpURLConnection]</span><span style=''>
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>urlConnection.setRequestMethod(method)</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #F0ADAD'>headers foreach {
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      case (name, value) => urlConnection.setRequestProperty(name, value)
+</span>70 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>71 <span style=''>    method match {
+</span>72 <span style=''>      case HttpConstants.POST | HttpConstants.PUT =>
+</span>73 <span style=''>        body match {
+</span>74 <span style=''>          case Some(v) =>
+</span>75 <span style=''>            </span><span style='background: #F0ADAD'>urlConnection.setDoOutput(true)</span><span style=''>
+</span>76 <span style=''>            val wr = </span><span style='background: #F0ADAD'>new DataOutputStream(urlConnection.getOutputStream)</span><span style=''>
+</span>77 <span style=''>            // TODO marshall this
+</span>78 <span style=''>            </span><span style='background: #F0ADAD'>wr.writeBytes(v.toString)</span><span style=''>
+</span>79 <span style=''>            </span><span style='background: #F0ADAD'>wr.flush()</span><span style=''>
+</span>80 <span style=''>            </span><span style='background: #F0ADAD'>wr.close()</span><span style=''>
+</span>81 <span style=''>          case None </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore
+</span>82 <span style=''>        }
+</span>83 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''> // don't have to do anything special with the other ones
+</span>84 <span style=''>    }
+</span>85 <span style=''>
+</span>86 <span style=''>    try {
+</span>87 <span style=''>      </span><span style='background: #F0ADAD'>urlConnection.connect()
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      val responseCode = urlConnection.getResponseCode
+</span>89 <span style=''></span><span style='background: #F0ADAD'>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      val response = try {
+</span>91 <span style=''></span><span style='background: #F0ADAD'>        val in = new BufferedReader(new InputStreamReader(urlConnection.getInputStream))
+</span>92 <span style=''></span><span style='background: #F0ADAD'>        var inputLine: String = null
+</span>93 <span style=''></span><span style='background: #F0ADAD'>        val response = new StringBuffer()
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        while ((inputLine = in.readLine()) != null) {
+</span>95 <span style=''></span><span style='background: #F0ADAD'>          response.append(inputLine)
+</span>96 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>97 <span style=''></span><span style='background: #F0ADAD'>        in.close()
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        response.toString.getBytes
+</span>99 <span style=''></span><span style='background: #F0ADAD'>      } catch {
+</span>100 <span style=''></span><span style='background: #F0ADAD'>        case t: Throwable =>
+</span>101 <span style=''></span><span style='background: #F0ADAD'>          log.debug(t, t.getMessage)
+</span>102 <span style=''></span><span style='background: #F0ADAD'>          new Array[Byte](0)
+</span>103 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>104 <span style=''></span><span style='background: #F0ADAD'>      sender ! HttpResp(response, getHeaderFields(urlConnection), responseCode)</span><span style=''>
+</span>105 <span style=''>    } finally {
+</span>106 <span style=''>      </span><span style='background: #F0ADAD'>urlConnection.disconnect()</span><span style=''>
+</span>107 <span style=''>    }
+</span>108 <span style=''>  }
+</span>109 <span style=''>
+</span>110 <span style=''>  def ping(config:HttpConfig, timeoutValue:Int=1, pingPath:String="ping") : Future[ConnectionStatus] = {
+</span>111 <span style=''>    implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(Duration(timeoutValue, "seconds"))</span><span style=''>
+</span>112 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ConnectionStatus]()</span><span style=''>
+</span>113 <span style=''>    try {
+</span>114 <span style=''>      </span><span style='background: #F0ADAD'>val f = (self ? HttpGet(config, pingPath))(timeout)
+</span>115 <span style=''></span><span style='background: #F0ADAD'>      f onComplete {
+</span>116 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>117 <span style=''></span><span style='background: #F0ADAD'>          p success ConnectionStatus(false, "Could not connect to " + config.fullPath("ping") + " responded with exception " + f.getMessage)
+</span>118 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) =>
+</span>119 <span style=''></span><span style='background: #F0ADAD'>          s.asInstanceOf[HttpResp].statusCode match {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>            case 200 => p success ConnectionStatus(true, "Connected successfully to " + config.fullPath(pingPath))
+</span>121 <span style=''></span><span style='background: #F0ADAD'>            case _ => p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath))
+</span>122 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>123 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>124 <span style=''>    } catch {
+</span>125 <span style=''>      case e:Throwable =>
+</span>126 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
+</span>127 <span style=''>        </span><span style='background: #F0ADAD'>p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
+</span>128 <span style=''>    }
+</span>129 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>130 <span style=''>  }
+</span>131 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          1301
+          -
+          1323
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.component.socko.client.CoreSockoClient]()((ClassTag.apply[com.webtrends.harness.component.socko.client.CoreSockoClient](classOf[com.webtrends.harness.component.socko.client.CoreSockoClient]): scala.reflect.ClassTag[com.webtrends.harness.component.socko.client.CoreSockoClient]))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          714
+        </td>
+        <td>
+          1504
+          -
+          2280
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpGet((config @ _), (path @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Nothing](config, HttpConstants.GET, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPost[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Any](config, HttpConstants.POST, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPut[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Any](config, HttpConstants.PUT, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpDelete((config @ _), (path @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Nothing](config, HttpConstants.DELETE, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpOptions[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Any](config, HttpConstants.OPTIONS, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPatch[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; CoreSockoClient.this.service[Any](config, HttpConstants.PATCH, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, timeout: Int, path: String)com.webtrends.harness.component.socko.client.HttpPing((config @ _), (timeout @ _), (path @ _)) =&gt; {
+        akka.pattern.`package`.pipe[com.webtrends.harness.component.socko.client.ConnectionStatus](CoreSockoClient.this.ping(config, timeout, path))(CoreSockoClient.this.context.dispatcher).to(CoreSockoClient.this.sender());
+        ()
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpGet((config @ _), (path @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPost[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPut[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpDelete((config @ _), (path @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpOptions[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, path: String, body: Any, headers: Map[String,String])com.webtrends.harness.component.socko.client.HttpPatch[Any]((config @ _), (path @ _), (body @ _), (headers @ _)) =&gt; true
+      case (config: com.webtrends.harness.component.socko.client.HttpConfig, timeout: Int, path: String)com.webtrends.harness.component.socko.client.HttpPing((config @ _), (timeout @ _), (path @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          713
+        </td>
+        <td>
+          1525
+          -
+          1525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          1570
+          -
+          1625
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Nothing](config, HttpConstants.GET, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          1586
+          -
+          1603
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.GET
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.GET
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          1577
+          -
+          1577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          1611
+          -
+          1615
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          1683
+          -
+          1683
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Any
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Any
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          1718
+          -
+          1728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Any](body)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          1676
+          -
+          1738
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Any](config, HttpConstants.POST, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          1692
+          -
+          1710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.POST
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.POST
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          1829
+          -
+          1839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Any](body)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          1804
+          -
+          1821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.PUT
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.PUT
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          1788
+          -
+          1849
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Any](config, HttpConstants.PUT, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          1795
+          -
+          1795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Any
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Any
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          1912
+          -
+          1932
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.DELETE
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.DELETE
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          1896
+          -
+          1954
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Nothing](config, HttpConstants.DELETE, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          1903
+          -
+          1903
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          1940
+          -
+          1944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          702
+        </td>
+        <td>
+          2015
+          -
+          2015
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Any
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Any
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          2053
+          -
+          2063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Any](body)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          700
+        </td>
+        <td>
+          2024
+          -
+          2045
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.OPTIONS
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.OPTIONS
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          2008
+          -
+          2073
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Any](config, HttpConstants.OPTIONS, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          2168
+          -
+          2178
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Any](body)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          2141
+          -
+          2160
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConstants.PATCH
+        </td>
+        <td style="background: #F0ADAD">
+          HttpConstants.PATCH
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          2125
+          -
+          2188
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.service[Any](config, HttpConstants.PATCH, path, scala.Some.apply[Any](body), headers)(reflect.this.ManifestFactory.Any)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          706
+        </td>
+        <td>
+          2132
+          -
+          2132
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Any
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Any
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          2238
+          -
+          2265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.ping
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.ping(config, timeout, path)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          2233
+          -
+          2276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[com.webtrends.harness.component.socko.client.ConnectionStatus](CoreSockoClient.this.ping(config, timeout, path))(CoreSockoClient.this.context.dispatcher).to(CoreSockoClient.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          710
+        </td>
+        <td>
+          2270
+          -
+          2276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          2237
+          -
+          2237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          712
+        </td>
+        <td>
+          2267
+          -
+          2267
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          2366
+          -
+          2386
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getHeaderFields
+        </td>
+        <td style="background: #F0ADAD">
+          conn.getHeaderFields()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          718
+        </td>
+        <td>
+          2395
+          -
+          2395
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Map.canBuildFrom[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          2422
+          -
+          2450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](x).-&gt;[String](scala.collection.JavaConverters.asScalaBufferConverter[String](y).asScala.mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          716
+        </td>
+        <td>
+          2427
+          -
+          2450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaBufferConverter[String](y).asScala.mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          720
+        </td>
+        <td>
+          2366
+          -
+          2462
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.mapAsScalaMapConverter[String, java.util.List[String]](conn.getHeaderFields()).asScala.map[(String, String), scala.collection.mutable.Map[String,String]](((x0$2: (String, java.util.List[String])) =&gt; x0$2 match {
+  case (_1: String, _2: java.util.List[String])(String, java.util.List[String])((x @ _), (y @ _)) =&gt; scala.this.Predef.ArrowAssoc[String](x).-&gt;[String](scala.collection.JavaConverters.asScalaBufferConverter[String](y).asScala.mkString(&quot;,&quot;))
+}))(mutable.this.Map.canBuildFrom[String, String]).toMap[String, String](scala.this.Predef.$conforms[(String, String)])
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          2457
+          -
+          2457
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, String)]
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          722
+        </td>
+        <td>
+          2614
+          -
+          2693
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          new java.net.URL(config.fullPath(path)).openConnection().asInstanceOf[java.net.HttpURLConnection]
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          2622
+          -
+          2643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(path)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          2698
+          -
+          2736
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.HttpURLConnection.setRequestMethod
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.setRequestMethod(method)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          2741
+          -
+          2838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          headers.foreach[Unit](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((name @ _), (value @ _)) =&gt; urlConnection.setRequestProperty(name, value)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          2787
+          -
+          2832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.setRequestProperty
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.setRequestProperty(name, value)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          726
+        </td>
+        <td>
+          2970
+          -
+          3001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.setDoOutput
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.setDoOutput(true)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          3023
+          -
+          3074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.DataOutputStream.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.DataOutputStream(urlConnection.getOutputStream())
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          727
+        </td>
+        <td>
+          3044
+          -
+          3073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getOutputStream
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.getOutputStream()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          3135
+          -
+          3145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #F0ADAD">
+          v.toString()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          3121
+          -
+          3146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.DataOutputStream.writeBytes
+        </td>
+        <td style="background: #F0ADAD">
+          wr.writeBytes(v.toString())
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          3159
+          -
+          3169
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.DataOutputStream.flush
+        </td>
+        <td style="background: #F0ADAD">
+          wr.flush()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          732
+        </td>
+        <td>
+          3182
+          -
+          3192
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FilterOutputStream.close
+        </td>
+        <td style="background: #F0ADAD">
+          wr.close()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          3213
+          -
+          3215
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          3249
+          -
+          3251
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          3332
+          -
+          3960
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  urlConnection.connect();
+  val responseCode: Int = urlConnection.getResponseCode();
+  val response: Array[Byte] = try {
+    val in: java.io.BufferedReader = new java.io.BufferedReader(new java.io.InputStreamReader(urlConnection.getInputStream()));
+    var inputLine: String = null;
+    val response: StringBuffer = new java.this.lang.StringBuffer();
+    while$1(){
+      if (inputLine = in.readLine().!=(null))
+        {
+          response.append(inputLine);
+          while$1()
+        }
+      else
+        ()
+    };
+    in.close();
+    response.toString().getBytes()
+  } catch {
+    case (t @ (_: Throwable)) =&gt; {
+      CoreSockoClient.this.log.debug(t, t.getMessage());
+      new Array[Byte](0)
+    }
+  };
+  akka.this.actor.`package`.actorRef2Scala(CoreSockoClient.this.sender()).!(HttpResp.apply(response, CoreSockoClient.this.getHeaderFields(urlConnection), responseCode))(CoreSockoClient.this.self)
+}
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          3332
+          -
+          3355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.connect
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.connect()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          3381
+          -
+          3410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.HttpURLConnection.getResponseCode
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.getResponseCode()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          3447
+          -
+          3761
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val in: java.io.BufferedReader = new java.io.BufferedReader(new java.io.InputStreamReader(urlConnection.getInputStream()));
+  var inputLine: String = null;
+  val response: StringBuffer = new java.this.lang.StringBuffer();
+  while$1(){
+    if (inputLine = in.readLine().!=(null))
+      {
+        response.append(inputLine);
+        while$1()
+      }
+    else
+      ()
+  };
+  in.close();
+  response.toString().getBytes()
+}
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          3475
+          -
+          3526
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStreamReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.InputStreamReader(urlConnection.getInputStream())
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          3497
+          -
+          3525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getInputStream
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.getInputStream()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          3456
+          -
+          3527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.BufferedReader(new java.io.InputStreamReader(urlConnection.getInputStream()))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          3560
+          -
+          3564
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          3588
+          -
+          3606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuffer.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.this.lang.StringBuffer()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          747
+        </td>
+        <td>
+          3615
+          -
+          3615
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          3615
+          -
+          3615
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          3622
+          -
+          3657
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.!=
+        </td>
+        <td style="background: #F0ADAD">
+          inputLine = in.readLine().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          3671
+          -
+          3697
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  response.append(inputLine);
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          3686
+          -
+          3686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.while$1
+        </td>
+        <td style="background: #F0ADAD">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          3671
+          -
+          3697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.StringBuffer.append
+        </td>
+        <td style="background: #F0ADAD">
+          response.append(inputLine)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          3716
+          -
+          3726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.close
+        </td>
+        <td style="background: #F0ADAD">
+          in.close()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          3735
+          -
+          3761
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          response.toString().getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          3817
+          -
+          3843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.log.debug(t, t.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          751
+        </td>
+        <td>
+          3830
+          -
+          3842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          t.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          3854
+          -
+          3872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new Array[Byte](0)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          3896
+          -
+          3960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpResp.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HttpResp.apply(response, CoreSockoClient.this.getHeaderFields(urlConnection), responseCode)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          3915
+          -
+          3945
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.CoreSockoClient.getHeaderFields
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.getHeaderFields(urlConnection)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          3887
+          -
+          3960
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoreSockoClient.this.sender()).!(HttpResp.apply(response, CoreSockoClient.this.getHeaderFields(urlConnection), responseCode))(CoreSockoClient.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          3894
+          -
+          3894
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.self
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          3887
+          -
+          3893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          3983
+          -
+          4009
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.net.HttpURLConnection.disconnect
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.disconnect()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          3983
+          -
+          4009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.HttpURLConnection.disconnect
+        </td>
+        <td style="background: #F0ADAD">
+          urlConnection.disconnect()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          4153
+          -
+          4195
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          4170
+          -
+          4182
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          timeoutValue.toLong
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          4161
+          -
+          4194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          4184
+          -
+          4193
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;seconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          4208
+          -
+          4235
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.component.socko.client.ConnectionStatus]()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          4252
+          -
+          4817
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val f: scala.concurrent.Future[Any] = akka.pattern.`package`.ask(CoreSockoClient.this.self).?(HttpGet.apply(config, pingPath, HttpGet.apply$default$3))(timeout);
+  f.onComplete[scala.concurrent.Promise[com.webtrends.harness.component.socko.client.ConnectionStatus]](((x0$3: scala.util.Try[Any]) =&gt; x0$3 match {
+    case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())))
+    case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; s.asInstanceOf[com.webtrends.harness.component.socko.client.HttpResp].statusCode match {
+      case 200 =&gt; p.success(ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))))
+      case _ =&gt; p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath))))
+    }
+  }))(CoreSockoClient.this.context.dispatcher)
+}
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          4260
+          -
+          4303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreSockoClient.this.self).?(HttpGet.apply(config, pingPath, HttpGet.apply$default$3))(timeout)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          4310
+          -
+          4817
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          f.onComplete[scala.concurrent.Promise[com.webtrends.harness.component.socko.client.ConnectionStatus]](((x0$3: scala.util.Try[Any]) =&gt; x0$3 match {
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())))
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; s.asInstanceOf[com.webtrends.harness.component.socko.client.HttpResp].statusCode match {
+    case 200 =&gt; p.success(ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))))
+    case _ =&gt; p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath))))
+  }
+}))(CoreSockoClient.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          4312
+          -
+          4312
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          4372
+          -
+          4492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          4389
+          -
+          4394
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          4448
+          -
+          4476
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with exception &quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          4422
+          -
+          4445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(&quot;ping&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          4396
+          -
+          4491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          4362
+          -
+          4492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          4396
+          -
+          4419
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          4479
+          -
+          4491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          4530
+          -
+          4565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpResp.statusCode
+        </td>
+        <td style="background: #F0ADAD">
+          s.asInstanceOf[com.webtrends.harness.component.socko.client.HttpResp].statusCode
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          4625
+          -
+          4629
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          4662
+          -
+          4687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          4598
+          -
+          4688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          4631
+          -
+          4659
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Connected successfully to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          4608
+          -
+          4688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath)))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          4631
+          -
+          4687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          4738
+          -
+          4743
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          4745
+          -
+          4796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(pingPath))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          4711
+          -
+          4797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath))))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          4771
+          -
+          4796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          4745
+          -
+          4768
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          4721
+          -
+          4797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          4876
+          -
+          4899
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          795
+        </td>
+        <td>
+          4957
+          -
+          4969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          4866
+          -
+          4970
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSockoClient.this.log.debug(&quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          4930
+          -
+          4954
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with error &quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          4902
+          -
+          4927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          4876
+          -
+          4969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          5067
+          -
+          5091
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with error &quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          4989
+          -
+          5107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          5013
+          -
+          5106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          5039
+          -
+          5064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          5094
+          -
+          5106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          4979
+          -
+          5107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          5013
+          -
+          5036
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          5006
+          -
+          5011
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          5118
+          -
+          5126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

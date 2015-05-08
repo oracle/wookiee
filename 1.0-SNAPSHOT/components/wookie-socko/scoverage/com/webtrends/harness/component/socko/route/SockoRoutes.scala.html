@@ -1,0 +1,6432 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/route/SockoRoutes.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.socko.route
+</span>21 <span style=''>
+</span>22 <span style=''>import java.io._
+</span>23 <span style=''>import java.net.URLDecoder
+</span>24 <span style=''>import java.nio.charset.StandardCharsets
+</span>25 <span style=''>import java.util.zip.{GZIPInputStream, InflaterInputStream}
+</span>26 <span style=''>
+</span>27 <span style=''>import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
+</span>28 <span style=''>import com.webtrends.harness.component.socko.AddSockoHandler
+</span>29 <span style=''>import com.webtrends.harness.component.socko.utils.{SockoCommandBean, SockoCommandException, SockoUtils}
+</span>30 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentManager, ComponentMessage}
+</span>31 <span style=''>import io.netty.handler.codec.http.QueryStringDecoder
+</span>32 <span style=''>import net.liftweb.json.Extraction._
+</span>33 <span style=''>import net.liftweb.json.JsonAST.{JField, JObject, JString}
+</span>34 <span style=''>import net.liftweb.json.JsonParser.ParseException
+</span>35 <span style=''>import net.liftweb.json._
+</span>36 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
+</span>37 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus, ImmutableHttpHeaders}
+</span>38 <span style=''>import org.mashupbots.socko.infrastructure.CharsetUtil
+</span>39 <span style=''>
+</span>40 <span style=''>import scala.collection.JavaConversions._
+</span>41 <span style=''>import scala.collection.mutable
+</span>42 <span style=''>import scala.io.Source
+</span>43 <span style=''>import scala.util.{Failure, Success}
+</span>44 <span style=''>
+</span>45 <span style=''>class AutoSockoHandler(matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit) extends SockoRouteHandler {
+</span>46 <span style=''>  /**
+</span>47 <span style=''>   * Attempts to handle the Socko route
+</span>48 <span style=''>   *
+</span>49 <span style=''>   * @param bean The http request
+</span>50 <span style=''>   * @return true if route was handled, false otherwise
+</span>51 <span style=''>   */
+</span>52 <span style=''>  override def handleSockoRoute(event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) = </span><span style='background: #AEF1AE'>handler(event, bean)</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  /**
+</span>55 <span style=''>   * Checks if this handler matches the route in the event, returned map will be used to handle request
+</span>56 <span style=''>   * or pass None back if this is not the right path
+</span>57 <span style=''>   *
+</span>58 <span style=''>   * @param event Event receive by Socko
+</span>59 <span style=''>   * @return None- path does not match, Some(map)- path matches, extract variables
+</span>60 <span style=''>   */
+</span>61 <span style=''>  override def matchSockoRoute(event: HttpRequestEvent): Option[mutable.HashMap[String, AnyRef]] = </span><span style='background: #AEF1AE'>matcher(event)</span><span style=''>
+</span>62 <span style=''>}
+</span>63 <span style=''>
+</span>64 <span style=''>/**
+</span>65 <span style=''> * Wrapper case class to make Socko headers easier to deal with
+</span>66 <span style=''> *
+</span>67 <span style=''> * @param headerName the name of the header
+</span>68 <span style=''> * @param headerValue the value of the header
+</span>69 <span style=''> */
+</span>70 <span style=''>case class SockoHeader(headerName:String, headerValue:String)
+</span>71 <span style=''>
+</span>72 <span style=''>/**
+</span>73 <span style=''> * SockoRoutes enable developers to simply add traits to their commands and gain instant http capabilities
+</span>74 <span style=''> * For SockoRoutes a handler actor is created for each Command and each trait that is applied to the command.
+</span>75 <span style=''> * The socko handlers are registered in the Socko Manager.
+</span>76 <span style=''> */
+</span>77 <span style=''>private[route] trait SockoRoutes extends ComponentHelper {
+</span>78 <span style=''>  this:Command =>
+</span>79 <span style=''>
+</span>80 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>Serialization.formats(NoTypeHints) ++ JodaTimeSerializers.all</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>  import context.dispatcher
+</span>83 <span style=''>
+</span>84 <span style=''>  def applyQSMap(bean:SockoCommandBean) {
+</span>85 <span style=''>    // this fixedMap basically takes the queryStringMap and removes the List of elements if there is
+</span>86 <span style=''>    // only a single element in the list.
+</span>87 <span style=''>    val fixedMap = </span><span style='background: #AEF1AE'>bean.event.endPoint.queryStringMap map { e => </span><span style='background: #F0ADAD'>e._1 -> e._2.last</span><span style=''> }
+</span>88 <span style=''>    </span><span style='background: #AEF1AE'>bean.appendMap(fixedMap)</span><span style=''>
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  def marshallObject(obj: Any, respType: String = "json"): Array[Byte] = {
+</span>92 <span style=''>    val realRespType = </span><span style='background: #AEF1AE'>SockoUtils.normalizeContentType(respType)</span><span style=''>
+</span>93 <span style=''>    if (</span><span style='background: #AEF1AE'>realRespType == "application/json"</span><span style=''>) {
+</span>94 <span style=''>      </span><span style='background: #AEF1AE'>obj match {
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        case s: String => s.getBytes
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        case _ => </span><span style='background: #F0ADAD'>compactRender(decompose(obj)).getBytes</span><span style='background: #AEF1AE'>
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>98 <span style=''>    } else </span><span style='background: #AEF1AE'>obj match {
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      case bytes: Array[Byte] =>
+</span>100 <span style=''></span><span style='background: #AEF1AE'>        bytes
+</span>101 <span style=''></span><span style='background: #AEF1AE'>      case _ =>
+</span>102 <span style=''></span><span style='background: #AEF1AE'>        obj.toString.getBytes
+</span>103 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>104 <span style=''>  }
+</span>105 <span style=''>
+</span>106 <span style=''>  /**
+</span>107 <span style=''>   * Sets the response code for the command using the trait
+</span>108 <span style=''>   * So if you are creating an item and wanted to send back the CREATED status
+</span>109 <span style=''>   * then you just override this in your command
+</span>110 <span style=''>   *
+</span>111 <span style=''>   * @return
+</span>112 <span style=''>   */
+</span>113 <span style=''>  def responseStatusCode = </span><span style='background: #AEF1AE'>HttpResponseStatus.OK</span><span style=''>
+</span>114 <span style=''>
+</span>115 <span style=''>  /**
+</span>116 <span style=''>   * Function that allows you to override the headers for a response. The Map allows you to specifically
+</span>117 <span style=''>   * set headers for specific HTTPMethods, if None set for HttpMethod, then the header will apply to all
+</span>118 <span style=''>   * methods. This is done so that if you have multiple traits like SprayPut, SprayPost, SprayOptions, SprayGet, etc.
+</span>119 <span style=''>   * you can apply different headers depending on what you are doing.
+</span>120 <span style=''>   *
+</span>121 <span style=''>   * @return
+</span>122 <span style=''>   */
+</span>123 <span style=''>  def getResponseHeaders(headers: ImmutableHttpHeaders) : Map[String, List[SockoHeader]] = {
+</span>124 <span style=''>    </span><span style='background: #AEF1AE'>Map[String, List[SockoHeader]]().empty</span><span style=''>
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  def defaultPathMatcher(event: HttpRequestEvent, paths : Map[String, String]): Option[mutable.HashMap[String, AnyRef]] = {
+</span>128 <span style=''>    </span><span style='background: #AEF1AE'>paths foreach { p =>
+</span>129 <span style=''></span><span style='background: #AEF1AE'>      Command.matchPath(p._2, event.endPoint.path) match {
+</span>130 <span style=''></span><span style='background: #AEF1AE'>        case Some(b) =>
+</span>131 <span style=''></span><span style='background: #AEF1AE'>          b.addValue(CommandBean.KeyPath, p._1)
+</span>132 <span style=''></span><span style='background: #AEF1AE'>          val bean = new SockoCommandBean(event)
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          bean.appendMap(b.toMap)
+</span>134 <span style=''></span><span style='background: #AEF1AE'>          return Some(bean)
+</span>135 <span style=''></span><span style='background: #AEF1AE'>        case None => // ignore and continue in the stream
+</span>136 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>137 <span style=''>    }
+</span>138 <span style=''>    </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>139 <span style=''>  }
+</span>140 <span style=''>
+</span>141 <span style=''>  protected def getRejectionHandler(event:HttpRequestEvent, e:Throwable) = {
+</span>142 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(e.getMessage, e)</span><span style=''>
+</span>143 <span style=''>    e match {
+</span>144 <span style=''>      case ce: ParseException =>
+</span>145 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Invalid JSON - ${ce.getMessage}")</span><span style=''>
+</span>146 <span style=''>      case ce: SockoCommandException =>
+</span>147 <span style=''>        </span><span style='background: #F0ADAD'>ce.msg == null || ce.msg == ""</span><span style=''> match {
+</span>148 <span style=''>          case true => </span><span style='background: #F0ADAD'>event.response.write(ce.code)</span><span style=''>
+</span>149 <span style=''>          case false => </span><span style='background: #F0ADAD'>event.response.write(ce.code, ce.msg)</span><span style=''>
+</span>150 <span style=''>        }
+</span>151 <span style=''>      case ce:CommandException =>
+</span>152 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")</span><span style=''>
+</span>153 <span style=''>      case arg:IllegalArgumentException =>
+</span>154 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Illegal Arguments - ${arg.getMessage}\n\t${arg.toString}")</span><span style=''>
+</span>155 <span style=''>      case me:MappingException =>
+</span>156 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Mapping Exception - ${me.getMessage}\n\t${me.toString}")</span><span style=''>
+</span>157 <span style=''>      case ex:Exception =>
+</span>158 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Server Error - ${ex.getMessage}\n\t${ex.toString}")</span><span style=''>
+</span>159 <span style=''>    }
+</span>160 <span style=''>  }
+</span>161 <span style=''>
+</span>162 <span style=''>  /**
+</span>163 <span style=''>   * Function will return all the allowed headers for the command. Basically if you mixin a trait like
+</span>164 <span style=''>   * SprayGet, it will add the Get method to the allow header. This method should be overridden if you
+</span>165 <span style=''>   * are using the SprayCustom trait as then you would be defining your own routes and methods.
+</span>166 <span style=''>   *
+</span>167 <span style=''>   * @return
+</span>168 <span style=''>   */
+</span>169 <span style=''>  protected def getMethods = {
+</span>170 <span style=''>    def getMethod[I<:SockoRoutes](klass:Class[I], method:String) : Option[String] = {
+</span>171 <span style=''>      </span><span style='background: #AEF1AE'>klass.isAssignableFrom(this.getClass)</span><span style=''> match {
+</span>172 <span style=''>        case true => </span><span style='background: #AEF1AE'>Some(method)</span><span style=''>
+</span>173 <span style=''>        case false => </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>174 <span style=''>      }
+</span>175 <span style=''>    }
+</span>176 <span style=''>
+</span>177 <span style=''>    </span><span style='background: #AEF1AE'>Seq[Option[String]] (
+</span>178 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoGet], "GET"),
+</span>179 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoHead], "HEAD"),
+</span>180 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPut], "PUT"),
+</span>181 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPost], "POST"),
+</span>182 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoOptions], "OPTIONS"),
+</span>183 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoDelete], "DELETE")
+</span>184 <span style=''></span><span style='background: #AEF1AE'>    ).flatten</span><span style=''>
+</span>185 <span style=''>  }
+</span>186 <span style=''>  
+</span>187 <span style=''>  def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
+</span>188 <span style=''>    try {
+</span>189 <span style=''>      </span><span style='background: #AEF1AE'>applyQSMap(bean)
+</span>190 <span style=''></span><span style='background: #AEF1AE'>      execute(Some(bean)).mapTo[CommandResponse[T]] onComplete {
+</span>191 <span style=''></span><span style='background: #AEF1AE'>        case Success(resp) =>
+</span>192 <span style=''></span><span style='background: #AEF1AE'>          resp.data match {
+</span>193 <span style=''></span><span style='background: #AEF1AE'>            case Some(value) =>
+</span>194 <span style=''></span><span style='background: #AEF1AE'>              val content = if (bean.event.endPoint.method.equalsIgnoreCase("head")) Array[Byte]() else marshallObject(value, resp.responseType)
+</span>195 <span style=''></span><span style='background: #AEF1AE'>              bean.event.response.write(
+</span>196 <span style=''></span><span style='background: #AEF1AE'>                responseStatusCode,
+</span>197 <span style=''></span><span style='background: #AEF1AE'>                // just double check the end point method, and if it is head then simply remove any content from the response
+</span>198 <span style=''></span><span style='background: #AEF1AE'>                content,
+</span>199 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.normalizeContentType(resp.responseType),
+</span>200 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod.name(), getResponseHeaders(bean.event.request.headers), content.length)
+</span>201 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>202 <span style=''></span><span style='background: #AEF1AE'>            case None => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.NO_CONTENT)</span><span style='background: #AEF1AE'>
+</span>203 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>204 <span style=''></span><span style='background: #AEF1AE'>        case Failure(f) => f match {
+</span>205 <span style=''></span><span style='background: #AEF1AE'>          case ce: SockoCommandException => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, ce)</span><span style='background: #AEF1AE'>
+</span>206 <span style=''></span><span style='background: #AEF1AE'>          case _ => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage)</span><span style='background: #AEF1AE'>
+</span>207 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>208 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>209 <span style=''>    } catch {
+</span>210 <span style=''>      case e:Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, e)</span><span style=''>
+</span>211 <span style=''>    }
+</span>212 <span style=''>  }
+</span>213 <span style=''>
+</span>214 <span style=''>  private[route] def addAutoHandler(handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit, matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], method: String) = {
+</span>215 <span style=''>    val msg = </span><span style='background: #AEF1AE'>ComponentMessage(
+</span>216 <span style=''></span><span style='background: #AEF1AE'>      AddSockoHandler(s"$commandName",
+</span>217 <span style=''></span><span style='background: #AEF1AE'>                      new AutoSockoHandler(matcher, handler), method),
+</span>218 <span style=''></span><span style='background: #AEF1AE'>      Some(ComponentManager.ComponentRef)
+</span>219 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>220 <span style=''>    </span><span style='background: #AEF1AE'>componentMessage("wookie-socko", msg)</span><span style=''>
+</span>221 <span style=''>  }
+</span>222 <span style=''>}
+</span>223 <span style=''>
+</span>224 <span style=''>trait SockoCustom extends SockoRoutes {
+</span>225 <span style=''>  this:Command =>
+</span>226 <span style=''>
+</span>227 <span style=''>  </span><span style='background: #F0ADAD'>List("GET", "HEAD", "PUT", "POST", "OPTIONS", "DELETE") foreach { method =>
+</span>228 <span style=''></span><span style='background: #F0ADAD'>    addAutoHandler(
+</span>229 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>230 <span style=''></span><span style='background: #F0ADAD'>        customHandler(event, bean)
+</span>231 <span style=''></span><span style='background: #F0ADAD'>      },
+</span>232 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent) => {
+</span>233 <span style=''></span><span style='background: #F0ADAD'>        customMatcher(event)
+</span>234 <span style=''></span><span style='background: #F0ADAD'>      },
+</span>235 <span style=''></span><span style='background: #F0ADAD'>      method
+</span>236 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>237 <span style=''>  }
+</span>238 <span style=''>
+</span>239 <span style=''>  def customHandler(event: HttpRequestEvent, bean: mutable.HashMap[String, AnyRef])
+</span>240 <span style=''>
+</span>241 <span style=''>  def customMatcher(event: HttpRequestEvent) : Option[mutable.HashMap[String, AnyRef]]
+</span>242 <span style=''>}
+</span>243 <span style=''>
+</span>244 <span style=''>trait SockoGet extends SockoRoutes {
+</span>245 <span style=''>  this:Command =>
+</span>246 <span style=''>
+</span>247 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>248 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>249 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>250 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>251 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>252 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>253 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>254 <span style=''></span><span style='background: #AEF1AE'>    "GET"
+</span>255 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>256 <span style=''>}
+</span>257 <span style=''>
+</span>258 <span style=''>trait EntityRoutes extends SockoRoutes {
+</span>259 <span style=''>  this:Command =>
+</span>260 <span style=''>
+</span>261 <span style=''>  private[route] def addEntityToBean[T<:AnyRef:Manifest](bean:SockoCommandBean, obj:Array[Byte]) = {
+</span>262 <span style=''>    val conType = </span><span style='background: #AEF1AE'>bean.headers.get("Content-Type")</span><span style=''> match {
+</span>263 <span style=''>      case null => </span><span style='background: #AEF1AE'>"application/x-www-form-urlencoded"</span><span style=''>
+</span>264 <span style=''>      case x: String => x
+</span>265 <span style=''>    }
+</span>266 <span style=''>
+</span>267 <span style=''>    var content = obj
+</span>268 <span style=''>    val contentEncoding =  </span><span style='background: #AEF1AE'>bean.headers.get("Content-Encoding")</span><span style=''>
+</span>269 <span style=''>    contentEncoding match {
+</span>270 <span style=''>      case "gzip" =>
+</span>271 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new GZIPInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
+</span>272 <span style=''>      case "deflate" =>
+</span>273 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new InflaterInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
+</span>274 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>275 <span style=''>    }
+</span>276 <span style=''>
+</span>277 <span style=''>    </span><span style='background: #AEF1AE'>bean.put(SockoCommandBean.Content, content)</span><span style=''>
+</span>278 <span style=''>    </span><span style='background: #AEF1AE'>unmarshall(content, conType)</span><span style=''> match {
+</span>279 <span style=''>      case Some(v) => </span><span style='background: #AEF1AE'>bean.appendMap(Map(CommandBean.KeyEntity -> v))</span><span style=''>
+</span>280 <span style=''>      case None </span><span style='background: #AEF1AE'>=></span><span style=''> //ignore
+</span>281 <span style=''>    }
+</span>282 <span style=''>  }
+</span>283 <span style=''>
+</span>284 <span style=''>  def unmarshall[T<:AnyRef:Manifest](obj: Array[Byte], contentType: String = "application/json"): Option[T] = {
+</span>285 <span style=''>    if (</span><span style='background: #AEF1AE'>obj == null || obj.length == 0</span><span style=''>) {
+</span>286 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>287 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>288 <span style=''></span><span style='background: #F0ADAD'>      val stringObj = new String(obj, StandardCharsets.UTF_8).trim()
+</span>289 <span style=''></span><span style='background: #F0ADAD'>      if (stringObj.length == 0) {
+</span>290 <span style=''></span><span style='background: #F0ADAD'>        None
+</span>291 <span style=''></span><span style='background: #F0ADAD'>      } else if (contentType == "application/x-www-form-urlencoded" || contentType == "multipart/form-data") {
+</span>292 <span style=''></span><span style='background: #F0ADAD'>        var jObj = JObject(Nil)
+</span>293 <span style=''></span><span style='background: #F0ADAD'>        new QueryStringDecoder("?" + stringObj, CharsetUtil.UTF_8).parameters foreach {
+</span>294 <span style=''></span><span style='background: #F0ADAD'>          e => jObj = jObj merge JObject(List(JField(e._1, JString(e._2.last))))
+</span>295 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>296 <span style=''></span><span style='background: #F0ADAD'>        Some(jObj.extract[T])
+</span>297 <span style=''></span><span style='background: #F0ADAD'>      } else if (contentType == "application/json") {
+</span>298 <span style=''></span><span style='background: #F0ADAD'>        Some(JsonParser.parse(URLDecoder.decode(stringObj, "UTF-8")).extract[T])
+</span>299 <span style=''></span><span style='background: #F0ADAD'>      } else {
+</span>300 <span style=''></span><span style='background: #F0ADAD'>        val text = JString(URLDecoder.decode(stringObj, "UTF-8"))
+</span>301 <span style=''></span><span style='background: #F0ADAD'>        Some(JObject(List(JField("content", text))).extract[T])
+</span>302 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>303 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>304 <span style=''>  }
+</span>305 <span style=''>}
+</span>306 <span style=''>
+</span>307 <span style=''>trait SockoPost extends EntityRoutes {
+</span>308 <span style=''>  this:Command =>
+</span>309 <span style=''>
+</span>310 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>311 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>312 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>313 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>314 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>315 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>316 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>317 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>318 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>319 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>320 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>321 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>322 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>323 <span style=''></span><span style='background: #AEF1AE'>    "POST"
+</span>324 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>325 <span style=''>}
+</span>326 <span style=''>
+</span>327 <span style=''>trait SockoDelete extends SockoRoutes {
+</span>328 <span style=''>  this:Command =>
+</span>329 <span style=''>
+</span>330 <span style=''>  </span><span style='background: #F0ADAD'>addAutoHandler(
+</span>331 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>332 <span style=''></span><span style='background: #F0ADAD'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>333 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>334 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent) => {
+</span>335 <span style=''></span><span style='background: #F0ADAD'>      defaultPathMatcher(event, paths)
+</span>336 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>337 <span style=''></span><span style='background: #F0ADAD'>    "DELETE"
+</span>338 <span style=''></span><span style='background: #F0ADAD'>  )</span><span style=''>
+</span>339 <span style=''>}
+</span>340 <span style=''>
+</span>341 <span style=''>trait SockoOptions extends SockoRoutes {
+</span>342 <span style=''>  this:Command =>
+</span>343 <span style=''>
+</span>344 <span style=''>  /**
+</span>345 <span style=''>   * Override this function to give the options specific information about the command
+</span>346 <span style=''>   *
+</span>347 <span style=''>   * @return
+</span>348 <span style=''>   */
+</span>349 <span style=''>  def sockoOptionsResponse : Any =  </span><span style='background: #AEF1AE'>""</span><span style=''>
+</span>350 <span style=''>  def sockoOptionResponseType : String = </span><span style='background: #AEF1AE'>"text"</span><span style=''>
+</span>351 <span style=''>
+</span>352 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>353 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>354 <span style=''></span><span style='background: #AEF1AE'>      // build the Allow and Access-Control-Allow-Methods headers
+</span>355 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>356 <span style=''></span><span style='background: #AEF1AE'>      val methods = getMethods.mkString(", ")
+</span>357 <span style=''></span><span style='background: #AEF1AE'>      val optionsHeaders = Map[String, String](
+</span>358 <span style=''></span><span style='background: #AEF1AE'>        "Allow" -> methods,
+</span>359 <span style=''></span><span style='background: #AEF1AE'>        "Access-Control-Allow-Methods" -> methods
+</span>360 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>361 <span style=''></span><span style='background: #AEF1AE'>      val cType = SockoUtils.normalizeContentType(sockoOptionResponseType)
+</span>362 <span style=''></span><span style='background: #AEF1AE'>      val content = marshallObject(sockoOptionsResponse, cType)
+</span>363 <span style=''></span><span style='background: #AEF1AE'>      sBean.event.response.write(
+</span>364 <span style=''></span><span style='background: #AEF1AE'>        HttpResponseStatus.OK,
+</span>365 <span style=''></span><span style='background: #AEF1AE'>        content,
+</span>366 <span style=''></span><span style='background: #AEF1AE'>        cType,
+</span>367 <span style=''></span><span style='background: #AEF1AE'>        SockoUtils.toSockoHeaderFormat("OPTIONS", getResponseHeaders(sBean.event.request.headers)) ++ optionsHeaders
+</span>368 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>369 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>370 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>371 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>372 <span style=''></span><span style='background: #AEF1AE'>    }, "OPTIONS"
+</span>373 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>374 <span style=''>}
+</span>375 <span style=''>
+</span>376 <span style=''>trait SockoHead extends SockoRoutes {
+</span>377 <span style=''>  this:Command =>
+</span>378 <span style=''>
+</span>379 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>380 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>381 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>382 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>383 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>384 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>385 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>386 <span style=''></span><span style='background: #AEF1AE'>    "HEAD"
+</span>387 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>388 <span style=''>}
+</span>389 <span style=''>
+</span>390 <span style=''>trait SockoPut extends EntityRoutes {
+</span>391 <span style=''>  this:Command =>
+</span>392 <span style=''>
+</span>393 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>394 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>395 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>396 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>397 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>398 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>399 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>400 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>401 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>402 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>403 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>404 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>405 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>406 <span style=''></span><span style='background: #AEF1AE'>    "PUT"
+</span>407 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>408 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          2288
+          -
+          2308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td style="background: #AEF1AE">
+          AutoSockoHandler.this.handler.apply(event, bean)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          2707
+          -
+          2721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #AEF1AE">
+          AutoSockoHandler.this.matcher.apply(event)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          3340
+          -
+          3401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Formats.++
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.Serialization.formats(net.liftweb.json.NoTypeHints).++(net.liftweb.json.ext.JodaTimeSerializers.all)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          3378
+          -
+          3401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          3362
+          -
+          3373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          3682
+          -
+          3699
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          3690
+          -
+          3699
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.last
+        </td>
+        <td style="background: #F0ADAD">
+          e._2.last
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          901
+        </td>
+        <td>
+          3636
+          -
+          3699
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          bean.event.endPoint.queryStringMap.map[(String, String), scala.collection.immutable.Map[String,String]](((e: (String, List[String])) =&gt; scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)))(immutable.this.Map.canBuildFrom[String, String])
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          3671
+          -
+          3671
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Map.canBuildFrom[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          3682
+          -
+          3686
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          e._1
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          3706
+          -
+          3730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.appendMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.appendMap(fixedMap)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          903
+        </td>
+        <td>
+          3834
+          -
+          3875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(respType)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          3884
+          -
+          3918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          realRespType.==(&quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          907
+        </td>
+        <td>
+          3928
+          -
+          4041
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          obj match {
+  case (s @ (_: String)) =&gt; s.getBytes()
+  case _ =&gt; net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(obj)(SockoRoutes.this.formats)).getBytes()
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          905
+        </td>
+        <td>
+          3966
+          -
+          3976
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #AEF1AE">
+          s.getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          906
+        </td>
+        <td>
+          3995
+          -
+          4033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(obj)(SockoRoutes.this.formats)).getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          4053
+          -
+          4163
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          obj match {
+  case (bytes @ (_: Array[Byte])) =&gt; bytes
+  case _ =&gt; obj.toString().getBytes()
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          4136
+          -
+          4157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #AEF1AE">
+          obj.toString().getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          4414
+          -
+          4435
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.OK
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.events.HttpResponseStatus.OK
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          911
+        </td>
+        <td>
+          4962
+          -
+          5000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, List[com.webtrends.harness.component.socko.route.SockoHeader]]().empty
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          924
+        </td>
+        <td>
+          5134
+          -
+          5462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          paths.foreach[Unit](((p: (String, String)) =&gt; com.webtrends.harness.command.Command.matchPath(p._2, event.endPoint.path) match {
+  case (x: com.webtrends.harness.command.CommandBean)Some[com.webtrends.harness.command.CommandBean]((b @ _)) =&gt; {
+    b.addValue(com.webtrends.harness.command.CommandBean.KeyPath, p._1);
+    val bean: com.webtrends.harness.component.socko.utils.SockoCommandBean = new com.webtrends.harness.component.socko.utils.SockoCommandBean(event);
+    bean.appendMap(b.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]));
+    return scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)
+  }
+  case scala.None =&gt; ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          5161
+          -
+          5205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.matchPath
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.command.Command.matchPath(p._2, event.endPoint.path)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          5185
+          -
+          5204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.EndPoint.path
+        </td>
+        <td style="background: #AEF1AE">
+          event.endPoint.path
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          5179
+          -
+          5183
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          917
+        </td>
+        <td>
+          5248
+          -
+          5285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.addValue
+        </td>
+        <td style="background: #AEF1AE">
+          b.addValue(com.webtrends.harness.command.CommandBean.KeyPath, p._1)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          5280
+          -
+          5284
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          5259
+          -
+          5278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.KeyPath
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.command.CommandBean.KeyPath
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          5307
+          -
+          5334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.webtrends.harness.component.socko.utils.SockoCommandBean(event)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          920
+        </td>
+        <td>
+          5360
+          -
+          5367
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          b.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          919
+        </td>
+        <td>
+          5362
+          -
+          5362
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          921
+        </td>
+        <td>
+          5345
+          -
+          5368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.appendMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.appendMap(b.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]))
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          922
+        </td>
+        <td>
+          5386
+          -
+          5396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          5415
+          -
+          5417
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          925
+        </td>
+        <td>
+          5473
+          -
+          5477
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          5574
+          -
+          5586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          5564
+          -
+          5590
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRoutes.this.log.debug(e.getMessage(), e)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          5699
+          -
+          5733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Invalid JSON - &quot;, &quot;&quot;).s(ce.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          929
+        </td>
+        <td>
+          5701
+          -
+          5717
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Invalid JSON - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          931
+        </td>
+        <td>
+          5718
+          -
+          5731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ce.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          5667
+          -
+          5697
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          5732
+          -
+          5733
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          933
+        </td>
+        <td>
+          5646
+          -
+          5734
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST, scala.StringContext.apply(&quot;Invalid JSON - &quot;, &quot;&quot;).s(ce.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          5801
+          -
+          5813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          ce.msg.==(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          5793
+          -
+          5797
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          936
+        </td>
+        <td>
+          5783
+          -
+          5813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          ce.msg.==(null).||(ce.msg.==(&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          938
+        </td>
+        <td>
+          5845
+          -
+          5874
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(ce.code)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          937
+        </td>
+        <td>
+          5866
+          -
+          5873
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandException.code
+        </td>
+        <td style="background: #F0ADAD">
+          ce.code
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          941
+        </td>
+        <td>
+          5899
+          -
+          5936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(ce.code, ce.msg)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          940
+        </td>
+        <td>
+          5929
+          -
+          5935
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandException.msg
+        </td>
+        <td style="background: #F0ADAD">
+          ce.msg
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          939
+        </td>
+        <td>
+          5920
+          -
+          5927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandException.code
+        </td>
+        <td style="background: #F0ADAD">
+          ce.code
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          944
+        </td>
+        <td>
+          6080
+          -
+          6085
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\n\\t&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          947
+        </td>
+        <td>
+          6086
+          -
+          6097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ce.toString()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          946
+        </td>
+        <td>
+          6066
+          -
+          6079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ce.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          949
+        </td>
+        <td>
+          5989
+          -
+          6100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST, scala.StringContext.apply(&quot;Command Exception - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ce.getMessage(), ce.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          943
+        </td>
+        <td>
+          6044
+          -
+          6065
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Command Exception - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          945
+        </td>
+        <td>
+          6098
+          -
+          6099
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          948
+        </td>
+        <td>
+          6042
+          -
+          6099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Command Exception - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ce.getMessage(), ce.toString())
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          942
+        </td>
+        <td>
+          6010
+          -
+          6040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          950
+        </td>
+        <td>
+          6173
+          -
+          6203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          953
+        </td>
+        <td>
+          6263
+          -
+          6264
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          956
+        </td>
+        <td>
+          6205
+          -
+          6264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Illegal Arguments - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(arg.getMessage(), arg.toString())
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          955
+        </td>
+        <td>
+          6250
+          -
+          6262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          arg.toString()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          952
+        </td>
+        <td>
+          6244
+          -
+          6249
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\n\\t&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          954
+        </td>
+        <td>
+          6229
+          -
+          6243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          arg.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          957
+        </td>
+        <td>
+          6152
+          -
+          6265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST, scala.StringContext.apply(&quot;Illegal Arguments - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(arg.getMessage(), arg.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          951
+        </td>
+        <td>
+          6207
+          -
+          6228
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Illegal Arguments - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          959
+        </td>
+        <td>
+          6363
+          -
+          6384
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Mapping Exception - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          962
+        </td>
+        <td>
+          6385
+          -
+          6398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          me.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          965
+        </td>
+        <td>
+          6308
+          -
+          6419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST, scala.StringContext.apply(&quot;Mapping Exception - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(me.getMessage(), me.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          964
+        </td>
+        <td>
+          6361
+          -
+          6418
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Mapping Exception - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(me.getMessage(), me.toString())
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          958
+        </td>
+        <td>
+          6329
+          -
+          6359
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          961
+        </td>
+        <td>
+          6417
+          -
+          6418
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          960
+        </td>
+        <td>
+          6399
+          -
+          6404
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\n\\t&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          963
+        </td>
+        <td>
+          6405
+          -
+          6416
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          me.toString()
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          968
+        </td>
+        <td>
+          6551
+          -
+          6556
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\n\\t&quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          971
+        </td>
+        <td>
+          6557
+          -
+          6568
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ex.toString()
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          973
+        </td>
+        <td>
+          6455
+          -
+          6571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, scala.StringContext.apply(&quot;Server Error - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ex.getMessage(), ex.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          967
+        </td>
+        <td>
+          6520
+          -
+          6536
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Server Error - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          970
+        </td>
+        <td>
+          6537
+          -
+          6550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          969
+        </td>
+        <td>
+          6569
+          -
+          6570
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          972
+        </td>
+        <td>
+          6518
+          -
+          6570
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Server Error - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ex.getMessage(), ex.toString())
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          966
+        </td>
+        <td>
+          6476
+          -
+          6516
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          974
+        </td>
+        <td>
+          7061
+          -
+          7074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #AEF1AE">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          975
+        </td>
+        <td>
+          7038
+          -
+          7075
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.isAssignableFrom
+        </td>
+        <td style="background: #AEF1AE">
+          klass.isAssignableFrom(this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          976
+        </td>
+        <td>
+          7105
+          -
+          7117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](method)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          977
+        </td>
+        <td>
+          7140
+          -
+          7144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          978
+        </td>
+        <td>
+          7192
+          -
+          7227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoGet](classOf[com.webtrends.harness.component.socko.route.SockoGet], &quot;GET&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          7235
+          -
+          7272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoHead](classOf[com.webtrends.harness.component.socko.route.SockoHead], &quot;HEAD&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          980
+        </td>
+        <td>
+          7280
+          -
+          7315
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoPut](classOf[com.webtrends.harness.component.socko.route.SockoPut], &quot;PUT&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          981
+        </td>
+        <td>
+          7323
+          -
+          7360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoPost](classOf[com.webtrends.harness.component.socko.route.SockoPost], &quot;POST&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          982
+        </td>
+        <td>
+          7368
+          -
+          7411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoOptions](classOf[com.webtrends.harness.component.socko.route.SockoOptions], &quot;OPTIONS&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          983
+        </td>
+        <td>
+          7419
+          -
+          7460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getMethod
+        </td>
+        <td style="background: #AEF1AE">
+          getMethod[com.webtrends.harness.component.socko.route.SockoDelete](classOf[com.webtrends.harness.component.socko.route.SockoDelete], &quot;DELETE&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          985
+        </td>
+        <td>
+          7164
+          -
+          7474
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.generic.GenericTraversableTemplate.flatten
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.apply[Option[String]](getMethod[com.webtrends.harness.component.socko.route.SockoGet](classOf[com.webtrends.harness.component.socko.route.SockoGet], &quot;GET&quot;), getMethod[com.webtrends.harness.component.socko.route.SockoHead](classOf[com.webtrends.harness.component.socko.route.SockoHead], &quot;HEAD&quot;), getMethod[com.webtrends.harness.component.socko.route.SockoPut](classOf[com.webtrends.harness.component.socko.route.SockoPut], &quot;PUT&quot;), getMethod[com.webtrends.harness.component.socko.route.SockoPost](classOf[com.webtrends.harness.component.socko.route.SockoPost], &quot;POST&quot;), getMethod[com.webtrends.harness.component.socko.route.SockoOptions](classOf[com.webtrends.harness.component.socko.route.SockoOptions], &quot;OPTIONS&quot;), getMethod[com.webtrends.harness.component.socko.route.SockoDelete](classOf[com.webtrends.harness.component.socko.route.SockoDelete], &quot;DELETE&quot;)).flatten[String]({
+  ((xo: Option[String]) =&gt; scala.this.Option.option2Iterable[String](xo))
+})
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          984
+        </td>
+        <td>
+          7467
+          -
+          7467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Option.option2Iterable[String](xo)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          1012
+        </td>
+        <td>
+          7564
+          -
+          8680
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SockoRoutes.this.applyQSMap(bean);
+  SockoRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[Unit](((x0$1: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$1 match {
+    case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((resp @ _)) =&gt; resp.data match {
+      case (x: T)Some[T]((value @ _)) =&gt; {
+        val content: Array[Byte] = if (bean.event.endPoint.method.equalsIgnoreCase(&quot;head&quot;))
+          scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        else
+          SockoRoutes.this.marshallObject(value, resp.responseType);
+        bean.event.response.write(SockoRoutes.this.responseStatusCode, content, com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(resp.responseType), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length))
+      }
+      case scala.None =&gt; bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NO_CONTENT)
+    }
+    case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; f match {
+      case (ce @ (_: com.webtrends.harness.component.socko.utils.SockoCommandException)) =&gt; SockoRoutes.this.getRejectionHandler(bean.event, ce)
+      case _ =&gt; bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage())
+    }
+  }))(SockoRoutes.this.context.dispatcher)
+}
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          986
+        </td>
+        <td>
+          7564
+          -
+          7580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.applyQSMap
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.applyQSMap(bean)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1010
+        </td>
+        <td>
+          7633
+          -
+          7633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          987
+        </td>
+        <td>
+          7595
+          -
+          7605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1011
+        </td>
+        <td>
+          7587
+          -
+          8680
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[Unit](((x0$1: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((resp @ _)) =&gt; resp.data match {
+    case (x: T)Some[T]((value @ _)) =&gt; {
+      val content: Array[Byte] = if (bean.event.endPoint.method.equalsIgnoreCase(&quot;head&quot;))
+        scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+      else
+        SockoRoutes.this.marshallObject(value, resp.responseType);
+      bean.event.response.write(SockoRoutes.this.responseStatusCode, content, com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(resp.responseType), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length))
+    }
+    case scala.None =&gt; bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NO_CONTENT)
+  }
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; f match {
+    case (ce @ (_: com.webtrends.harness.component.socko.utils.SockoCommandException)) =&gt; SockoRoutes.this.getRejectionHandler(bean.event, ce)
+    case _ =&gt; bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage())
+  }
+}))(SockoRoutes.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          7686
+          -
+          7695
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.data
+        </td>
+        <td style="background: #AEF1AE">
+          resp.data
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          7862
+          -
+          7879
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.responseType
+        </td>
+        <td style="background: #AEF1AE">
+          resp.responseType
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          989
+        </td>
+        <td>
+          7768
+          -
+          7819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td style="background: #AEF1AE">
+          bean.event.endPoint.method.equalsIgnoreCase(&quot;head&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          991
+        </td>
+        <td>
+          7821
+          -
+          7834
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          994
+        </td>
+        <td>
+          7840
+          -
+          7880
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.marshallObject
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.marshallObject(value, resp.responseType)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          990
+        </td>
+        <td>
+          7821
+          -
+          7834
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          993
+        </td>
+        <td>
+          7840
+          -
+          7880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.marshallObject
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.marshallObject(value, resp.responseType)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1002
+        </td>
+        <td>
+          7895
+          -
+          8349
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #AEF1AE">
+          bean.event.response.write(SockoRoutes.this.responseStatusCode, content, com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(resp.responseType), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length))
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          7938
+          -
+          7956
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.responseStatusCode
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.responseStatusCode
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          8125
+          -
+          8175
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(resp.responseType)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          8157
+          -
+          8174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.responseType
+        </td>
+        <td style="background: #AEF1AE">
+          resp.responseType
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1001
+        </td>
+        <td>
+          8193
+          -
+          8333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          998
+        </td>
+        <td>
+          8224
+          -
+          8268
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.name
+        </td>
+        <td style="background: #AEF1AE">
+          bean.event.nettyHttpRequest.getMethod().name()
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          8318
+          -
+          8332
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td style="background: #AEF1AE">
+          content.length
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          999
+        </td>
+        <td>
+          8270
+          -
+          8316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getResponseHeaders
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.getResponseHeaders(bean.event.request.headers)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          8375
+          -
+          8431
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NO_CONTENT)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1003
+        </td>
+        <td>
+          8401
+          -
+          8430
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.NO_CONTENT
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.NO_CONTENT
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          1006
+        </td>
+        <td>
+          8525
+          -
+          8560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRoutes.this.getRejectionHandler(bean.event, ce)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          1005
+        </td>
+        <td>
+          8545
+          -
+          8555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
+        </td>
+        <td style="background: #F0ADAD">
+          bean.event
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          8607
+          -
+          8647
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          1009
+        </td>
+        <td>
+          8581
+          -
+          8662
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          bean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          1008
+        </td>
+        <td>
+          8649
+          -
+          8661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          8741
+          -
+          8751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
+        </td>
+        <td style="background: #F0ADAD">
+          bean.event
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          1014
+        </td>
+        <td>
+          8721
+          -
+          8755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRoutes.this.getRejectionHandler(bean.event, e)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1023
+        </td>
+        <td>
+          8977
+          -
+          9152
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentMessage.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.ComponentMessage.apply[com.webtrends.harness.component.socko.AddSockoHandler](com.webtrends.harness.component.socko.AddSockoHandler.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(SockoRoutes.this.commandName), new AutoSockoHandler(matcher, handler), method), scala.Some.apply[String](com.webtrends.harness.component.ComponentManager.ComponentRef))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1016
+        </td>
+        <td>
+          9031
+          -
+          9032
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1015
+        </td>
+        <td>
+          9019
+          -
+          9020
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          9017
+          -
+          9032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(SockoRoutes.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1020
+        </td>
+        <td>
+          9001
+          -
+          9103
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.AddSockoHandler.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.AddSockoHandler.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(SockoRoutes.this.commandName), new AutoSockoHandler(matcher, handler), method)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1017
+        </td>
+        <td>
+          9020
+          -
+          9031
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          1019
+        </td>
+        <td>
+          9056
+          -
+          9094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.AutoSockoHandler.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new AutoSockoHandler(matcher, handler)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1022
+        </td>
+        <td>
+          9111
+          -
+          9146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[String](com.webtrends.harness.component.ComponentManager.ComponentRef)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1021
+        </td>
+        <td>
+          9116
+          -
+          9145
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentManager.ComponentRef
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.ComponentManager.ComponentRef
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1024
+        </td>
+        <td>
+          9157
+          -
+          9194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentHelper.componentMessage
+        </td>
+        <td style="background: #AEF1AE">
+          SockoRoutes.this.componentMessage[com.webtrends.harness.component.socko.AddSockoHandler](&quot;wookie-socko&quot;, msg)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1028
+        </td>
+        <td>
+          9290
+          -
+          9296
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;POST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1025
+        </td>
+        <td>
+          9268
+          -
+          9273
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;GET&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1034
+        </td>
+        <td>
+          9263
+          -
+          9569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.apply[String](&quot;GET&quot;, &quot;HEAD&quot;, &quot;PUT&quot;, &quot;POST&quot;, &quot;OPTIONS&quot;, &quot;DELETE&quot;).foreach[Unit](((method: String) =&gt; SockoCustom.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; SockoCustom.this.customHandler(event, bean)), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoCustom.this.customMatcher(event)), method)))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1027
+        </td>
+        <td>
+          9283
+          -
+          9288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;PUT&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1030
+        </td>
+        <td>
+          9309
+          -
+          9317
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DELETE&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          9298
+          -
+          9307
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;OPTIONS&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1026
+        </td>
+        <td>
+          9275
+          -
+          9281
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HEAD&quot;
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1033
+        </td>
+        <td>
+          9343
+          -
+          9569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoCustom.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; SockoCustom.this.customHandler(event, bean)), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoCustom.this.customMatcher(event)), method)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1031
+        </td>
+        <td>
+          9441
+          -
+          9467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoCustom.customHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoCustom.this.customHandler(event, bean)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          9521
+          -
+          9541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoCustom.customMatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SockoCustom.this.customMatcher(event)
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          9808
+          -
+          10052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #AEF1AE">
+          SockoGet.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; SockoGet.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoGet.this.defaultPathMatcher(event, SockoGet.this.paths)), &quot;GET&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1037
+        </td>
+        <td>
+          9915
+          -
+          9950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1036
+        </td>
+        <td>
+          9932
+          -
+          9942
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1039
+        </td>
+        <td>
+          9902
+          -
+          9951
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoGet.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1038
+        </td>
+        <td>
+          9914
+          -
+          9914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          9937
+          -
+          9937
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          10025
+          -
+          10030
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoGet.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          9999
+          -
+          10031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoGet.this.defaultPathMatcher(event, SockoGet.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1042
+        </td>
+        <td>
+          10043
+          -
+          10048
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;GET&quot;
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1044
+        </td>
+        <td>
+          10235
+          -
+          10267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.get
+        </td>
+        <td style="background: #AEF1AE">
+          bean.headers.get(&quot;Content-Type&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          10295
+          -
+          10330
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;application/x-www-form-urlencoded&quot;
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          1046
+        </td>
+        <td>
+          10413
+          -
+          10449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.get
+        </td>
+        <td style="background: #AEF1AE">
+          bean.headers.get(&quot;Content-Encoding&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1047
+        </td>
+        <td>
+          10517
+          -
+          10613
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          scala.io.Source.fromInputStream(new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(content)))(io.this.Codec.fallbackSystemCodec).mkString.getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1048
+        </td>
+        <td>
+          10656
+          -
+          10756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          scala.io.Source.fromInputStream(new java.util.zip.InflaterInputStream(new java.io.ByteArrayInputStream(content)))(io.this.Codec.fallbackSystemCodec).mkString.getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          1049
+        </td>
+        <td>
+          10770
+          -
+          10772
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          10784
+          -
+          10827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashMap.put
+        </td>
+        <td style="background: #AEF1AE">
+          bean.put(com.webtrends.harness.component.socko.utils.SockoCommandBean.Content, content)
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1050
+        </td>
+        <td>
+          10793
+          -
+          10817
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.Content
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.Content
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          10832
+          -
+          10860
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.EntityRoutes.unmarshall
+        </td>
+        <td style="background: #AEF1AE">
+          EntityRoutes.this.unmarshall[T](content, conType)(evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1055
+        </td>
+        <td>
+          10891
+          -
+          10938
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.appendMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](v)))
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1054
+        </td>
+        <td>
+          10906
+          -
+          10937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](v))
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          10910
+          -
+          10936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](v)
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1056
+        </td>
+        <td>
+          10955
+          -
+          10957
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          11113
+          -
+          11128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #AEF1AE">
+          obj.length.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1057
+        </td>
+        <td>
+          11105
+          -
+          11109
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1059
+        </td>
+        <td>
+          11098
+          -
+          11128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          obj.==(null).||(obj.length.==(0))
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          1061
+        </td>
+        <td>
+          11138
+          -
+          11142
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          286
+        </td>
+        <td>
+          1060
+        </td>
+        <td>
+          11138
+          -
+          11142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1102
+        </td>
+        <td>
+          11154
+          -
+          11918
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val stringObj: String = new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8).trim();
+  if (stringObj.length().==(0))
+    scala.None
+  else
+    if (contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;)))
+      {
+        var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
+        scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
+        scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+      }
+    else
+      if (contentType.==(&quot;application/json&quot;))
+        scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+      else
+        {
+          val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
+          scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
+        }
+}
+        </td>
+      </tr><tr>
+        <td>
+          288
+        </td>
+        <td>
+          1062
+        </td>
+        <td>
+          11178
+          -
+          11224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.trim
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8).trim()
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          11235
+          -
+          11256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          stringObj.length().==(0)
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          1064
+        </td>
+        <td>
+          11268
+          -
+          11272
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          1065
+        </td>
+        <td>
+          11268
+          -
+          11272
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          1067
+        </td>
+        <td>
+          11344
+          -
+          11380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          contentType.==(&quot;multipart/form-data&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          1085
+        </td>
+        <td>
+          11382
+          -
+          11632
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
+  scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
+  scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+}
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          11305
+          -
+          11340
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/x-www-form-urlencoded&quot;
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          1101
+        </td>
+        <td>
+          11286
+          -
+          11912
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;)))
+  {
+    var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
+    scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
+    scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+  }
+else
+  if (contentType.==(&quot;application/json&quot;))
+    scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+  else
+    {
+      val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
+      scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
+    }
+        </td>
+      </tr><tr>
+        <td>
+          291
+        </td>
+        <td>
+          1068
+        </td>
+        <td>
+          11290
+          -
+          11380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          11403
+          -
+          11415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JObject.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil)
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          1069
+        </td>
+        <td>
+          11411
+          -
+          11414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1081
+        </td>
+        <td>
+          11424
+          -
+          11584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)))
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1071
+        </td>
+        <td>
+          11424
+          -
+          11493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.QueryStringDecoder.parameters
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1079
+        </td>
+        <td>
+          11531
+          -
+          11531
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.MergeDeps.ooo
+        </td>
+        <td style="background: #F0ADAD">
+          JsonAST.this.JValue.ooo
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1073
+        </td>
+        <td>
+          11571
+          -
+          11575
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #F0ADAD">
+          e._2
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1076
+        </td>
+        <td>
+          11550
+          -
+          11582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JField.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last))
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1075
+        </td>
+        <td>
+          11563
+          -
+          11581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1078
+        </td>
+        <td>
+          11537
+          -
+          11584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JObject.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last))))
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1072
+        </td>
+        <td>
+          11557
+          -
+          11561
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          e._1
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1080
+        </td>
+        <td>
+          11526
+          -
+          11584
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Merge.Mergeable.MergeSyntax.merge
+        </td>
+        <td style="background: #F0ADAD">
+          JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          11571
+          -
+          11580
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.last
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaBuffer[String](e._2).last
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          11545
+          -
+          11583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.apply
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          11620
+          -
+          11620
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          11603
+          -
+          11624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1083
+        </td>
+        <td>
+          11608
+          -
+          11623
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #F0ADAD">
+          jObj.extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1100
+        </td>
+        <td>
+          11638
+          -
+          11912
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (contentType.==(&quot;application/json&quot;))
+  scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+else
+  {
+    val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
+    scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
+  }
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          11642
+          -
+          11675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          contentType.==(&quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          11755
+          -
+          11755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1091
+        </td>
+        <td>
+          11687
+          -
+          11759
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          11709
+          -
+          11746
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLDecoder.decode
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          11687
+          -
+          11759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1089
+        </td>
+        <td>
+          11692
+          -
+          11758
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1099
+        </td>
+        <td>
+          11773
+          -
+          11912
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
+  scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
+}
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          1093
+        </td>
+        <td>
+          11794
+          -
+          11840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          1092
+        </td>
+        <td>
+          11802
+          -
+          11839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLDecoder.decode
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          11854
+          -
+          11903
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          11867
+          -
+          11890
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JField.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          11900
+          -
+          11900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1098
+        </td>
+        <td>
+          11849
+          -
+          11904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1095
+        </td>
+        <td>
+          11862
+          -
+          11891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.apply
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1117
+        </td>
+        <td>
+          11986
+          -
+          12437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; {
+  val sBean: com.webtrends.harness.component.socko.utils.SockoCommandBean = com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event);
+  try {
+    SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+    SockoPost.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+  } catch {
+    case (ex @ (_: Throwable)) =&gt; SockoPost.this.getRejectionHandler(sBean.event, ex)
+  }
+}), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoPost.this.defaultPathMatcher(event, SockoPost.this.paths)), &quot;POST&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          1105
+        </td>
+        <td>
+          12092
+          -
+          12127
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          1104
+        </td>
+        <td>
+          12109
+          -
+          12119
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          1103
+        </td>
+        <td>
+          12114
+          -
+          12114
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          313
+        </td>
+        <td>
+          1111
+        </td>
+        <td>
+          12148
+          -
+          12244
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+  SockoPost.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+}
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1106
+        </td>
+        <td>
+          12180
+          -
+          12215
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpContent.toBytes
+        </td>
+        <td style="background: #AEF1AE">
+          sBean.event.request.content.toBytes
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1108
+        </td>
+        <td>
+          12148
+          -
+          12216
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.EntityRoutes.addEntityToBean
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1107
+        </td>
+        <td>
+          12172
+          -
+          12172
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1109
+        </td>
+        <td>
+          12237
+          -
+          12237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          315
+        </td>
+        <td>
+          1110
+        </td>
+        <td>
+          12225
+          -
+          12244
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          1113
+        </td>
+        <td>
+          12291
+          -
+          12327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoPost.this.getRejectionHandler(sBean.event, ex)
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          1112
+        </td>
+        <td>
+          12311
+          -
+          12322
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
+        </td>
+        <td style="background: #F0ADAD">
+          sBean.event
+        </td>
+      </tr><tr>
+        <td>
+          321
+        </td>
+        <td>
+          1115
+        </td>
+        <td>
+          12383
+          -
+          12415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.defaultPathMatcher(event, SockoPost.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          321
+        </td>
+        <td>
+          1114
+        </td>
+        <td>
+          12409
+          -
+          12414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          1116
+        </td>
+        <td>
+          12427
+          -
+          12433
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;POST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          330
+        </td>
+        <td>
+          1126
+        </td>
+        <td>
+          12502
+          -
+          12749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoDelete.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; SockoDelete.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoDelete.this.defaultPathMatcher(event, SockoDelete.this.paths)), &quot;DELETE&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          1118
+        </td>
+        <td>
+          12631
+          -
+          12631
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          1120
+        </td>
+        <td>
+          12609
+          -
+          12644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          1119
+        </td>
+        <td>
+          12626
+          -
+          12636
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          1122
+        </td>
+        <td>
+          12596
+          -
+          12645
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #F0ADAD">
+          SockoDelete.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          332
+        </td>
+        <td>
+          1121
+        </td>
+        <td>
+          12608
+          -
+          12608
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          1124
+        </td>
+        <td>
+          12693
+          -
+          12725
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SockoDelete.this.defaultPathMatcher(event, SockoDelete.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          1123
+        </td>
+        <td>
+          12719
+          -
+          12724
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          SockoDelete.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          1125
+        </td>
+        <td>
+          12737
+          -
+          12745
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DELETE&quot;
+        </td>
+      </tr><tr>
+        <td>
+          349
+        </td>
+        <td>
+          1127
+        </td>
+        <td>
+          12966
+          -
+          12968
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          350
+        </td>
+        <td>
+          1128
+        </td>
+        <td>
+          13010
+          -
+          13016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;text&quot;
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          1146
+        </td>
+        <td>
+          13020
+          -
+          13869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; {
+  val sBean: com.webtrends.harness.component.socko.utils.SockoCommandBean = com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event);
+  val methods: String = SockoOptions.this.getMethods.mkString(&quot;, &quot;);
+  val optionsHeaders: scala.collection.immutable.Map[String,String] = scala.this.Predef.Map.apply[String, String](scala.this.Predef.ArrowAssoc[String](&quot;Allow&quot;).-&gt;[String](methods), scala.this.Predef.ArrowAssoc[String](&quot;Access-Control-Allow-Methods&quot;).-&gt;[String](methods));
+  val cType: String = com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(SockoOptions.this.sockoOptionResponseType);
+  val content: Array[Byte] = SockoOptions.this.marshallObject(SockoOptions.this.sockoOptionsResponse, cType);
+  sBean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.OK, content, cType, com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(&quot;OPTIONS&quot;, SockoOptions.this.getResponseHeaders(sBean.event.request.headers), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat$default$3).++[String](optionsHeaders))
+}), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoOptions.this.defaultPathMatcher(event, SockoOptions.this.paths)), &quot;OPTIONS&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          1129
+        </td>
+        <td>
+          13214
+          -
+          13214
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          1131
+        </td>
+        <td>
+          13192
+          -
+          13227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          1130
+        </td>
+        <td>
+          13209
+          -
+          13219
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          356
+        </td>
+        <td>
+          1132
+        </td>
+        <td>
+          13248
+          -
+          13273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.getMethods.mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          357
+        </td>
+        <td>
+          1135
+        </td>
+        <td>
+          13301
+          -
+          13407
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, String](scala.this.Predef.ArrowAssoc[String](&quot;Allow&quot;).-&gt;[String](methods), scala.this.Predef.ArrowAssoc[String](&quot;Access-Control-Allow-Methods&quot;).-&gt;[String](methods))
+        </td>
+      </tr><tr>
+        <td>
+          358
+        </td>
+        <td>
+          1133
+        </td>
+        <td>
+          13330
+          -
+          13348
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](&quot;Allow&quot;).-&gt;[String](methods)
+        </td>
+      </tr><tr>
+        <td>
+          359
+        </td>
+        <td>
+          1134
+        </td>
+        <td>
+          13358
+          -
+          13399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](&quot;Access-Control-Allow-Methods&quot;).-&gt;[String](methods)
+        </td>
+      </tr><tr>
+        <td>
+          361
+        </td>
+        <td>
+          1136
+        </td>
+        <td>
+          13458
+          -
+          13481
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionResponseType
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.sockoOptionResponseType
+        </td>
+      </tr><tr>
+        <td>
+          361
+        </td>
+        <td>
+          1137
+        </td>
+        <td>
+          13426
+          -
+          13482
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(SockoOptions.this.sockoOptionResponseType)
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          1138
+        </td>
+        <td>
+          13518
+          -
+          13538
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionsResponse
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.sockoOptionsResponse
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          1139
+        </td>
+        <td>
+          13503
+          -
+          13546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.marshallObject
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.marshallObject(SockoOptions.this.sockoOptionsResponse, cType)
+        </td>
+      </tr><tr>
+        <td>
+          363
+        </td>
+        <td>
+          1142
+        </td>
+        <td>
+          13553
+          -
+          13768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #AEF1AE">
+          sBean.event.response.write(org.mashupbots.socko.events.HttpResponseStatus.OK, content, cType, com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(&quot;OPTIONS&quot;, SockoOptions.this.getResponseHeaders(sBean.event.request.headers), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat$default$3).++[String](optionsHeaders))
+        </td>
+      </tr><tr>
+        <td>
+          364
+        </td>
+        <td>
+          1140
+        </td>
+        <td>
+          13589
+          -
+          13610
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.OK
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.events.HttpResponseStatus.OK
+        </td>
+      </tr><tr>
+        <td>
+          367
+        </td>
+        <td>
+          1141
+        </td>
+        <td>
+          13652
+          -
+          13760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.++
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(&quot;OPTIONS&quot;, SockoOptions.this.getResponseHeaders(sBean.event.request.headers), com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat$default$3).++[String](optionsHeaders)
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          1144
+        </td>
+        <td>
+          13816
+          -
+          13848
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.defaultPathMatcher(event, SockoOptions.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          1143
+        </td>
+        <td>
+          13842
+          -
+          13847
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          372
+        </td>
+        <td>
+          1145
+        </td>
+        <td>
+          13856
+          -
+          13865
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;OPTIONS&quot;
+        </td>
+      </tr><tr>
+        <td>
+          379
+        </td>
+        <td>
+          1155
+        </td>
+        <td>
+          13932
+          -
+          14177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoHead.this.defaultPathMatcher(event, SockoHead.this.paths)), &quot;HEAD&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          1151
+        </td>
+        <td>
+          14026
+          -
+          14075
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          1147
+        </td>
+        <td>
+          14061
+          -
+          14061
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          1150
+        </td>
+        <td>
+          14038
+          -
+          14038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          1149
+        </td>
+        <td>
+          14039
+          -
+          14074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          381
+        </td>
+        <td>
+          1148
+        </td>
+        <td>
+          14056
+          -
+          14066
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          384
+        </td>
+        <td>
+          1153
+        </td>
+        <td>
+          14123
+          -
+          14155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.defaultPathMatcher(event, SockoHead.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          384
+        </td>
+        <td>
+          1152
+        </td>
+        <td>
+          14149
+          -
+          14154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          386
+        </td>
+        <td>
+          1154
+        </td>
+        <td>
+          14167
+          -
+          14173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;HEAD&quot;
+        </td>
+      </tr><tr>
+        <td>
+          393
+        </td>
+        <td>
+          1170
+        </td>
+        <td>
+          14240
+          -
+          14690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.addAutoHandler
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.addAutoHandler(((event: org.mashupbots.socko.events.HttpRequestEvent, bean: scala.collection.mutable.HashMap[String,AnyRef]) =&gt; {
+  val sBean: com.webtrends.harness.component.socko.utils.SockoCommandBean = com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event);
+  try {
+    SockoPut.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+    SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+  } catch {
+    case (ex @ (_: Throwable)) =&gt; SockoPut.this.getRejectionHandler(sBean.event, ex)
+  }
+}), ((event: org.mashupbots.socko.events.HttpRequestEvent) =&gt; SockoPut.this.defaultPathMatcher(event, SockoPut.this.paths)), &quot;PUT&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          1156
+        </td>
+        <td>
+          14368
+          -
+          14368
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          1158
+        </td>
+        <td>
+          14346
+          -
+          14381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          395
+        </td>
+        <td>
+          1157
+        </td>
+        <td>
+          14363
+          -
+          14373
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          396
+        </td>
+        <td>
+          1164
+        </td>
+        <td>
+          14402
+          -
+          14498
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SockoPut.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+  SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+}
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          1160
+        </td>
+        <td>
+          14426
+          -
+          14426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          1159
+        </td>
+        <td>
+          14434
+          -
+          14469
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpContent.toBytes
+        </td>
+        <td style="background: #AEF1AE">
+          sBean.event.request.content.toBytes
+        </td>
+      </tr><tr>
+        <td>
+          397
+        </td>
+        <td>
+          1161
+        </td>
+        <td>
+          14402
+          -
+          14470
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.EntityRoutes.addEntityToBean
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          398
+        </td>
+        <td>
+          1162
+        </td>
+        <td>
+          14491
+          -
+          14491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          398
+        </td>
+        <td>
+          1163
+        </td>
+        <td>
+          14479
+          -
+          14498
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          400
+        </td>
+        <td>
+          1165
+        </td>
+        <td>
+          14565
+          -
+          14576
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
+        </td>
+        <td style="background: #F0ADAD">
+          sBean.event
+        </td>
+      </tr><tr>
+        <td>
+          400
+        </td>
+        <td>
+          1166
+        </td>
+        <td>
+          14545
+          -
+          14581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoPut.this.getRejectionHandler(sBean.event, ex)
+        </td>
+      </tr><tr>
+        <td>
+          404
+        </td>
+        <td>
+          1168
+        </td>
+        <td>
+          14637
+          -
+          14669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.defaultPathMatcher(event, SockoPut.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          404
+        </td>
+        <td>
+          1167
+        </td>
+        <td>
+          14663
+          -
+          14668
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          1169
+        </td>
+        <td>
+          14681
+          -
+          14686
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;PUT&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
