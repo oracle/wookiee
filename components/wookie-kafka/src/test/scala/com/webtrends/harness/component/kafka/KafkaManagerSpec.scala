@@ -42,6 +42,8 @@ class KafkaManagerSpec extends SpecificationLike with NoTimeConversions {
   //Create our leader
   val workerManager = sys.getComponent("wookie-kafka").get
 
+  Thread.sleep(2000)
+
   sequential
 
   "KafkaManager" should {

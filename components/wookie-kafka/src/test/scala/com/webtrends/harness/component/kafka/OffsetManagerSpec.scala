@@ -39,6 +39,9 @@ class OffsetManagerSpec extends SpecificationLike with NoTimeConversions {
   val data = "something"
 
   zkHelper.ensureZkAvailable()
+
+  Thread.sleep(2000)
+
   //Disable because this fails during a mvn build intermittently
   args(skipAll = false, sequential = true)
 
