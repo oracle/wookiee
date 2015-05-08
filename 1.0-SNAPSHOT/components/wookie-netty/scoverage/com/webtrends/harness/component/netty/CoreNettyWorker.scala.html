@@ -1,0 +1,1016 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/netty/CoreNettyWorker.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.netty
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor._
+</span>23 <span style=''>import akka.pattern.ask
+</span>24 <span style=''>import com.webtrends.harness.app.HActor
+</span>25 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentRequest}
+</span>26 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>27 <span style=''>import com.webtrends.harness.health.HealthResponseType.HealthResponseType
+</span>28 <span style=''>import com.webtrends.harness.health._
+</span>29 <span style=''>import com.webtrends.harness.service.ServiceManager.GetMetaDataByName
+</span>30 <span style=''>import com.webtrends.harness.service.messages.GetMetaData
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.util.{Failure, Success}
+</span>33 <span style=''>
+</span>34 <span style=''>@SerialVersionUID(1L) case class GetSystemInfo[T](name: String, msg:ComponentRequest[T])
+</span>35 <span style=''>@SerialVersionUID(1L) case class GetHealth(msg: HealthResponseType)
+</span>36 <span style=''>@SerialVersionUID(1L) case class GetServiceInfo(name:Option[String]=None)
+</span>37 <span style=''>
+</span>38 <span style=''>/**
+</span>39 <span style=''> * Created by wallinm on 12/16/14.
+</span>40 <span style=''> */
+</span>41 <span style=''>protected class CoreNettyWorker extends HActor with ComponentHelper {
+</span>42 <span style=''>
+</span>43 <span style=''>  import context._
+</span>44 <span style=''>
+</span>45 <span style=''>  val healthActor = </span><span style='background: #AEF1AE'>actorSelection(HarnessConstants.HealthFullName)</span><span style=''>
+</span>46 <span style=''>  val serviceActor = </span><span style='background: #AEF1AE'>actorSelection(HarnessConstants.ServicesFullName)</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  /**
+</span>49 <span style=''>   * Establish our routes and other receive handlers
+</span>50 <span style=''>   */
+</span>51 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>super.receive orElse {
+</span>52 <span style=''></span><span style='background: #AEF1AE'>    case GetSystemInfo(name, msg) => </span><span style='background: #F0ADAD'>respondToComponentRequest(name, msg)</span><span style='background: #AEF1AE'>
+</span>53 <span style=''></span><span style='background: #AEF1AE'>    case GetHealth(msg) => </span><span style='background: #F0ADAD'>respondToHealthRequest(msg)</span><span style='background: #AEF1AE'>
+</span>54 <span style=''></span><span style='background: #AEF1AE'>    case GetServiceInfo(name) => </span><span style='background: #F0ADAD'>respondToServiceRequest(name)</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>  def respondToServiceRequest(name:Option[String]) = {
+</span>58 <span style=''>    val caller = </span><span style='background: #F0ADAD'>sender()</span><span style=''>
+</span>59 <span style=''>    val msg = name match {
+</span>60 <span style=''>      case Some(n) => </span><span style='background: #F0ADAD'>GetMetaDataByName(n)</span><span style=''>
+</span>61 <span style=''>      case None => </span><span style='background: #F0ADAD'>GetMetaData(None)</span><span style=''>
+</span>62 <span style=''>    }
+</span>63 <span style=''>    </span><span style='background: #F0ADAD'>(serviceActor ? msg) onComplete {
+</span>64 <span style=''></span><span style='background: #F0ADAD'>      case Success(resp) => caller ! resp
+</span>65 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => caller ! Status.Failure(f)
+</span>66 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  def respondToComponentRequest[T, M](name:String, msg:ComponentRequest[T]): Unit = {
+</span>70 <span style=''>    val caller = </span><span style='background: #F0ADAD'>sender()</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest[T, M](name, msg) onComplete {
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      case Success(resp) => caller ! resp
+</span>73 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => caller ! Status.Failure(f)
+</span>74 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  def respondToHealthRequest(msg:HealthResponseType): Unit = {
+</span>78 <span style=''>    val caller = </span><span style='background: #F0ADAD'>sender()</span><span style=''>
+</span>79 <span style=''>    </span><span style='background: #F0ADAD'>(healthActor ? HealthRequest(msg)) onComplete {
+</span>80 <span style=''></span><span style='background: #F0ADAD'>      case Success(resp) => caller ! resp
+</span>81 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => caller ! Status.Failure(f)
+</span>82 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>83 <span style=''>  }
+</span>84 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          1657
+          -
+          1704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyWorker.this.context.actorSelection(com.webtrends.harness.HarnessConstants.HealthFullName)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          321
+        </td>
+        <td>
+          1672
+          -
+          1703
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.HealthFullName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.HealthFullName
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          1726
+          -
+          1775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyWorker.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ServicesFullName)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          1741
+          -
+          1774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ServicesFullName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ServicesFullName
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          1888
+          -
+          1888
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          1867
+          -
+          2085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyWorker.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, msg: com.webtrends.harness.component.ComponentRequest[Any])com.webtrends.harness.component.netty.GetSystemInfo[Any]((name @ _), (msg @ _)) =&gt; CoreNettyWorker.this.respondToComponentRequest[Any, Nothing](name, msg)
+      case (msg: com.webtrends.harness.health.HealthResponseType.HealthResponseType)com.webtrends.harness.component.netty.GetHealth((msg @ _)) =&gt; CoreNettyWorker.this.respondToHealthRequest(msg)
+      case (name: Option[String])com.webtrends.harness.component.netty.GetServiceInfo((name @ _)) =&gt; CoreNettyWorker.this.respondToServiceRequest(name)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, msg: com.webtrends.harness.component.ComponentRequest[Any])com.webtrends.harness.component.netty.GetSystemInfo[Any]((name @ _), (msg @ _)) =&gt; true
+      case (msg: com.webtrends.harness.health.HealthResponseType.HealthResponseType)com.webtrends.harness.component.netty.GetHealth((msg @ _)) =&gt; true
+      case (name: Option[String])com.webtrends.harness.component.netty.GetServiceInfo((name @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          1927
+          -
+          1963
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.respondToComponentRequest
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.respondToComponentRequest[Any, Nothing](name, msg)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          1991
+          -
+          2018
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.respondToHealthRequest
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.respondToHealthRequest(msg)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          2052
+          -
+          2081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.respondToServiceRequest
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.respondToServiceRequest(name)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          2159
+          -
+          2167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          2217
+          -
+          2237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.GetMetaDataByName.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.ServiceManager.GetMetaDataByName.apply(n)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          2257
+          -
+          2274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.GetMetaData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.messages.GetMetaData.apply(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          2269
+          -
+          2273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          2286
+          -
+          2298
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.serviceActor
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.serviceActor
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          2285
+          -
+          2418
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreNettyWorker.this.serviceActor).?(msg)(CoreNettyWorker.this.checkTimeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (value: Any)scala.util.Success[Any]((resp @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+}))(CoreNettyWorker.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          2306
+          -
+          2306
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          335
+        </td>
+        <td>
+          2299
+          -
+          2299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          2347
+          -
+          2360
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          2354
+          -
+          2354
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          2386
+          -
+          2412
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          2393
+          -
+          2393
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          2395
+          -
+          2412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(f)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          2527
+          -
+          2535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          2540
+          -
+          2686
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.componentRequest[T, M](name, msg).onComplete[Unit](((x0$2: scala.util.Try[com.webtrends.harness.component.ComponentResponse[M]]) =&gt; x0$2 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[M])scala.util.Success[com.webtrends.harness.component.ComponentResponse[M]]((resp @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[M]]((f @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+}))(CoreNettyWorker.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          345
+        </td>
+        <td>
+          2615
+          -
+          2628
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          2622
+          -
+          2622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          2663
+          -
+          2680
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(f)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          2654
+          -
+          2680
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          347
+        </td>
+        <td>
+          2661
+          -
+          2661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          2772
+          -
+          2780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          2786
+          -
+          2797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyWorker.healthActor
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.healthActor
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          2785
+          -
+          2932
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreNettyWorker.this.healthActor).?(com.webtrends.harness.health.HealthRequest.apply(msg))(CoreNettyWorker.this.checkTimeout).onComplete[Unit](((x0$3: scala.util.Try[Any]) =&gt; x0$3 match {
+  case (value: Any)scala.util.Success[Any]((resp @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+}))(CoreNettyWorker.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          2820
+          -
+          2820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          354
+        </td>
+        <td>
+          2798
+          -
+          2798
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          2800
+          -
+          2818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthRequest.apply(msg)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          2868
+          -
+          2868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          2861
+          -
+          2874
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(resp)(CoreNettyWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          2907
+          -
+          2907
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          2909
+          -
+          2926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(f)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          2900
+          -
+          2926
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(f))(CoreNettyWorker.this.self)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

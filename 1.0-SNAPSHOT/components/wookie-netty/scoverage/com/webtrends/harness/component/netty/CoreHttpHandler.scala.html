@@ -1,0 +1,4319 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/netty/CoreHttpHandler.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.netty
+</span>21 <span style=''>
+</span>22 <span style=''>import java.io.{File, FileInputStream}
+</span>23 <span style=''>import java.net.URL
+</span>24 <span style=''>import java.util.concurrent.TimeUnit
+</span>25 <span style=''>import javax.activation.MimetypesFileTypeMap
+</span>26 <span style=''>
+</span>27 <span style=''>import akka.actor._
+</span>28 <span style=''>import akka.pattern.ask
+</span>29 <span style=''>import akka.util.Timeout
+</span>30 <span style=''>import com.webtrends.harness.component.{ComponentRequest, ComponentResponse}
+</span>31 <span style=''>import com.webtrends.harness.component.messages._
+</span>32 <span style=''>import com.webtrends.harness.component.netty.config.NettyServerSettings
+</span>33 <span style=''>import com.webtrends.harness.health.{ComponentState, ApplicationHealth, HealthResponseType}
+</span>34 <span style=''>import com.webtrends.harness.service.meta.ServiceMetaData
+</span>35 <span style=''>import io.netty.channel._
+</span>36 <span style=''>import io.netty.handler.codec.http.HttpHeaders.Names
+</span>37 <span style=''>import io.netty.handler.codec.http._
+</span>38 <span style=''>import io.netty.handler.codec.http.HttpMethod._
+</span>39 <span style=''>import io.netty.handler.codec.http.HttpHeaders.Names._
+</span>40 <span style=''>import io.netty.handler.codec.http.websocketx._
+</span>41 <span style=''>import io.netty.handler.codec.http.HttpResponseStatus._
+</span>42 <span style=''>import io.netty.handler.stream.ChunkedStream
+</span>43 <span style=''>import net.liftweb.json._
+</span>44 <span style=''>import net.liftweb.json.Extraction._
+</span>45 <span style=''>import net.liftweb.json.ext.{EnumNameSerializer, JodaTimeSerializers}
+</span>46 <span style=''>import org.joda.time.{DateTimeZone, DateTime}
+</span>47 <span style=''>import scala.util.{Failure, Success}
+</span>48 <span style=''>
+</span>49 <span style=''>/**
+</span>50 <span style=''> * Created by wallinm on 12/9/14.
+</span>51 <span style=''> */
+</span>52 <span style=''>protected class CoreHttpHandler(settings: NettyServerSettings, worker: ActorRef) extends BaseInboundHandler {
+</span>53 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(settings.requestTimeout, TimeUnit.SECONDS)</span><span style=''>
+</span>54 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>DefaultFormats + new EnumNameSerializer(ComponentState) ++ JodaTimeSerializers.all</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  // TODO need to add Spray's equivalent of directives in here...like CIDR rules
+</span>57 <span style=''>  override def handleHttpRequest(ctx: ChannelHandlerContext, req: FullHttpRequest): Boolean = {
+</span>58 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>59 <span style=''>
+</span>60 <span style=''>    if (</span><span style='background: #AEF1AE'>!req.getDecoderResult.isSuccess</span><span style=''>) {
+</span>61 <span style=''>      </span><span style='background: #F0ADAD'>sendHttpResponse(ctx, req, new DefaultFullHttpResponse(req.getProtocolVersion(), BAD_REQUEST))</span><span style=''>
+</span>62 <span style=''>    }
+</span>63 <span style=''>
+</span>64 <span style=''>    (req.getMethod, req.getUri) match {
+</span>65 <span style=''>      case (GET, "/favicon.ico") =>
+</span>66 <span style=''>        </span><span style='background: #F0ADAD'>sendHttpResponse(ctx, req, new DefaultFullHttpResponse(req.getProtocolVersion(), NO_CONTENT))</span><span style=''>
+</span>67 <span style=''>      case (GET, "/ping") =>
+</span>68 <span style=''>        </span><span style='background: #AEF1AE'>sendContent(ctx, req, "pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString), "text/plain")</span><span style=''>
+</span>69 <span style=''>      case (GET, "/metrics") =>
+</span>70 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetSystemInfo("wookie-metrics", ComponentRequest(StatusRequest()))).mapTo[ComponentResponse[JValue]] onComplete {
+</span>71 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, JsonAST.compactRender(s.resp), "application/json")
+</span>72 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>73 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>74 <span style=''>      case (GET, "/services") =>
+</span>75 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetServiceInfo()).mapTo[Seq[ServiceMetaData]] onComplete {
+</span>76 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, compactRender(decompose(s)), "application/json")
+</span>77 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>78 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>79 <span style=''>      case (GET, "/cluster") =>
+</span>80 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetSystemInfo("wookie-cluster", ComponentRequest(ClusterState(), Some("cluster")))).mapTo[ComponentResponse[JValue]] onComplete {
+</span>81 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, JsonAST.compactRender(s.resp), "application/json")
+</span>82 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>83 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>84 <span style=''>      case (GET, "/cluster/discovery") =>
+</span>85 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetSystemInfo("wookie-cluster", ComponentRequest(Subscriptions()))).mapTo[ComponentResponse[JValue]] onComplete {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, JsonAST.compactRender(s.resp), "application/json")
+</span>87 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>88 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>89 <span style=''>      case (GET, "/healthcheck/full") =>
+</span>90 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetHealth(HealthResponseType.FULL)).mapTo[ApplicationHealth] onComplete {
+</span>91 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, compactRender(decompose(s)), "application/json")
+</span>92 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>93 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>94 <span style=''>      case (GET, "/healthcheck/lb") =>
+</span>95 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetHealth(HealthResponseType.LB)).mapTo[String] onComplete {
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, s, "text/plain")
+</span>97 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>99 <span style=''>      case (GET, "/healthcheck/nagios") =>
+</span>100 <span style=''>        (</span><span style='background: #F0ADAD'>worker ? GetHealth(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
+</span>101 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => sendContent(ctx, req, s, "text/plain")
+</span>102 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => sendFailure(ctx, req, f)
+</span>103 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>104 <span style=''>      case (GET, settings.websocketPath) if </span><span style='background: #AEF1AE'>settings.websocketPath.length > 1</span><span style=''> =>
+</span>105 <span style=''>        val wsPath = </span><span style='background: #AEF1AE'>s"ws://${req.headers().get(HOST)}"</span><span style=''>
+</span>106 <span style=''>        val wsFactory = </span><span style='background: #AEF1AE'>new WebSocketServerHandshakerFactory(wsPath, null, false)</span><span style=''>
+</span>107 <span style=''>        </span><span style='background: #AEF1AE'>handshaker = Some(wsFactory.newHandshaker(req))</span><span style=''>
+</span>108 <span style=''>        </span><span style='background: #AEF1AE'>handshaker</span><span style=''> match {
+</span>109 <span style=''>          case Some(hs) => </span><span style='background: #AEF1AE'>hs.handshake(ctx.channel(), req)</span><span style=''>
+</span>110 <span style=''>          case None => </span><span style='background: #F0ADAD'>WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel())</span><span style=''>
+</span>111 <span style=''>        }
+</span>112 <span style=''>      case _ => </span><span style='background: #F0ADAD'>staticFile(ctx, req)</span><span style=''>
+</span>113 <span style=''>    }
+</span>114 <span style=''>
+</span>115 <span style=''>    // All cases were handled
+</span>116 <span style=''>    </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>117 <span style=''>  }
+</span>118 <span style=''>
+</span>119 <span style=''>  def staticFile(ctx: ChannelHandlerContext, req: FullHttpRequest): Unit = {
+</span>120 <span style=''>    if (</span><span style='background: #F0ADAD'>settings.fileLocation.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>121 <span style=''></span><span style='background: #F0ADAD'>      sendHttpResponse(ctx, req, new DefaultFullHttpResponse(req.getProtocolVersion, NOT_FOUND))
+</span>122 <span style=''></span><span style='background: #F0ADAD'>      return
+</span>123 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>    if (</span><span style='background: #F0ADAD'>req.getMethod != HttpMethod.GET</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>126 <span style=''></span><span style='background: #F0ADAD'>      sendHttpResponse(ctx, req, new DefaultFullHttpResponse(req.getProtocolVersion, METHOD_NOT_ALLOWED))
+</span>127 <span style=''></span><span style='background: #F0ADAD'>      return
+</span>128 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>129 <span style=''>
+</span>130 <span style=''>    // get input stream from file or from jar
+</span>131 <span style=''>    val url = </span><span style='background: #F0ADAD'>new URL(s"file://${req.getUri}")</span><span style=''>
+</span>132 <span style=''>    val is = try {
+</span>133 <span style=''>
+</span>134 <span style=''>      // load static from file or jar
+</span>135 <span style=''>      </span><span style='background: #F0ADAD'>val inputStream = settings.fileSource match {
+</span>136 <span style=''></span><span style='background: #F0ADAD'>        case "file" => new FileInputStream(new File(s"${settings.fileLocation}${url.getPath}"))
+</span>137 <span style=''></span><span style='background: #F0ADAD'>        case "jar" => getClass.getResourceAsStream(s"${settings.fileLocation}${url.getPath}")
+</span>138 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>139 <span style=''></span><span style='background: #F0ADAD'>
+</span>140 <span style=''></span><span style='background: #F0ADAD'>      if (inputStream == null)
+</span>141 <span style=''></span><span style='background: #F0ADAD'>        throw new NullPointerException
+</span>142 <span style=''></span><span style='background: #F0ADAD'>      inputStream</span><span style=''>
+</span>143 <span style=''>    } catch {
+</span>144 <span style=''>      case e: Throwable =>
+</span>145 <span style=''>        </span><span style='background: #F0ADAD'>sendHttpResponse(ctx, req, new DefaultFullHttpResponse(req.getProtocolVersion, NOT_FOUND))</span><span style=''>
+</span>146 <span style=''>        </span><span style='background: #F0ADAD'>return</span><span style=''>
+</span>147 <span style=''>    }
+</span>148 <span style=''>
+</span>149 <span style=''>    // write headers
+</span>150 <span style=''>    val response = </span><span style='background: #F0ADAD'>new DefaultHttpResponse(req.getProtocolVersion, OK)</span><span style=''>
+</span>151 <span style=''>    val mimeTypesMap = </span><span style='background: #F0ADAD'>new MimetypesFileTypeMap()</span><span style=''>
+</span>152 <span style=''>    </span><span style='background: #F0ADAD'>response.headers().set(CONTENT_TYPE, mimeTypesMap.getContentType(url.getPath))</span><span style=''>
+</span>153 <span style=''>    </span><span style='background: #F0ADAD'>response.headers().set(Names.TRANSFER_ENCODING, HttpHeaders.Values.CHUNKED)</span><span style=''>
+</span>154 <span style=''>    </span><span style='background: #F0ADAD'>ctx.write(response)</span><span style=''>
+</span>155 <span style=''>
+</span>156 <span style=''>    // write stream
+</span>157 <span style=''>    </span><span style='background: #F0ADAD'>ctx.write(new HttpChunkedInput(new ChunkedStream(is)))</span><span style=''>
+</span>158 <span style=''>    val future = </span><span style='background: #F0ADAD'>ctx.writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)</span><span style=''>
+</span>159 <span style=''>    if (</span><span style='background: #F0ADAD'>!HttpHeaders.isKeepAlive(req)</span><span style=''>) {
+</span>160 <span style=''>      </span><span style='background: #F0ADAD'>future.addListener(ChannelFutureListener.CLOSE)</span><span style=''>
+</span>161 <span style=''>    }
+</span>162 <span style=''>  }
+</span>163 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          2117
+          -
+          2140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.requestTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          CoreHttpHandler.this.settings.requestTimeout
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2109
+          -
+          2159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(CoreHttpHandler.this.settings.requestTimeout, SECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          2142
+          -
+          2158
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          SECONDS
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2202
+          -
+          2240
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.ext.EnumNameSerializer.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new net.liftweb.json.ext.EnumNameSerializer[com.webtrends.harness.health.ComponentState.type](com.webtrends.harness.health.ComponentState)(reflect.this.ClassManifestFactory.singleType[com.webtrends.harness.health.ComponentState.type](health.this.ComponentState))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2225
+          -
+          2239
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.ComponentState
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2202
+          -
+          2202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ClassManifestFactory.singleType
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ClassManifestFactory.singleType[com.webtrends.harness.health.ComponentState.type](health.this.ComponentState)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2185
+          -
+          2267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Formats.++
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.DefaultFormats.+(new net.liftweb.json.ext.EnumNameSerializer[com.webtrends.harness.health.ComponentState.type](com.webtrends.harness.health.ComponentState)(reflect.this.ClassManifestFactory.singleType[com.webtrends.harness.health.ComponentState.type](health.this.ComponentState))).++(net.liftweb.json.ext.JodaTimeSerializers.all)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2244
+          -
+          2267
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2202
+          -
+          2202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState
+        </td>
+        <td style="background: #AEF1AE">
+          health.this.ComponentState
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2513
+          -
+          2513
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2517
+          -
+          2548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          req.getDecoderResult().isSuccess().unary_!
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2513
+          -
+          2513
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2585
+          -
+          2651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          2639
+          -
+          2650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2558
+          -
+          2652
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2613
+          -
+          2637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2558
+          -
+          2652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2825
+          -
+          2835
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.NO_CONTENT
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.NO_CONTENT
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2744
+          -
+          2837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NO_CONTENT))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2799
+          -
+          2823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2771
+          -
+          2836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NO_CONTENT)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          2897
+          -
+          2905
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;pong: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          2983
+          -
+          2995
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;text/plain&quot;
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          2897
+          -
+          2981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString())
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          2875
+          -
+          2996
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #AEF1AE">
+          CoreHttpHandler.this.sendContent(ctx, req, &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()), &quot;text/plain&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          2913
+          -
+          2980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.joda.time.base.AbstractDateTime.toString
+        </td>
+        <td style="background: #AEF1AE">
+          new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3079
+          -
+          3079
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3047
+          -
+          3113
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetSystemInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetSystemInfo.apply[com.webtrends.harness.component.messages.StatusRequest](&quot;wookie-metrics&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.StatusRequest](com.webtrends.harness.component.messages.StatusRequest.apply(com.webtrends.harness.component.messages.StatusRequest.apply$default$1), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3061
+          -
+          3077
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-metrics&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3096
+          -
+          3111
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.messages.StatusRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.messages.StatusRequest.apply(com.webtrends.harness.component.messages.StatusRequest.apply$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3079
+          -
+          3112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.StatusRequest](com.webtrends.harness.component.messages.StatusRequest.apply(com.webtrends.harness.component.messages.StatusRequest.apply$default$1), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3038
+          -
+          3044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3045
+          -
+          3045
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3096
+          -
+          3096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.messages.StatusRequest.apply$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.messages.StatusRequest.apply$default$1
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3079
+          -
+          3079
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3038
+          -
+          3326
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetSystemInfo.apply[com.webtrends.harness.component.messages.StatusRequest](&quot;wookie-metrics&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.StatusRequest](com.webtrends.harness.component.messages.StatusRequest.apply(com.webtrends.harness.component.messages.StatusRequest.apply$default$1), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])))(CoreHttpHandler.this.timeout).mapTo[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]])).onComplete[Unit](((x0$1: scala.util.Try[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue])scala.util.Success[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3212
+          -
+          3241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.compactRender(s.resp)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3190
+          -
+          3262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3234
+          -
+          3240
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.resp
+        </td>
+        <td style="background: #F0ADAD">
+          s.resp
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3243
+          -
+          3261
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3292
+          -
+          3316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3378
+          -
+          3378
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetServiceInfo.apply$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          GetServiceInfo.apply$default$1
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3369
+          -
+          3600
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetServiceInfo.apply(GetServiceInfo.apply$default$1))(CoreHttpHandler.this.timeout).mapTo[Seq[com.webtrends.harness.service.meta.ServiceMetaData]]((ClassTag.apply[Seq[com.webtrends.harness.service.meta.ServiceMetaData]](classOf[scala.collection.Seq]): scala.reflect.ClassTag[Seq[com.webtrends.harness.service.meta.ServiceMetaData]])).onComplete[Unit](((x0$2: scala.util.Try[Seq[com.webtrends.harness.service.meta.ServiceMetaData]]) =&gt; x0$2 match {
+  case (value: Seq[com.webtrends.harness.service.meta.ServiceMetaData])scala.util.Success[Seq[com.webtrends.harness.service.meta.ServiceMetaData]]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)), &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.service.meta.ServiceMetaData]]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3376
+          -
+          3376
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3369
+          -
+          3375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3378
+          -
+          3394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetServiceInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetServiceInfo.apply(GetServiceInfo.apply$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3517
+          -
+          3535
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3511
+          -
+          3511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.formats
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3488
+          -
+          3515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          3502
+          -
+          3514
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Extraction.decompose
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3466
+          -
+          3536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)), &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          3566
+          -
+          3590
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          3683
+          -
+          3732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.ClusterState](com.webtrends.harness.component.messages.ClusterState.apply(), scala.Some.apply[String](&quot;cluster&quot;), com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          3700
+          -
+          3714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.messages.ClusterState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.messages.ClusterState.apply()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          3665
+          -
+          3681
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-cluster&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          3683
+          -
+          3683
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          3642
+          -
+          3946
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetSystemInfo.apply[com.webtrends.harness.component.messages.ClusterState](&quot;wookie-cluster&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.ClusterState](com.webtrends.harness.component.messages.ClusterState.apply(), scala.Some.apply[String](&quot;cluster&quot;), com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])))(CoreHttpHandler.this.timeout).mapTo[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]])).onComplete[Unit](((x0$3: scala.util.Try[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]) =&gt; x0$3 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue])scala.util.Success[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          3649
+          -
+          3649
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          3651
+          -
+          3733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetSystemInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetSystemInfo.apply[com.webtrends.harness.component.messages.ClusterState](&quot;wookie-cluster&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.ClusterState](com.webtrends.harness.component.messages.ClusterState.apply(), scala.Some.apply[String](&quot;cluster&quot;), com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          3642
+          -
+          3648
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          3716
+          -
+          3731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](&quot;cluster&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          3854
+          -
+          3860
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.resp
+        </td>
+        <td style="background: #F0ADAD">
+          s.resp
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          3810
+          -
+          3882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          3863
+          -
+          3881
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          3832
+          -
+          3861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.compactRender(s.resp)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          3912
+          -
+          3936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          3998
+          -
+          4004
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          4039
+          -
+          4039
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          4007
+          -
+          4073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetSystemInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetSystemInfo.apply[com.webtrends.harness.component.messages.Subscriptions](&quot;wookie-cluster&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.Subscriptions](com.webtrends.harness.component.messages.Subscriptions.apply(), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          4039
+          -
+          4072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.Subscriptions](com.webtrends.harness.component.messages.Subscriptions.apply(), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          4056
+          -
+          4071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.messages.Subscriptions.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.messages.Subscriptions.apply()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          4021
+          -
+          4037
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-cluster&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          4039
+          -
+          4039
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          3998
+          -
+          4286
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetSystemInfo.apply[com.webtrends.harness.component.messages.Subscriptions](&quot;wookie-cluster&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.Subscriptions](com.webtrends.harness.component.messages.Subscriptions.apply(), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])))(CoreHttpHandler.this.timeout).mapTo[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((ClassTag.apply[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]](classOf[com.webtrends.harness.component.ComponentResponse]): scala.reflect.ClassTag[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]])).onComplete[Unit](((x0$4: scala.util.Try[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]) =&gt; x0$4 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue])scala.util.Success[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[net.liftweb.json.JValue]]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          4005
+          -
+          4005
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          4172
+          -
+          4201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonAST.compactRender(s.resp)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          4194
+          -
+          4200
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.resp
+        </td>
+        <td style="background: #F0ADAD">
+          s.resp
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          4150
+          -
+          4222
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.JsonAST.compactRender(s.resp), &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          4203
+          -
+          4221
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          4252
+          -
+          4276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          4337
+          -
+          4343
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          4344
+          -
+          4344
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          4346
+          -
+          4380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetHealth.apply(com.webtrends.harness.health.HealthResponseType.FULL)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          4337
+          -
+          4583
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetHealth.apply(com.webtrends.harness.health.HealthResponseType.FULL))(CoreHttpHandler.this.timeout).mapTo[com.webtrends.harness.health.ApplicationHealth]((ClassTag.apply[com.webtrends.harness.health.ApplicationHealth](classOf[com.webtrends.harness.health.ApplicationHealth]): scala.reflect.ClassTag[com.webtrends.harness.health.ApplicationHealth])).onComplete[Unit](((x0$5: scala.util.Try[com.webtrends.harness.health.ApplicationHealth]) =&gt; x0$5 match {
+  case (value: com.webtrends.harness.health.ApplicationHealth)scala.util.Success[com.webtrends.harness.health.ApplicationHealth]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)), &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.health.ApplicationHealth]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          4356
+          -
+          4379
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.FULL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.FULL
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          4494
+          -
+          4494
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.formats
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          4500
+          -
+          4518
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          4471
+          -
+          4498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          4485
+          -
+          4497
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Extraction.decompose
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          4449
+          -
+          4519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(s)(CoreHttpHandler.this.formats)), &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          4549
+          -
+          4573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          4641
+          -
+          4673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetHealth.apply(com.webtrends.harness.health.HealthResponseType.LB)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          4651
+          -
+          4672
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          4639
+          -
+          4639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          4632
+          -
+          4833
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetHealth.apply(com.webtrends.harness.health.HealthResponseType.LB))(CoreHttpHandler.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])).onComplete[Unit](((x0$6: scala.util.Try[String]) =&gt; x0$6 match {
+  case (value: String)scala.util.Success[String]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, s, &quot;text/plain&quot;)
+  case (exception: Throwable)scala.util.Failure[String]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          4632
+          -
+          4638
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          4731
+          -
+          4769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, s, &quot;text/plain&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          4799
+          -
+          4823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          4886
+          -
+          5091
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreHttpHandler.this.worker).?(GetHealth.apply(com.webtrends.harness.health.HealthResponseType.NAGIOS))(CoreHttpHandler.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])).onComplete[Unit](((x0$7: scala.util.Try[String]) =&gt; x0$7 match {
+  case (value: String)scala.util.Success[String]((s @ _)) =&gt; CoreHttpHandler.this.sendContent(ctx, req, s, &quot;text/plain&quot;)
+  case (exception: Throwable)scala.util.Failure[String]((f @ _)) =&gt; CoreHttpHandler.this.sendFailure(ctx, req, f)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          4886
+          -
+          4892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.worker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          4893
+          -
+          4893
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          4895
+          -
+          4931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.GetHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          GetHealth.apply(com.webtrends.harness.health.HealthResponseType.NAGIOS)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          4905
+          -
+          4930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.NAGIOS
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.NAGIOS
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          4989
+          -
+          5027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendContent(ctx, req, s, &quot;text/plain&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          5057
+          -
+          5081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          5136
+          -
+          5169
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          CoreHttpHandler.this.settings.websocketPath.length().&gt;(1)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          5227
+          -
+          5228
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          5196
+          -
+          5202
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ws://&quot;
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          5194
+          -
+          5228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;ws://&quot;, &quot;&quot;).s(req.headers().get(&quot;Host&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          5203
+          -
+          5226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.get
+        </td>
+        <td style="background: #AEF1AE">
+          req.headers().get(&quot;Host&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          5253
+          -
+          5310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory(wsPath, null, false)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          5337
+          -
+          5365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.newHandshaker
+        </td>
+        <td style="background: #AEF1AE">
+          wsFactory.newHandshaker(req)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          5319
+          -
+          5366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.handshaker_=
+        </td>
+        <td style="background: #AEF1AE">
+          CoreHttpHandler.this.handshaker_=(scala.Some.apply[io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker](wsFactory.newHandshaker(req)))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          5332
+          -
+          5366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker](wsFactory.newHandshaker(req))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          5375
+          -
+          5385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.handshaker
+        </td>
+        <td style="background: #AEF1AE">
+          CoreHttpHandler.this.handshaker
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          5421
+          -
+          5453
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshaker.handshake
+        </td>
+        <td style="background: #AEF1AE">
+          hs.handshake(ctx.channel(), req)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          5434
+          -
+          5447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.channel()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          5477
+          -
+          5555
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.websocketx.WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel())
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          5541
+          -
+          5554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.channel()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          5582
+          -
+          5602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreHttpHandler.staticFile
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.staticFile(ctx, req)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          5644
+          -
+          5648
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          5735
+          -
+          5735
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          5735
+          -
+          5735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          5770
+          -
+          5887
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND));
+  return ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          5739
+          -
+          5768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.settings.fileLocation.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          5857
+          -
+          5866
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          5833
+          -
+          5855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          5778
+          -
+          5868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          5805
+          -
+          5867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          5875
+          -
+          5881
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          5893
+          -
+          5893
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          5897
+          -
+          5928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          req.getMethod().!=(io.netty.handler.codec.http.HttpMethod.GET)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          5930
+          -
+          6056
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED));
+  return ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          5914
+          -
+          5928
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.GET
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.GET
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          5893
+          -
+          5893
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          5993
+          -
+          6015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          5965
+          -
+          6036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          6017
+          -
+          6035
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          5938
+          -
+          6037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          6044
+          -
+          6050
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          6128
+          -
+          6136
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;file://&quot;
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          6126
+          -
+          6149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;file://&quot;, &quot;&quot;).s(req.getUri())
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          6137
+          -
+          6147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpRequest.getUri
+        </td>
+        <td style="background: #F0ADAD">
+          req.getUri()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          6148
+          -
+          6149
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          6118
+          -
+          6150
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.net.URL(scala.StringContext.apply(&quot;file://&quot;, &quot;&quot;).s(req.getUri()))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          6215
+          -
+          6547
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val inputStream: java.io.InputStream = CoreHttpHandler.this.settings.fileSource match {
+    case &quot;file&quot; =&gt; new java.io.FileInputStream(new java.io.File(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath())))
+    case &quot;jar&quot; =&gt; CoreHttpHandler.this.getClass().getResourceAsStream(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath()))
+  };
+  if (inputStream.==(null))
+    throw new scala.`package`.NullPointerException()
+  else
+    ();
+  inputStream
+}
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          6233
+          -
+          6252
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.fileSource
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.settings.fileSource
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          6339
+          -
+          6340
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          6317
+          -
+          6338
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.fileLocation
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.settings.fileLocation
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          6304
+          -
+          6355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath()))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          6315
+          -
+          6316
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          6353
+          -
+          6354
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          6313
+          -
+          6354
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath())
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          6341
+          -
+          6352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.getPath
+        </td>
+        <td style="background: #F0ADAD">
+          url.getPath()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          215
+        </td>
+        <td>
+          6284
+          -
+          6356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.FileInputStream.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.FileInputStream(new java.io.File(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath())))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          6448
+          -
+          6449
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          6436
+          -
+          6447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.getPath
+        </td>
+        <td style="background: #F0ADAD">
+          url.getPath()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          6434
+          -
+          6435
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          6410
+          -
+          6411
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          6412
+          -
+          6433
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.fileLocation
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.settings.fileLocation
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          6379
+          -
+          6450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getResourceAsStream
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.getClass().getResourceAsStream(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath()))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          6408
+          -
+          6449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(CoreHttpHandler.this.settings.fileLocation, url.getPath())
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          6466
+          -
+          6466
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          6466
+          -
+          6466
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          6470
+          -
+          6489
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          inputStream.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          6499
+          -
+          6529
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.NullPointerException()
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          6499
+          -
+          6529
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.NullPointerException()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          6652
+          -
+          6674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          6597
+          -
+          6687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          CoreHttpHandler.this.sendHttpResponse(ctx, req, new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          6624
+          -
+          6686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          6676
+          -
+          6685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          6696
+          -
+          6702
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          6750
+          -
+          6801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.OK)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          6798
+          -
+          6800
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.OK
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.OK
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          6774
+          -
+          6796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          6825
+          -
+          6851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          javax.activation.MimetypesFileTypeMap.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new javax.activation.MimetypesFileTypeMap()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          6879
+          -
+          6891
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Content-Type&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          241
+        </td>
+        <td>
+          6856
+          -
+          6934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.set
+        </td>
+        <td style="background: #F0ADAD">
+          response.headers().set(&quot;Content-Type&quot;, mimeTypesMap.getContentType(url.getPath()))
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          6893
+          -
+          6933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          javax.activation.MimetypesFileTypeMap.getContentType
+        </td>
+        <td style="background: #F0ADAD">
+          mimeTypesMap.getContentType(url.getPath())
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          239
+        </td>
+        <td>
+          6921
+          -
+          6932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.getPath
+        </td>
+        <td style="background: #F0ADAD">
+          url.getPath()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          6939
+          -
+          7014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.set
+        </td>
+        <td style="background: #F0ADAD">
+          response.headers().set(&quot;Transfer-Encoding&quot;, &quot;chunked&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          7019
+          -
+          7038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.write
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.write(response)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          245
+        </td>
+        <td>
+          7074
+          -
+          7117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpChunkedInput.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.HttpChunkedInput(new io.netty.handler.stream.ChunkedStream(is))
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          244
+        </td>
+        <td>
+          7095
+          -
+          7116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.stream.ChunkedStream.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.stream.ChunkedStream(is)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          246
+        </td>
+        <td>
+          7064
+          -
+          7118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.write
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.write(new io.netty.handler.codec.http.HttpChunkedInput(new io.netty.handler.stream.ChunkedStream(is)))
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          7154
+          -
+          7188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.LastHttpContent.EMPTY_LAST_CONTENT
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.LastHttpContent.EMPTY_LAST_CONTENT
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          7136
+          -
+          7189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.writeAndFlush
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.writeAndFlush(io.netty.handler.codec.http.LastHttpContent.EMPTY_LAST_CONTENT)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          7194
+          -
+          7194
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          7198
+          -
+          7227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpHeaders.isKeepAlive(req).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          7194
+          -
+          7194
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          7237
+          -
+          7284
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  future.addListener(io.netty.channel.ChannelFutureListener.CLOSE);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          250
+        </td>
+        <td>
+          7256
+          -
+          7283
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          7255
+          -
+          7255
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          7237
+          -
+          7284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelFuture.addListener
+        </td>
+        <td style="background: #F0ADAD">
+          future.addListener(io.netty.channel.ChannelFutureListener.CLOSE)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
