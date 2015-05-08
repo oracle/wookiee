@@ -1,0 +1,1279 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cache/Cache.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.cache
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.pattern._
+</span>22 <span style=''>import com.webtrends.harness.component.Component
+</span>23 <span style=''>import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
+</span>24 <span style=''>import scala.concurrent.Future
+</span>25 <span style=''>
+</span>26 <span style=''>// Messages for Caching
+</span>27 <span style=''>case class CreateCache(config:CacheConfig)
+</span>28 <span style=''>case class Get(namespace:String, key:String)
+</span>29 <span style=''>case class AddBytes(namespace:String, key:String, value:Array[Byte])
+</span>30 <span style=''>case class Add(namespace:String, key:String, value:ChannelBuffer)
+</span>31 <span style=''>case class Delete(namespace:String, key:String)
+</span>32 <span style=''>case class DeleteCache(namespace:String)
+</span>33 <span style=''>case class Decrement(namespace:String, key:String, decrementBy:Long=1L)
+</span>34 <span style=''>case class Increment(namespace:String, key:String, incrementBy:Long=1L)
+</span>35 <span style=''>case class Contains(namespace:String, key:String)
+</span>36 <span style=''>case class Clear(namespace:String)
+</span>37 <span style=''>
+</span>38 <span style=''>/**
+</span>39 <span style=''> * TODO: The Caching components are older components which currently do not adhere to the pattern established
+</span>40 <span style=''> * for components, so this would most likely at some point need to be rebuilt
+</span>41 <span style=''> *
+</span>42 <span style=''> * Interface trait that handles the messaging for any caching classes. Then the user would just need to implement
+</span>43 <span style=''> * the internal functions
+</span>44 <span style=''> */
+</span>45 <span style=''>abstract class Cache(name:String) extends Component(name) {
+</span>46 <span style=''>
+</span>47 <span style=''>  import context.dispatcher
+</span>48 <span style=''>
+</span>49 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse {
+</span>50 <span style=''></span><span style='background: #F0ADAD'>    case CreateCache(config) => sender ! createCache(config)
+</span>51 <span style=''></span><span style='background: #F0ADAD'>    case DeleteCache(namespace) => sender ! deleteCache(namespace)
+</span>52 <span style=''></span><span style='background: #F0ADAD'>    case Get(namespace, key) => pipe(get(namespace, key)) to sender
+</span>53 <span style=''></span><span style='background: #F0ADAD'>    case AddBytes(namespace, key, value) =>
+</span>54 <span style=''></span><span style='background: #F0ADAD'>      val buffer = ChannelBuffers.wrappedBuffer(value)
+</span>55 <span style=''></span><span style='background: #F0ADAD'>      pipe(add(namespace, key, buffer)) to sender
+</span>56 <span style=''></span><span style='background: #F0ADAD'>    case Add(namespace, key, value) => pipe(add(namespace, key, value)) to sender
+</span>57 <span style=''></span><span style='background: #F0ADAD'>    case Delete(namespace, key) => pipe(delete(namespace, key)) to sender
+</span>58 <span style=''></span><span style='background: #F0ADAD'>    case Decrement(namespace, key, decrementBy) => pipe(decrement(namespace, key, decrementBy)) to sender
+</span>59 <span style=''></span><span style='background: #F0ADAD'>    case Increment(namespace, key, incrementBy) => pipe(increment(namespace, key, incrementBy)) to sender
+</span>60 <span style=''></span><span style='background: #F0ADAD'>    case Contains(namespace, key) => pipe(contains(namespace, key)) to sender
+</span>61 <span style=''></span><span style='background: #F0ADAD'>    case Clear(namespace) => pipe(clear(namespace)) to sender
+</span>62 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>63 <span style=''>
+</span>64 <span style=''>  // Functions to implement for any cache managers using the ICache interface
+</span>65 <span style=''>  /**
+</span>66 <span style=''>   * Creates a cache based on the implementer of the function. So could be any cache type
+</span>67 <span style=''>   *
+</span>68 <span style=''>   * @param config The
+</span>69 <span style=''>   * @return
+</span>70 <span style=''>   */
+</span>71 <span style=''>  protected def createCache(config:CacheConfig) : Boolean
+</span>72 <span style=''>  protected def deleteCache(namespace:String) : Boolean
+</span>73 <span style=''>  protected def get(namespace:String, key:String) : Future[Option[ChannelBuffer]]
+</span>74 <span style=''>  protected def add(namespace:String, key:String, value:ChannelBuffer) : Future[Boolean]
+</span>75 <span style=''>  protected def delete(namespace:String, key:String) : Future[Boolean]
+</span>76 <span style=''>  protected def increment(namespace:String, key:String, incrementBy:Long) : Future[Option[Long]]
+</span>77 <span style=''>  protected def decrement(namespace:String, key:String, decrementBy:Long) : Future[Option[Long]]
+</span>78 <span style=''>  protected def contains(namespace:String, key:String) : Future[Boolean]
+</span>79 <span style=''>  protected def clear(namespace:String) : Future[Boolean]
+</span>80 <span style=''>}
+</span>81 <span style=''>
+</span>82 <span style=''>object Cache {
+</span>83 <span style=''>  val ComponentName = </span><span style='background: #F0ADAD'>"wookie-cache"</span><span style=''>
+</span>84 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          1992
+          -
+          1992
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          1971
+          -
+          2850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (config: com.webtrends.harness.component.cache.CacheConfig)com.webtrends.harness.component.cache.CreateCache((config @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(Cache.this.sender()).!(Cache.this.createCache(config))(Cache.this.self)
+      case (namespace: String)com.webtrends.harness.component.cache.DeleteCache((namespace @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(Cache.this.sender()).!(Cache.this.deleteCache(namespace))(Cache.this.self)
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Get((namespace @ _), (key @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Option[org.jboss.netty.buffer.ChannelBuffer]](Cache.this.get(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String, key: String, value: Array[Byte])com.webtrends.harness.component.cache.AddBytes((namespace @ _), (key @ _), (value @ _)) =&gt; {
+        val buffer: org.jboss.netty.buffer.ChannelBuffer = org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer(value);
+        {
+          akka.pattern.`package`.pipe[Boolean](Cache.this.add(namespace, key, buffer))(Cache.this.context.dispatcher).to(Cache.this.sender());
+          ()
+        }
+      }
+      case (namespace: String, key: String, value: org.jboss.netty.buffer.ChannelBuffer)com.webtrends.harness.component.cache.Add((namespace @ _), (key @ _), (value @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Boolean](Cache.this.add(namespace, key, value))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Delete((namespace @ _), (key @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Boolean](Cache.this.delete(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String, key: String, decrementBy: Long)com.webtrends.harness.component.cache.Decrement((namespace @ _), (key @ _), (decrementBy @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Option[Long]](Cache.this.decrement(namespace, key, decrementBy))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String, key: String, incrementBy: Long)com.webtrends.harness.component.cache.Increment((namespace @ _), (key @ _), (incrementBy @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Option[Long]](Cache.this.increment(namespace, key, incrementBy))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Contains((namespace @ _), (key @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Boolean](Cache.this.contains(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (namespace: String)com.webtrends.harness.component.cache.Clear((namespace @ _)) =&gt; {
+        akka.pattern.`package`.pipe[Boolean](Cache.this.clear(namespace))(Cache.this.context.dispatcher).to(Cache.this.sender());
+        ()
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (config: com.webtrends.harness.component.cache.CacheConfig)com.webtrends.harness.component.cache.CreateCache((config @ _)) =&gt; true
+      case (namespace: String)com.webtrends.harness.component.cache.DeleteCache((namespace @ _)) =&gt; true
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Get((namespace @ _), (key @ _)) =&gt; true
+      case (namespace: String, key: String, value: Array[Byte])com.webtrends.harness.component.cache.AddBytes((namespace @ _), (key @ _), (value @ _)) =&gt; true
+      case (namespace: String, key: String, value: org.jboss.netty.buffer.ChannelBuffer)com.webtrends.harness.component.cache.Add((namespace @ _), (key @ _), (value @ _)) =&gt; true
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Delete((namespace @ _), (key @ _)) =&gt; true
+      case (namespace: String, key: String, decrementBy: Long)com.webtrends.harness.component.cache.Decrement((namespace @ _), (key @ _), (decrementBy @ _)) =&gt; true
+      case (namespace: String, key: String, incrementBy: Long)com.webtrends.harness.component.cache.Increment((namespace @ _), (key @ _), (incrementBy @ _)) =&gt; true
+      case (namespace: String, key: String)com.webtrends.harness.component.cache.Contains((namespace @ _), (key @ _)) =&gt; true
+      case (namespace: String)com.webtrends.harness.component.cache.Clear((namespace @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          2035
+          -
+          2054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.createCache
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.createCache(config)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          2026
+          -
+          2054
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(Cache.this.sender()).!(Cache.this.createCache(config))(Cache.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          2026
+          -
+          2032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          2033
+          -
+          2033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.self
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          2090
+          -
+          2121
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(Cache.this.sender()).!(Cache.this.deleteCache(namespace))(Cache.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          2090
+          -
+          2096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          2097
+          -
+          2097
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.self
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          2099
+          -
+          2121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.deleteCache
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.deleteCache(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          2183
+          -
+          2189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          2180
+          -
+          2180
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          2158
+          -
+          2158
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          2159
+          -
+          2178
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.get
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.get(namespace, key)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          2154
+          -
+          2189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Option[org.jboss.netty.buffer.ChannelBuffer]](Cache.this.get(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2253
+          -
+          2288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer
+        </td>
+        <td style="background: #F0ADAD">
+          org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer(value)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2332
+          -
+          2338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2299
+          -
+          2299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2329
+          -
+          2329
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2295
+          -
+          2338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](Cache.this.add(namespace, key, buffer))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          2300
+          -
+          2327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.add
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.add(namespace, key, buffer)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          2378
+          -
+          2420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](Cache.this.add(namespace, key, value))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2383
+          -
+          2409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.add
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.add(namespace, key, value)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2414
+          -
+          2420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          2382
+          -
+          2382
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2411
+          -
+          2411
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2460
+          -
+          2460
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2485
+          -
+          2485
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2461
+          -
+          2483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.delete
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.delete(namespace, key)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2456
+          -
+          2494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](Cache.this.delete(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2488
+          -
+          2494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2594
+          -
+          2600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2550
+          -
+          2550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2591
+          -
+          2591
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2551
+          -
+          2589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.decrement
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.decrement(namespace, key, decrementBy)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2546
+          -
+          2600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Option[Long]](Cache.this.decrement(namespace, key, decrementBy))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2657
+          -
+          2695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.increment
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.increment(namespace, key, incrementBy)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2652
+          -
+          2706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Option[Long]](Cache.this.increment(namespace, key, incrementBy))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2700
+          -
+          2706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2656
+          -
+          2656
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2697
+          -
+          2697
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2748
+          -
+          2748
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2775
+          -
+          2775
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2749
+          -
+          2773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.contains
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.contains(namespace, key)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          2744
+          -
+          2784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](Cache.this.contains(namespace, key))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2778
+          -
+          2784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2840
+          -
+          2846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2818
+          -
+          2818
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2837
+          -
+          2837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2819
+          -
+          2835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cache.clear
+        </td>
+        <td style="background: #F0ADAD">
+          Cache.this.clear(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2814
+          -
+          2846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](Cache.this.clear(namespace))(Cache.this.context.dispatcher).to(Cache.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          3794
+          -
+          3808
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-cache&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
