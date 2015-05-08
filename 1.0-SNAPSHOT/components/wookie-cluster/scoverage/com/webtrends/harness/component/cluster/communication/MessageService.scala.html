@@ -1,0 +1,1606 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cluster/communication/MessageService.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.cluster.communication
+</span>21 <span style=''>
+</span>22 <span style=''>import java.util.concurrent.TimeUnit
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.actor.{Actor, ActorRef, ActorSelection, ActorSystem}
+</span>25 <span style=''>import akka.event.Logging
+</span>26 <span style=''>import akka.pattern._
+</span>27 <span style=''>import akka.util.Timeout
+</span>28 <span style=''>import com.webtrends.harness.component.cluster.communication.MessageService._
+</span>29 <span style=''>import com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.Internal.{UnregisterSubscriptionEvent, RegisterSubscriptionEvent}
+</span>30 <span style=''>import com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.MessageSubscriptionEvent
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.concurrent.Future
+</span>33 <span style=''>
+</span>34 <span style=''>/**
+</span>35 <span style=''> * @author cuthbertm on 10/22/14 10:26 AM
+</span>36 <span style=''> */
+</span>37 <span style=''>private[communication] class MessageService(mediator: ActorRef)(implicit system: ActorSystem) {
+</span>38 <span style=''>
+</span>39 <span style=''>  private[communication] val defaultTimeout = </span><span style='background: #AEF1AE'>Timeout(system.settings.config.getDuration("message-processor.default-send-timeout", TimeUnit.MILLISECONDS))</span><span style=''>
+</span>40 <span style=''>  private val log = </span><span style='background: #AEF1AE'>Logging(system, this.getClass)</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  /**
+</span>43 <span style=''>   * Subscribe for messages. When receiving a message, it will be wrapped in an instance
+</span>44 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>45 <span style=''>   * @param topic the topic to receive message from
+</span>46 <span style=''>   * @param subscriber the actor that is to receive the messages. If this actor is terminated then
+</span>47 <span style=''>   *                   the subscription is no longer valid and will have to be reset.
+</span>48 <span style=''>   * @param localOnly are published messages only to come from local sources
+</span>49 <span style=''>   * @param sender the ActorRef whom called this method and acknowledgement will be sent to.
+</span>50 <span style=''>   */
+</span>51 <span style=''>  def subscribe(topic: String, subscriber: ActorRef, localOnly: Boolean)
+</span>52 <span style=''>               (implicit sender: ActorRef): Unit = {
+</span>53 <span style=''>    </span><span style='background: #AEF1AE'>mediator ! Subscribe(Seq(topic), subscriber, localOnly)</span><span style=''>
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  /**
+</span>57 <span style=''>   * Subscribe for messages. When receiving a message, it will be wrapped in an instance
+</span>58 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>59 <span style=''>   * @param topics the topics to receive message from
+</span>60 <span style=''>   * @param subscriber the actor that is to receive the messages. If this actor is terminated then
+</span>61 <span style=''>   *                   the subscription is no longer valid and will have to be reset.
+</span>62 <span style=''>   * @param localOnly are published messages only to come from local sources
+</span>63 <span style=''>   * @param sender the ActorRef whom called this method and acknowledgement will be sent to.
+</span>64 <span style=''>   */
+</span>65 <span style=''>  def subscribe(topics: Seq[String], subscriber: ActorRef, localOnly: Boolean)
+</span>66 <span style=''>               (implicit sender: ActorRef): Unit = {
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>mediator ! Subscribe(topics, subscriber, localOnly)</span><span style=''>
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  /**
+</span>71 <span style=''>   * Un-subscribe to the given topic
+</span>72 <span style=''>   * @param topic the topic to un-subscribe
+</span>73 <span style=''>   * @param subscriber the actor to un-subscribe
+</span>74 <span style=''>   * @param sender the ActorRef whom called this method and acknowledgement will be sent to.
+</span>75 <span style=''>   */
+</span>76 <span style=''>  def unsubscribe(topic: String, subscriber: ActorRef)
+</span>77 <span style=''>                 (implicit sender: ActorRef): Unit = {
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>mediator ! Unsubscribe(Seq(topic), subscriber)</span><span style=''>
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  /**
+</span>82 <span style=''>   * Un-subscribe to the given topic
+</span>83 <span style=''>   * @param topics the topics to un-subscribe
+</span>84 <span style=''>   * @param subscriber the actor to un-subscribe
+</span>85 <span style=''>   * @param sender the ActorRef whom called this method and acknowledgement will be sent to.
+</span>86 <span style=''>   */
+</span>87 <span style=''>  def unsubscribe(topics: Seq[String], subscriber: ActorRef)
+</span>88 <span style=''>                 (implicit sender: ActorRef): Unit = {
+</span>89 <span style=''>    </span><span style='background: #F0ADAD'>mediator ! Unsubscribe(topics, subscriber)</span><span style=''>
+</span>90 <span style=''>  }
+</span>91 <span style=''>
+</span>92 <span style=''>  /**
+</span>93 <span style=''>   * Get the subscribers for the given topics. This method should normally only be used as a reference point.
+</span>94 <span style=''>   * @param topics the topics to look up subscribers
+</span>95 <span style=''>   * @return a future that contains a map of topics to subscribers
+</span>96 <span style=''>   */
+</span>97 <span style=''>  def getSubscriptions(topics: Seq[String])(implicit timeout: akka.util.Timeout = defaultTimeout): Future[Map[String, Seq[ActorSelection]]] =
+</span>98 <span style=''>    (</span><span style='background: #F0ADAD'>mediator ? GetSubscriptions(topics)).mapTo[Map[String, Seq[ActorSelection]]]</span><span style=''>
+</span>99 <span style=''>
+</span>100 <span style=''>  /**
+</span>101 <span style=''>   * Sends the message to the given topic. The message will go
+</span>102 <span style=''>   * to one subscriber and is a one-way asynchronous message. E.g. fire-and-forget semantics.
+</span>103 <span style=''>   * When receiving a message, it will be wrapped in an instance
+</span>104 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>105 <span style=''>   * @param topic the topic for the message
+</span>106 <span style=''>   * @param msg the message to send
+</span>107 <span style=''>   * @param sender the ActorRef to act as the sender.
+</span>108 <span style=''>   */
+</span>109 <span style=''>  def send(topic: String, msg: Any)
+</span>110 <span style=''>          (implicit sender: ActorRef): Unit = {
+</span>111 <span style=''>    </span><span style='background: #AEF1AE'>(mediator ! Send(topic, Message.createMessage(topic, msg)))(sender)</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>  /**
+</span>115 <span style=''>   * Sends the message to the given topic. The message will go
+</span>116 <span style=''>   * to one subscriber and a future will be returned.
+</span>117 <span style=''>   * When receiving a message, it will be wrapped in an instance
+</span>118 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>119 <span style=''>   * @param topic the topic for the message
+</span>120 <span style=''>   * @param msg the message to send
+</span>121 <span style=''>   * @param timeout the implicit timeout
+</span>122 <span style=''>   */
+</span>123 <span style=''>  def sendWithFuture(topic: String, msg: Any)(implicit timeout: akka.util.Timeout = defaultTimeout): Future[Any] = {
+</span>124 <span style=''>    </span><span style='background: #AEF1AE'>mediator ? Send(topic, Message.createMessage(topic, msg))</span><span style=''>
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  /**
+</span>128 <span style=''>   * Publish the message to the given topic. The message will go
+</span>129 <span style=''>   * to all subscribers and no return is made. When receiving a message, it will be wrapped in an instance
+</span>130 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>131 <span style=''>   * @param topic the topic for the message
+</span>132 <span style=''>   * @param msg the message to send
+</span>133 <span style=''>   */
+</span>134 <span style=''>  def publish(topic: String, msg: Any): Unit = {
+</span>135 <span style=''>    </span><span style='background: #AEF1AE'>mediator ! Publish(topic, Message.createMessage(topic, msg))</span><span style=''>
+</span>136 <span style=''>  }
+</span>137 <span style=''>
+</span>138 <span style=''>  /**
+</span>139 <span style=''>   * Register for subscription events. This is not used for maintaining
+</span>140 <span style=''>   * subscriptions, but can be used more for testing subscription events.
+</span>141 <span style=''>   * @param registrar the actor that is to receive the events
+</span>142 <span style=''>   * @param to the class to register for
+</span>143 <span style=''>   */
+</span>144 <span style=''>  def register(registrar: ActorRef, to: Class[_ <: MessageSubscriptionEvent]): Unit =
+</span>145 <span style=''>    </span><span style='background: #F0ADAD'>mediator ! RegisterSubscriptionEvent(registrar, to)</span><span style=''>
+</span>146 <span style=''>
+</span>147 <span style=''>  /**
+</span>148 <span style=''>   * Unregister for subscription events. This is not used for maintaining
+</span>149 <span style=''>   * subscriptions, but can be used more for testing subscription events.
+</span>150 <span style=''>   * @param registrar the actor that is to receive the events
+</span>151 <span style=''>   * @param to the class to register for
+</span>152 <span style=''>   */
+</span>153 <span style=''>  def unregister(registrar: ActorRef, to: Class[_ <: MessageSubscriptionEvent]): Unit =
+</span>154 <span style=''>    </span><span style='background: #F0ADAD'>mediator ! UnregisterSubscriptionEvent(registrar, to)</span><span style=''>
+</span>155 <span style=''>}
+</span>156 <span style=''>
+</span>157 <span style=''>object MessageService {
+</span>158 <span style=''>
+</span>159 <span style=''>  def apply()(implicit system: ActorSystem): MessageService = </span><span style='background: #AEF1AE'>new MessageService(mediator.get)</span><span style=''>
+</span>160 <span style=''>
+</span>161 <span style=''>  private var mediator: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>162 <span style=''>
+</span>163 <span style=''>  def registerMediator(actor: ActorRef) = {
+</span>164 <span style=''>    </span><span style='background: #AEF1AE'>mediator = Some(actor)</span><span style=''>
+</span>165 <span style=''>  }
+</span>166 <span style=''>
+</span>167 <span style=''>  def unregisterMediator = {
+</span>168 <span style=''>    </span><span style='background: #F0ADAD'>mediator = None</span><span style=''>
+</span>169 <span style=''>  }
+</span>170 <span style=''>
+</span>171 <span style=''>  def unregisterMediator(actor: ActorRef) = {
+</span>172 <span style=''>    </span><span style='background: #AEF1AE'>mediator</span><span style=''> match {
+</span>173 <span style=''>      case Some(m) if </span><span style='background: #AEF1AE'>m == actor</span><span style=''> => </span><span style='background: #AEF1AE'>mediator = None</span><span style=''>
+</span>174 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''> //just do nothing
+</span>175 <span style=''>    }
+</span>176 <span style=''>  }
+</span>177 <span style=''>
+</span>178 <span style=''>  sealed trait MessageCommand {
+</span>179 <span style=''>    def topic: String
+</span>180 <span style=''>  }
+</span>181 <span style=''>
+</span>182 <span style=''>  sealed trait MessageSubscriptionCommand {
+</span>183 <span style=''>    def topics: Seq[String]
+</span>184 <span style=''>  }
+</span>185 <span style=''>
+</span>186 <span style=''>  /**
+</span>187 <span style=''>   * This is a pre-defined topic that is used to broadcast subscription events.
+</span>188 <span style=''>   * This is not used for maintaining subscriptions, but can be used more for testing
+</span>189 <span style=''>   * subscription events. The message received by the subscriber will contain
+</span>190 <span style=''>   * an instance of {@link com.webtrends.harness.logging.communication.MessageService.Subscribe}
+</span>191 <span style=''>   * or {@link com.webtrends.harness.logging.communication.MessageService.Unsubscribe}.
+</span>192 <span style=''>   */
+</span>193 <span style=''>  val MessageSubscriptionEventTopic = </span><span style='background: #AEF1AE'>"message-subscription-event"</span><span style=''>
+</span>194 <span style=''>
+</span>195 <span style=''>  /**
+</span>196 <span style=''>   * Subscribe to the given topic
+</span>197 <span style=''>   * @param topics the topics to receive message from
+</span>198 <span style=''>   * @param ref the actor that is to receive the messages. If this actor is terminated then
+</span>199 <span style=''>   *            the subscription is no longer valid and will have to be reset.
+</span>200 <span style=''>   * @param localOnly are published messages only to come from local sources
+</span>201 <span style=''>   */
+</span>202 <span style=''>  @SerialVersionUID(1L) case class Subscribe(val topics: Seq[String], ref: ActorRef, localOnly: Boolean) extends MessageSubscriptionCommand
+</span>203 <span style=''>
+</span>204 <span style=''>  /**
+</span>205 <span style=''>   * Acknowledgement of the subscription
+</span>206 <span style=''>   * @param subscribe the original Subscribe message
+</span>207 <span style=''>   */
+</span>208 <span style=''>  @SerialVersionUID(1L) case class SubscribeAck(subscribe: Subscribe)
+</span>209 <span style=''>
+</span>210 <span style=''>  /**
+</span>211 <span style=''>   * Un-subscribe to the given topic
+</span>212 <span style=''>   * @param topics the topics to un-subscribe
+</span>213 <span style=''>   * @param ref the actor to un-subscribe
+</span>214 <span style=''>   */
+</span>215 <span style=''>  @SerialVersionUID(1L) case class Unsubscribe(val topics: Seq[String], ref: ActorRef) extends MessageSubscriptionCommand
+</span>216 <span style=''>
+</span>217 <span style=''>  /**
+</span>218 <span style=''>   * Acknowledgement of the un-subscription
+</span>219 <span style=''>   * @param unsubscribe the original Unsubscribe message
+</span>220 <span style=''>   */
+</span>221 <span style=''>  @SerialVersionUID(1L) case class UnsubscribeAck(unsubscribe: Unsubscribe)
+</span>222 <span style=''>
+</span>223 <span style=''>  /**
+</span>224 <span style=''>   * Get a map of subscribers for the given topic. This method should normally only be used as a reference point.
+</span>225 <span style=''>   * @param topics the topics to look up subscribers
+</span>226 <span style=''>   */
+</span>227 <span style=''>  @SerialVersionUID(1L) case class GetSubscriptions(val topics: Seq[String]) extends MessageSubscriptionCommand
+</span>228 <span style=''>
+</span>229 <span style=''>  /**
+</span>230 <span style=''>   * Publish a message to the given topic
+</span>231 <span style=''>   * @param topic the topic to send the message to
+</span>232 <span style=''>   * @param msg the message to send
+</span>233 <span style=''>   */
+</span>234 <span style=''>  @SerialVersionUID(1L) case class Publish(val topic: String, msg: Message) extends MessageCommand
+</span>235 <span style=''>
+</span>236 <span style=''>  /**
+</span>237 <span style=''>   * Send a message to the given topic. The message will only be sent to one
+</span>238 <span style=''>   * of the subscribers for the topic.
+</span>239 <span style=''>   * @param topic the topic to send the message to
+</span>240 <span style=''>   * @param msg the message to send
+</span>241 <span style=''>   */
+</span>242 <span style=''>  @SerialVersionUID(1L) case class Send(val topic: String, msg: Message) extends MessageCommand
+</span>243 <span style=''>
+</span>244 <span style=''>}
+</span>245 <span style=''>
+</span>246 <span style=''>trait MessagingAdapter {
+</span>247 <span style=''>  this: Actor =>
+</span>248 <span style=''>
+</span>249 <span style=''>  import context.system
+</span>250 <span style=''>
+</span>251 <span style=''>  private lazy val messageService = </span><span style='background: #AEF1AE'>MessageService()</span><span style=''>
+</span>252 <span style=''>
+</span>253 <span style=''>  /**
+</span>254 <span style=''>   * Subscribe for messages. When receiving a message, it will be wrapped in an instance
+</span>255 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>256 <span style=''>   * A SubscribeAck message will be sent to the caller of this method to acknowledge the
+</span>257 <span style=''>   * addition of the subscription.
+</span>258 <span style=''>   * @param topic the topic to receive message from
+</span>259 <span style=''>   * @param subscriber the actor that is to receive the messages. If this actor is terminated then
+</span>260 <span style=''>   *                   the subscription is no longer valid and will have to be reset.
+</span>261 <span style=''>   * @param localOnly are published messages only to come from local sources
+</span>262 <span style=''>   */
+</span>263 <span style=''>  def subscribe(topic: String, subscriber: ActorRef = self, localOnly: Boolean = false): Unit = {
+</span>264 <span style=''>    </span><span style='background: #AEF1AE'>messageService.subscribe(topic, subscriber, localOnly)(self)</span><span style=''>
+</span>265 <span style=''>  }
+</span>266 <span style=''>
+</span>267 <span style=''>  /**
+</span>268 <span style=''>   * Subscribe for messages. When receiving a message, it will be wrapped in an instance
+</span>269 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>270 <span style=''>   * A SubscribeAck message will be sent to the caller of this method to acknowledge the
+</span>271 <span style=''>   * addition of the subscription.
+</span>272 <span style=''>   * @param topics the topics to receive message from
+</span>273 <span style=''>   * @param subscriber the actor that is to receive the messages. If this actor is terminated then
+</span>274 <span style=''>   *                   the subscription is no longer valid and will have to be reset.
+</span>275 <span style=''>   * @param localOnly are published messages only to come from local sources
+</span>276 <span style=''>   */
+</span>277 <span style=''>  def subscribeToMany(topics: Seq[String], subscriber: ActorRef = self, localOnly: Boolean = false): Unit = {
+</span>278 <span style=''>    </span><span style='background: #F0ADAD'>messageService.subscribe(topics, subscriber, localOnly)(self)</span><span style=''>
+</span>279 <span style=''>  }
+</span>280 <span style=''>
+</span>281 <span style=''>  /**
+</span>282 <span style=''>   * Un-subscribe to the given topic.
+</span>283 <span style=''>   * An UnsubscribeAck message will be sent to the caller of this method to acknowledge the
+</span>284 <span style=''>   * addition of the subscription.
+</span>285 <span style=''>   * @param topic the topic to un-subscribe
+</span>286 <span style=''>   * @param subscriber the actor to un-subscribe
+</span>287 <span style=''>   */
+</span>288 <span style=''>  def unsubscribe(topic: String, subscriber: ActorRef = self): Unit = {
+</span>289 <span style=''>    </span><span style='background: #F0ADAD'>messageService.unsubscribe(topic, subscriber)(self)</span><span style=''>
+</span>290 <span style=''>  }
+</span>291 <span style=''>
+</span>292 <span style=''>  /**
+</span>293 <span style=''>   * Un-subscribe to the given topic.
+</span>294 <span style=''>   * An UnsubscribeAck message will be sent to the caller of this method to acknowledge the
+</span>295 <span style=''>   * addition of the subscription.
+</span>296 <span style=''>   * @param topics the topic to un-subscribe
+</span>297 <span style=''>   * @param subscriber the actor to un-subscribe
+</span>298 <span style=''>   */
+</span>299 <span style=''>  def unsubscribeFromMany(topics: Seq[String], subscriber: ActorRef = self): Unit = {
+</span>300 <span style=''>    </span><span style='background: #F0ADAD'>messageService.unsubscribe(topics, subscriber)(self)</span><span style=''>
+</span>301 <span style=''>  }
+</span>302 <span style=''>
+</span>303 <span style=''>  /**
+</span>304 <span style=''>   * Get the subscribers for the given topics. This method should normally only be used as a reference point.
+</span>305 <span style=''>   * @param topics the topics to look up subscribers
+</span>306 <span style=''>   * @return a future that contains a map of topics to subscribers
+</span>307 <span style=''>   */
+</span>308 <span style=''>  def getSubscriptions(topics: Seq[String]): Future[Map[String, Seq[ActorSelection]]] = </span><span style='background: #F0ADAD'>messageService.getSubscriptions(topics)</span><span style=''>
+</span>309 <span style=''>
+</span>310 <span style=''>  /**
+</span>311 <span style=''>   * Sends the message to the given topic. The message will go
+</span>312 <span style=''>   * to one subscriber and is a one-way asynchronous message. E.g. fire-and-forget semantics.
+</span>313 <span style=''>   * When receiving a message, it will be wrapped in an instance
+</span>314 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>315 <span style=''>   * @param topic the topic for the message
+</span>316 <span style=''>   * @param msg the message to send
+</span>317 <span style=''>   * @param sender the implicit ActorRef to act as the sender and will default to self
+</span>318 <span style=''>   */
+</span>319 <span style=''>  def send(topic: String, msg: Any)(implicit sender: ActorRef = context.self): Unit = {
+</span>320 <span style=''>    </span><span style='background: #AEF1AE'>messageService.send(topic, msg)(sender)</span><span style=''>
+</span>321 <span style=''>  }
+</span>322 <span style=''>
+</span>323 <span style=''>  /**
+</span>324 <span style=''>   * Sends the message to the given topic. The message will go
+</span>325 <span style=''>   * to one subscriber and a future will be returned.
+</span>326 <span style=''>   * When receiving a message, it will be wrapped in an instance
+</span>327 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>328 <span style=''>   * @param topic the topic for the message
+</span>329 <span style=''>   * @param msg the message to send
+</span>330 <span style=''>   * @param timeout the implicit timeout
+</span>331 <span style=''>   */
+</span>332 <span style=''>  def sendWithFuture(topic: String, msg: Any)(implicit timeout: akka.util.Timeout): Future[Any] = {
+</span>333 <span style=''>    </span><span style='background: #AEF1AE'>messageService.sendWithFuture(topic, msg)(timeout)</span><span style=''>
+</span>334 <span style=''>  }
+</span>335 <span style=''>
+</span>336 <span style=''>  /**
+</span>337 <span style=''>   * Publish the message to the given topic. The message will go
+</span>338 <span style=''>   * to all subscribers and no return is made. When receiving a message, it will be wrapped in an instance
+</span>339 <span style=''>   * of {@link com.webtrends.harness.logging.communication.MessageEvent}.
+</span>340 <span style=''>   * @param topic the topic for the message
+</span>341 <span style=''>   * @param msg the message to send
+</span>342 <span style=''>   */
+</span>343 <span style=''>  def publish(topic: String, msg: Any): Unit = {
+</span>344 <span style=''>    </span><span style='background: #AEF1AE'>messageService.publish(topic, msg)</span><span style=''>
+</span>345 <span style=''>  }
+</span>346 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          1546
+          -
+          1654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(MessageService.this.system.settings.config.getDuration(&quot;message-processor.default-send-timeout&quot;, MILLISECONDS))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          1554
+          -
+          1653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getDuration
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.system.settings.config.getDuration(&quot;message-processor.default-send-timeout&quot;, MILLISECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          1683
+          -
+          1689
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.system
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.system
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          1675
+          -
+          1705
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.event.Logging.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.event.Logging.apply[Class[?0]](MessageService.this.system, this.getClass())(event.this.LogSource.fromAnyClass[?0])
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          1682
+          -
+          1682
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          akka.event.LogSource.fromAnyClass
+        </td>
+        <td style="background: #AEF1AE">
+          event.this.LogSource.fromAnyClass[?0]
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          1691
+          -
+          1704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #AEF1AE">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          2419
+          -
+          2474
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator).!(com.webtrends.harness.component.cluster.communication.MessageService.Subscribe.apply(collection.this.Seq.apply[String](topic), subscriber, localOnly))(sender)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          3200
+          -
+          3251
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator).!(com.webtrends.harness.component.cluster.communication.MessageService.Subscribe.apply(topics, subscriber, localOnly))(sender)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          3606
+          -
+          3652
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator).!(com.webtrends.harness.component.cluster.communication.MessageService.Unsubscribe.apply(collection.this.Seq.apply[String](topic), subscriber))(sender)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          4015
+          -
+          4057
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator).!(com.webtrends.harness.component.cluster.communication.MessageService.Unsubscribe.apply(topics, subscriber))(sender)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          4463
+          -
+          4487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.GetSubscriptions.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.cluster.communication.MessageService.GetSubscriptions.apply(topics)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          4452
+          -
+          4460
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator
+        </td>
+        <td style="background: #F0ADAD">
+          MessageService.this.mediator
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          4452
+          -
+          4528
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(MessageService.this.mediator).?(com.webtrends.harness.component.cluster.communication.MessageService.GetSubscriptions.apply(topics))(timeout).mapTo[Map[String,Seq[akka.actor.ActorSelection]]]((ClassTag.apply[Map[String,Seq[akka.actor.ActorSelection]]](classOf[scala.collection.immutable.Map]): scala.reflect.ClassTag[Map[String,Seq[akka.actor.ActorSelection]]]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          650
+        </td>
+        <td>
+          5060
+          -
+          5127
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator).!(com.webtrends.harness.component.cluster.communication.MessageService.Send.apply(topic, Message.createMessage(topic, msg)))(sender)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          5643
+          -
+          5700
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(MessageService.this.mediator).?(com.webtrends.harness.component.cluster.communication.MessageService.Send.apply(topic, Message.createMessage(topic, msg)))(timeout)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          6123
+          -
+          6156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.Message.createMessage
+        </td>
+        <td style="background: #AEF1AE">
+          Message.createMessage(topic, msg)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          6097
+          -
+          6157
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.!(x$1)(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          6097
+          -
+          6105
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          6106
+          -
+          6106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.!$default$2(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          6108
+          -
+          6157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.Publish.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.cluster.communication.MessageService.Publish.apply(topic, Message.createMessage(topic, msg))
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          6097
+          -
+          6105
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.mediator
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          6525
+          -
+          6565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.Internal.RegisterSubscriptionEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.Internal.RegisterSubscriptionEvent.apply(registrar, to)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          6514
+          -
+          6522
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          6514
+          -
+          6565
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          qual$2.!(x$3)(x$4)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          6514
+          -
+          6522
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator
+        </td>
+        <td style="background: #F0ADAD">
+          MessageService.this.mediator
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          6523
+          -
+          6523
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          qual$2.!$default$2(x$3)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          6922
+          -
+          6930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator
+        </td>
+        <td style="background: #F0ADAD">
+          MessageService.this.mediator
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          6931
+          -
+          6931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          qual$3.!$default$2(x$5)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          6933
+          -
+          6975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.Internal.UnregisterSubscriptionEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.cluster.communication.MessageSubscriptionEvent.Internal.UnregisterSubscriptionEvent.apply(registrar, to)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          6922
+          -
+          6930
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(MessageService.this.mediator)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          667
+        </td>
+        <td>
+          6922
+          -
+          6975
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          qual$3.!(x$5)(x$6)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          7066
+          -
+          7098
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new MessageService(MessageService.this.mediator.get)(system)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          7143
+          -
+          7147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          7197
+          -
+          7219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.mediator_=(scala.Some.apply[akka.actor.ActorRef](actor))
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          670
+        </td>
+        <td>
+          7208
+          -
+          7219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](actor)
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          7269
+          -
+          7273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          7258
+          -
+          7273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator_=
+        </td>
+        <td style="background: #F0ADAD">
+          MessageService.this.mediator_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          7329
+          -
+          7337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.mediator
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          7368
+          -
+          7378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          m.==(actor)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          7382
+          -
+          7397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.mediator_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.this.mediator_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          676
+        </td>
+        <td>
+          7393
+          -
+          7397
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          7411
+          -
+          7413
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          8058
+          -
+          8086
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;message-subscription-event&quot;
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          681
+        </td>
+        <td>
+          10156
+          -
+          10172
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.apply
+        </td>
+        <td style="background: #AEF1AE">
+          MessageService.apply()(MessagingAdapter.this.context.system)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          10170
+          -
+          10170
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          10889
+          -
+          10949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.subscribe
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.messageService.subscribe(topic, subscriber, localOnly)(MessagingAdapter.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          682
+        </td>
+        <td>
+          10944
+          -
+          10948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.self
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          11740
+          -
+          11744
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.self
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          11684
+          -
+          11745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.subscribe
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.messageService.subscribe(topics, subscriber, localOnly)(MessagingAdapter.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          12097
+          -
+          12148
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.unsubscribe
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.messageService.unsubscribe(topic, subscriber)(MessagingAdapter.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          12143
+          -
+          12147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.self
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          12515
+          -
+          12567
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.unsubscribe
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.messageService.unsubscribe(topics, subscriber)(MessagingAdapter.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          300
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          12562
+          -
+          12566
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.self
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          12934
+          -
+          12934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.getSubscriptions$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.messageService.getSubscriptions$default$2(x$7)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          12903
+          -
+          12942
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.getSubscriptions
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingAdapter.this.messageService.getSubscriptions(x$7)(x$8)
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          13511
+          -
+          13550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.send
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.messageService.send(topic, msg)(sender)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          14049
+          -
+          14099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.sendWithFuture
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.messageService.sendWithFuture(topic, msg)(timeout)
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          14496
+          -
+          14530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageService.publish
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingAdapter.this.messageService.publish(topic, msg)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
