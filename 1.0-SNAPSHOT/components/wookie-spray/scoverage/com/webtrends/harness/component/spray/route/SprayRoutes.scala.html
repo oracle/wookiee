@@ -1,0 +1,5268 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/spray/route/SprayRoutes.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.spray.route
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor.{Props, Actor, ActorLogging}
+</span>23 <span style=''>import akka.io.Tcp
+</span>24 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>25 <span style=''>import com.webtrends.harness.command.{CommandResponse, Command, CommandBean}
+</span>26 <span style=''>import com.webtrends.harness.component.spray.{HttpReloadRoutes, SprayManager}
+</span>27 <span style=''>import com.webtrends.harness.component.spray.directive.CommandDirectives
+</span>28 <span style=''>import net.liftweb.json._
+</span>29 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
+</span>30 <span style=''>import spray.http._
+</span>31 <span style=''>import spray.httpx.LiftJsonSupport
+</span>32 <span style=''>import spray.httpx.marshalling.ToResponseMarshaller
+</span>33 <span style=''>import spray.httpx.unmarshalling._
+</span>34 <span style=''>import spray.routing._
+</span>35 <span style=''>import spray.routing.directives.MethodDirectives
+</span>36 <span style=''>
+</span>37 <span style=''>import scala.util.{Try, Failure, Success}
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''> * Used for command functions that are required for all Spray traits that you can add to commands
+</span>41 <span style=''> * to add GET, POST, DELETE, UPDATE routes to the command
+</span>42 <span style=''> *
+</span>43 <span style=''> * @author Michael Cuthbert on 12/5/14.
+</span>44 <span style=''> */
+</span>45 <span style=''>private[route] trait SprayRoutes extends CommandDirectives
+</span>46 <span style=''>    with CommandRouteHandler
+</span>47 <span style=''>    with LiftJsonSupport {
+</span>48 <span style=''>  this : Command =>
+</span>49 <span style=''>
+</span>50 <span style=''>  import context.dispatcher
+</span>51 <span style=''>  implicit def liftJsonFormats = </span><span style='background: #F0ADAD'>Serialization.formats(NoTypeHints) ++ JodaTimeSerializers.all</span><span style=''>
+</span>52 <span style=''>  protected def getRejectionHandler : Directive0 = </span><span style='background: #F0ADAD'>rejectionHandler</span><span style=''>
+</span>53 <span style=''>  protected def getExceptionHandler : Directive0 = </span><span style='background: #F0ADAD'>exceptionHandler</span><span style=''>
+</span>54 <span style=''>  protected val sprayManager = </span><span style='background: #F0ADAD'>context.actorSelection(HarnessConstants.ComponentFullName + "/" + SprayManager.ComponentName)</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  // components can have categories that they fall into, if a component has a category only a single component
+</span>57 <span style=''>  // of that category can be available. Then a user can message that category, so it would then be possible
+</span>58 <span style=''>  // to not know at all what the underlying component you are using, as long has they handle the same messages.
+</span>59 <span style=''>
+</span>60 <span style=''>  // default the marshaller to the lift json marshaller
+</span>61 <span style=''>  implicit def OutputMarshaller[T <: AnyRef] = </span><span style='background: #F0ADAD'>liftJsonMarshaller[T]</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  //override this value if you require a different response code
+</span>64 <span style=''>  def responseStatusCode = </span><span style='background: #F0ADAD'>StatusCodes.OK</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>  /**
+</span>67 <span style=''>   * Function that allows you to override the headers for a response. The Map allows you to specifically
+</span>68 <span style=''>   * set headers for specific HTTPMethods, if None set for HttpMethod, then the header will apply to all
+</span>69 <span style=''>   * methods. This is done so that if you have multiple traits like SprayPut, SprayPost, SprayOptions, SprayGet, etc.
+</span>70 <span style=''>   * you can apply different headers depending on what you are doing.
+</span>71 <span style=''>   *
+</span>72 <span style=''>   * @return
+</span>73 <span style=''>   */
+</span>74 <span style=''>  def getResponseHeaders : Map[String, List[HttpHeader]] = {
+</span>75 <span style=''>    </span><span style='background: #F0ADAD'>Map[String, List[HttpHeader]]()</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  /**
+</span>79 <span style=''>   * Function can be used to override any directives that you wish to use at the beginning of
+</span>80 <span style=''>   * the route
+</span>81 <span style=''>   *
+</span>82 <span style=''>   * @return
+</span>83 <span style=''>   */
+</span>84 <span style=''>  def preRoute : Directive0 = {
+</span>85 <span style=''>    </span><span style='background: #F0ADAD'>pass</span><span style=''>
+</span>86 <span style=''>  }
+</span>87 <span style=''>
+</span>88 <span style=''>  protected def innerExecute[T<:AnyRef:Manifest](bean:Option[CommandBean]=None) = {
+</span>89 <span style=''>    </span><span style='background: #F0ADAD'>parameterMap {
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      params =>
+</span>91 <span style=''></span><span style='background: #F0ADAD'>        val updatedBean = bean match {
+</span>92 <span style=''></span><span style='background: #F0ADAD'>          case Some(b) => b.appendMap(params); b
+</span>93 <span style=''></span><span style='background: #F0ADAD'>          case None => CommandBean(params)
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        onComplete[CommandResponse[T]](execute(Some(updatedBean)).mapTo[CommandResponse[T]]) {
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) =>
+</span>97 <span style=''></span><span style='background: #F0ADAD'>            s.data match {
+</span>98 <span style=''></span><span style='background: #F0ADAD'>              case Some(data) =>
+</span>99 <span style=''></span><span style='background: #F0ADAD'>                val media = MediaTypes.forExtension(s.responseType) match {
+</span>100 <span style=''></span><span style='background: #F0ADAD'>                  case Some(m) => m
+</span>101 <span style=''></span><span style='background: #F0ADAD'>                  case None =>
+</span>102 <span style=''></span><span style='background: #F0ADAD'>                    val mt = Try({
+</span>103 <span style=''></span><span style='background: #F0ADAD'>                      val rt = s.responseType.split("/")
+</span>104 <span style=''></span><span style='background: #F0ADAD'>                      MediaTypes.getForKey((rt(0), rt(1))).get
+</span>105 <span style=''></span><span style='background: #F0ADAD'>                    }) recover {
+</span>106 <span style=''></span><span style='background: #F0ADAD'>                      case _ => MediaTypes.`application/json`
+</span>107 <span style=''></span><span style='background: #F0ADAD'>                    }
+</span>108 <span style=''></span><span style='background: #F0ADAD'>                    mt getOrElse MediaTypes.`application/json`
+</span>109 <span style=''></span><span style='background: #F0ADAD'>                }
+</span>110 <span style=''></span><span style='background: #F0ADAD'>                respondWithMediaType(media) {
+</span>111 <span style=''></span><span style='background: #F0ADAD'>                  complete { responseStatusCode -> data }
+</span>112 <span style=''></span><span style='background: #F0ADAD'>                }
+</span>113 <span style=''></span><span style='background: #F0ADAD'>              case None =>
+</span>114 <span style=''></span><span style='background: #F0ADAD'>                complete(StatusCodes.NoContent)
+</span>115 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>116 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => throw f
+</span>117 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>118 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>119 <span style=''>  }
+</span>120 <span style=''>
+</span>121 <span style=''>  protected def buildRoute(httpMethod:Directive0) : Route = {
+</span>122 <span style=''>    </span><span style='background: #F0ADAD'>getRejectionHandler {
+</span>123 <span style=''></span><span style='background: #F0ADAD'>      getExceptionHandler {
+</span>124 <span style=''></span><span style='background: #F0ADAD'>        preRoute {
+</span>125 <span style=''></span><span style='background: #F0ADAD'>          httpMethod {
+</span>126 <span style=''></span><span style='background: #F0ADAD'>            mapHeaders(getResponseHeaders) {
+</span>127 <span style=''></span><span style='background: #F0ADAD'>              commandPaths(paths) {
+</span>128 <span style=''></span><span style='background: #F0ADAD'>                bean => innerExecute(Some(bean))
+</span>129 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>130 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>131 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>132 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>133 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>134 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>135 <span style=''>  }
+</span>136 <span style=''>
+</span>137 <span style=''>  case class Ok(remaining:Int)
+</span>138 <span style=''>
+</span>139 <span style=''>  def sendStreamingResponse(ctx:RequestContext) : Unit = {
+</span>140 <span style=''>    </span><span style='background: #F0ADAD'>context.actorOf {
+</span>141 <span style=''></span><span style='background: #F0ADAD'>      Props {
+</span>142 <span style=''></span><span style='background: #F0ADAD'>        new Actor with ActorLogging {
+</span>143 <span style=''></span><span style='background: #F0ADAD'>          def receive = {
+</span>144 <span style=''></span><span style='background: #F0ADAD'>            case Ok(0) =>
+</span>145 <span style=''></span><span style='background: #F0ADAD'>
+</span>146 <span style=''></span><span style='background: #F0ADAD'>            case Ok(remaining) =>
+</span>147 <span style=''></span><span style='background: #F0ADAD'>
+</span>148 <span style=''></span><span style='background: #F0ADAD'>            case ev:Tcp.ConnectionClosed =>
+</span>149 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>150 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>151 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>152 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>153 <span style=''>  }
+</span>154 <span style=''>
+</span>155 <span style=''>  protected def addRoute(name:String, route:Route) = {
+</span>156 <span style=''>    </span><span style='background: #F0ADAD'>RouteManager.addRoute(name, route)</span><span style=''>
+</span>157 <span style=''>    </span><span style='background: #F0ADAD'>sprayManager ! HttpReloadRoutes</span><span style=''>
+</span>158 <span style=''>  }
+</span>159 <span style=''>}
+</span>160 <span style=''>
+</span>161 <span style=''>/**
+</span>162 <span style=''> * Trait for building your own custom spray route
+</span>163 <span style=''> *
+</span>164 <span style=''> * Use innerExecute to help with hooking up the command correctly
+</span>165 <span style=''> */
+</span>166 <span style=''>trait SprayCustom extends SprayRoutes {
+</span>167 <span style=''>  this : Command =>
+</span>168 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_custom", customRoute)</span><span style=''>
+</span>169 <span style=''>
+</span>170 <span style=''>  def customRoute : Route
+</span>171 <span style=''>}
+</span>172 <span style=''>
+</span>173 <span style=''>/**
+</span>174 <span style=''> * Trait for adding get routes to Command
+</span>175 <span style=''> */
+</span>176 <span style=''>trait SprayGet extends SprayRoutes {
+</span>177 <span style=''>  this : Command =>
+</span>178 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_get", buildRoute(MethodDirectives.get))</span><span style=''>
+</span>179 <span style=''>}
+</span>180 <span style=''>
+</span>181 <span style=''>/**
+</span>182 <span style=''> * Based trait for any routes that grab the entity from the body of the request.
+</span>183 <span style=''> * Currently Put and Post, due to the implicit manifest that is required for marshalling
+</span>184 <span style=''> * any traits that use this base trait cannot be mixed in together.
+</span>185 <span style=''> */
+</span>186 <span style=''>sealed protected trait EntityRoutes extends SprayRoutes {
+</span>187 <span style=''>  this : Command =>
+</span>188 <span style=''>  // default the unmarshaller to lift json unmarshaller
+</span>189 <span style=''>  implicit def InputUnmarshaller[T : Manifest] = </span><span style='background: #F0ADAD'>liftJsonUnmarshaller[T]</span><span style=''>
+</span>190 <span style=''>
+</span>191 <span style=''>  protected def entityRoute[T<:AnyRef:Manifest](httpMethod:Directive0) : Route = {
+</span>192 <span style=''>    </span><span style='background: #F0ADAD'>getRejectionHandler {
+</span>193 <span style=''></span><span style='background: #F0ADAD'>      getExceptionHandler {
+</span>194 <span style=''></span><span style='background: #F0ADAD'>        preRoute {
+</span>195 <span style=''></span><span style='background: #F0ADAD'>          commandPaths(paths) {
+</span>196 <span style=''></span><span style='background: #F0ADAD'>            bean =>
+</span>197 <span style=''></span><span style='background: #F0ADAD'>              httpMethod {
+</span>198 <span style=''></span><span style='background: #F0ADAD'>                entity(as[T]) {
+</span>199 <span style=''></span><span style='background: #F0ADAD'>                  po =>
+</span>200 <span style=''></span><span style='background: #F0ADAD'>                    bean.appendMap(Map(CommandBean.KeyEntity -> po))
+</span>201 <span style=''></span><span style='background: #F0ADAD'>                    mapHeaders(getResponseHeaders) {
+</span>202 <span style=''></span><span style='background: #F0ADAD'>                      innerExecute(Some(bean))
+</span>203 <span style=''></span><span style='background: #F0ADAD'>                    }
+</span>204 <span style=''></span><span style='background: #F0ADAD'>                }
+</span>205 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>206 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>207 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>208 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>209 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>210 <span style=''>  }
+</span>211 <span style=''>}
+</span>212 <span style=''>
+</span>213 <span style=''>/**
+</span>214 <span style=''> * Trait for adding post routes to Command entity extraction will default to JObject
+</span>215 <span style=''> */
+</span>216 <span style=''>trait SprayPost extends EntityRoutes {
+</span>217 <span style=''>  this : Command =>
+</span>218 <span style=''>  protected def postRoute[T<:AnyRef:Manifest] = </span><span style='background: #F0ADAD'>entityRoute[T](MethodDirectives.post)</span><span style=''>
+</span>219 <span style=''>  def setRoute : Route = </span><span style='background: #F0ADAD'>postRoute[JObject]</span><span style=''>
+</span>220 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_post", setRoute)</span><span style=''>
+</span>221 <span style=''>}
+</span>222 <span style=''>
+</span>223 <span style=''>/**
+</span>224 <span style=''> * Trait for adding delete routes to Command
+</span>225 <span style=''> */
+</span>226 <span style=''>trait SprayDelete extends SprayRoutes {
+</span>227 <span style=''>  this : Command =>
+</span>228 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_delete", buildRoute(MethodDirectives.delete))</span><span style=''>
+</span>229 <span style=''>}
+</span>230 <span style=''>
+</span>231 <span style=''>/**
+</span>232 <span style=''> * Trait for adding options routes to Command
+</span>233 <span style=''> */
+</span>234 <span style=''>trait SprayOptions extends SprayRoutes {
+</span>235 <span style=''>  this : Command =>
+</span>236 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_options", optionsRoute)</span><span style=''>
+</span>237 <span style=''>
+</span>238 <span style=''>  implicit def optionsMarshaller = </span><span style='background: #F0ADAD'>liftJsonMarshaller[JValue]</span><span style=''>
+</span>239 <span style=''>
+</span>240 <span style=''>  /**
+</span>241 <span style=''>   * Function will return all the allowed headers for the command. Basically if you mixin a trait like
+</span>242 <span style=''>   * SprayGet, it will add the Get method to the allow header. This method should be overridden if you
+</span>243 <span style=''>   * are using the SprayCustom trait as then you would be defining your own routes and methods.
+</span>244 <span style=''>   *
+</span>245 <span style=''>   * @return
+</span>246 <span style=''>   */
+</span>247 <span style=''>  private def getMethods = {
+</span>248 <span style=''>    def getMethod[I<:SprayRoutes](klass:Class[I], method:HttpMethod) : Option[HttpMethod] = {
+</span>249 <span style=''>      </span><span style='background: #F0ADAD'>klass.isAssignableFrom(this.getClass)</span><span style=''> match {
+</span>250 <span style=''>        case true => </span><span style='background: #F0ADAD'>Some(method)</span><span style=''>
+</span>251 <span style=''>        case false => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>252 <span style=''>      }
+</span>253 <span style=''>    }
+</span>254 <span style=''>
+</span>255 <span style=''>    </span><span style='background: #F0ADAD'>Seq[Option[HttpMethod]] (
+</span>256 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayGet], HttpMethods.GET),
+</span>257 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayHead], HttpMethods.HEAD),
+</span>258 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayPatch], HttpMethods.PATCH),
+</span>259 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayPut], HttpMethods.PUT),
+</span>260 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayPost], HttpMethods.POST),
+</span>261 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayOptions], HttpMethods.OPTIONS),
+</span>262 <span style=''></span><span style='background: #F0ADAD'>      getMethod(classOf[SprayDelete], HttpMethods.DELETE)
+</span>263 <span style=''></span><span style='background: #F0ADAD'>    ).flatten</span><span style=''>
+</span>264 <span style=''>  }
+</span>265 <span style=''>
+</span>266 <span style=''>  /**
+</span>267 <span style=''>   * Override this function to give the options specific information about the command
+</span>268 <span style=''>   *
+</span>269 <span style=''>   * @return
+</span>270 <span style=''>   */
+</span>271 <span style=''>  def optionsResponse : JValue =  </span><span style='background: #F0ADAD'>parse("""{}""")</span><span style=''>
+</span>272 <span style=''>
+</span>273 <span style=''>  def optionsRoute = {
+</span>274 <span style=''>    </span><span style='background: #F0ADAD'>respondJson {
+</span>275 <span style=''></span><span style='background: #F0ADAD'>      getRejectionHandler {
+</span>276 <span style=''></span><span style='background: #F0ADAD'>        getExceptionHandler {
+</span>277 <span style=''></span><span style='background: #F0ADAD'>          preRoute {
+</span>278 <span style=''></span><span style='background: #F0ADAD'>            commandPaths(paths) {
+</span>279 <span style=''></span><span style='background: #F0ADAD'>              bean =>
+</span>280 <span style=''></span><span style='background: #F0ADAD'>                options {
+</span>281 <span style=''></span><span style='background: #F0ADAD'>                  respondWithHeaders(HttpHeaders.Allow(getMethods: _*), HttpHeaders.`Access-Control-Allow-Methods`(getMethods)) {
+</span>282 <span style=''></span><span style='background: #F0ADAD'>                    mapHeaders(getResponseHeaders) {
+</span>283 <span style=''></span><span style='background: #F0ADAD'>                      ctx =>
+</span>284 <span style=''></span><span style='background: #F0ADAD'>                        ctx.complete(StatusCodes.OK -> optionsResponse)
+</span>285 <span style=''></span><span style='background: #F0ADAD'>                        ToResponseMarshaller.fromMarshaller[JValue](StatusCodes.OK)(optionsMarshaller)
+</span>286 <span style=''></span><span style='background: #F0ADAD'>                    }
+</span>287 <span style=''></span><span style='background: #F0ADAD'>                  }
+</span>288 <span style=''></span><span style='background: #F0ADAD'>                }
+</span>289 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>290 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>291 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>292 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>293 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>294 <span style=''>  }
+</span>295 <span style=''>}
+</span>296 <span style=''>
+</span>297 <span style=''>/**
+</span>298 <span style=''> * Trait for adding head routes to Command
+</span>299 <span style=''> */
+</span>300 <span style=''>trait SprayHead extends SprayRoutes {
+</span>301 <span style=''>  this : Command =>
+</span>302 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_head", buildRoute(MethodDirectives.head))</span><span style=''>
+</span>303 <span style=''>}
+</span>304 <span style=''>
+</span>305 <span style=''>/**
+</span>306 <span style=''> * Trait for adding patch routes to Command
+</span>307 <span style=''> */
+</span>308 <span style=''>trait SprayPatch extends SprayRoutes {
+</span>309 <span style=''>  this : Command =>
+</span>310 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_patch", buildRoute(MethodDirectives.patch))</span><span style=''>
+</span>311 <span style=''>}
+</span>312 <span style=''>
+</span>313 <span style=''>/**
+</span>314 <span style=''> * Trait for adding put routes to Command
+</span>315 <span style=''> */
+</span>316 <span style=''>trait SprayPut extends EntityRoutes {
+</span>317 <span style=''>  this : Command =>
+</span>318 <span style=''>  protected def putRoute[T<:AnyRef:Manifest] = </span><span style='background: #F0ADAD'>entityRoute[T](MethodDirectives.put)</span><span style=''>
+</span>319 <span style=''>  def setRoute : Route = </span><span style='background: #F0ADAD'>putRoute[JObject]</span><span style=''>
+</span>320 <span style=''>  </span><span style='background: #F0ADAD'>addRoute(commandName + "_put", setRoute)</span><span style=''>
+</span>321 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          989
+        </td>
+        <td>
+          1907
+          -
+          1930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          1891
+          -
+          1902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          990
+        </td>
+        <td>
+          1869
+          -
+          1930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Formats.++
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Serialization.formats(net.liftweb.json.NoTypeHints).++(net.liftweb.json.ext.JodaTimeSerializers.all)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          991
+        </td>
+        <td>
+          1982
+          -
+          1998
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.CommandRouteHandler.rejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.rejectionHandler
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          2050
+          -
+          2066
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.CommandRouteHandler.exceptionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.exceptionHandler
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          2121
+          -
+          2190
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ComponentFullName.+(&quot;/&quot;).+(com.webtrends.harness.component.spray.SprayManager.ComponentName)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          994
+        </td>
+        <td>
+          2164
+          -
+          2190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.SprayManager.ComponentName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.spray.SprayManager.ComponentName
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          2098
+          -
+          2191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ComponentFullName.+(&quot;/&quot;).+(com.webtrends.harness.component.spray.SprayManager.ComponentName))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          993
+        </td>
+        <td>
+          2158
+          -
+          2161
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          2628
+          -
+          2649
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.httpx.LiftJsonSupport.liftJsonMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.liftJsonMarshaller[T]
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          998
+        </td>
+        <td>
+          2743
+          -
+          2757
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.StatusCodes.OK
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.StatusCodes.OK
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          999
+        </td>
+        <td>
+          3252
+          -
+          3283
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[String, List[spray.http.HttpHeader]]()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          3464
+          -
+          3468
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.BasicDirectives.pass
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.pass
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1001
+        </td>
+        <td>
+          3562
+          -
+          3574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.ParameterDirectives.parameterMap
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.parameterMap
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1039
+        </td>
+        <td>
+          3562
+          -
+          4677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[Map[String,String],shapeless.HNil]](SprayRoutes.this.parameterMap)(routing.this.ApplyConverter.hac1[Map[String,String]]).apply(((params: scala.collection.immutable.Map[String,String]) =&gt; {
+  val updatedBean: com.webtrends.harness.command.CommandBean = bean match {
+    case (x: com.webtrends.harness.command.CommandBean)Some[com.webtrends.harness.command.CommandBean]((b @ _)) =&gt; {
+      b.appendMap(params);
+      b
+    }
+    case scala.None =&gt; com.webtrends.harness.command.CommandBean.apply(params)
+  };
+  routing.this.Directive.pimpApply[shapeless.::[scala.util.Try[com.webtrends.harness.command.CommandResponse[T]],shapeless.HNil]](SprayRoutes.this.onComplete[com.webtrends.harness.command.CommandResponse[T]](directives.this.OnCompleteFutureMagnet.apply[com.webtrends.harness.command.CommandResponse[T]](SprayRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])))(SprayRoutes.this.context.dispatcher)))(routing.this.ApplyConverter.hac1[scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]]).apply(((x0$1: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$1 match {
+    case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; s.data match {
+      case (x: T)Some[T]((data @ _)) =&gt; {
+        val media: spray.http.MediaType = spray.http.MediaTypes.forExtension(s.responseType) match {
+          case (x: spray.http.MediaType)Some[spray.http.MediaType]((m @ _)) =&gt; m
+          case scala.None =&gt; {
+            val mt: scala.util.Try[spray.http.MediaType] = scala.util.Try.apply[spray.http.MediaType]({
+  val rt: Array[String] = s.responseType.split(&quot;/&quot;);
+  spray.http.MediaTypes.getForKey(scala.Tuple2.apply[String, String](rt.apply(0), rt.apply(1))).get
+}).recover[spray.http.MediaType](({
+              @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,spray.http.MediaType] with Serializable {
+                def &lt;init&gt;(): &lt;$anon: Throwable =&gt; spray.http.MediaType&gt; = {
+                  $anonfun.super.&lt;init&gt;();
+                  ()
+                };
+                final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: spray.http.MediaType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+                  case _ =&gt; spray.http.MediaTypes.application/json
+                  case (defaultCase$ @ _) =&gt; default.apply(x1)
+                };
+                final def isDefinedAt(x1: Throwable): Boolean = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+                  case _ =&gt; true
+                  case (defaultCase$ @ _) =&gt; false
+                }
+              };
+              new $anonfun()
+            }: PartialFunction[Throwable,spray.http.MediaType]));
+            mt.getOrElse[spray.http.MediaType](spray.http.MediaTypes.application/json)
+          }
+        };
+        routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.respondWithMediaType(media))(routing.this.ApplyConverter.hac0).apply(SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[(spray.http.StatusCodes.Success, T)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef]))))
+      }
+      case scala.None =&gt; SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[spray.http.StatusCodes.Success](spray.http.StatusCodes.NoContent)(marshalling.this.ToResponseMarshaller.fromStatusCode))
+    }
+    case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; throw f
+  }))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1002
+        </td>
+        <td>
+          3562
+          -
+          3562
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[Map[String,String]]
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1003
+        </td>
+        <td>
+          3658
+          -
+          3677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.appendMap
+        </td>
+        <td style="background: #F0ADAD">
+          b.appendMap(params)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          3704
+          -
+          3723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.command.CommandBean.apply(params)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1010
+        </td>
+        <td>
+          3772
+          -
+          3772
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          3805
+          -
+          3805
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1006
+        </td>
+        <td>
+          3773
+          -
+          3825
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]]))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1009
+        </td>
+        <td>
+          3742
+          -
+          3826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.routing.directives.FutureDirectives.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.onComplete[com.webtrends.harness.command.CommandResponse[T]](directives.this.OnCompleteFutureMagnet.apply[com.webtrends.harness.command.CommandResponse[T]](SprayRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])))(SprayRoutes.this.context.dispatcher))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1038
+        </td>
+        <td>
+          3742
+          -
+          4671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[scala.util.Try[com.webtrends.harness.command.CommandResponse[T]],shapeless.HNil]](SprayRoutes.this.onComplete[com.webtrends.harness.command.CommandResponse[T]](directives.this.OnCompleteFutureMagnet.apply[com.webtrends.harness.command.CommandResponse[T]](SprayRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])))(SprayRoutes.this.context.dispatcher)))(routing.this.ApplyConverter.hac1[scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]]).apply(((x0$1: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; s.data match {
+    case (x: T)Some[T]((data @ _)) =&gt; {
+      val media: spray.http.MediaType = spray.http.MediaTypes.forExtension(s.responseType) match {
+        case (x: spray.http.MediaType)Some[spray.http.MediaType]((m @ _)) =&gt; m
+        case scala.None =&gt; {
+          val mt: scala.util.Try[spray.http.MediaType] = scala.util.Try.apply[spray.http.MediaType]({
+  val rt: Array[String] = s.responseType.split(&quot;/&quot;);
+  spray.http.MediaTypes.getForKey(scala.Tuple2.apply[String, String](rt.apply(0), rt.apply(1))).get
+}).recover[spray.http.MediaType](({
+            @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,spray.http.MediaType] with Serializable {
+              def &lt;init&gt;(): &lt;$anon: Throwable =&gt; spray.http.MediaType&gt; = {
+                $anonfun.super.&lt;init&gt;();
+                ()
+              };
+              final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: spray.http.MediaType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+                case _ =&gt; spray.http.MediaTypes.application/json
+                case (defaultCase$ @ _) =&gt; default.apply(x1)
+              };
+              final def isDefinedAt(x1: Throwable): Boolean = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+                case _ =&gt; true
+                case (defaultCase$ @ _) =&gt; false
+              }
+            };
+            new $anonfun()
+          }: PartialFunction[Throwable,spray.http.MediaType]));
+          mt.getOrElse[spray.http.MediaType](spray.http.MediaTypes.application/json)
+        }
+      };
+      routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.respondWithMediaType(media))(routing.this.ApplyConverter.hac0).apply(SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[(spray.http.StatusCodes.Success, T)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef]))))
+    }
+    case scala.None =&gt; SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[spray.http.StatusCodes.Success](spray.http.StatusCodes.NoContent)(marshalling.this.ToResponseMarshaller.fromStatusCode))
+  }
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; throw f
+}))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1005
+        </td>
+        <td>
+          3781
+          -
+          3798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1008
+        </td>
+        <td>
+          3773
+          -
+          3825
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.routing.directives.OnCompleteFutureMagnet.apply
+        </td>
+        <td style="background: #F0ADAD">
+          directives.this.OnCompleteFutureMagnet.apply[com.webtrends.harness.command.CommandResponse[T]](SprayRoutes.this.execute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](updatedBean)).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])))(SprayRoutes.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1011
+        </td>
+        <td>
+          3870
+          -
+          3876
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.data
+        </td>
+        <td style="background: #F0ADAD">
+          s.data
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          3946
+          -
+          3985
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.http.MediaTypes.forExtension
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.MediaTypes.forExtension(s.responseType)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1012
+        </td>
+        <td>
+          3970
+          -
+          3984
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.responseType
+        </td>
+        <td style="background: #F0ADAD">
+          s.responseType
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1014
+        </td>
+        <td>
+          4127
+          -
+          4152
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          s.responseType.split(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1016
+        </td>
+        <td>
+          4204
+          -
+          4209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          rt.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1015
+        </td>
+        <td>
+          4197
+          -
+          4202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          rt.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          4175
+          -
+          4215
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.MediaTypes.getForKey(scala.Tuple2.apply[String, String](rt.apply(0), rt.apply(1))).get
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1017
+        </td>
+        <td>
+          4196
+          -
+          4210
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, String](rt.apply(0), rt.apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1021
+        </td>
+        <td>
+          4090
+          -
+          4332
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[spray.http.MediaType]({
+  val rt: Array[String] = s.responseType.split(&quot;/&quot;);
+  spray.http.MediaTypes.getForKey(scala.Tuple2.apply[String, String](rt.apply(0), rt.apply(1))).get
+}).recover[spray.http.MediaType](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,spray.http.MediaType] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; spray.http.MediaType&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: spray.http.MediaType](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case _ =&gt; spray.http.MediaTypes.application/json
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Throwable): Boolean = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case _ =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,spray.http.MediaType]))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1020
+        </td>
+        <td>
+          4247
+          -
+          4247
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1019
+        </td>
+        <td>
+          4281
+          -
+          4310
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.MediaTypes.application/json
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.MediaTypes.application/json
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1022
+        </td>
+        <td>
+          4366
+          -
+          4395
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.MediaTypes.application/json
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.MediaTypes.application/json
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1023
+        </td>
+        <td>
+          4353
+          -
+          4395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          mt.getOrElse[spray.http.MediaType](spray.http.MediaTypes.application/json)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1025
+        </td>
+        <td>
+          4450
+          -
+          4450
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1024
+        </td>
+        <td>
+          4430
+          -
+          4457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.routing.directives.RespondWithDirectives.respondWithMediaType
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.respondWithMediaType(media)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          4430
+          -
+          4535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.respondWithMediaType(media))(routing.this.ApplyConverter.hac0).apply(SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[(spray.http.StatusCodes.Success, T)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef]))))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1028
+        </td>
+        <td>
+          4508
+          -
+          4508
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.OutputMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.OutputMarshaller[AnyRef]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1031
+        </td>
+        <td>
+          4478
+          -
+          4517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[(spray.http.StatusCodes.Success, T)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef])))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1027
+        </td>
+        <td>
+          4508
+          -
+          4508
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[spray.http.StatusCodes.Success]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1030
+        </td>
+        <td>
+          4489
+          -
+          4515
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.marshalling.ToResponseMarshallable.isMarshallable
+        </td>
+        <td style="background: #F0ADAD">
+          marshalling.this.ToResponseMarshallable.isMarshallable[(spray.http.StatusCodes.Success, T)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          4508
+          -
+          4508
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.marshalling.BasicToResponseMarshallers.fromStatusCodeAndT
+        </td>
+        <td style="background: #F0ADAD">
+          marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, T](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayRoutes.this.OutputMarshaller[AnyRef])
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1026
+        </td>
+        <td>
+          4489
+          -
+          4515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](SprayRoutes.this.responseStatusCode).-&gt;[T](data)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1034
+        </td>
+        <td>
+          4600
+          -
+          4600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.httpx.marshalling.BasicToResponseMarshallers.fromStatusCode
+        </td>
+        <td style="background: #F0ADAD">
+          marshalling.this.ToResponseMarshaller.fromStatusCode
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1033
+        </td>
+        <td>
+          4588
+          -
+          4609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.StatusCodes.NoContent
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.StatusCodes.NoContent
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1036
+        </td>
+        <td>
+          4579
+          -
+          4610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.complete.apply(marshalling.this.ToResponseMarshallable.isMarshallable[spray.http.StatusCodes.Success](spray.http.StatusCodes.NoContent)(marshalling.this.ToResponseMarshaller.fromStatusCode))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          4588
+          -
+          4609
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.marshalling.ToResponseMarshallable.isMarshallable
+        </td>
+        <td style="background: #F0ADAD">
+          marshalling.this.ToResponseMarshallable.isMarshallable[spray.http.StatusCodes.Success](spray.http.StatusCodes.NoContent)(marshalling.this.ToResponseMarshaller.fromStatusCode)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          1037
+        </td>
+        <td>
+          4654
+          -
+          4661
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw f
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1061
+        </td>
+        <td>
+          4749
+          -
+          5036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.getRejectionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing))))))))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          4749
+          -
+          4768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.getRejectionHandler
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          4749
+          -
+          4749
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          4777
+          -
+          4777
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1042
+        </td>
+        <td>
+          4777
+          -
+          4796
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getExceptionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.getExceptionHandler
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1060
+        </td>
+        <td>
+          4777
+          -
+          5030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing)))))))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          4807
+          -
+          4807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1059
+        </td>
+        <td>
+          4807
+          -
+          5022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing))))))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1044
+        </td>
+        <td>
+          4807
+          -
+          4815
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.preRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.preRoute
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1046
+        </td>
+        <td>
+          4828
+          -
+          4828
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          4828
+          -
+          5012
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing)))))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1049
+        </td>
+        <td>
+          4863
+          -
+          4863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1057
+        </td>
+        <td>
+          4853
+          -
+          5000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing))))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1048
+        </td>
+        <td>
+          4853
+          -
+          4883
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.mapHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.mapHeaders(SprayRoutes.this.getResponseHeaders)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1047
+        </td>
+        <td>
+          4864
+          -
+          4882
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getResponseHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.getResponseHeaders
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          4912
+          -
+          4912
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          4900
+          -
+          4919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.commandPaths
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.commandPaths(SprayRoutes.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1056
+        </td>
+        <td>
+          4900
+          -
+          4986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayRoutes.this.commandPaths(SprayRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing)))
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1050
+        </td>
+        <td>
+          4913
+          -
+          4918
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1055
+        </td>
+        <td>
+          4946
+          -
+          4970
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.innerExecute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.innerExecute[Nothing](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1054
+        </td>
+        <td>
+          4958
+          -
+          4958
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          4959
+          -
+          4969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.command.CommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1069
+        </td>
+        <td>
+          5153
+          -
+          5153
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1068
+        </td>
+        <td>
+          5137
+          -
+          5374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.context.actorOf(akka.actor.Props.apply[akka.actor.Actor with akka.actor.ActorLogging]({
+  final class $anon extends AnyRef with akka.actor.Actor with akka.actor.ActorLogging {
+    def &lt;init&gt;(): &lt;$anon: akka.actor.Actor with akka.actor.ActorLogging&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def receive: PartialFunction[Any,Unit] = ({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+          case (remaining: Int)SprayRoutes.this.Ok(0) =&gt; ()
+          case (remaining: Int)SprayRoutes.this.Ok((remaining @ _)) =&gt; ()
+          case (ev @ (_: akka.io.Tcp.ConnectionClosed)) =&gt; ()
+          case (defaultCase$ @ _) =&gt; default.apply(x2)
+        };
+        final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+          case (remaining: Int)SprayRoutes.this.Ok(0) =&gt; true
+          case (remaining: Int)SprayRoutes.this.Ok((remaining @ _)) =&gt; true
+          case (ev @ (_: akka.io.Tcp.ConnectionClosed)) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[Any,Unit])
+  };
+  new $anon()
+})((ClassTag.apply[akka.actor.Actor with akka.actor.ActorLogging](classOf[akka.actor.Actor]): scala.reflect.ClassTag[akka.actor.Actor with akka.actor.ActorLogging])))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1067
+        </td>
+        <td>
+          5161
+          -
+          5368
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[akka.actor.Actor with akka.actor.ActorLogging]({
+  final class $anon extends AnyRef with akka.actor.Actor with akka.actor.ActorLogging {
+    def &lt;init&gt;(): &lt;$anon: akka.actor.Actor with akka.actor.ActorLogging&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def receive: PartialFunction[Any,Unit] = ({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+          case (remaining: Int)SprayRoutes.this.Ok(0) =&gt; ()
+          case (remaining: Int)SprayRoutes.this.Ok((remaining @ _)) =&gt; ()
+          case (ev @ (_: akka.io.Tcp.ConnectionClosed)) =&gt; ()
+          case (defaultCase$ @ _) =&gt; default.apply(x2)
+        };
+        final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+          case (remaining: Int)SprayRoutes.this.Ok(0) =&gt; true
+          case (remaining: Int)SprayRoutes.this.Ok((remaining @ _)) =&gt; true
+          case (ev @ (_: akka.io.Tcp.ConnectionClosed)) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[Any,Unit])
+  };
+  new $anon()
+})((ClassTag.apply[akka.actor.Actor with akka.actor.ActorLogging](classOf[akka.actor.Actor]): scala.reflect.ClassTag[akka.actor.Actor with akka.actor.ActorLogging]))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          5177
+          -
+          5180
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          1065
+        </td>
+        <td>
+          5231
+          -
+          5231
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.$anon.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1062
+        </td>
+        <td>
+          5256
+          -
+          5258
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          5291
+          -
+          5293
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          1064
+        </td>
+        <td>
+          5336
+          -
+          5338
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          5439
+          -
+          5473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.RouteManager.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          RouteManager.addRoute(name, route)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1073
+        </td>
+        <td>
+          5491
+          -
+          5491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.self
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1072
+        </td>
+        <td>
+          5493
+          -
+          5509
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.HttpReloadRoutes
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.spray.HttpReloadRoutes
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          5478
+          -
+          5509
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorSelection.!
+        </td>
+        <td style="background: #F0ADAD">
+          actor.this.ActorSelection.toScala(SprayRoutes.this.sprayManager).!(com.webtrends.harness.component.spray.HttpReloadRoutes)(SprayRoutes.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1071
+        </td>
+        <td>
+          5478
+          -
+          5490
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.sprayManager
+        </td>
+        <td style="background: #F0ADAD">
+          SprayRoutes.this.sprayManager
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1076
+        </td>
+        <td>
+          5740
+          -
+          5751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayCustom.customRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayCustom.this.customRoute
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1075
+        </td>
+        <td>
+          5715
+          -
+          5738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayCustom.this.commandName.+(&quot;_custom&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          5706
+          -
+          5752
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayCustom.this.addRoute(SprayCustom.this.commandName.+(&quot;_custom&quot;), SprayCustom.this.customRoute)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1079
+        </td>
+        <td>
+          5934
+          -
+          5954
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.MethodDirectives.get
+        </td>
+        <td style="background: #F0ADAD">
+          spray.routing.directives.MethodDirectives.get
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1078
+        </td>
+        <td>
+          5901
+          -
+          5921
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayGet.this.commandName.+(&quot;_get&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1081
+        </td>
+        <td>
+          5892
+          -
+          5956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayGet.this.addRoute(SprayGet.this.commandName.+(&quot;_get&quot;), SprayGet.this.buildRoute(spray.routing.directives.MethodDirectives.get))
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1080
+        </td>
+        <td>
+          5923
+          -
+          5955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.buildRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayGet.this.buildRoute(spray.routing.directives.MethodDirectives.get)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          6389
+          -
+          6412
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.LiftJsonSupport.liftJsonUnmarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.liftJsonUnmarshaller[T](evidence$2)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          6501
+          -
+          6501
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1083
+        </td>
+        <td>
+          6501
+          -
+          6520
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.getRejectionHandler
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1112
+        </td>
+        <td>
+          6501
+          -
+          6965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.getRejectionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](EntityRoutes.this.commandPaths(EntityRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+}))))))))
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1085
+        </td>
+        <td>
+          6529
+          -
+          6548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getExceptionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.getExceptionHandler
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1111
+        </td>
+        <td>
+          6529
+          -
+          6959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](EntityRoutes.this.commandPaths(EntityRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+})))))))
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          6529
+          -
+          6529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          6559
+          -
+          6559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          6559
+          -
+          6567
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.preRoute
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.preRoute
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1110
+        </td>
+        <td>
+          6559
+          -
+          6951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](EntityRoutes.this.commandPaths(EntityRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+}))))))
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1091
+        </td>
+        <td>
+          6592
+          -
+          6592
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1109
+        </td>
+        <td>
+          6580
+          -
+          6941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](EntityRoutes.this.commandPaths(EntityRoutes.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+})))))
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          6580
+          -
+          6599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.commandPaths
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.commandPaths(EntityRoutes.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1089
+        </td>
+        <td>
+          6593
+          -
+          6598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          1108
+        </td>
+        <td>
+          6636
+          -
+          6929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](httpMethod)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+})))
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          1092
+        </td>
+        <td>
+          6636
+          -
+          6636
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          6665
+          -
+          6678
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.routing.directives.MarshallingDirectives.entity
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3)))))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          6674
+          -
+          6674
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.unmarshalling.UnmarshallerLifting.fromMessageUnmarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1093
+        </td>
+        <td>
+          6674
+          -
+          6674
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.EntityRoutes.InputUnmarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.InputUnmarshaller[T](evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          6672
+          -
+          6677
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.routing.directives.MarshallingDirectives.as
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1098
+        </td>
+        <td>
+          6671
+          -
+          6671
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[T]
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1107
+        </td>
+        <td>
+          6665
+          -
+          6913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[T,shapeless.HNil]](EntityRoutes.this.entity[T](EntityRoutes.this.as[T](unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3))))))(routing.this.ApplyConverter.hac1[T]).apply(((po: T) =&gt; {
+  bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)));
+  routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1095
+        </td>
+        <td>
+          6674
+          -
+          6674
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.unmarshalling.UnmarshallerLifting.fromRequestUnmarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          unmarshalling.this.Deserializer.fromRequestUnmarshaller[T](unmarshalling.this.Deserializer.fromMessageUnmarshaller[T](EntityRoutes.this.InputUnmarshaller[T](evidence$3)))
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1100
+        </td>
+        <td>
+          6740
+          -
+          6772
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po))
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1099
+        </td>
+        <td>
+          6744
+          -
+          6771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1101
+        </td>
+        <td>
+          6725
+          -
+          6773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.appendMap
+        </td>
+        <td style="background: #F0ADAD">
+          bean.appendMap(scala.this.Predef.Map.apply[String, T](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.command.CommandBean.KeyEntity).-&gt;[T](po)))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1106
+        </td>
+        <td>
+          6794
+          -
+          6895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1102
+        </td>
+        <td>
+          6805
+          -
+          6823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getResponseHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.getResponseHeaders
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1104
+        </td>
+        <td>
+          6804
+          -
+          6804
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1103
+        </td>
+        <td>
+          6794
+          -
+          6824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.mapHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.mapHeaders(EntityRoutes.this.getResponseHeaders)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1105
+        </td>
+        <td>
+          6849
+          -
+          6873
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.innerExecute
+        </td>
+        <td style="background: #F0ADAD">
+          EntityRoutes.this.innerExecute[T](scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))(evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1113
+        </td>
+        <td>
+          7173
+          -
+          7210
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.EntityRoutes.entityRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPost.this.entityRoute[T](spray.routing.directives.MethodDirectives.post)(evidence$4)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          1115
+        </td>
+        <td>
+          7236
+          -
+          7254
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayPost.postRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPost.this.postRoute[net.liftweb.json.JObject](reflect.this.ManifestFactory.classType[net.liftweb.json.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          1114
+        </td>
+        <td>
+          7245
+          -
+          7245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[net.liftweb.json.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1118
+        </td>
+        <td>
+          7257
+          -
+          7298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPost.this.addRoute(SprayPost.this.commandName.+(&quot;_post&quot;), SprayPost.this.setRoute)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1117
+        </td>
+        <td>
+          7289
+          -
+          7297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayPost.setRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPost.this.setRoute
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          1116
+        </td>
+        <td>
+          7266
+          -
+          7287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPost.this.commandName.+(&quot;_post&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1120
+        </td>
+        <td>
+          7462
+          -
+          7485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.MethodDirectives.delete
+        </td>
+        <td style="background: #F0ADAD">
+          spray.routing.directives.MethodDirectives.delete
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1119
+        </td>
+        <td>
+          7426
+          -
+          7449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayDelete.this.commandName.+(&quot;_delete&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1122
+        </td>
+        <td>
+          7417
+          -
+          7487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayDelete.this.addRoute(SprayDelete.this.commandName.+(&quot;_delete&quot;), SprayDelete.this.buildRoute(spray.routing.directives.MethodDirectives.delete))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1121
+        </td>
+        <td>
+          7451
+          -
+          7486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.buildRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayDelete.this.buildRoute(spray.routing.directives.MethodDirectives.delete)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          1124
+        </td>
+        <td>
+          7643
+          -
+          7655
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.optionsRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.optionsRoute
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          1123
+        </td>
+        <td>
+          7617
+          -
+          7641
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.commandName.+(&quot;_options&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          1125
+        </td>
+        <td>
+          7608
+          -
+          7656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.addRoute(SprayOptions.this.commandName.+(&quot;_options&quot;), SprayOptions.this.optionsRoute)
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          1126
+        </td>
+        <td>
+          7693
+          -
+          7719
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.httpx.LiftJsonSupport.liftJsonMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.liftJsonMarshaller[net.liftweb.json.JValue]
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1127
+        </td>
+        <td>
+          8205
+          -
+          8218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1128
+        </td>
+        <td>
+          8182
+          -
+          8219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.isAssignableFrom
+        </td>
+        <td style="background: #F0ADAD">
+          klass.isAssignableFrom(this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1129
+        </td>
+        <td>
+          8249
+          -
+          8261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[spray.http.HttpMethod](method)
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          1130
+        </td>
+        <td>
+          8284
+          -
+          8288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          1133
+        </td>
+        <td>
+          8340
+          -
+          8385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayGet](classOf[com.webtrends.harness.component.spray.route.SprayGet], spray.http.HttpMethods.GET)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          1132
+        </td>
+        <td>
+          8369
+          -
+          8384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.GET
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.GET
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          1131
+        </td>
+        <td>
+          8350
+          -
+          8367
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayGet]
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          1136
+        </td>
+        <td>
+          8393
+          -
+          8440
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayHead](classOf[com.webtrends.harness.component.spray.route.SprayHead], spray.http.HttpMethods.HEAD)
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          1135
+        </td>
+        <td>
+          8423
+          -
+          8439
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.HEAD
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.HEAD
+        </td>
+      </tr><tr>
+        <td>
+          257
+        </td>
+        <td>
+          1134
+        </td>
+        <td>
+          8403
+          -
+          8421
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayHead]
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1138
+        </td>
+        <td>
+          8479
+          -
+          8496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.PATCH
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.PATCH
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1137
+        </td>
+        <td>
+          8458
+          -
+          8477
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayPatch]
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1139
+        </td>
+        <td>
+          8448
+          -
+          8497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayPatch](classOf[com.webtrends.harness.component.spray.route.SprayPatch], spray.http.HttpMethods.PATCH)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1142
+        </td>
+        <td>
+          8505
+          -
+          8550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayPut](classOf[com.webtrends.harness.component.spray.route.SprayPut], spray.http.HttpMethods.PUT)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1141
+        </td>
+        <td>
+          8534
+          -
+          8549
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.PUT
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.PUT
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1140
+        </td>
+        <td>
+          8515
+          -
+          8532
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayPut]
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1145
+        </td>
+        <td>
+          8558
+          -
+          8605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayPost](classOf[com.webtrends.harness.component.spray.route.SprayPost], spray.http.HttpMethods.POST)
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1144
+        </td>
+        <td>
+          8588
+          -
+          8604
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.POST
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.POST
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1143
+        </td>
+        <td>
+          8568
+          -
+          8586
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayPost]
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1147
+        </td>
+        <td>
+          8646
+          -
+          8665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.OPTIONS
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.OPTIONS
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1146
+        </td>
+        <td>
+          8623
+          -
+          8644
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayOptions]
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          1148
+        </td>
+        <td>
+          8613
+          -
+          8666
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayOptions](classOf[com.webtrends.harness.component.spray.route.SprayOptions], spray.http.HttpMethods.OPTIONS)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1151
+        </td>
+        <td>
+          8674
+          -
+          8725
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethod
+        </td>
+        <td style="background: #F0ADAD">
+          getMethod[com.webtrends.harness.component.spray.route.SprayDelete](classOf[com.webtrends.harness.component.spray.route.SprayDelete], spray.http.HttpMethods.DELETE)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1150
+        </td>
+        <td>
+          8706
+          -
+          8724
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.DELETE
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.DELETE
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1149
+        </td>
+        <td>
+          8684
+          -
+          8704
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.spray.route.SprayDelete]
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          1153
+        </td>
+        <td>
+          8308
+          -
+          8739
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.generic.GenericTraversableTemplate.flatten
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.apply[Option[spray.http.HttpMethod]](getMethod[com.webtrends.harness.component.spray.route.SprayGet](classOf[com.webtrends.harness.component.spray.route.SprayGet], spray.http.HttpMethods.GET), getMethod[com.webtrends.harness.component.spray.route.SprayHead](classOf[com.webtrends.harness.component.spray.route.SprayHead], spray.http.HttpMethods.HEAD), getMethod[com.webtrends.harness.component.spray.route.SprayPatch](classOf[com.webtrends.harness.component.spray.route.SprayPatch], spray.http.HttpMethods.PATCH), getMethod[com.webtrends.harness.component.spray.route.SprayPut](classOf[com.webtrends.harness.component.spray.route.SprayPut], spray.http.HttpMethods.PUT), getMethod[com.webtrends.harness.component.spray.route.SprayPost](classOf[com.webtrends.harness.component.spray.route.SprayPost], spray.http.HttpMethods.POST), getMethod[com.webtrends.harness.component.spray.route.SprayOptions](classOf[com.webtrends.harness.component.spray.route.SprayOptions], spray.http.HttpMethods.OPTIONS), getMethod[com.webtrends.harness.component.spray.route.SprayDelete](classOf[com.webtrends.harness.component.spray.route.SprayDelete], spray.http.HttpMethods.DELETE)).flatten[spray.http.HttpMethod]({
+  ((xo: Option[spray.http.HttpMethod]) =&gt; scala.this.Option.option2Iterable[spray.http.HttpMethod](xo))
+})
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          1152
+        </td>
+        <td>
+          8732
+          -
+          8732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[spray.http.HttpMethod](xo)
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1154
+        </td>
+        <td>
+          8896
+          -
+          8911
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.parse
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.parse(&quot;{}&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          1196
+        </td>
+        <td>
+          8940
+          -
+          9611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondJson)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.getRejectionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayOptions.this.commandPaths(SprayOptions.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+}))))))))))
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          1156
+        </td>
+        <td>
+          8940
+          -
+          8940
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          1155
+        </td>
+        <td>
+          8940
+          -
+          8951
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.BaseDirectives.respondJson
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.respondJson
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1195
+        </td>
+        <td>
+          8960
+          -
+          9605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.getRejectionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayOptions.this.commandPaths(SprayOptions.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+})))))))))
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1158
+        </td>
+        <td>
+          8960
+          -
+          8960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1157
+        </td>
+        <td>
+          8960
+          -
+          8979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.getRejectionHandler
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1160
+        </td>
+        <td>
+          8990
+          -
+          8990
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1159
+        </td>
+        <td>
+          8990
+          -
+          9009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getExceptionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.getExceptionHandler
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1194
+        </td>
+        <td>
+          8990
+          -
+          9597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.getExceptionHandler)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayOptions.this.commandPaths(SprayOptions.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+}))))))))
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1162
+        </td>
+        <td>
+          9022
+          -
+          9022
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1161
+        </td>
+        <td>
+          9022
+          -
+          9030
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.preRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.preRoute
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1193
+        </td>
+        <td>
+          9022
+          -
+          9587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.preRoute)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayOptions.this.commandPaths(SprayOptions.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+})))))))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1165
+        </td>
+        <td>
+          9057
+          -
+          9057
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.routing.ApplyConverterInstances.hac1
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1192
+        </td>
+        <td>
+          9045
+          -
+          9575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.::[com.webtrends.harness.command.CommandBean,shapeless.HNil]](SprayOptions.this.commandPaths(SprayOptions.this.paths))(routing.this.ApplyConverter.hac1[com.webtrends.harness.command.CommandBean]).apply(((bean: com.webtrends.harness.command.CommandBean) =&gt; routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+}))))))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1164
+        </td>
+        <td>
+          9045
+          -
+          9064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.commandPaths
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.commandPaths(SprayOptions.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1163
+        </td>
+        <td>
+          9058
+          -
+          9063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1167
+        </td>
+        <td>
+          9105
+          -
+          9105
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1191
+        </td>
+        <td>
+          9105
+          -
+          9561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.options)(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+}))))
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1166
+        </td>
+        <td>
+          9105
+          -
+          9112
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.MethodDirectives.options
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.options
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1169
+        </td>
+        <td>
+          9152
+          -
+          9185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.http.HttpHeaders.Allow.apply
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*))
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1171
+        </td>
+        <td>
+          9187
+          -
+          9241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.http.HttpHeaders.Access-Control-Allow-Methods.apply
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1168
+        </td>
+        <td>
+          9170
+          -
+          9180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethods
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.getMethods
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1170
+        </td>
+        <td>
+          9230
+          -
+          9240
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.getMethods
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.getMethods
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1173
+        </td>
+        <td>
+          9151
+          -
+          9151
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1190
+        </td>
+        <td>
+          9133
+          -
+          9543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods)))(routing.this.ApplyConverter.hac0).apply(routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+})))
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1172
+        </td>
+        <td>
+          9133
+          -
+          9242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.routing.directives.RespondWithDirectives.respondWithHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.respondWithHeaders(spray.http.HttpHeaders.Allow.apply((SprayOptions.this.getMethods: _*)), spray.http.HttpHeaders.Access-Control-Allow-Methods.apply(SprayOptions.this.getMethods))
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          1189
+        </td>
+        <td>
+          9265
+          -
+          9523
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.Directive.pimpApply[shapeless.HNil](SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders))(routing.this.ApplyConverter.hac0).apply(((ctx: spray.routing.RequestContext) =&gt; {
+  ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller));
+  {
+    spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller);
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          1174
+        </td>
+        <td>
+          9276
+          -
+          9294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.getResponseHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.getResponseHeaders
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          1176
+        </td>
+        <td>
+          9275
+          -
+          9275
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.ApplyConverter.hac0
+        </td>
+        <td style="background: #F0ADAD">
+          routing.this.ApplyConverter.hac0
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          1175
+        </td>
+        <td>
+          9265
+          -
+          9295
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.directive.CommandDirectives.mapHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.mapHeaders(SprayOptions.this.getResponseHeaders)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1178
+        </td>
+        <td>
+          9382
+          -
+          9397
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.optionsResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.optionsResponse
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1177
+        </td>
+        <td>
+          9364
+          -
+          9378
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.StatusCodes.OK
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.StatusCodes.OK
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1180
+        </td>
+        <td>
+          9363
+          -
+          9363
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[spray.http.StatusCodes.Success]
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1183
+        </td>
+        <td>
+          9351
+          -
+          9398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.routing.RequestContext.complete
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.complete[(spray.http.StatusCodes.Success, net.liftweb.json.JValue)](scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse))(marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller))
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1179
+        </td>
+        <td>
+          9364
+          -
+          9397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[spray.http.StatusCodes.Success](spray.http.StatusCodes.OK).-&gt;[net.liftweb.json.JValue](SprayOptions.this.optionsResponse)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1182
+        </td>
+        <td>
+          9363
+          -
+          9363
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.marshalling.BasicToResponseMarshallers.fromStatusCodeAndT
+        </td>
+        <td style="background: #F0ADAD">
+          marshalling.this.ToResponseMarshaller.fromStatusCodeAndT[spray.http.StatusCodes.Success, net.liftweb.json.JValue](scala.this.Predef.$conforms[spray.http.StatusCodes.Success], SprayOptions.this.optionsMarshaller)
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1181
+        </td>
+        <td>
+          9363
+          -
+          9363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.optionsMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.optionsMarshaller
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1187
+        </td>
+        <td>
+          9423
+          -
+          9501
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller[net.liftweb.json.JValue](spray.http.StatusCodes.OK, spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue])(SprayOptions.this.optionsMarshaller)
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1186
+        </td>
+        <td>
+          9483
+          -
+          9500
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayOptions.optionsMarshaller
+        </td>
+        <td style="background: #F0ADAD">
+          SprayOptions.this.optionsMarshaller
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1185
+        </td>
+        <td>
+          9458
+          -
+          9458
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          spray.httpx.marshalling.ToResponseMarshaller.fromMarshaller$default$2[net.liftweb.json.JValue]
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1188
+        </td>
+        <td>
+          9482
+          -
+          9482
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          285
+        </td>
+        <td>
+          1184
+        </td>
+        <td>
+          9467
+          -
+          9481
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.StatusCodes.OK
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.StatusCodes.OK
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1198
+        </td>
+        <td>
+          9773
+          -
+          9794
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.MethodDirectives.head
+        </td>
+        <td style="background: #F0ADAD">
+          spray.routing.directives.MethodDirectives.head
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1200
+        </td>
+        <td>
+          9730
+          -
+          9796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayHead.this.addRoute(SprayHead.this.commandName.+(&quot;_head&quot;), SprayHead.this.buildRoute(spray.routing.directives.MethodDirectives.head))
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1197
+        </td>
+        <td>
+          9739
+          -
+          9760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayHead.this.commandName.+(&quot;_head&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1199
+        </td>
+        <td>
+          9762
+          -
+          9795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.buildRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayHead.this.buildRoute(spray.routing.directives.MethodDirectives.head)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1204
+        </td>
+        <td>
+          9913
+          -
+          9981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPatch.this.addRoute(SprayPatch.this.commandName.+(&quot;_patch&quot;), SprayPatch.this.buildRoute(spray.routing.directives.MethodDirectives.patch))
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1201
+        </td>
+        <td>
+          9922
+          -
+          9944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPatch.this.commandName.+(&quot;_patch&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1203
+        </td>
+        <td>
+          9946
+          -
+          9980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.buildRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPatch.this.buildRoute(spray.routing.directives.MethodDirectives.patch)
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1202
+        </td>
+        <td>
+          9957
+          -
+          9979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.routing.directives.MethodDirectives.patch
+        </td>
+        <td style="background: #F0ADAD">
+          spray.routing.directives.MethodDirectives.patch
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          1205
+        </td>
+        <td>
+          10140
+          -
+          10176
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.EntityRoutes.entityRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPut.this.entityRoute[T](spray.routing.directives.MethodDirectives.put)(evidence$5)
+        </td>
+      </tr><tr>
+        <td>
+          319
+        </td>
+        <td>
+          1207
+        </td>
+        <td>
+          10202
+          -
+          10219
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayPut.putRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPut.this.putRoute[net.liftweb.json.JObject](reflect.this.ManifestFactory.classType[net.liftweb.json.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          319
+        </td>
+        <td>
+          1206
+        </td>
+        <td>
+          10210
+          -
+          10210
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[net.liftweb.json.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          1210
+        </td>
+        <td>
+          10222
+          -
+          10262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayRoutes.addRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPut.this.addRoute(SprayPut.this.commandName.+(&quot;_put&quot;), SprayPut.this.setRoute)
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          1209
+        </td>
+        <td>
+          10253
+          -
+          10261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.route.SprayPut.setRoute
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPut.this.setRoute
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          1208
+        </td>
+        <td>
+          10231
+          -
+          10251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          SprayPut.this.commandName.+(&quot;_put&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
