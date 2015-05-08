@@ -45,6 +45,9 @@ class ConsumerDistributorSpec
   val zkHelper = ZkHelper()
 
   zkHelper.ensureZkAvailable()
+
+  Thread.sleep(2000)
+
   val hostName = TestUtil.hostName
 
   val kafkaProxy = system.actorOf { Props {
