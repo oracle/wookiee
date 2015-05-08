@@ -45,6 +45,8 @@ class MessageServiceSpec
   implicit val sender = probe.ref
   lazy val service = MessageService()
 
+  Thread.sleep(2000)
+  
   // Run these tests sequentially so that the probes don't bump into the same subscriptions
   sequential
 
