@@ -1,0 +1,3233 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/memcache/MemcacheManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.memcache
+</span>20 <span style=''>
+</span>21 <span style=''>import com.twitter.finagle.builder.ClientBuilder
+</span>22 <span style=''>import com.twitter.finagle.memcached._
+</span>23 <span style=''>import com.twitter.finagle.memcached.protocol.text.Memcached
+</span>24 <span style=''>import com.twitter.util.{Duration, Return, Throw, Future => TwitterFuture}
+</span>25 <span style=''>import com.webtrends.harness.component.cache.{CacheConfig, Cache}
+</span>26 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>27 <span style=''>import org.jboss.netty.buffer.ChannelBuffer
+</span>28 <span style=''>
+</span>29 <span style=''>import scala.collection.mutable
+</span>30 <span style=''>import scala.concurrent._
+</span>31 <span style=''>import scala.util.{Failure, Success}
+</span>32 <span style=''>
+</span>33 <span style=''>/**
+</span>34 <span style=''> * MemcacheManager will allow users to send messages to create caches, get, and various other methods
+</span>35 <span style=''> * against Memcache. This code uses the Finagle library, so it's Futures and Promises are Finagle Futures and Promises
+</span>36 <span style=''> * which is not the same as Scala Future and Promises, although they work pretty much the same way.
+</span>37 <span style=''> */
+</span>38 <span style=''>object MemcacheManager {
+</span>39 <span style=''>  val ComponentName = </span><span style='background: #F0ADAD'>"wookie-cache-memcache"</span><span style=''>
+</span>40 <span style=''>  val caches = </span><span style='background: #F0ADAD'>mutable.Map[String, Memcache]()</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  def addCache(name:String, client:Memcache) = {
+</span>43 <span style=''>    </span><span style='background: #F0ADAD'>caches += (name -> client)</span><span style=''>
+</span>44 <span style=''>  }
+</span>45 <span style=''>}
+</span>46 <span style=''>
+</span>47 <span style=''>class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
+</span>48 <span style=''>
+</span>49 <span style=''>  import context.dispatcher
+</span>50 <span style=''>  def caches = </span><span style='background: #F0ADAD'>MemcacheManager.caches</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  override def postStop(): Unit = {
+</span>53 <span style=''>    // close all connections on stop
+</span>54 <span style=''>    </span><span style='background: #F0ADAD'>caches map {
+</span>55 <span style=''></span><span style='background: #F0ADAD'>      case (k, v) => v.close
+</span>56 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>57 <span style=''>    </span><span style='background: #F0ADAD'>super.postStop()</span><span style=''>
+</span>58 <span style=''>  }
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>   * Function that will convert Twitter Futures to Scala Futures, so we can respond to the user correctly
+</span>62 <span style=''>   *
+</span>63 <span style=''>   * @param twitterFuture
+</span>64 <span style=''>   * @tparam A
+</span>65 <span style=''>   * @return
+</span>66 <span style=''>   */
+</span>67 <span style=''>  def fromTwitter[A](twitterFuture: TwitterFuture[A]): Future[A] = {
+</span>68 <span style=''>    val promise = </span><span style='background: #F0ADAD'>Promise[A]()</span><span style=''>
+</span>69 <span style=''>    </span><span style='background: #F0ADAD'>twitterFuture respond {
+</span>70 <span style=''></span><span style='background: #F0ADAD'>      case Return(a) => promise success a
+</span>71 <span style=''></span><span style='background: #F0ADAD'>      case Throw(e)  => promise failure e
+</span>72 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>73 <span style=''>    </span><span style='background: #F0ADAD'>promise.future</span><span style=''>
+</span>74 <span style=''>  }
+</span>75 <span style=''>
+</span>76 <span style=''>  /**
+</span>77 <span style=''>   * Creates a cache with the given configuration
+</span>78 <span style=''>   *
+</span>79 <span style=''>   * @param config Configuration including namespace and setKey
+</span>80 <span style=''>   * @return
+</span>81 <span style=''>   */
+</span>82 <span style=''>  override protected def createCache(config:CacheConfig) : Boolean = {
+</span>83 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(config.namespace)</span><span style=''> match {
+</span>84 <span style=''>      case Some(c) =>
+</span>85 <span style=''>        if (</span><span style='background: #F0ADAD'>c == null</span><span style=''>)
+</span>86 <span style=''>          </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>87 <span style=''>        else
+</span>88 <span style=''>          </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>89 <span style=''>      case None =>
+</span>90 <span style=''>        val cache = </span><span style='background: #F0ADAD'>new Memcache(build(config), config)</span><span style=''>
+</span>91 <span style=''>        </span><span style='background: #F0ADAD'>MemcacheManager.addCache(config.namespace, cache)</span><span style=''>
+</span>92 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>93 <span style=''>    }
+</span>94 <span style=''>  }
+</span>95 <span style=''>
+</span>96 <span style=''>  /**
+</span>97 <span style=''>   * Deletes the cache in memcache
+</span>98 <span style=''>   * Not supported by memcache
+</span>99 <span style=''>   *
+</span>100 <span style=''>   * @param namespace
+</span>101 <span style=''>   * @return
+</span>102 <span style=''>   */
+</span>103 <span style=''>  override protected def deleteCache(namespace:String) : Boolean = {
+</span>104 <span style=''>    </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  /**
+</span>108 <span style=''>   * Gets an element from a cache given the namespace
+</span>109 <span style=''>   *
+</span>110 <span style=''>   * @param namespace A namespace will reference a specific cache
+</span>111 <span style=''>   * @param key The key that you are looking up in the cache
+</span>112 <span style=''>   * @return an Option[ChannelBuffer] to the caller
+</span>113 <span style=''>   */
+</span>114 <span style=''>  override protected def get(namespace:String, key:String) : Future[Option[ChannelBuffer]] = {
+</span>115 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>116 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>fromTwitter(c.get(key))</span><span style=''>
+</span>117 <span style=''>      case None =>
+</span>118 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Failed to get key [%s] from cache [%s] as it does not exist".format(key, namespace))</span><span style=''>
+</span>119 <span style=''>        </span><span style='background: #F0ADAD'>future { None }</span><span style=''>
+</span>120 <span style=''>    }
+</span>121 <span style=''>  }
+</span>122 <span style=''>
+</span>123 <span style=''>  /**
+</span>124 <span style=''>   * Adds an element to a cache
+</span>125 <span style=''>   *
+</span>126 <span style=''>   * @param namespace The namespace for the specific cache that you want to get the element from
+</span>127 <span style=''>   * @param key The key for the value you are putting in the cache
+</span>128 <span style=''>   * @param value The value in the form of ChannelBuffer
+</span>129 <span style=''>   * @return an Option[Boolean] to the caller
+</span>130 <span style=''>   */
+</span>131 <span style=''>  override protected def add(namespace:String, key:String, value:ChannelBuffer) : Future[Boolean] = {
+</span>132 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>133 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>fromTwitter(c.set(key, value))</span><span style=''>
+</span>134 <span style=''>      case None =>
+</span>135 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Failed to add key [%s] to cache [%s] as it does not exist".format(key, namespace))</span><span style=''>
+</span>136 <span style=''>        </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>137 <span style=''>    }
+</span>138 <span style=''>  }
+</span>139 <span style=''>
+</span>140 <span style=''>  /**
+</span>141 <span style=''>   * Deletes a key from a cache.
+</span>142 <span style=''>   *
+</span>143 <span style=''>   * @param namespace The namespace of the cache that the user is looking into
+</span>144 <span style=''>   * @param key The key to delete
+</span>145 <span style=''>   * @return an Option[Boolean] to the caller
+</span>146 <span style=''>   */
+</span>147 <span style=''>  override protected def delete(namespace:String, key:String) : Future[Boolean] = {
+</span>148 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>149 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>fromTwitter(c.delete(key))</span><span style=''>
+</span>150 <span style=''>      case None =>
+</span>151 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Failed to delete key [%s] from cache [%s] as it does not exist".format(key, namespace))</span><span style=''>
+</span>152 <span style=''>        </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>153 <span style=''>    }
+</span>154 <span style=''>  }
+</span>155 <span style=''>
+</span>156 <span style=''>  /**
+</span>157 <span style=''>   * Increments the key value by the supplied incrementBy value
+</span>158 <span style=''>   *
+</span>159 <span style=''>   * @param namespace The namespace for the cache
+</span>160 <span style=''>   * @param key The key for incrementing the value
+</span>161 <span style=''>   * @param incrementBy the long value to increment by
+</span>162 <span style=''>   * @return an Option[Long] to the caller
+</span>163 <span style=''>   */
+</span>164 <span style=''>  override protected def increment(namespace:String, key:String, incrementBy:Long) : Future[Option[Long]] = {
+</span>165 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>166 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>fromTwitter(c.increment(key, incrementBy))</span><span style=''>
+</span>167 <span style=''>      case None =>
+</span>168 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Failed to increment key [%s] in cache [%s] as it does not exist".format(key, namespace))</span><span style=''>
+</span>169 <span style=''>        </span><span style='background: #F0ADAD'>future { None }</span><span style=''>
+</span>170 <span style=''>    }
+</span>171 <span style=''>  }
+</span>172 <span style=''>
+</span>173 <span style=''>  /**
+</span>174 <span style=''>   * Decrements the key value by the supplied decrementBy value
+</span>175 <span style=''>   *
+</span>176 <span style=''>   * @param namespace The namespace for the cache
+</span>177 <span style=''>   * @param key The key for the decrementing the value
+</span>178 <span style=''>   * @param decrementBy an Option[Long] to the caller
+</span>179 <span style=''>   */
+</span>180 <span style=''>  override protected def decrement(namespace:String, key:String, decrementBy:Long) : Future[Option[Long]] = {
+</span>181 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>182 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>fromTwitter(c.decrement(key, decrementBy))</span><span style=''>
+</span>183 <span style=''>      case None =>
+</span>184 <span style=''>        </span><span style='background: #F0ADAD'>log.error("Failed to decrement key [%s] in cache [%s] as it does not exist".format(key, namespace))</span><span style=''>
+</span>185 <span style=''>        </span><span style='background: #F0ADAD'>future { None }</span><span style=''>
+</span>186 <span style=''>    }
+</span>187 <span style=''>  }
+</span>188 <span style=''>
+</span>189 <span style=''>  // NOT IMPLEMENTED RETURN FALSE
+</span>190 <span style=''>  override protected def contains(namespace: String, key: String) : Future[Boolean] = {
+</span>191 <span style=''>    </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>192 <span style=''>  }
+</span>193 <span style=''>
+</span>194 <span style=''>  // NOT SUPPORTED BY MEMCACHE
+</span>195 <span style=''>  override protected def clear(namespace: String) : Future[Boolean] = {
+</span>196 <span style=''>    </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>197 <span style=''>  }
+</span>198 <span style=''>
+</span>199 <span style=''>  /**
+</span>200 <span style=''>   * This builds the memcache client.
+</span>201 <span style=''>   * In the future we will need to create more options for different types of clients, like Replication, Cluster and Ketama
+</span>202 <span style=''>   * Initially will just use SimpleClient
+</span>203 <span style=''>   *
+</span>204 <span style=''>   * TODO: add timeouts for the connections
+</span>205 <span style=''>   *
+</span>206 <span style=''>   * @param config
+</span>207 <span style=''>   * @return
+</span>208 <span style=''>   */
+</span>209 <span style=''>  private def build(config:CacheConfig) : Client = {
+</span>210 <span style=''>    val serverList = </span><span style='background: #F0ADAD'>config.getProperty(KeyServerList, None).get.asInstanceOf[String]</span><span style=''>
+</span>211 <span style=''>    val concurrency = </span><span style='background: #F0ADAD'>config.getProperty(KeyConcurrency, Some(3)).get.asInstanceOf[Int]</span><span style=''>
+</span>212 <span style=''>    val timeout = </span><span style='background: #F0ADAD'>config.getProperty(KeyTimeout, Some(1)).get.asInstanceOf[Int]</span><span style=''>
+</span>213 <span style=''>
+</span>214 <span style=''>    </span><span style='background: #F0ADAD'>KetamaClientBuilder()
+</span>215 <span style=''></span><span style='background: #F0ADAD'>      .clientBuilder(ClientBuilder().hostConnectionLimit(concurrency).codec(Memcached()).failFast(false))
+</span>216 <span style=''></span><span style='background: #F0ADAD'>      .failureAccrualParams(Int.MaxValue, Duration.Top)
+</span>217 <span style=''></span><span style='background: #F0ADAD'>      .dest(serverList)
+</span>218 <span style=''></span><span style='background: #F0ADAD'>      .build()
+</span>219 <span style=''></span><span style='background: #F0ADAD'>      .asInstanceOf[PartitionedClient]</span><span style=''>
+</span>220 <span style=''>  }
+</span>221 <span style=''>
+</span>222 <span style=''>  // todo check connection to memcache
+</span>223 <span style=''>  override def checkHealth(): Future[HealthComponent] = {
+</span>224 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]</span><span style=''>
+</span>225 <span style=''>    if (</span><span style='background: #F0ADAD'>caches.size == 0</span><span style=''>) {
+</span>226 <span style=''>      </span><span style='background: #F0ADAD'>p success HealthComponent(self.path.name, ComponentState.NORMAL, "Managing %d caches".format(0))</span><span style=''>
+</span>227 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>228 <span style=''></span><span style='background: #F0ADAD'>      val future = Future.traverse(caches) {
+</span>229 <span style=''></span><span style='background: #F0ADAD'>        case (k, v) => fromTwitter(v.checkHealth())
+</span>230 <span style=''></span><span style='background: #F0ADAD'>      }.mapTo[Seq[CacheStatus]]
+</span>231 <span style=''></span><span style='background: #F0ADAD'>      future onComplete {
+</span>232 <span style=''></span><span style='background: #F0ADAD'>        case Success(result) =>
+</span>233 <span style=''></span><span style='background: #F0ADAD'>          val comp = HealthComponent(self.path.name, ComponentState.NORMAL, "Managing %d caches".format(result.size))
+</span>234 <span style=''></span><span style='background: #F0ADAD'>          result.zipWithIndex.foreach { case (status, i) =>
+</span>235 <span style=''></span><span style='background: #F0ADAD'>            status match {
+</span>236 <span style=''></span><span style='background: #F0ADAD'>              case CacheStatus(true, info) => comp.addComponent(HealthComponent(self.path.name + " Cache Connection " + i, ComponentState.NORMAL, info))
+</span>237 <span style=''></span><span style='background: #F0ADAD'>              case CacheStatus(false, info) => comp.addComponent(HealthComponent(self.path.name + " Cache Connection " + i, ComponentState.CRITICAL, info))
+</span>238 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>239 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>240 <span style=''></span><span style='background: #F0ADAD'>          p success comp
+</span>241 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) => p success HealthComponent(self.path.name, ComponentState.CRITICAL, f.getMessage)
+</span>242 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>243 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>244 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>245 <span style=''>  }
+</span>246 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          1666
+          -
+          1689
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-cache-memcache&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          1705
+          -
+          1736
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, com.webtrends.harness.component.memcache.Memcache]()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          1791
+          -
+          1817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.+=(scala.this.Predef.ArrowAssoc[String](name).-&gt;[com.webtrends.harness.component.memcache.Memcache](client))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          1802
+          -
+          1816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](name).-&gt;[com.webtrends.harness.component.memcache.Memcache](client)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          1949
+          -
+          1971
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.caches
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.caches
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          2050
+          -
+          2097
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.map[com.twitter.util.Future[Unit], scala.collection.mutable.Iterable[com.twitter.util.Future[Unit]]](((x0$1: (String, com.webtrends.harness.component.memcache.Memcache)) =&gt; x0$1 match {
+  case (_1: String, _2: com.webtrends.harness.component.memcache.Memcache)(String, com.webtrends.harness.component.memcache.Memcache)((k @ _), (v @ _)) =&gt; v.close
+}))(mutable.this.Iterable.canBuildFrom[com.twitter.util.Future[Unit]])
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2057
+          -
+          2057
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Iterable.canBuildFrom[com.twitter.util.Future[Unit]]
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2084
+          -
+          2091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.close
+        </td>
+        <td style="background: #F0ADAD">
+          v.close
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          2102
+          -
+          2118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.postStop
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.super.postStop()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          2388
+          -
+          2400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[A]()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          2405
+          -
+          2518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.respond
+        </td>
+        <td style="background: #F0ADAD">
+          twitterFuture.respond(((x0$2: com.twitter.util.Try[A]) =&gt; x0$2 match {
+  case (r: A)com.twitter.util.Return[A]((a @ _)) =&gt; {
+    promise.success(a);
+    ()
+  }
+  case (e: Throwable)com.twitter.util.Throw[A]((e @ _)) =&gt; {
+    promise.failure(e);
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          2453
+          -
+          2470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          promise.success(a)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          2461
+          -
+          2461
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          2503
+          -
+          2503
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          2495
+          -
+          2512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          promise.failure(e)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          2523
+          -
+          2537
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          promise.future
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          2773
+          -
+          2789
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.CacheConfig.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          config.namespace
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          2762
+          -
+          2790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(config.namespace)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          2833
+          -
+          2842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          c.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          2854
+          -
+          2859
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          2854
+          -
+          2859
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          2883
+          -
+          2887
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          2883
+          -
+          2887
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          2927
+          -
+          2962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new Memcache(MemcacheManager.this.build(config), config)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          2940
+          -
+          2953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.build
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.build(config)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          2996
+          -
+          3012
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.CacheConfig.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          config.namespace
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          2971
+          -
+          3020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.addCache
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.addCache(config.namespace, cache)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3029
+          -
+          3033
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3236
+          -
+          3241
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3596
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3648
+          -
+          3671
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[Option[org.jboss.netty.buffer.ChannelBuffer]](c.get(key))
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3660
+          -
+          3670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.get
+        </td>
+        <td style="background: #F0ADAD">
+          c.get(key)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3699
+          -
+          3794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.log.error(scala.this.Predef.augmentString(&quot;Failed to get key [%s] from cache [%s] as it does not exist&quot;).format(key, namespace))
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          3709
+          -
+          3793
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failed to get key [%s] from cache [%s] as it does not exist&quot;).format(key, namespace)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3812
+          -
+          3816
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          3803
+          -
+          3818
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[None.type](scala.None)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3810
+          -
+          3810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          4252
+          -
+          4273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          4304
+          -
+          4334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[Boolean](c.set(key, value))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          4316
+          -
+          4333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.set
+        </td>
+        <td style="background: #F0ADAD">
+          c.set(key, value)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          4372
+          -
+          4454
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failed to add key [%s] to cache [%s] as it does not exist&quot;).format(key, namespace)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          4362
+          -
+          4455
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.log.error(scala.this.Predef.augmentString(&quot;Failed to add key [%s] to cache [%s] as it does not exist&quot;).format(key, namespace))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4471
+          -
+          4471
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          4473
+          -
+          4478
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4464
+          -
+          4480
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[Boolean](false)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          4789
+          -
+          4810
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          4853
+          -
+          4866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.delete
+        </td>
+        <td style="background: #F0ADAD">
+          c.delete(key)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          4841
+          -
+          4867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[Boolean](c.delete(key))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          4895
+          -
+          4993
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.log.error(scala.this.Predef.augmentString(&quot;Failed to delete key [%s] from cache [%s] as it does not exist&quot;).format(key, namespace))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          4905
+          -
+          4992
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failed to delete key [%s] from cache [%s] as it does not exist&quot;).format(key, namespace)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          5002
+          -
+          5018
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[Boolean](false)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          5009
+          -
+          5009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          5011
+          -
+          5016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          5424
+          -
+          5445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          5476
+          -
+          5518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[Option[Long]](c.increment(key, incrementBy))
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          5488
+          -
+          5517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.increment
+        </td>
+        <td style="background: #F0ADAD">
+          c.increment(key, incrementBy)
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          5546
+          -
+          5645
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.log.error(scala.this.Predef.augmentString(&quot;Failed to increment key [%s] in cache [%s] as it does not exist&quot;).format(key, namespace))
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          5556
+          -
+          5644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failed to increment key [%s] in cache [%s] as it does not exist&quot;).format(key, namespace)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          5663
+          -
+          5667
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          5654
+          -
+          5669
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[None.type](scala.None)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          5661
+          -
+          5661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          6035
+          -
+          6056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          6087
+          -
+          6129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[Option[Long]](c.decrement(key, decrementBy))
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          6099
+          -
+          6128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.decrement
+        </td>
+        <td style="background: #F0ADAD">
+          c.decrement(key, decrementBy)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          6167
+          -
+          6255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Failed to decrement key [%s] in cache [%s] as it does not exist&quot;).format(key, namespace)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          6157
+          -
+          6256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.log.error(scala.this.Predef.augmentString(&quot;Failed to decrement key [%s] in cache [%s] as it does not exist&quot;).format(key, namespace))
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          6274
+          -
+          6278
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          6265
+          -
+          6280
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[None.type](scala.None)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          6272
+          -
+          6272
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          6425
+          -
+          6425
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          6427
+          -
+          6432
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          6418
+          -
+          6434
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[Boolean](false)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          6554
+          -
+          6554
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          6556
+          -
+          6561
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          6547
+          -
+          6563
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.future
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.future[Boolean](false)(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          6964
+          -
+          6977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheConstants.KeyServerList
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.KeyServerList
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          6945
+          -
+          7009
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          config.getProperty(MemcacheManager.this.KeyServerList, scala.None).get.asInstanceOf[String]
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          6979
+          -
+          6983
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          7067
+          -
+          7074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](3)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          7051
+          -
+          7065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheConstants.KeyConcurrency
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.KeyConcurrency
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          7032
+          -
+          7097
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          config.getProperty(MemcacheManager.this.KeyConcurrency, scala.Some.apply[Int](3)).get.asInstanceOf[Int]
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          7147
+          -
+          7154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](1)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          7135
+          -
+          7145
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheConstants.KeyTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.KeyTimeout
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          7116
+          -
+          7177
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          config.getProperty(MemcacheManager.this.KeyTimeout, scala.Some.apply[Int](1)).get.asInstanceOf[Int]
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          7226
+          -
+          7309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.builder.ClientBuilder.failFast
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.finagle.builder.ClientBuilder.apply().hostConnectionLimit(concurrency).codec[com.twitter.finagle.memcached.protocol.Command, com.twitter.finagle.memcached.protocol.Response](com.twitter.finagle.memcached.protocol.text.Memcached.apply(com.twitter.finagle.memcached.protocol.text.Memcached.apply$default$1)).failFast(false)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          7353
+          -
+          7365
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.twitter.util.Duration.Top
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Duration.Top
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          7339
+          -
+          7351
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          2147483647
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          7183
+          -
+          7444
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.finagle.memcached.KetamaClientBuilder.apply().clientBuilder(com.twitter.finagle.builder.ClientBuilder.apply().hostConnectionLimit(concurrency).codec[com.twitter.finagle.memcached.protocol.Command, com.twitter.finagle.memcached.protocol.Response](com.twitter.finagle.memcached.protocol.text.Memcached.apply(com.twitter.finagle.memcached.protocol.text.Memcached.apply$default$1)).failFast(false)).failureAccrualParams(2147483647, com.twitter.util.Duration.Top).dest(serverList).build().asInstanceOf[com.twitter.finagle.memcached.PartitionedClient]
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          7559
+          -
+          7583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          7592
+          -
+          7608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches.size.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          7618
+          -
+          7714
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(0), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          7660
+          -
+          7681
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          7644
+          -
+          7658
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          7628
+          -
+          7628
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          7618
+          -
+          7714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(0), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          7683
+          -
+          7713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(0)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          7628
+          -
+          7714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(0), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          7628
+          -
+          7628
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          7726
+          -
+          8601
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val future: scala.concurrent.Future[Seq[com.webtrends.harness.component.memcache.CacheStatus]] = scala.concurrent.Future.traverse[(String, com.webtrends.harness.component.memcache.Memcache), com.webtrends.harness.component.memcache.CacheStatus, scala.collection.mutable.Iterable](MemcacheManager.this.caches)(((x0$3: (String, com.webtrends.harness.component.memcache.Memcache)) =&gt; x0$3 match {
+  case (_1: String, _2: com.webtrends.harness.component.memcache.Memcache)(String, com.webtrends.harness.component.memcache.Memcache)((k @ _), (v @ _)) =&gt; MemcacheManager.this.fromTwitter[com.webtrends.harness.component.memcache.CacheStatus](v.checkHealth())
+}))(mutable.this.Iterable.canBuildFrom[com.webtrends.harness.component.memcache.CacheStatus], MemcacheManager.this.context.dispatcher).mapTo[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((ClassTag.apply[Seq[com.webtrends.harness.component.memcache.CacheStatus]](classOf[scala.collection.Seq]): scala.reflect.ClassTag[Seq[com.webtrends.harness.component.memcache.CacheStatus]]));
+  future.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$4: scala.util.Try[Seq[com.webtrends.harness.component.memcache.CacheStatus]]) =&gt; x0$4 match {
+    case (value: Seq[com.webtrends.harness.component.memcache.CacheStatus])scala.util.Success[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((result @ _)) =&gt; {
+      val comp: com.webtrends.harness.health.HealthComponent = com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(result.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5);
+      result.zipWithIndex[com.webtrends.harness.component.memcache.CacheStatus, Seq[(com.webtrends.harness.component.memcache.CacheStatus, Int)]](collection.this.Seq.canBuildFrom[(com.webtrends.harness.component.memcache.CacheStatus, Int)]).foreach[Unit](((x0$5: (com.webtrends.harness.component.memcache.CacheStatus, Int)) =&gt; x0$5 match {
+        case (_1: com.webtrends.harness.component.memcache.CacheStatus, _2: Int)(com.webtrends.harness.component.memcache.CacheStatus, Int)((status @ _), (i @ _)) =&gt; status match {
+          case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(true, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.NORMAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+          case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(false, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.CRITICAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        }
+      }));
+      p.success(comp)
+    }
+    case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((f @ _)) =&gt; p.success(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+  }))(MemcacheManager.this.context.dispatcher)
+}
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          7771
+          -
+          7771
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          7763
+          -
+          7769
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.caches
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.caches
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          7771
+          -
+          7771
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Iterable.canBuildFrom[com.webtrends.harness.component.memcache.CacheStatus]
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          7796
+          -
+          7824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.MemcacheManager.fromTwitter
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.fromTwitter[com.webtrends.harness.component.memcache.CacheStatus](v.checkHealth())
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          7808
+          -
+          7823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.checkHealth
+        </td>
+        <td style="background: #F0ADAD">
+          v.checkHealth()
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          7747
+          -
+          7856
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.traverse[(String, com.webtrends.harness.component.memcache.Memcache), com.webtrends.harness.component.memcache.CacheStatus, scala.collection.mutable.Iterable](MemcacheManager.this.caches)(((x0$3: (String, com.webtrends.harness.component.memcache.Memcache)) =&gt; x0$3 match {
+  case (_1: String, _2: com.webtrends.harness.component.memcache.Memcache)(String, com.webtrends.harness.component.memcache.Memcache)((k @ _), (v @ _)) =&gt; MemcacheManager.this.fromTwitter[com.webtrends.harness.component.memcache.CacheStatus](v.checkHealth())
+}))(mutable.this.Iterable.canBuildFrom[com.webtrends.harness.component.memcache.CacheStatus], MemcacheManager.this.context.dispatcher).mapTo[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((ClassTag.apply[Seq[com.webtrends.harness.component.memcache.CacheStatus]](classOf[scala.collection.Seq]): scala.reflect.ClassTag[Seq[com.webtrends.harness.component.memcache.CacheStatus]]))
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          7863
+          -
+          8595
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$4: scala.util.Try[Seq[com.webtrends.harness.component.memcache.CacheStatus]]) =&gt; x0$4 match {
+  case (value: Seq[com.webtrends.harness.component.memcache.CacheStatus])scala.util.Success[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((result @ _)) =&gt; {
+    val comp: com.webtrends.harness.health.HealthComponent = com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(result.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5);
+    result.zipWithIndex[com.webtrends.harness.component.memcache.CacheStatus, Seq[(com.webtrends.harness.component.memcache.CacheStatus, Int)]](collection.this.Seq.canBuildFrom[(com.webtrends.harness.component.memcache.CacheStatus, Int)]).foreach[Unit](((x0$5: (com.webtrends.harness.component.memcache.CacheStatus, Int)) =&gt; x0$5 match {
+      case (_1: com.webtrends.harness.component.memcache.CacheStatus, _2: Int)(com.webtrends.harness.component.memcache.CacheStatus, Int)((status @ _), (i @ _)) =&gt; status match {
+        case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(true, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.NORMAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(false, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.CRITICAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+      }
+    }));
+    p.success(comp)
+  }
+  case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.component.memcache.CacheStatus]]((f @ _)) =&gt; p.success(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+}))(MemcacheManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          7870
+          -
+          7870
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          7991
+          -
+          8011
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Managing %d caches&quot;
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          7936
+          -
+          7936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          7991
+          -
+          8031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(result.size)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          7936
+          -
+          8032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;Managing %d caches&quot;).format(result.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          7968
+          -
+          7989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          7952
+          -
+          7966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          8019
+          -
+          8030
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td style="background: #F0ADAD">
+          result.size
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          7936
+          -
+          7936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          8043
+          -
+          8454
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          result.zipWithIndex[com.webtrends.harness.component.memcache.CacheStatus, Seq[(com.webtrends.harness.component.memcache.CacheStatus, Int)]](collection.this.Seq.canBuildFrom[(com.webtrends.harness.component.memcache.CacheStatus, Int)]).foreach[Unit](((x0$5: (com.webtrends.harness.component.memcache.CacheStatus, Int)) =&gt; x0$5 match {
+  case (_1: com.webtrends.harness.component.memcache.CacheStatus, _2: Int)(com.webtrends.harness.component.memcache.CacheStatus, Int)((status @ _), (i @ _)) =&gt; status match {
+    case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(true, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.NORMAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+    case (connect: Boolean, info: String)com.webtrends.harness.component.memcache.CacheStatus(false, (info @ _)) =&gt; comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.CRITICAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          8050
+          -
+          8050
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(com.webtrends.harness.component.memcache.CacheStatus, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          8184
+          -
+          8184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          8166
+          -
+          8272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.addComponent
+        </td>
+        <td style="background: #F0ADAD">
+          comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.NORMAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          8184
+          -
+          8271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.NORMAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          8243
+          -
+          8264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          8200
+          -
+          8241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          8184
+          -
+          8184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          8320
+          -
+          8428
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.addComponent
+        </td>
+        <td style="background: #F0ADAD">
+          comp.addComponent(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.CRITICAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          8397
+          -
+          8420
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          8338
+          -
+          8427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i), com.webtrends.harness.health.ComponentState.CRITICAL, info, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          8338
+          -
+          8338
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          8354
+          -
+          8395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.self.path.name.+(&quot; Cache Connection &quot;).+(i)
+        </td>
+      </tr><tr>
+        <td>
+          237
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          8338
+          -
+          8338
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          8465
+          -
+          8479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(comp)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          8507
+          -
+          8587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          8574
+          -
+          8586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          8517
+          -
+          8587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemcacheManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          8517
+          -
+          8517
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          8549
+          -
+          8572
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          8533
+          -
+          8547
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemcacheManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          8517
+          -
+          8517
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          8606
+          -
+          8614
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
