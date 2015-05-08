@@ -1,0 +1,6643 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/actor/PartitionConsumerWorker.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.kafka.actor
+</span>21 <span style=''>
+</span>22 <span style=''>
+</span>23 <span style=''>import akka.actor._
+</span>24 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
+</span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.{FetchReq, FetchRes}
+</span>26 <span style=''>import com.webtrends.harness.component.kafka.actor.OffsetManager.{GetOffsetData, OffsetData, OffsetDataResponse, StoreOffsetData}
+</span>27 <span style=''>import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
+</span>28 <span style=''>import com.webtrends.harness.component.kafka.health.KafkaHealthState
+</span>29 <span style=''>import com.webtrends.harness.component.kafka.receive.MessageResponse
+</span>30 <span style=''>import com.webtrends.harness.component.kafka.util._
+</span>31 <span style=''>import com.webtrends.harness.component.zookeeper.{Curator, ZookeeperAdapter}
+</span>32 <span style=''>import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
+</span>33 <span style=''>
+</span>34 <span style=''>import scala.concurrent.duration._
+</span>35 <span style=''>import scala.util.Try
+</span>36 <span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>/**
+</span>40 <span style=''> * Fetch Mode - can be 'automatic' or 'manual'
+</span>41 <span style=''> * Automatic - Automatically ask Kafka for more messages
+</span>42 <span style=''> * Manual - The client decides when to ask for more by invoking fetchRequest(someOffset)
+</span>43 <span style=''> **/
+</span>44 <span style=''>object ConsumptionFetchMode extends Enumeration {
+</span>45 <span style=''>  type ConsumptionFetchMode = Value
+</span>46 <span style=''>  val AUTOMATIC, MANUAL = </span><span style='background: #F0ADAD'>Value</span><span style=''>
+</span>47 <span style=''>}
+</span>48 <span style=''>
+</span>49 <span style=''>object PartitionConsumerWorker {
+</span>50 <span style=''>  case object Stop
+</span>51 <span style=''>  case object Start
+</span>52 <span style=''>  // Worker is reporting that it has stopped
+</span>53 <span style=''>  case class WorkerStopped(name: String)
+</span>54 <span style=''>
+</span>55 <span style=''>  case object CommitOffset
+</span>56 <span style=''>
+</span>57 <span style=''>  case class FetchErrorBadOffset(nextAvailableOffset: Long)
+</span>58 <span style=''>  case class FetchErrorPartitionNotAvailable(offsetRequested: Long)
+</span>59 <span style=''>
+</span>60 <span style=''>  // FSM States
+</span>61 <span style=''>  trait State
+</span>62 <span style=''>  case object Stopped extends State
+</span>63 <span style=''>  case object Starting extends State
+</span>64 <span style=''>  case object Consuming extends State
+</span>65 <span style=''>
+</span>66 <span style=''>  trait Lock
+</span>67 <span style=''>  case class Acquired(lease: Lease) extends Lock
+</span>68 <span style=''>  case object Unlocked extends Lock
+</span>69 <span style=''>}
+</span>70 <span style=''>
+</span>71 <span style=''>class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment, offsetManager: ActorRef)
+</span>72 <span style=''>  extends LoggingFSM[State, Lock] with Actor with ZookeeperAdapter with KafkaSettings {
+</span>73 <span style=''>
+</span>74 <span style=''>  import context._
+</span>75 <span style=''>  import ConsumptionFetchMode._
+</span>76 <span style=''>
+</span>77 <span style=''>  val decoder = </span><span style='background: #F0ADAD'>utf8.newDecoder</span><span style=''>
+</span>78 <span style=''>
+</span>79 <span style=''>  val topic = </span><span style='background: #F0ADAD'>assign.topic</span><span style=''>
+</span>80 <span style=''>  val partition = </span><span style='background: #F0ADAD'>assign.partition</span><span style=''>
+</span>81 <span style=''>  val host = </span><span style='background: #F0ADAD'>assign.host</span><span style=''>
+</span>82 <span style=''>  val cluster = </span><span style='background: #F0ADAD'>assign.cluster</span><span style=''>
+</span>83 <span style=''>  val name = </span><span style='background: #F0ADAD'>assign.assignmentName</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>  val lockPath = </span><span style='background: #F0ADAD'>s"$appRootPath/locks/${cluster}_${topic}_$partition"</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>  // Harness 3.0 does not provide distributed lock support. Need to pull the curator instance and create our own
+</span>88 <span style=''>  val curator = </span><span style='background: #F0ADAD'>Curator(zkConf.get).client</span><span style=''>
+</span>89 <span style=''>
+</span>90 <span style=''>  val zkCommitRate = </span><span style='background: #F0ADAD'>kafkaConfig.getLong("zk-offset-commit-rate-millis")</span><span style=''>
+</span>91 <span style=''>
+</span>92 <span style=''>  // Add scheduled jobs to this list, they will be cancelled on Stop
+</span>93 <span style=''>  var scheduler: List[Cancellable] = </span><span style='background: #F0ADAD'>List.empty</span><span style=''>
+</span>94 <span style=''>
+</span>95 <span style=''>  // The acknowledged offset
+</span>96 <span style=''>  protected var ackedOffset = </span><span style='background: #F0ADAD'>0L</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>  // OVERRIDE to set custom offset writing
+</span>99 <span style=''>  def formatAckedOffset() = </span><span style='background: #F0ADAD'>ackedOffset.toString</span><span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>  // Last offset that was sent over to kafka proxy
+</span>102 <span style=''>  protected var lastSentToProxyOffset = </span><span style='background: #F0ADAD'>0L</span><span style=''>
+</span>103 <span style=''>
+</span>104 <span style=''>  // Last offset stored
+</span>105 <span style=''>  protected var lastSentToStorage = </span><span style='background: #F0ADAD'>0L</span><span style=''>
+</span>106 <span style=''>
+</span>107 <span style=''>  // Each partition worker needs to lock the partition it is working on to prevent data duplication.
+</span>108 <span style=''>  // We need to ensure that the initial node completes before the new node reads the offsets out of ZK
+</span>109 <span style=''>  protected val lock = </span><span style='background: #F0ADAD'>new InterProcessSemaphoreV2(curator, lockPath, 1)</span><span style=''>
+</span>110 <span style=''>
+</span>111 <span style=''>  /**
+</span>112 <span style=''>   * Fetch Mode - Defaults to automatic
+</span>113 <span style=''>   * @return
+</span>114 <span style=''>   **/
+</span>115 <span style=''>  def fetchMode():ConsumptionFetchMode = </span><span style='background: #F0ADAD'>AUTOMATIC</span><span style=''>
+</span>116 <span style=''>
+</span>117 <span style=''>  /**
+</span>118 <span style=''>   * Override method to set functionality when consuming, to manage offsets be sure to
+</span>119 <span style=''>   * set ackedOffset when account has executed its desired data processing successfully.
+</span>120 <span style=''>   * @param messageResponse message received by worker on its assigned partition
+</span>121 <span style=''>   */
+</span>122 <span style=''>  def onReceive(messageResponse: MessageResponse) = {
+</span>123 <span style=''>    </span><span style='background: #F0ADAD'>ackedOffset = messageResponse.nextOffsetOfSet</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>
+</span>127 <span style=''>
+</span>128 <span style=''>  // A worker can be in one of 4 standard states:
+</span>129 <span style=''>  // 1. Stopped  -  The worker has been created and told to process data, but it is not yet ready to read from kafka.
+</span>130 <span style=''>  //                If told to start, the worker will obtain the distributed lock for this partition,
+</span>131 <span style=''>  //                and read its initial state out of ZK
+</span>132 <span style=''>  // 2. Starting -  The worker has been told to start and has acquired a lock, it will not try to read its initial
+</span>133 <span style=''>  //                state from ZK and start consuming if successful
+</span>134 <span style=''>  // 3. Consuming - The worker has fully started up and is reading data from kafka
+</span>135 <span style=''>  </span><span style='background: #F0ADAD'>startWith(Stopped, Unlocked)</span><span style=''>
+</span>136 <span style=''>
+</span>137 <span style=''>  // These messages should always be responded to in all states
+</span>138 <span style=''>  </span><span style='background: #F0ADAD'>whenUnhandled {
+</span>139 <span style=''></span><span style='background: #F0ADAD'>    case Event(Stop, aq: Acquired) =>
+</span>140 <span style=''></span><span style='background: #F0ADAD'>      goto(Stopped) using Unlocked
+</span>141 <span style=''></span><span style='background: #F0ADAD'>
+</span>142 <span style=''></span><span style='background: #F0ADAD'>    case Event(Stop, Unlocked) =>
+</span>143 <span style=''></span><span style='background: #F0ADAD'>      stay()
+</span>144 <span style=''></span><span style='background: #F0ADAD'>
+</span>145 <span style=''></span><span style='background: #F0ADAD'>    case Event(Start, aq: Acquired) =>
+</span>146 <span style=''></span><span style='background: #F0ADAD'>      stay()
+</span>147 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>148 <span style=''>
+</span>149 <span style=''>  </span><span style='background: #F0ADAD'>onTransition {
+</span>150 <span style=''></span><span style='background: #F0ADAD'>    case (Consuming | Starting) -> Stopped =>
+</span>151 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"$name: Transitioning state to Stopped")
+</span>152 <span style=''></span><span style='background: #F0ADAD'>      stopWorker()
+</span>153 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! WorkerStopped(name)
+</span>154 <span style=''></span><span style='background: #F0ADAD'>
+</span>155 <span style=''></span><span style='background: #F0ADAD'>    case Stopped -> Starting =>
+</span>156 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"$name: Transitioning state to Starting")
+</span>157 <span style=''></span><span style='background: #F0ADAD'>      offsetManager ! GetOffsetData(partitionName(assign))
+</span>158 <span style=''></span><span style='background: #F0ADAD'>
+</span>159 <span style=''></span><span style='background: #F0ADAD'>    case Starting -> Consuming =>
+</span>160 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"$name: Transitioning state to Consuming")
+</span>161 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! KafkaHealthState(name, healthy = true, s"Worker started, no data yet", topic)
+</span>162 <span style=''></span><span style='background: #F0ADAD'>
+</span>163 <span style=''></span><span style='background: #F0ADAD'>      fetchRequest(ackedOffset)
+</span>164 <span style=''></span><span style='background: #F0ADAD'>      scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
+</span>165 <span style=''></span><span style='background: #F0ADAD'>        zkCommitRate milliseconds, self, CommitOffset)
+</span>166 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>167 <span style=''>
+</span>168 <span style=''>  </span><span style='background: #F0ADAD'>when(Stopped) {
+</span>169 <span style=''></span><span style='background: #F0ADAD'>    case Event(Start, Unlocked) =>
+</span>170 <span style=''></span><span style='background: #F0ADAD'>      acquireLock() match {
+</span>171 <span style=''></span><span style='background: #F0ADAD'>        case Some(aq) => goto(Starting) using aq
+</span>172 <span style=''></span><span style='background: #F0ADAD'>        case None => stay()
+</span>173 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>174 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>175 <span style=''>
+</span>176 <span style=''>  </span><span style='background: #F0ADAD'>when(Starting, stateTimeout = 5 seconds) {
+</span>177 <span style=''></span><span style='background: #F0ADAD'>    case Event(msg: OffsetDataResponse, aq: Acquired) =>
+</span>178 <span style=''></span><span style='background: #F0ADAD'>      msg.data match {
+</span>179 <span style=''></span><span style='background: #F0ADAD'>        case Left(data) =>
+</span>180 <span style=''></span><span style='background: #F0ADAD'>          processOffsets(data)
+</span>181 <span style=''></span><span style='background: #F0ADAD'>        case Right(ex) =>
+</span>182 <span style=''></span><span style='background: #F0ADAD'>          log.error("Unable to load offset state")
+</span>183 <span style=''></span><span style='background: #F0ADAD'>          goto(Stopped) using Unlocked
+</span>184 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>185 <span style=''></span><span style='background: #F0ADAD'>
+</span>186 <span style=''></span><span style='background: #F0ADAD'>    case Event(StateTimeout, aq: Acquired) =>
+</span>187 <span style=''></span><span style='background: #F0ADAD'>      goto(Stopped) using Unlocked
+</span>188 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>189 <span style=''>
+</span>190 <span style=''>  </span><span style='background: #F0ADAD'>when(Consuming) {
+</span>191 <span style=''></span><span style='background: #F0ADAD'>    case Event(msg: FetchRes, aq: Acquired) =>
+</span>192 <span style=''></span><span style='background: #F0ADAD'>      if (msg.messages.size > 0) {
+</span>193 <span style=''></span><span style='background: #F0ADAD'>        context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched ${msg.messages.size} events from kafka", topic)
+</span>194 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>195 <span style=''></span><span style='background: #F0ADAD'>
+</span>196 <span style=''></span><span style='background: #F0ADAD'>      consume(msg)
+</span>197 <span style=''></span><span style='background: #F0ADAD'>
+</span>198 <span style=''></span><span style='background: #F0ADAD'>      stay()
+</span>199 <span style=''></span><span style='background: #F0ADAD'>
+</span>200 <span style=''></span><span style='background: #F0ADAD'>    case Event(msg: FetchErrorBadOffset, aq: Acquired) =>
+</span>201 <span style=''></span><span style='background: #F0ADAD'>      log.warning(s"$name: Failed to fetch events from kafka. " +
+</span>202 <span style=''></span><span style='background: #F0ADAD'>                  s"Offset out of range. Using offset ${msg.nextAvailableOffset}")
+</span>203 <span style=''></span><span style='background: #F0ADAD'>      fetchRequest(msg.nextAvailableOffset)
+</span>204 <span style=''></span><span style='background: #F0ADAD'>      stay()
+</span>205 <span style=''></span><span style='background: #F0ADAD'>
+</span>206 <span style=''></span><span style='background: #F0ADAD'>    case Event(msg: FetchErrorPartitionNotAvailable, aq: Acquired) =>
+</span>207 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! KafkaHealthState(name, healthy = false, s"Failed to fetch events from kafka. Partition not available", topic)
+</span>208 <span style=''></span><span style='background: #F0ADAD'>      log.error(s"$name: Unable to fetch events from kafka. Partition no available")
+</span>209 <span style=''></span><span style='background: #F0ADAD'>      goto(Stopped) using Unlocked
+</span>210 <span style=''></span><span style='background: #F0ADAD'>
+</span>211 <span style=''></span><span style='background: #F0ADAD'>    case Event(CommitOffset, aq: Acquired) =>
+</span>212 <span style=''></span><span style='background: #F0ADAD'>      storeOffset()
+</span>213 <span style=''></span><span style='background: #F0ADAD'>      stay()
+</span>214 <span style=''></span><span style='background: #F0ADAD'>
+</span>215 <span style=''></span><span style='background: #F0ADAD'>    case Event(msg: OffsetDataResponse, aq: Acquired) =>
+</span>216 <span style=''></span><span style='background: #F0ADAD'>      msg.data match {
+</span>217 <span style=''></span><span style='background: #F0ADAD'>        case Left(data) =>
+</span>218 <span style=''></span><span style='background: #F0ADAD'>          lastSentToStorage = extractOffset(data)
+</span>219 <span style=''></span><span style='background: #F0ADAD'>          stay()
+</span>220 <span style=''></span><span style='background: #F0ADAD'>        case Right(ex) =>
+</span>221 <span style=''></span><span style='background: #F0ADAD'>          log.error("Unable to save offset state")
+</span>222 <span style=''></span><span style='background: #F0ADAD'>          goto(Stopped) using Unlocked
+</span>223 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>224 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>225 <span style=''>
+</span>226 <span style=''>  </span><span style='background: #F0ADAD'>initialize()</span><span style=''>
+</span>227 <span style=''>
+</span>228 <span style=''>  // Will only store if the ackedOffset has changed or force is true
+</span>229 <span style=''>  protected def storeOffset(force: Boolean = false): Unit = {
+</span>230 <span style=''>    if (</span><span style='background: #F0ADAD'>force || (ackedOffset > 0 && lastSentToStorage != ackedOffset)</span><span style=''>) {
+</span>231 <span style=''>       </span><span style='background: #F0ADAD'>offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))</span><span style=''>
+</span>232 <span style=''>    }
+</span>233 <span style=''>  }
+</span>234 <span style=''>
+</span>235 <span style=''>  override def postStop(): Unit = {
+</span>236 <span style=''>    </span><span style='background: #F0ADAD'>stopWorker()</span><span style=''>
+</span>237 <span style=''>  }
+</span>238 <span style=''>
+</span>239 <span style=''>  // Override to process initial offsets differently
+</span>240 <span style=''>  protected def processOffsets(offsetData: OffsetData): State = {
+</span>241 <span style=''>    val offset = </span><span style='background: #F0ADAD'>extractOffset(offsetData)</span><span style=''>
+</span>242 <span style=''>
+</span>243 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(s"$name has initialized with offset $offset")</span><span style=''>
+</span>244 <span style=''>    </span><span style='background: #F0ADAD'>ackedOffset = offset</span><span style=''>
+</span>245 <span style=''>    </span><span style='background: #F0ADAD'>lastSentToProxyOffset = offset</span><span style=''>
+</span>246 <span style=''>    </span><span style='background: #F0ADAD'>lastSentToStorage = offset</span><span style=''>
+</span>247 <span style=''>
+</span>248 <span style=''>    </span><span style='background: #F0ADAD'>goto(Consuming)</span><span style=''>
+</span>249 <span style=''>  }
+</span>250 <span style=''>
+</span>251 <span style=''>  // Can be overridden to read custom offsets
+</span>252 <span style=''>  protected def extractOffset(offsetData:OffsetData):Long = {
+</span>253 <span style=''>    val data = </span><span style='background: #F0ADAD'>offsetData.asString()</span><span style=''>
+</span>254 <span style=''>    if(</span><span style='background: #F0ADAD'>data.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>0L</span><span style=''> else </span><span style='background: #F0ADAD'>data.toLong</span><span style=''>
+</span>255 <span style=''>  }
+</span>256 <span style=''>
+</span>257 <span style=''>  def stopWorker() = {
+</span>258 <span style=''>    if(</span><span style='background: #F0ADAD'>ackedOffset > 0</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>259 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d"
+</span>260 <span style=''></span><span style='background: #F0ADAD'>        .format(name, lastSentToStorage, lastSentToProxyOffset, ackedOffset))
+</span>261 <span style=''></span><span style='background: #F0ADAD'>
+</span>262 <span style=''></span><span style='background: #F0ADAD'>      offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
+</span>263 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>264 <span style=''>    </span><span style='background: #F0ADAD'>scheduler.foreach(_.cancel())</span><span style=''>
+</span>265 <span style=''>    </span><span style='background: #F0ADAD'>scheduler = List()</span><span style=''>
+</span>266 <span style=''>
+</span>267 <span style=''>    </span><span style='background: #F0ADAD'>stateData</span><span style=''> match {
+</span>268 <span style=''>      case aq: Acquired =>
+</span>269 <span style=''>        </span><span style='background: #F0ADAD'>lock.returnLease(aq.lease)</span><span style=''>
+</span>270 <span style=''>        </span><span style='background: #F0ADAD'>log.debug(s"$name: Released lock")</span><span style=''>
+</span>271 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''> // No lock
+</span>272 <span style=''>    }
+</span>273 <span style=''>    </span><span style='background: #F0ADAD'>context.parent ! KafkaHealthState(name, healthy = true, null, null)</span><span style=''>
+</span>274 <span style=''>  }
+</span>275 <span style=''>
+</span>276 <span style=''>  def acquireLock(): Option[Acquired] = {
+</span>277 <span style=''>    try {
+</span>278 <span style=''>      </span><span style='background: #F0ADAD'>val acquiredLease = lock.acquire()
+</span>279 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"$name: Lock acquired")
+</span>280 <span style=''></span><span style='background: #F0ADAD'>      Some(Acquired(acquiredLease))</span><span style=''>
+</span>281 <span style=''>    } catch {
+</span>282 <span style=''>      case e: Throwable =>
+</span>283 <span style=''>        </span><span style='background: #F0ADAD'>log.error(s"$name: Unable to obtain lock: ${e.getMessage} ")</span><span style=''>
+</span>284 <span style=''>        </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>285 <span style=''>    }
+</span>286 <span style=''>  }
+</span>287 <span style=''>
+</span>288 <span style=''>  /**
+</span>289 <span style=''>   * Takes the list of messages receive in the last fetch and sends them to
+</span>290 <span style=''>   * the main worker method account(...) which should be overridden with the actual
+</span>291 <span style=''>   * work we want to do.
+</span>292 <span style=''>   * @param fetchRes Contains our next offset and the list of messages we just got
+</span>293 <span style=''>   * @return Returns a request for more messages
+</span>294 <span style=''>   */
+</span>295 <span style=''>  def consume(fetchRes: FetchRes) = {
+</span>296 <span style=''>
+</span>297 <span style=''>    </span><span style='background: #F0ADAD'>lastSentToProxyOffset = fetchRes.nextOffset</span><span style=''>
+</span>298 <span style=''>
+</span>299 <span style=''>    </span><span style='background: #F0ADAD'>onReceive(MessageResponse(fetchRes.messages, fetchRes.nextOffset))</span><span style=''>
+</span>300 <span style=''>
+</span>301 <span style=''>    //After consumption of messages automatically fetch the next
+</span>302 <span style=''>    if(</span><span style='background: #F0ADAD'>fetchMode() == AUTOMATIC</span><span style=''>) {
+</span>303 <span style=''>      </span><span style='background: #F0ADAD'>fetchRequest (fetchRes.nextOffset)</span><span style=''>
+</span>304 <span style=''>    }
+</span>305 <span style=''>  }
+</span>306 <span style=''>
+</span>307 <span style=''>
+</span>308 <span style=''>  /**
+</span>309 <span style=''>   * Fetch data from kafka
+</span>310 <span style=''>   *
+</span>311 <span style=''>   */
+</span>312 <span style=''>  protected def fetchRequest(nextOffset: Long) = {
+</span>313 <span style=''>    //log.debug(s"$name fetching offset $nextOffset")
+</span>314 <span style=''>    </span><span style='background: #F0ADAD'>kafkaProxy ! FetchReq(topic, partition, nextOffset, host)</span><span style=''>
+</span>315 <span style=''>  }
+</span>316 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1314
+        </td>
+        <td>
+          1936
+          -
+          1941
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Enumeration.Value
+        </td>
+        <td style="background: #F0ADAD">
+          ConsumptionFetchMode.this.Value
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1313
+        </td>
+        <td>
+          1936
+          -
+          1936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Enumeration.Value
+        </td>
+        <td style="background: #F0ADAD">
+          ConsumptionFetchMode.this.Value
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1315
+        </td>
+        <td>
+          2767
+          -
+          2782
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.charset.Charset.newDecoder
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.utf8.newDecoder()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1316
+        </td>
+        <td>
+          2798
+          -
+          2810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign.topic
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1317
+        </td>
+        <td>
+          2829
+          -
+          2845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign.partition
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1318
+        </td>
+        <td>
+          2859
+          -
+          2870
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign.host
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1319
+        </td>
+        <td>
+          2887
+          -
+          2901
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign.cluster
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1320
+        </td>
+        <td>
+          2915
+          -
+          2936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.assignmentName
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign.assignmentName
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1324
+        </td>
+        <td>
+          2995
+          -
+          2997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1327
+        </td>
+        <td>
+          2978
+          -
+          2985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.cluster
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1330
+        </td>
+        <td>
+          2955
+          -
+          3007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/locks/&quot;, &quot;_&quot;, &quot;_&quot;, &quot;&quot;).s(PartitionConsumerWorker.this.appRootPath, PartitionConsumerWorker.this.cluster, PartitionConsumerWorker.this.topic, PartitionConsumerWorker.this.partition)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1321
+        </td>
+        <td>
+          2957
+          -
+          2958
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1329
+        </td>
+        <td>
+          2997
+          -
+          3006
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.partition
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1323
+        </td>
+        <td>
+          2986
+          -
+          2988
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1326
+        </td>
+        <td>
+          2958
+          -
+          2969
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.appRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.appRootPath
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1328
+        </td>
+        <td>
+          2989
+          -
+          2994
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1322
+        </td>
+        <td>
+          2969
+          -
+          2977
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/locks/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1325
+        </td>
+        <td>
+          3006
+          -
+          3007
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1332
+        </td>
+        <td>
+          3138
+          -
+          3164
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.client
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.Curator.apply(PartitionConsumerWorker.this.zkConf.get).client
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1331
+        </td>
+        <td>
+          3146
+          -
+          3156
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.zkConf.get
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1333
+        </td>
+        <td>
+          3187
+          -
+          3238
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getLong
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.kafkaConfig.getLong(&quot;zk-offset-commit-rate-millis&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1334
+        </td>
+        <td>
+          3346
+          -
+          3356
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1335
+        </td>
+        <td>
+          3417
+          -
+          3419
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1336
+        </td>
+        <td>
+          3492
+          -
+          3512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset.toString()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1337
+        </td>
+        <td>
+          3605
+          -
+          3607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1338
+        </td>
+        <td>
+          3669
+          -
+          3671
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1342
+        </td>
+        <td>
+          3900
+          -
+          3949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.recipes.locks.InterProcessSemaphoreV2.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.curator.framework.recipes.locks.InterProcessSemaphoreV2(PartitionConsumerWorker.this.curator, PartitionConsumerWorker.this.lockPath, 1)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1339
+        </td>
+        <td>
+          3928
+          -
+          3935
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.curator
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.curator
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1341
+        </td>
+        <td>
+          3947
+          -
+          3948
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1340
+        </td>
+        <td>
+          3937
+          -
+          3945
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lockPath
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lockPath
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1343
+        </td>
+        <td>
+          4058
+          -
+          4067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.ConsumptionFetchMode.AUTOMATIC
+        </td>
+        <td style="background: #F0ADAD">
+          ConsumptionFetchMode.AUTOMATIC
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1345
+        </td>
+        <td>
+          4396
+          -
+          4441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.ackedOffset_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset_=(messageResponse.nextOffsetOfSet)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1344
+        </td>
+        <td>
+          4410
+          -
+          4441
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.receive.MessageResponse.nextOffsetOfSet
+        </td>
+        <td style="background: #F0ADAD">
+          messageResponse.nextOffsetOfSet
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1348
+        </td>
+        <td>
+          5044
+          -
+          5044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.FSM.startWith$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.startWith$default$3
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1347
+        </td>
+        <td>
+          5063
+          -
+          5071
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1346
+        </td>
+        <td>
+          5054
+          -
+          5061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1349
+        </td>
+        <td>
+          5044
+          -
+          5072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.startWith
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.startWith(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked, PartitionConsumerWorker.this.startWith$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1356
+        </td>
+        <td>
+          5140
+          -
+          5333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.whenUnhandled
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.whenUnhandled(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: PartitionConsumerWorker.this.Event =&gt; PartitionConsumerWorker.this.State&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: PartitionConsumerWorker.this.Event, B1 &gt;: PartitionConsumerWorker.this.State](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case PartitionConsumerWorker.this.Event.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](&lt;unapply-selector&gt;) &lt;unapply&gt; (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked) =&gt; PartitionConsumerWorker.this.stay()
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; PartitionConsumerWorker.this.stay()
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: PartitionConsumerWorker.this.Event): Boolean = ((x1.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State]))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1355
+        </td>
+        <td>
+          5154
+          -
+          5154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1351
+        </td>
+        <td>
+          5220
+          -
+          5228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1350
+        </td>
+        <td>
+          5205
+          -
+          5212
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1352
+        </td>
+        <td>
+          5200
+          -
+          5228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          1353
+        </td>
+        <td>
+          5270
+          -
+          5276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1354
+        </td>
+        <td>
+          5323
+          -
+          5329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1407
+        </td>
+        <td>
+          5337
+          -
+          6046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.onTransition
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.onTransition(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State),Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: ((com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)) =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State), B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)]: (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)): (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State) @unchecked) match {
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; ((com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming| com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting), com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped) =&gt; {
+        PartitionConsumerWorker.this.log.info(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Stopped&quot;).s(PartitionConsumerWorker.this.name));
+        PartitionConsumerWorker.this.stopWorker();
+        akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped.apply(PartitionConsumerWorker.this.name))(PartitionConsumerWorker.this.self)
+      }
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting) =&gt; {
+        PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Starting&quot;).s(PartitionConsumerWorker.this.name));
+        akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.GetOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign)))(PartitionConsumerWorker.this.self)
+      }
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming) =&gt; {
+        PartitionConsumerWorker.this.log.info(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Consuming&quot;).s(PartitionConsumerWorker.this.name));
+        akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Worker started, no data yet&quot;).s(), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self);
+        PartitionConsumerWorker.this.fetchRequest(PartitionConsumerWorker.this.ackedOffset);
+        PartitionConsumerWorker.this.scheduler_=(PartitionConsumerWorker.this.scheduler.:+[akka.actor.Cancellable, List[akka.actor.Cancellable]](PartitionConsumerWorker.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, PartitionConsumerWorker.this.self, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset)(PartitionConsumerWorker.this.context.dispatcher, PartitionConsumerWorker.this.self))(immutable.this.List.canBuildFrom[akka.actor.Cancellable]))
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)): Boolean = ((x2.asInstanceOf[(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)]: (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State)): (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State) @unchecked) match {
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; ((com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming| com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting), com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped) =&gt; true
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting) =&gt; true
+      case PartitionConsumerWorker.this.-&gt;.unapply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State](&lt;unapply-selector&gt;) &lt;unapply&gt; (com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.State),Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1406
+        </td>
+        <td>
+          5350
+          -
+          5350
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1357
+        </td>
+        <td>
+          5415
+          -
+          5416
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1360
+        </td>
+        <td>
+          5413
+          -
+          5453
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Stopped&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1359
+        </td>
+        <td>
+          5416
+          -
+          5420
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1361
+        </td>
+        <td>
+          5404
+          -
+          5454
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.info
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.info(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Stopped&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1358
+        </td>
+        <td>
+          5420
+          -
+          5453
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Transitioning state to Stopped&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1362
+        </td>
+        <td>
+          5461
+          -
+          5473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.stopWorker
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stopWorker()
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1366
+        </td>
+        <td>
+          5495
+          -
+          5495
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          5480
+          -
+          5494
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1365
+        </td>
+        <td>
+          5497
+          -
+          5516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped.apply(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1364
+        </td>
+        <td>
+          5511
+          -
+          5515
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          5480
+          -
+          5516
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped.apply(PartitionConsumerWorker.this.name))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1369
+        </td>
+        <td>
+          5573
+          -
+          5607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Transitioning state to Starting&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1372
+        </td>
+        <td>
+          5556
+          -
+          5608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.debug
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Starting&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1368
+        </td>
+        <td>
+          5568
+          -
+          5569
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1371
+        </td>
+        <td>
+          5566
+          -
+          5607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Starting&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1370
+        </td>
+        <td>
+          5569
+          -
+          5573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1375
+        </td>
+        <td>
+          5645
+          -
+          5666
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.partitionName
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1378
+        </td>
+        <td>
+          5615
+          -
+          5667
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.GetOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign)))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          5659
+          -
+          5665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.assign
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1377
+        </td>
+        <td>
+          5629
+          -
+          5629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1373
+        </td>
+        <td>
+          5615
+          -
+          5628
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.offsetManager
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.offsetManager
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1376
+        </td>
+        <td>
+          5631
+          -
+          5667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.GetOffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.GetOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1381
+        </td>
+        <td>
+          5721
+          -
+          5725
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          5725
+          -
+          5760
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Transitioning state to Consuming&quot;
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1383
+        </td>
+        <td>
+          5709
+          -
+          5761
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.info
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.info(scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Consuming&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          5720
+          -
+          5721
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1382
+        </td>
+        <td>
+          5718
+          -
+          5760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Transitioning state to Consuming&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1384
+        </td>
+        <td>
+          5768
+          -
+          5782
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1387
+        </td>
+        <td>
+          5824
+          -
+          5854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Worker started, no data yet&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1390
+        </td>
+        <td>
+          5783
+          -
+          5783
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          5785
+          -
+          5862
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Worker started, no data yet&quot;).s(), PartitionConsumerWorker.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1386
+        </td>
+        <td>
+          5818
+          -
+          5822
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1388
+        </td>
+        <td>
+          5856
+          -
+          5861
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1391
+        </td>
+        <td>
+          5768
+          -
+          5862
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Worker started, no data yet&quot;).s(), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1385
+        </td>
+        <td>
+          5802
+          -
+          5806
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          1393
+        </td>
+        <td>
+          5870
+          -
+          5895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.fetchRequest
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.fetchRequest(PartitionConsumerWorker.this.ackedOffset)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          1392
+        </td>
+        <td>
+          5883
+          -
+          5894
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.ackedOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1402
+        </td>
+        <td>
+          5927
+          -
+          6042
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, PartitionConsumerWorker.this.self, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset)(PartitionConsumerWorker.this.context.dispatcher, PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1405
+        </td>
+        <td>
+          5902
+          -
+          6042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.scheduler_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.scheduler_=(PartitionConsumerWorker.this.scheduler.:+[akka.actor.Cancellable, List[akka.actor.Cancellable]](PartitionConsumerWorker.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, PartitionConsumerWorker.this.self, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset)(PartitionConsumerWorker.this.context.dispatcher, PartitionConsumerWorker.this.self))(immutable.this.List.canBuildFrom[akka.actor.Cancellable]))
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1401
+        </td>
+        <td>
+          5960
+          -
+          5960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1395
+        </td>
+        <td>
+          5961
+          -
+          5986
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.milliseconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1404
+        </td>
+        <td>
+          5914
+          -
+          6042
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.:+
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.scheduler.:+[akka.actor.Cancellable, List[akka.actor.Cancellable]](PartitionConsumerWorker.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds, PartitionConsumerWorker.this.self, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset)(PartitionConsumerWorker.this.context.dispatcher, PartitionConsumerWorker.this.self))(immutable.this.List.canBuildFrom[akka.actor.Cancellable])
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1394
+        </td>
+        <td>
+          5961
+          -
+          5973
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.zkCommitRate
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.zkCommitRate
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1403
+        </td>
+        <td>
+          5924
+          -
+          5924
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[akka.actor.Cancellable]
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1400
+        </td>
+        <td>
+          5960
+          -
+          5960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1396
+        </td>
+        <td>
+          5996
+          -
+          6008
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.zkCommitRate
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.zkCommitRate
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1399
+        </td>
+        <td>
+          6029
+          -
+          6041
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1398
+        </td>
+        <td>
+          6023
+          -
+          6027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1397
+        </td>
+        <td>
+          5996
+          -
+          6021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.milliseconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationLong(PartitionConsumerWorker.this.zkCommitRate).milliseconds
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1414
+        </td>
+        <td>
+          6050
+          -
+          6217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.when
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.when(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped, PartitionConsumerWorker.this.when$default$2)(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: PartitionConsumerWorker.this.Event =&gt; PartitionConsumerWorker.this.State&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: PartitionConsumerWorker.this.Event, B1 &gt;: PartitionConsumerWorker.this.State](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked) =&gt; PartitionConsumerWorker.this.acquireLock() match {
+        case (x: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired)Some[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired]((aq @ _)) =&gt; PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting).using(aq)
+        case scala.None =&gt; PartitionConsumerWorker.this.stay()
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: PartitionConsumerWorker.this.Event): Boolean = ((x3.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start, com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State]))
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1408
+        </td>
+        <td>
+          6055
+          -
+          6062
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1413
+        </td>
+        <td>
+          6064
+          -
+          6064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          1409
+        </td>
+        <td>
+          6050
+          -
+          6050
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.FSM.when$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.when$default$2
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          1410
+        </td>
+        <td>
+          6107
+          -
+          6120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.acquireLock
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.acquireLock()
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1411
+        </td>
+        <td>
+          6154
+          -
+          6177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting).using(aq)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1412
+        </td>
+        <td>
+          6199
+          -
+          6205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1416
+        </td>
+        <td>
+          6251
+          -
+          6252
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1428
+        </td>
+        <td>
+          6221
+          -
+          6611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.when
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.when(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting, scala.concurrent.duration.`package`.DurationInt(5).seconds)(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: PartitionConsumerWorker.this.Event =&gt; PartitionConsumerWorker.this.State&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: PartitionConsumerWorker.this.Event, B1 &gt;: PartitionConsumerWorker.this.State](x4: A1, default: A1 =&gt; B1): B1 = ((x4.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; msg.data match {
+        case (a: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData)scala.util.Left[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData,Throwable]((data @ _)) =&gt; PartitionConsumerWorker.this.processOffsets(data)
+        case (b: Throwable)scala.util.Right[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData,Throwable]((ex @ _)) =&gt; {
+          PartitionConsumerWorker.this.log.error(&quot;Unable to load offset state&quot;);
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        }
+      }
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](PartitionConsumerWorker.this.StateTimeout, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+      case (defaultCase$ @ _) =&gt; default.apply(x4)
+    };
+    final def isDefinedAt(x4: PartitionConsumerWorker.this.Event): Boolean = ((x4.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](PartitionConsumerWorker.this.StateTimeout, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State]))
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1415
+        </td>
+        <td>
+          6226
+          -
+          6234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Starting
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1427
+        </td>
+        <td>
+          6262
+          -
+          6262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1417
+        </td>
+        <td>
+          6251
+          -
+          6260
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1418
+        </td>
+        <td>
+          6327
+          -
+          6335
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.data
+        </td>
+        <td style="background: #F0ADAD">
+          msg.data
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          1419
+        </td>
+        <td>
+          6381
+          -
+          6401
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.processOffsets
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.processOffsets(data)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1420
+        </td>
+        <td>
+          6438
+          -
+          6478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.error
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.error(&quot;Unable to load offset state&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1423
+        </td>
+        <td>
+          6489
+          -
+          6517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1422
+        </td>
+        <td>
+          6509
+          -
+          6517
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1421
+        </td>
+        <td>
+          6494
+          -
+          6501
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1425
+        </td>
+        <td>
+          6599
+          -
+          6607
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1424
+        </td>
+        <td>
+          6584
+          -
+          6591
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1426
+        </td>
+        <td>
+          6579
+          -
+          6607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1429
+        </td>
+        <td>
+          6620
+          -
+          6629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1488
+        </td>
+        <td>
+          6615
+          -
+          7863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.when
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.when(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming, PartitionConsumerWorker.this.when$default$2)(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: PartitionConsumerWorker.this.Event =&gt; PartitionConsumerWorker.this.State&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: PartitionConsumerWorker.this.Event, B1 &gt;: PartitionConsumerWorker.this.State](x5: A1, default: A1 =&gt; B1): B1 = ((x5.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; {
+        if (msg.messages.size.&gt;(0))
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Successfully fetched &quot;, &quot; events from kafka&quot;).s(msg.messages.size), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self)
+        else
+          ();
+        PartitionConsumerWorker.this.consume(msg);
+        PartitionConsumerWorker.this.stay()
+      }
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorBadOffset)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; {
+        PartitionConsumerWorker.this.log.warning(scala.StringContext.apply(&quot;&quot;, &quot;: Failed to fetch events from kafka. &quot;).s(PartitionConsumerWorker.this.name).+(scala.StringContext.apply(&quot;Offset out of range. Using offset &quot;, &quot;&quot;).s(msg.nextAvailableOffset)));
+        PartitionConsumerWorker.this.fetchRequest(msg.nextAvailableOffset);
+        PartitionConsumerWorker.this.stay()
+      }
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorPartitionNotAvailable)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; {
+        akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, false, scala.StringContext.apply(&quot;Failed to fetch events from kafka. Partition not available&quot;).s(), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self);
+        PartitionConsumerWorker.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot;: Unable to fetch events from kafka. Partition no available&quot;).s(PartitionConsumerWorker.this.name));
+        PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+      }
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; {
+        PartitionConsumerWorker.this.storeOffset(PartitionConsumerWorker.this.storeOffset$default$1);
+        PartitionConsumerWorker.this.stay()
+      }
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; msg.data match {
+        case (a: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData)scala.util.Left[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData,Throwable]((data @ _)) =&gt; {
+          PartitionConsumerWorker.this.lastSentToStorage_=(PartitionConsumerWorker.this.extractOffset(data));
+          PartitionConsumerWorker.this.stay()
+        }
+        case (b: Throwable)scala.util.Right[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData,Throwable]((ex @ _)) =&gt; {
+          PartitionConsumerWorker.this.log.error(&quot;Unable to save offset state&quot;);
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        }
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x5)
+    };
+    final def isDefinedAt(x5: PartitionConsumerWorker.this.Event): Boolean = ((x5.asInstanceOf[akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]]: PartitionConsumerWorker.this.Event): PartitionConsumerWorker.this.Event @unchecked) match {
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorBadOffset)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorPartitionNotAvailable)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.CommitOffset, (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (event: Any, stateData: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock)akka.actor.FSM.Event[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Lock]((msg @ (_: com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse)), (aq @ (_: com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[PartitionConsumerWorker.this.Event,PartitionConsumerWorker.this.State]))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1430
+        </td>
+        <td>
+          6615
+          -
+          6615
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.FSM.when$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.when$default$2
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1487
+        </td>
+        <td>
+          6631
+          -
+          6631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1431
+        </td>
+        <td>
+          6690
+          -
+          6711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          msg.messages.size.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1445
+        </td>
+        <td>
+          6686
+          -
+          6686
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1444
+        </td>
+        <td>
+          6686
+          -
+          6686
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          6779
+          -
+          6841
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Successfully fetched &quot;, &quot; events from kafka&quot;).s(msg.messages.size)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1432
+        </td>
+        <td>
+          6723
+          -
+          6737
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1441
+        </td>
+        <td>
+          6738
+          -
+          6738
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1440
+        </td>
+        <td>
+          6740
+          -
+          6849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Successfully fetched &quot;, &quot; events from kafka&quot;).s(msg.messages.size), PartitionConsumerWorker.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1443
+        </td>
+        <td>
+          6723
+          -
+          6849
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Successfully fetched &quot;, &quot; events from kafka&quot;).s(msg.messages.size), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1434
+        </td>
+        <td>
+          6773
+          -
+          6777
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1437
+        </td>
+        <td>
+          6804
+          -
+          6821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.size
+        </td>
+        <td style="background: #F0ADAD">
+          msg.messages.size
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1439
+        </td>
+        <td>
+          6843
+          -
+          6848
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1433
+        </td>
+        <td>
+          6757
+          -
+          6761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1442
+        </td>
+        <td>
+          6723
+          -
+          6849
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, scala.StringContext.apply(&quot;Successfully fetched &quot;, &quot; events from kafka&quot;).s(msg.messages.size), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1436
+        </td>
+        <td>
+          6822
+          -
+          6841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; events from kafka&quot;
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          6781
+          -
+          6803
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Successfully fetched &quot;
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          1446
+        </td>
+        <td>
+          6865
+          -
+          6877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.consume
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.consume(msg)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1447
+        </td>
+        <td>
+          6885
+          -
+          6891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1456
+        </td>
+        <td>
+          6957
+          -
+          7099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.warning
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.warning(scala.StringContext.apply(&quot;&quot;, &quot;: Failed to fetch events from kafka. &quot;).s(PartitionConsumerWorker.this.name).+(scala.StringContext.apply(&quot;Offset out of range. Using offset &quot;, &quot;&quot;).s(msg.nextAvailableOffset)))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1450
+        </td>
+        <td>
+          6972
+          -
+          6976
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          6976
+          -
+          7014
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Failed to fetch events from kafka. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          6969
+          -
+          7098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Failed to fetch events from kafka. &quot;).s(PartitionConsumerWorker.this.name).+(scala.StringContext.apply(&quot;Offset out of range. Using offset &quot;, &quot;&quot;).s(msg.nextAvailableOffset))
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1448
+        </td>
+        <td>
+          6971
+          -
+          6972
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1452
+        </td>
+        <td>
+          7097
+          -
+          7098
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1454
+        </td>
+        <td>
+          7035
+          -
+          7098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Offset out of range. Using offset &quot;, &quot;&quot;).s(msg.nextAvailableOffset)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1451
+        </td>
+        <td>
+          7037
+          -
+          7072
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Offset out of range. Using offset &quot;
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1453
+        </td>
+        <td>
+          7073
+          -
+          7096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorBadOffset.nextAvailableOffset
+        </td>
+        <td style="background: #F0ADAD">
+          msg.nextAvailableOffset
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          1458
+        </td>
+        <td>
+          7106
+          -
+          7143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.fetchRequest
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.fetchRequest(msg.nextAvailableOffset)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          1457
+        </td>
+        <td>
+          7119
+          -
+          7142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.FetchErrorBadOffset.nextAvailableOffset
+        </td>
+        <td style="background: #F0ADAD">
+          msg.nextAvailableOffset
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          1459
+        </td>
+        <td>
+          7150
+          -
+          7156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1465
+        </td>
+        <td>
+          7251
+          -
+          7360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, false, scala.StringContext.apply(&quot;Failed to fetch events from kafka. Partition not available&quot;).s(), PartitionConsumerWorker.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1467
+        </td>
+        <td>
+          7234
+          -
+          7360
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, false, scala.StringContext.apply(&quot;Failed to fetch events from kafka. Partition not available&quot;).s(), PartitionConsumerWorker.this.topic))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1461
+        </td>
+        <td>
+          7268
+          -
+          7272
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1464
+        </td>
+        <td>
+          7354
+          -
+          7359
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1463
+        </td>
+        <td>
+          7291
+          -
+          7352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failed to fetch events from kafka. Partition not available&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1466
+        </td>
+        <td>
+          7249
+          -
+          7249
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1460
+        </td>
+        <td>
+          7234
+          -
+          7248
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1462
+        </td>
+        <td>
+          7284
+          -
+          7289
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1468
+        </td>
+        <td>
+          7379
+          -
+          7380
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1470
+        </td>
+        <td>
+          7380
+          -
+          7384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1472
+        </td>
+        <td>
+          7367
+          -
+          7445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.error
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot;: Unable to fetch events from kafka. Partition no available&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1469
+        </td>
+        <td>
+          7384
+          -
+          7444
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Unable to fetch events from kafka. Partition no available&quot;
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1471
+        </td>
+        <td>
+          7377
+          -
+          7444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Unable to fetch events from kafka. Partition no available&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          1474
+        </td>
+        <td>
+          7472
+          -
+          7480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          1473
+        </td>
+        <td>
+          7457
+          -
+          7464
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          1475
+        </td>
+        <td>
+          7452
+          -
+          7480
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1476
+        </td>
+        <td>
+          7534
+          -
+          7534
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.storeOffset$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.storeOffset$default$1
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          7534
+          -
+          7547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.storeOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.storeOffset(PartitionConsumerWorker.this.storeOffset$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          1478
+        </td>
+        <td>
+          7554
+          -
+          7560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1479
+        </td>
+        <td>
+          7625
+          -
+          7633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.data
+        </td>
+        <td style="background: #F0ADAD">
+          msg.data
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1481
+        </td>
+        <td>
+          7679
+          -
+          7718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToStorage_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToStorage_=(PartitionConsumerWorker.this.extractOffset(data))
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1480
+        </td>
+        <td>
+          7699
+          -
+          7718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.extractOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.extractOffset(data)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          1482
+        </td>
+        <td>
+          7729
+          -
+          7735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.stay
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stay()
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          1483
+        </td>
+        <td>
+          7772
+          -
+          7812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.error
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.error(&quot;Unable to save offset state&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1485
+        </td>
+        <td>
+          7843
+          -
+          7851
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1484
+        </td>
+        <td>
+          7828
+          -
+          7835
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1486
+        </td>
+        <td>
+          7823
+          -
+          7851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.State.using
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stopped).using(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Unlocked)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          1489
+        </td>
+        <td>
+          7867
+          -
+          7879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.initialize
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.initialize()
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1492
+        </td>
+        <td>
+          8049
+          -
+          8081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.!=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToStorage.!=(PartitionConsumerWorker.this.ackedOffset)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1494
+        </td>
+        <td>
+          8020
+          -
+          8082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          force.||(PartitionConsumerWorker.this.ackedOffset.&gt;(0).&amp;&amp;(PartitionConsumerWorker.this.lastSentToStorage.!=(PartitionConsumerWorker.this.ackedOffset)))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1506
+        </td>
+        <td>
+          8016
+          -
+          8016
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1491
+        </td>
+        <td>
+          8070
+          -
+          8081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.ackedOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1490
+        </td>
+        <td>
+          8044
+          -
+          8045
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1493
+        </td>
+        <td>
+          8030
+          -
+          8081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset.&gt;(0).&amp;&amp;(PartitionConsumerWorker.this.lastSentToStorage.!=(PartitionConsumerWorker.this.ackedOffset))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          1505
+        </td>
+        <td>
+          8016
+          -
+          8016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1501
+        </td>
+        <td>
+          8109
+          -
+          8195
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8)))
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1500
+        </td>
+        <td>
+          8148
+          -
+          8194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1503
+        </td>
+        <td>
+          8093
+          -
+          8195
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1497
+        </td>
+        <td>
+          8125
+          -
+          8146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.partitionName
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1499
+        </td>
+        <td>
+          8159
+          -
+          8193
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1502
+        </td>
+        <td>
+          8107
+          -
+          8107
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1496
+        </td>
+        <td>
+          8139
+          -
+          8145
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.assign
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1495
+        </td>
+        <td>
+          8093
+          -
+          8106
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.offsetManager
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.offsetManager
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1504
+        </td>
+        <td>
+          8093
+          -
+          8195
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1498
+        </td>
+        <td>
+          8188
+          -
+          8192
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          1507
+        </td>
+        <td>
+          8247
+          -
+          8259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.stopWorker
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stopWorker()
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          1508
+        </td>
+        <td>
+          8401
+          -
+          8426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.extractOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.extractOffset(offsetData)
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1510
+        </td>
+        <td>
+          8449
+          -
+          8479
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; has initialized with offset &quot;
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1509
+        </td>
+        <td>
+          8444
+          -
+          8445
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1512
+        </td>
+        <td>
+          8445
+          -
+          8449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1514
+        </td>
+        <td>
+          8432
+          -
+          8487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.debug
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot; has initialized with offset &quot;, &quot;&quot;).s(PartitionConsumerWorker.this.name, offset))
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1511
+        </td>
+        <td>
+          8485
+          -
+          8486
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          8442
+          -
+          8486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; has initialized with offset &quot;, &quot;&quot;).s(PartitionConsumerWorker.this.name, offset)
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          1515
+        </td>
+        <td>
+          8492
+          -
+          8512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.ackedOffset_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset_=(offset)
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          1516
+        </td>
+        <td>
+          8517
+          -
+          8547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToProxyOffset_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToProxyOffset_=(offset)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          8552
+          -
+          8578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToStorage_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToStorage_=(offset)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          1519
+        </td>
+        <td>
+          8584
+          -
+          8599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.FSM.goto
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.goto(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming)
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          1518
+        </td>
+        <td>
+          8589
+          -
+          8598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Consuming
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          8728
+          -
+          8749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.asString
+        </td>
+        <td style="background: #F0ADAD">
+          offsetData.asString(offsetData.asString$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          1520
+        </td>
+        <td>
+          8739
+          -
+          8739
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.asString$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          offsetData.asString$default$1
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1524
+        </td>
+        <td>
+          8771
+          -
+          8773
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          8771
+          -
+          8773
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1526
+        </td>
+        <td>
+          8779
+          -
+          8790
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(data).toLong
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1522
+        </td>
+        <td>
+          8757
+          -
+          8769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          data.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          1525
+        </td>
+        <td>
+          8779
+          -
+          8790
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(data).toLong
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1545
+        </td>
+        <td>
+          8823
+          -
+          8823
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1527
+        </td>
+        <td>
+          8826
+          -
+          8841
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          8843
+          -
+          9122
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  PartitionConsumerWorker.this.log.debug(scala.this.Predef.augmentString(scala.StringContext.apply(&quot;Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d&quot;).s()).format(PartitionConsumerWorker.this.name, PartitionConsumerWorker.this.lastSentToStorage, PartitionConsumerWorker.this.lastSentToProxyOffset, PartitionConsumerWorker.this.ackedOffset));
+  akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))))(PartitionConsumerWorker.this.self)
+}
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          1546
+        </td>
+        <td>
+          8823
+          -
+          8823
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1528
+        </td>
+        <td>
+          8861
+          -
+          8928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1534
+        </td>
+        <td>
+          8851
+          -
+          9006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.debug
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.debug(scala.this.Predef.augmentString(scala.StringContext.apply(&quot;Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d&quot;).s()).format(PartitionConsumerWorker.this.name, PartitionConsumerWorker.this.lastSentToStorage, PartitionConsumerWorker.this.lastSentToProxyOffset, PartitionConsumerWorker.this.ackedOffset))
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1530
+        </td>
+        <td>
+          8951
+          -
+          8968
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToStorage
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToStorage
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1533
+        </td>
+        <td>
+          8861
+          -
+          9005
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(scala.StringContext.apply(&quot;Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d&quot;).s()).format(PartitionConsumerWorker.this.name, PartitionConsumerWorker.this.lastSentToStorage, PartitionConsumerWorker.this.lastSentToProxyOffset, PartitionConsumerWorker.this.ackedOffset)
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1532
+        </td>
+        <td>
+          8993
+          -
+          9004
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.ackedOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.ackedOffset
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1529
+        </td>
+        <td>
+          8945
+          -
+          8949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1531
+        </td>
+        <td>
+          8970
+          -
+          8991
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToProxyOffset
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToProxyOffset
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1536
+        </td>
+        <td>
+          9060
+          -
+          9066
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.assign
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.assign
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1539
+        </td>
+        <td>
+          9080
+          -
+          9114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1542
+        </td>
+        <td>
+          9028
+          -
+          9028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1541
+        </td>
+        <td>
+          9030
+          -
+          9116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8)))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1535
+        </td>
+        <td>
+          9014
+          -
+          9027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.offsetManager
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.offsetManager
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1538
+        </td>
+        <td>
+          9109
+          -
+          9113
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1537
+        </td>
+        <td>
+          9046
+          -
+          9067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.partitionName
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign)
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1540
+        </td>
+        <td>
+          9069
+          -
+          9115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          1543
+        </td>
+        <td>
+          9014
+          -
+          9116
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.offsetManager).!(com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.apply(PartitionConsumerWorker.this.partitionName(PartitionConsumerWorker.this.assign), com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply(PartitionConsumerWorker.this.formatAckedOffset().getBytes(PartitionConsumerWorker.this.utf8))))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          9127
+          -
+          9156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.scheduler.foreach[Boolean](((x$1: akka.actor.Cancellable) =&gt; x$1.cancel()))
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          9145
+          -
+          9155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Cancellable.cancel
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.cancel()
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          1550
+        </td>
+        <td>
+          9161
+          -
+          9179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.scheduler_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.scheduler_=(immutable.this.Nil)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          1549
+        </td>
+        <td>
+          9173
+          -
+          9179
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          267
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          9185
+          -
+          9194
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.FSM.stateData
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.stateData
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          1553
+        </td>
+        <td>
+          9238
+          -
+          9264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.recipes.locks.InterProcessSemaphoreV2.returnLease
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lock.returnLease(aq.lease)
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          1552
+        </td>
+        <td>
+          9255
+          -
+          9263
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired.lease
+        </td>
+        <td style="background: #F0ADAD">
+          aq.lease
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          1554
+        </td>
+        <td>
+          9285
+          -
+          9286
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          1557
+        </td>
+        <td>
+          9283
+          -
+          9306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Released lock&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          1556
+        </td>
+        <td>
+          9286
+          -
+          9290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          1555
+        </td>
+        <td>
+          9290
+          -
+          9306
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Released lock&quot;
+        </td>
+      </tr><tr>
+        <td>
+          270
+        </td>
+        <td>
+          1558
+        </td>
+        <td>
+          9273
+          -
+          9307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.debug
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot;: Released lock&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          271
+        </td>
+        <td>
+          1559
+        </td>
+        <td>
+          9321
+          -
+          9323
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1560
+        </td>
+        <td>
+          9345
+          -
+          9359
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1563
+        </td>
+        <td>
+          9401
+          -
+          9405
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1566
+        </td>
+        <td>
+          9360
+          -
+          9360
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1562
+        </td>
+        <td>
+          9395
+          -
+          9399
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1565
+        </td>
+        <td>
+          9362
+          -
+          9412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, null, null)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1564
+        </td>
+        <td>
+          9407
+          -
+          9411
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1567
+        </td>
+        <td>
+          9345
+          -
+          9412
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.context.parent).!(com.webtrends.harness.component.kafka.health.KafkaHealthState.apply(PartitionConsumerWorker.this.name, true, null, null))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1561
+        </td>
+        <td>
+          9379
+          -
+          9383
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1576
+        </td>
+        <td>
+          9476
+          -
+          9587
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val acquiredLease: org.apache.curator.framework.recipes.locks.Lease = PartitionConsumerWorker.this.lock.acquire();
+  PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot;: Lock acquired&quot;).s(PartitionConsumerWorker.this.name));
+  scala.Some.apply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired.apply(acquiredLease))
+}
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1568
+        </td>
+        <td>
+          9496
+          -
+          9510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.recipes.locks.InterProcessSemaphoreV2.acquire
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lock.acquire()
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1569
+        </td>
+        <td>
+          9529
+          -
+          9530
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1572
+        </td>
+        <td>
+          9527
+          -
+          9550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Lock acquired&quot;).s(PartitionConsumerWorker.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1571
+        </td>
+        <td>
+          9530
+          -
+          9534
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1573
+        </td>
+        <td>
+          9517
+          -
+          9551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.debug
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.debug(scala.StringContext.apply(&quot;&quot;, &quot;: Lock acquired&quot;).s(PartitionConsumerWorker.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1570
+        </td>
+        <td>
+          9534
+          -
+          9550
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Lock acquired&quot;
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1575
+        </td>
+        <td>
+          9558
+          -
+          9587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired](com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired.apply(acquiredLease))
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1574
+        </td>
+        <td>
+          9563
+          -
+          9586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Acquired.apply(acquiredLease)
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1578
+        </td>
+        <td>
+          9654
+          -
+          9680
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: Unable to obtain lock: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1581
+        </td>
+        <td>
+          9681
+          -
+          9693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1583
+        </td>
+        <td>
+          9637
+          -
+          9697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.error
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot;: Unable to obtain lock: &quot;, &quot; &quot;).s(PartitionConsumerWorker.this.name, e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1577
+        </td>
+        <td>
+          9649
+          -
+          9650
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1580
+        </td>
+        <td>
+          9650
+          -
+          9654
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.name
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.name
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1582
+        </td>
+        <td>
+          9647
+          -
+          9696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: Unable to obtain lock: &quot;, &quot; &quot;).s(PartitionConsumerWorker.this.name, e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1579
+        </td>
+        <td>
+          9694
+          -
+          9696
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          1584
+        </td>
+        <td>
+          9706
+          -
+          9710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1586
+        </td>
+        <td>
+          10094
+          -
+          10137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.lastSentToProxyOffset_=
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.lastSentToProxyOffset_=(fetchRes.nextOffset)
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1585
+        </td>
+        <td>
+          10118
+          -
+          10137
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes.nextOffset
+        </td>
+        <td style="background: #F0ADAD">
+          fetchRes.nextOffset
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1587
+        </td>
+        <td>
+          10169
+          -
+          10186
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes.messages
+        </td>
+        <td style="background: #F0ADAD">
+          fetchRes.messages
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1590
+        </td>
+        <td>
+          10143
+          -
+          10209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.onReceive
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.onReceive(com.webtrends.harness.component.kafka.receive.MessageResponse.apply(fetchRes.messages, fetchRes.nextOffset))
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1589
+        </td>
+        <td>
+          10153
+          -
+          10208
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.receive.MessageResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.receive.MessageResponse.apply(fetchRes.messages, fetchRes.nextOffset)
+        </td>
+      </tr><tr>
+        <td>
+          299
+        </td>
+        <td>
+          1588
+        </td>
+        <td>
+          10188
+          -
+          10207
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes.nextOffset
+        </td>
+        <td style="background: #F0ADAD">
+          fetchRes.nextOffset
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1596
+        </td>
+        <td>
+          10280
+          -
+          10280
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1592
+        </td>
+        <td>
+          10283
+          -
+          10307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.fetchMode().==(ConsumptionFetchMode.AUTOMATIC)
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1597
+        </td>
+        <td>
+          10280
+          -
+          10280
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1591
+        </td>
+        <td>
+          10298
+          -
+          10307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.ConsumptionFetchMode.AUTOMATIC
+        </td>
+        <td style="background: #F0ADAD">
+          ConsumptionFetchMode.AUTOMATIC
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          1593
+        </td>
+        <td>
+          10331
+          -
+          10350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchRes.nextOffset
+        </td>
+        <td style="background: #F0ADAD">
+          fetchRes.nextOffset
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          1595
+        </td>
+        <td>
+          10317
+          -
+          10351
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.fetchRequest
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.fetchRequest(fetchRes.nextOffset)
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          1594
+        </td>
+        <td>
+          10317
+          -
+          10351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.fetchRequest
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.fetchRequest(fetchRes.nextOffset)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1599
+        </td>
+        <td>
+          10539
+          -
+          10544
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1602
+        </td>
+        <td>
+          10530
+          -
+          10574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchReq.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchReq.apply(PartitionConsumerWorker.this.topic, PartitionConsumerWorker.this.partition, nextOffset, PartitionConsumerWorker.this.host)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1601
+        </td>
+        <td>
+          10569
+          -
+          10573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.host
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.host
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1604
+        </td>
+        <td>
+          10517
+          -
+          10574
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(PartitionConsumerWorker.this.kafkaProxy).!(com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.FetchReq.apply(PartitionConsumerWorker.this.topic, PartitionConsumerWorker.this.partition, nextOffset, PartitionConsumerWorker.this.host))(PartitionConsumerWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1598
+        </td>
+        <td>
+          10517
+          -
+          10527
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.kafkaProxy
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.kafkaProxy
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1600
+        </td>
+        <td>
+          10546
+          -
+          10555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.partition
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1603
+        </td>
+        <td>
+          10528
+          -
+          10528
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionConsumerWorker.this.self
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

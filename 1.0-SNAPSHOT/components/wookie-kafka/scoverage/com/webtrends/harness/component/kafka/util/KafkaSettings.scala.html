@@ -1,0 +1,1797 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/util/KafkaSettings.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.kafka.util
+</span>21 <span style=''>
+</span>22 <span style=''>import java.net.InetAddress
+</span>23 <span style=''>import java.nio.charset.StandardCharsets
+</span>24 <span style=''>
+</span>25 <span style=''>import akka.actor.Actor
+</span>26 <span style=''>import com.typesafe.config.Config
+</span>27 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
+</span>28 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
+</span>29 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
+</span>30 <span style=''>import com.webtrends.harness.config.ConfigHelper
+</span>31 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>32 <span style=''>
+</span>33 <span style=''>import scala.collection.JavaConversions._
+</span>34 <span style=''>
+</span>35 <span style=''>trait KafkaSettings extends ConfigHelper { this: Actor =>
+</span>36 <span style=''>  @volatile
+</span>37 <span style=''>  var kafkaConfig: Config = </span><span style='background: #F0ADAD'>ConfigUtil.prepareSubConfig(renewableConfig, "wookie-kafka")</span><span style=''>
+</span>38 <span style=''>  val hostname = </span><span style='background: #F0ADAD'>InetAddress.getLocalHost.getHostName</span><span style=''>
+</span>39 <span style=''>
+</span>40 <span style=''>  // Used for ZK paths
+</span>41 <span style=''>  def pod = </span><span style='background: #F0ADAD'>zkConf.get.dataCenter+"_"+zkConf.get.pod</span><span style=''>
+</span>42 <span style=''>  def appRootPath = </span><span style='background: #F0ADAD'>s"/$appName/$pod"</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  def distributionRootPath = </span><span style='background: #F0ADAD'>s"${appRootPath}/kafkaConsumerDistribution"</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>  val utf8 = </span><span style='background: #F0ADAD'>StandardCharsets.UTF_8</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  def distributorPaths = </span><span style='background: #F0ADAD'>DistributorPaths(s"${distributionRootPath}/nodes",
+</span>49 <span style=''></span><span style='background: #F0ADAD'>                                          s"${distributionRootPath}/assignments",
+</span>50 <span style=''></span><span style='background: #F0ADAD'>                                          s"${distributionRootPath}/leader")</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  def zkConf = </span><span style='background: #F0ADAD'>renewableConfig.hasPath("wookie-zookeeper.quorum")</span><span style=''> match {
+</span>53 <span style=''>    case true => </span><span style='background: #F0ADAD'>Some(ZookeeperSettings(renewableConfig.getConfig("wookie-zookeeper")))</span><span style=''>
+</span>54 <span style=''>    case false => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>55 <span style=''>  }
+</span>56 <span style=''>  def topicWorker = </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("worker-class"))</span><span style=''>
+</span>57 <span style=''>  def leader = {
+</span>58 <span style=''>    if (</span><span style='background: #F0ADAD'>kafkaConfig.hasPath("leader-class")</span><span style=''>) {
+</span>59 <span style=''>      </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("leader-class"))</span><span style=''>
+</span>60 <span style=''>    } else {
+</span>61 <span style=''>      </span><span style='background: #F0ADAD'>classOf[KafkaConsumerCoordinator]</span><span style=''>
+</span>62 <span style=''>    }
+</span>63 <span style=''>  }
+</span>64 <span style=''>  def appName = </span><span style='background: #F0ADAD'>kafkaConfig.getString("app-name")</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>  def init: KafkaSettings = {
+</span>67 <span style=''>    this
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  def topicMap: Map[String, Config] = </span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.topics").toList.map{top =>
+</span>71 <span style=''></span><span style='background: #F0ADAD'>    top.getString("name") -> top
+</span>72 <span style=''></span><span style='background: #F0ADAD'>  }.toMap</span><span style=''>
+</span>73 <span style=''>  
+</span>74 <span style=''>  def kafkaSources: Map[String, List[String]] = </span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.kafka-hosts").toList.map { clusters =>
+</span>75 <span style=''></span><span style='background: #F0ADAD'>    clusters.getString("id") -> clusters.getStringList("brokers").toList
+</span>76 <span style=''></span><span style='background: #F0ADAD'>  }.toMap</span><span style=''>
+</span>77 <span style=''>
+</span>78 <span style=''>  def assignmentName(spec:PartitionAssignment): String = {
+</span>79 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.host}-${spec.topic}-${spec.partition}"</span><span style=''>
+</span>80 <span style=''>  }
+</span>81 <span style=''>
+</span>82 <span style=''>  def partitionName(spec:PartitionAssignment): String = {
+</span>83 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.cluster}-${spec.topic}-${spec.partition}"</span><span style=''>
+</span>84 <span style=''>  }
+</span>85 <span style=''>
+</span>86 <span style=''>  override def renewConfiguration() = {
+</span>87 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>88 <span style=''>    </span><span style='background: #F0ADAD'>kafkaConfig = ConfigUtil.prepareSubConfig(renewableConfig, "wookie-kafka")</span><span style=''>
+</span>89 <span style=''>  }
+</span>90 <span style=''>}
+</span>91 <span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>//Simple container for Paths
+</span>94 <span style=''>case class DistributorPaths(nodePath: String, //Root path for node registration
+</span>95 <span style=''>                            assignmentPath: String,//Root path for assignments per node
+</span>96 <span style=''>                            leaderPath: String) //Leader election directory
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          1428
+          -
+          1443
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.renewableConfig
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.renewableConfig
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1819
+        </td>
+        <td>
+          1400
+          -
+          1460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookie-kafka&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          1445
+          -
+          1459
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-kafka&quot;
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1820
+        </td>
+        <td>
+          1478
+          -
+          1514
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostName
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName()
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          1551
+          -
+          1591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.zkConf.get.dataCenter.+(&quot;_&quot;).+(KafkaSettings.this.zkConf.get.pod)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1822
+        </td>
+        <td>
+          1577
+          -
+          1591
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.pod
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.zkConf.get.pod
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1821
+        </td>
+        <td>
+          1573
+          -
+          1576
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1824
+        </td>
+        <td>
+          1614
+          -
+          1616
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          1628
+          -
+          1629
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1829
+        </td>
+        <td>
+          1612
+          -
+          1629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;/&quot;, &quot;/&quot;, &quot;&quot;).s(KafkaSettings.this.appName, KafkaSettings.this.pod)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          1623
+          -
+          1625
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1828
+        </td>
+        <td>
+          1625
+          -
+          1628
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.pod
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.pod
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1827
+        </td>
+        <td>
+          1616
+          -
+          1623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.appName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.appName
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          1660
+          -
+          1703
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/kafkaConsumerDistribution&quot;).s(KafkaSettings.this.appRootPath)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1832
+        </td>
+        <td>
+          1664
+          -
+          1675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.appRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.appRootPath
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1831
+        </td>
+        <td>
+          1676
+          -
+          1703
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/kafkaConsumerDistribution&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          1662
+          -
+          1663
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1834
+        </td>
+        <td>
+          1718
+          -
+          1740
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          1786
+          -
+          1787
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1838
+        </td>
+        <td>
+          1784
+          -
+          1816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/nodes&quot;).s(KafkaSettings.this.distributionRootPath)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1847
+        </td>
+        <td>
+          1767
+          -
+          1976
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DistributorPaths.apply(scala.StringContext.apply(&quot;&quot;, &quot;/nodes&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/leader&quot;).s(KafkaSettings.this.distributionRootPath))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1837
+        </td>
+        <td>
+          1788
+          -
+          1808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.distributionRootPath
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1836
+        </td>
+        <td>
+          1809
+          -
+          1816
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/nodes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1842
+        </td>
+        <td>
+          1860
+          -
+          1898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1841
+        </td>
+        <td>
+          1864
+          -
+          1884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.distributionRootPath
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          1885
+          -
+          1898
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/assignments&quot;
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1839
+        </td>
+        <td>
+          1862
+          -
+          1863
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1844
+        </td>
+        <td>
+          1967
+          -
+          1975
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/leader&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1846
+        </td>
+        <td>
+          1942
+          -
+          1975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/leader&quot;).s(KafkaSettings.this.distributionRootPath)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1843
+        </td>
+        <td>
+          1944
+          -
+          1945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1845
+        </td>
+        <td>
+          1946
+          -
+          1966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.distributionRootPath
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1848
+        </td>
+        <td>
+          1993
+          -
+          2043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.renewableConfig.hasPath(&quot;wookie-zookeeper.quorum&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1851
+        </td>
+        <td>
+          2069
+          -
+          2139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.component.zookeeper.config.ZookeeperSettings](com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.apply(KafkaSettings.this.renewableConfig.getConfig(&quot;wookie-zookeeper&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1850
+        </td>
+        <td>
+          2074
+          -
+          2138
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.apply(KafkaSettings.this.renewableConfig.getConfig(&quot;wookie-zookeeper&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1849
+        </td>
+        <td>
+          2092
+          -
+          2137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getConfig
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.renewableConfig.getConfig(&quot;wookie-zookeeper&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1852
+        </td>
+        <td>
+          2158
+          -
+          2162
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1853
+        </td>
+        <td>
+          2226
+          -
+          2263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.getString(&quot;worker-class&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1854
+        </td>
+        <td>
+          2187
+          -
+          2264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.loadClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass().getClassLoader().loadClass(KafkaSettings.this.kafkaConfig.getString(&quot;worker-class&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1855
+        </td>
+        <td>
+          2290
+          -
+          2325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.hasPath(&quot;leader-class&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1856
+        </td>
+        <td>
+          2374
+          -
+          2411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.getString(&quot;leader-class&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1858
+        </td>
+        <td>
+          2335
+          -
+          2412
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.ClassLoader.loadClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass().getClassLoader().loadClass(KafkaSettings.this.kafkaConfig.getString(&quot;leader-class&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1857
+        </td>
+        <td>
+          2335
+          -
+          2412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.loadClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass().getClassLoader().loadClass(KafkaSettings.this.kafkaConfig.getString(&quot;leader-class&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1859
+        </td>
+        <td>
+          2432
+          -
+          2465
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator]
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1860
+        </td>
+        <td>
+          2432
+          -
+          2465
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator]
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1861
+        </td>
+        <td>
+          2492
+          -
+          2525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.getString(&quot;app-name&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1862
+        </td>
+        <td>
+          2609
+          -
+          2653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getConfigList
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.topics&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1864
+        </td>
+        <td>
+          2664
+          -
+          2664
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[(String, ?0)]
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1863
+        </td>
+        <td>
+          2676
+          -
+          2704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](top.getString(&quot;name&quot;)).-&gt;[?0](top)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1865
+        </td>
+        <td>
+          2709
+          -
+          2709
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, ?0)]
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1866
+        </td>
+        <td>
+          2609
+          -
+          2714
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.topics&quot;)).toList.map[(String, ?0), List[(String, ?0)]](((top: ?0) =&gt; scala.this.Predef.ArrowAssoc[String](top.getString(&quot;name&quot;)).-&gt;[?0](top)))(immutable.this.List.canBuildFrom[(String, ?0)]).toMap[String, com.typesafe.config.Config](scala.this.Predef.$conforms[(String, ?0)])
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1867
+        </td>
+        <td>
+          2766
+          -
+          2815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getConfigList
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.kafka-hosts&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1872
+        </td>
+        <td>
+          2827
+          -
+          2827
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[(String, List[String])]
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1868
+        </td>
+        <td>
+          2845
+          -
+          2869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          clusters.getString(&quot;id&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1871
+        </td>
+        <td>
+          2845
+          -
+          2913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](clusters.getString(&quot;id&quot;)).-&gt;[List[String]](scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1870
+        </td>
+        <td>
+          2873
+          -
+          2913
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1869
+        </td>
+        <td>
+          2873
+          -
+          2906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getStringList
+        </td>
+        <td style="background: #F0ADAD">
+          clusters.getStringList(&quot;brokers&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1874
+        </td>
+        <td>
+          2766
+          -
+          2923
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.kafka-hosts&quot;)).toList.map[(String, List[String]), List[(String, List[String])]](((clusters: ?0) =&gt; scala.this.Predef.ArrowAssoc[String](clusters.getString(&quot;id&quot;)).-&gt;[List[String]](scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList)))(immutable.this.List.canBuildFrom[(String, List[String])]).toMap[String, List[String]](scala.this.Predef.$conforms[(String, List[String])])
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1873
+        </td>
+        <td>
+          2918
+          -
+          2918
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, List[String])]
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1877
+        </td>
+        <td>
+          3016
+          -
+          3018
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          3005
+          -
+          3015
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.topic
+        </td>
+        <td style="background: #F0ADAD">
+          spec.topic
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          2988
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(spec.host, spec.topic, spec.partition)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1876
+        </td>
+        <td>
+          3002
+          -
+          3004
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          2992
+          -
+          3001
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
+        </td>
+        <td style="background: #F0ADAD">
+          spec.host
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          3034
+          -
+          3035
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          3019
+          -
+          3033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          spec.partition
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          2990
+          -
+          2991
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          3105
+          -
+          3106
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1886
+        </td>
+        <td>
+          3152
+          -
+          3153
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1889
+        </td>
+        <td>
+          3137
+          -
+          3151
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          spec.partition
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1885
+        </td>
+        <td>
+          3134
+          -
+          3136
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1888
+        </td>
+        <td>
+          3123
+          -
+          3133
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.topic
+        </td>
+        <td style="background: #F0ADAD">
+          spec.topic
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1887
+        </td>
+        <td>
+          3107
+          -
+          3119
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          spec.cluster
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          3103
+          -
+          3153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(spec.cluster, spec.topic, spec.partition)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1884
+        </td>
+        <td>
+          3120
+          -
+          3122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1891
+        </td>
+        <td>
+          3203
+          -
+          3229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.renewConfiguration
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.super.renewConfiguration()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          3276
+          -
+          3291
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.renewableConfig
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.renewableConfig
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          3234
+          -
+          3308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.kafkaConfig_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.kafkaConfig_=(com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookie-kafka&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1894
+        </td>
+        <td>
+          3248
+          -
+          3308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookie-kafka&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1893
+        </td>
+        <td>
+          3293
+          -
+          3307
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookie-kafka&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

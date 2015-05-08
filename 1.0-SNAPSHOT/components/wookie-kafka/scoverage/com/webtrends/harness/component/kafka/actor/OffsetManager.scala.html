@@ -1,0 +1,2249 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/actor/OffsetManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.kafka.actor
+</span>2 <span style=''>
+</span>3 <span style=''>import java.nio.charset.{Charset, StandardCharsets}
+</span>4 <span style=''>
+</span>5 <span style=''>import akka.actor.{Actor, Props}
+</span>6 <span style=''>import akka.util.Timeout
+</span>7 <span style=''>import com.webtrends.harness.component.kafka.health.ZKHealthState
+</span>8 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
+</span>9 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>10 <span style=''>import org.apache.zookeeper.KeeperException.NoNodeException
+</span>11 <span style=''>import scala.concurrent.ExecutionContext.Implicits.global
+</span>12 <span style=''>import scala.concurrent.duration._
+</span>13 <span style=''>import scala.util.{Failure, Success, Try}
+</span>14 <span style=''>
+</span>15 <span style=''>object OffsetManager {
+</span>16 <span style=''>  def props(appRoot: String, timeout: Timeout = 5 seconds): Props =
+</span>17 <span style=''>    </span><span style='background: #F0ADAD'>Props(new OffsetManager(appRoot, timeout))</span><span style=''>
+</span>18 <span style=''>
+</span>19 <span style=''>  case class OffsetData(data: Array[Byte]) {
+</span>20 <span style=''>    def asString(charset:Charset = StandardCharsets.UTF_8) = </span><span style='background: #F0ADAD'>new String(data, charset)</span><span style=''>
+</span>21 <span style=''>  }
+</span>22 <span style=''>
+</span>23 <span style=''>  case class GetOffsetData(path: String)
+</span>24 <span style=''>  case class StoreOffsetData(path: String, offsetData: OffsetData)
+</span>25 <span style=''>
+</span>26 <span style=''>  case class OffsetDataResponse(data: Either[OffsetData, Throwable])
+</span>27 <span style=''>}
+</span>28 <span style=''>
+</span>29 <span style=''>class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
+</span>30 <span style=''> with ActorLoggingAdapter with ZookeeperAdapter {
+</span>31 <span style=''>  import OffsetManager._
+</span>32 <span style=''>  implicit val implicitTimeout = </span><span style='background: #F0ADAD'>timeout</span><span style=''>
+</span>33 <span style=''>
+</span>34 <span style=''>  val offsetPath = </span><span style='background: #F0ADAD'>s"$appRoot/offsets"</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>  def receive: Receive = {
+</span>37 <span style=''>    case msg: GetOffsetData => </span><span style='background: #F0ADAD'>getOffsetState(msg)</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>    case msg: StoreOffsetData => </span><span style='background: #F0ADAD'>storeOffsetState(msg)</span><span style=''>
+</span>40 <span style=''>  }
+</span>41 <span style=''>
+</span>42 <span style=''>  /**
+</span>43 <span style=''>   * Get the state from zk and send back offset data response
+</span>44 <span style=''>   * @param req
+</span>45 <span style=''>   */
+</span>46 <span style=''>  def getOffsetState(req: GetOffsetData) = {
+</span>47 <span style=''>    val originalSender = </span><span style='background: #F0ADAD'>sender()</span><span style=''>
+</span>48 <span style=''>    val parent = </span><span style='background: #F0ADAD'>context.parent</span><span style=''>
+</span>49 <span style=''>    //Path to write to zookeeper
+</span>50 <span style=''>    val path = </span><span style='background: #F0ADAD'>s"$offsetPath/${req.path}"</span><span style=''>
+</span>51 <span style=''>    </span><span style='background: #F0ADAD'>getData(path).onComplete {
+</span>52 <span style=''></span><span style='background: #F0ADAD'>      case Success(data) =>
+</span>53 <span style=''></span><span style='background: #F0ADAD'>         Try {
+</span>54 <span style=''></span><span style='background: #F0ADAD'>           originalSender ! OffsetDataResponse(Left(OffsetData(data)))
+</span>55 <span style=''></span><span style='background: #F0ADAD'>           log.debug(s"Finished saving to $path")
+</span>56 <span style=''></span><span style='background: #F0ADAD'>           parent ! healthy(path)
+</span>57 <span style=''></span><span style='background: #F0ADAD'>         } recover {
+</span>58 <span style=''></span><span style='background: #F0ADAD'>           case ex =>
+</span>59 <span style=''></span><span style='background: #F0ADAD'>             log.error("Error retrieving state from zk", ex)
+</span>60 <span style=''></span><span style='background: #F0ADAD'>             originalSender ! OffsetDataResponse(Right(ex))
+</span>61 <span style=''></span><span style='background: #F0ADAD'>             parent ! unhealthy(path)
+</span>62 <span style=''></span><span style='background: #F0ADAD'>         }
+</span>63 <span style=''></span><span style='background: #F0ADAD'>      case Failure(err) =>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>        err match {
+</span>65 <span style=''></span><span style='background: #F0ADAD'>          case ex: NoNodeException =>
+</span>66 <span style=''></span><span style='background: #F0ADAD'>            originalSender ! OffsetDataResponse(Left(OffsetData(Array.empty[Byte])))
+</span>67 <span style=''></span><span style='background: #F0ADAD'>            parent ! healthy(path)
+</span>68 <span style=''></span><span style='background: #F0ADAD'>          case ex =>
+</span>69 <span style=''></span><span style='background: #F0ADAD'>            log.error("Unable to get state from Zk", ex)
+</span>70 <span style=''></span><span style='background: #F0ADAD'>            originalSender ! OffsetDataResponse(Right(ex))
+</span>71 <span style=''></span><span style='background: #F0ADAD'>            parent ! unhealthy(path)
+</span>72 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>73 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>74 <span style=''>  }
+</span>75 <span style=''>
+</span>76 <span style=''>  def storeOffsetState(req: StoreOffsetData) = {
+</span>77 <span style=''>    val path = </span><span style='background: #F0ADAD'>s"$offsetPath/${req.path}"</span><span style=''>
+</span>78 <span style=''>    val originalSender = </span><span style='background: #F0ADAD'>sender()</span><span style=''>
+</span>79 <span style=''>    val parent = </span><span style='background: #F0ADAD'>context.parent</span><span style=''>
+</span>80 <span style=''>    //ZNode should be create and not be ephemeral
+</span>81 <span style=''>    </span><span style='background: #F0ADAD'>setData(path, req.offsetData.data, true, false).onComplete {
+</span>82 <span style=''></span><span style='background: #F0ADAD'>      case Success(bytesWritten) =>
+</span>83 <span style=''></span><span style='background: #F0ADAD'>        originalSender ! OffsetDataResponse(Left(OffsetData(req.offsetData.data)))
+</span>84 <span style=''></span><span style='background: #F0ADAD'>        log.debug(s"Finished saving to $path")
+</span>85 <span style=''></span><span style='background: #F0ADAD'>        parent ! healthy(path)
+</span>86 <span style=''></span><span style='background: #F0ADAD'>      case Failure(ex) =>
+</span>87 <span style=''></span><span style='background: #F0ADAD'>        log.error("Uanble to write zk state", ex)
+</span>88 <span style=''></span><span style='background: #F0ADAD'>        originalSender ! OffsetDataResponse(Right(ex))
+</span>89 <span style=''></span><span style='background: #F0ADAD'>        parent ! unhealthy(path)
+</span>90 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>91 <span style=''>  }
+</span>92 <span style=''>
+</span>93 <span style=''>  private def unhealthy(path: String) =
+</span>94 <span style=''>    </span><span style='background: #F0ADAD'>ZKHealthState(path, healthy = false, s"Failed to fetch offset state $path from ZK")</span><span style=''>
+</span>95 <span style=''>
+</span>96 <span style=''>  private def healthy(path: String) =
+</span>97 <span style=''>    </span><span style='background: #F0ADAD'>ZKHealthState(path, healthy = true, s"Successfully fetched state $path from ZK")</span><span style=''>
+</span>98 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          1216
+        </td>
+        <td>
+          650
+          -
+          685
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new OffsetManager(appRoot, timeout)
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          1217
+        </td>
+        <td>
+          644
+          -
+          686
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.component.kafka.actor.OffsetManager](new OffsetManager(appRoot, timeout))((ClassTag.apply[com.webtrends.harness.component.kafka.actor.OffsetManager](classOf[com.webtrends.harness.component.kafka.actor.OffsetManager]): scala.reflect.ClassTag[com.webtrends.harness.component.kafka.actor.OffsetManager]))
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          1219
+        </td>
+        <td>
+          794
+          -
+          819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.this.Predef.String(OffsetData.this.data, charset)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          1218
+        </td>
+        <td>
+          805
+          -
+          809
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.data
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetData.this.data
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1220
+        </td>
+        <td>
+          1182
+          -
+          1189
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1222
+        </td>
+        <td>
+          1220
+          -
+          1229
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/offsets&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1221
+        </td>
+        <td>
+          1212
+          -
+          1213
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1224
+        </td>
+        <td>
+          1210
+          -
+          1229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/offsets&quot;).s(OffsetManager.this.appRoot)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1223
+        </td>
+        <td>
+          1213
+          -
+          1220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.appRoot
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.appRoot
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1227
+        </td>
+        <td>
+          1256
+          -
+          1256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1225
+        </td>
+        <td>
+          1289
+          -
+          1308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.getOffsetState
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.getOffsetState(msg)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1226
+        </td>
+        <td>
+          1343
+          -
+          1364
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.storeOffsetState
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.storeOffsetState(msg)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1228
+        </td>
+        <td>
+          1530
+          -
+          1538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1229
+        </td>
+        <td>
+          1556
+          -
+          1570
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1231
+        </td>
+        <td>
+          1632
+          -
+          1634
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1234
+        </td>
+        <td>
+          1635
+          -
+          1643
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.GetOffsetData.path
+        </td>
+        <td style="background: #F0ADAD">
+          req.path
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1230
+        </td>
+        <td>
+          1621
+          -
+          1622
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1233
+        </td>
+        <td>
+          1622
+          -
+          1632
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.offsetPath
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.offsetPath
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1232
+        </td>
+        <td>
+          1644
+          -
+          1645
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1235
+        </td>
+        <td>
+          1619
+          -
+          1645
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(OffsetManager.this.offsetPath, req.path)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1236
+        </td>
+        <td>
+          1657
+          -
+          1657
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.implicitTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.implicitTimeout
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1274
+        </td>
+        <td>
+          1650
+          -
+          2482
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.getData(path)(OffsetManager.this.implicitTimeout).onComplete[Any](((x0$1: scala.util.Try[Array[Byte]]) =&gt; x0$1 match {
+  case (value: Array[Byte])scala.util.Success[Array[Byte]]((data @ _)) =&gt; scala.util.Try.apply[Unit]({
+  akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(data))))(OffsetManager.this.self);
+  OffsetManager.this.log.debug(scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path));
+  akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+}).recover[Unit](({
+    @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+      def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+        $anonfun.super.&lt;init&gt;();
+        ()
+      };
+      final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+        case (ex @ _) =&gt; {
+          OffsetManager.this.log.error(&quot;Error retrieving state from zk&quot;, ex);
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self);
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+        }
+        case (defaultCase$ @ _) =&gt; default.apply(x2)
+      };
+      final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+        case (ex @ _) =&gt; true
+        case (defaultCase$ @ _) =&gt; false
+      }
+    };
+    new $anonfun()
+  }: PartialFunction[Throwable,Unit]))
+  case (exception: Throwable)scala.util.Failure[Array[Byte]]((err @ _)) =&gt; err match {
+    case (ex @ (_: org.apache.zookeeper.KeeperException.NoNodeException)) =&gt; {
+      akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]))))))(OffsetManager.this.self);
+      akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+    }
+    case (ex @ _) =&gt; {
+      OffsetManager.this.log.error(&quot;Unable to get state from Zk&quot;, ex);
+      akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self);
+      akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+    }
+  }
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1237
+        </td>
+        <td>
+          1772
+          -
+          1788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetData.apply(data)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1240
+        </td>
+        <td>
+          1746
+          -
+          1746
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1239
+        </td>
+        <td>
+          1748
+          -
+          1790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(data)))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1241
+        </td>
+        <td>
+          1731
+          -
+          1790
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(data))))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1238
+        </td>
+        <td>
+          1767
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(data))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1243
+        </td>
+        <td>
+          1802
+          -
+          1840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.log.debug(scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1242
+        </td>
+        <td>
+          1812
+          -
+          1839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1246
+        </td>
+        <td>
+          1852
+          -
+          1874
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1245
+        </td>
+        <td>
+          1859
+          -
+          1859
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1244
+        </td>
+        <td>
+          1861
+          -
+          1874
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.healthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.healthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1255
+        </td>
+        <td>
+          1894
+          -
+          1894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1256
+        </td>
+        <td>
+          1714
+          -
+          2087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Unit]({
+  akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(data))))(OffsetManager.this.self);
+  OffsetManager.this.log.debug(scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path));
+  akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+}).recover[Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ _) =&gt; {
+        OffsetManager.this.log.error(&quot;Error retrieving state from zk&quot;, ex);
+        akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self);
+        akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ _) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1247
+        </td>
+        <td>
+          1931
+          -
+          1978
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.log.error(&quot;Error retrieving state from zk&quot;, ex)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1249
+        </td>
+        <td>
+          2009
+          -
+          2038
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1248
+        </td>
+        <td>
+          2028
+          -
+          2037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, Throwable](ex)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1251
+        </td>
+        <td>
+          1992
+          -
+          2038
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1250
+        </td>
+        <td>
+          2007
+          -
+          2007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1252
+        </td>
+        <td>
+          2061
+          -
+          2076
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.unhealthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.unhealthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1254
+        </td>
+        <td>
+          2052
+          -
+          2076
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1253
+        </td>
+        <td>
+          2059
+          -
+          2059
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1258
+        </td>
+        <td>
+          2226
+          -
+          2255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetData.apply(scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte])))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1261
+        </td>
+        <td>
+          2200
+          -
+          2200
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1260
+        </td>
+        <td>
+          2202
+          -
+          2257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte])))))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1257
+        </td>
+        <td>
+          2237
+          -
+          2254
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1259
+        </td>
+        <td>
+          2221
+          -
+          2256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]))))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1262
+        </td>
+        <td>
+          2185
+          -
+          2257
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(scala.Array.empty[Byte]((ClassTag.Byte: scala.reflect.ClassTag[Byte]))))))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1264
+        </td>
+        <td>
+          2277
+          -
+          2277
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1263
+        </td>
+        <td>
+          2279
+          -
+          2292
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.healthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.healthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1265
+        </td>
+        <td>
+          2270
+          -
+          2292
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1266
+        </td>
+        <td>
+          2326
+          -
+          2370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.log.error(&quot;Unable to get state from Zk&quot;, ex)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1267
+        </td>
+        <td>
+          2419
+          -
+          2428
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, Throwable](ex)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1270
+        </td>
+        <td>
+          2383
+          -
+          2429
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1269
+        </td>
+        <td>
+          2398
+          -
+          2398
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1268
+        </td>
+        <td>
+          2400
+          -
+          2429
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1273
+        </td>
+        <td>
+          2442
+          -
+          2466
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1272
+        </td>
+        <td>
+          2449
+          -
+          2449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1271
+        </td>
+        <td>
+          2451
+          -
+          2466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.unhealthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.unhealthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1276
+        </td>
+        <td>
+          2565
+          -
+          2567
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1279
+        </td>
+        <td>
+          2568
+          -
+          2576
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.StoreOffsetData.path
+        </td>
+        <td style="background: #F0ADAD">
+          req.path
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1278
+        </td>
+        <td>
+          2555
+          -
+          2565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.offsetPath
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.offsetPath
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1275
+        </td>
+        <td>
+          2554
+          -
+          2555
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1277
+        </td>
+        <td>
+          2577
+          -
+          2578
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1280
+        </td>
+        <td>
+          2552
+          -
+          2578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(OffsetManager.this.offsetPath, req.path)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1281
+        </td>
+        <td>
+          2604
+          -
+          2612
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1282
+        </td>
+        <td>
+          2630
+          -
+          2644
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1306
+        </td>
+        <td>
+          2699
+          -
+          3126
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.setData(path, req.offsetData.data, true, false)(OffsetManager.this.implicitTimeout).onComplete[Unit](((x0$2: scala.util.Try[Int]) =&gt; x0$2 match {
+  case (value: Int)scala.util.Success[Int]((bytesWritten @ _)) =&gt; {
+    akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(req.offsetData.data))))(OffsetManager.this.self);
+    OffsetManager.this.log.debug(scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path));
+    akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+  }
+  case (exception: Throwable)scala.util.Failure[Int]((ex @ _)) =&gt; {
+    OffsetManager.this.log.error(&quot;Uanble to write zk state&quot;, ex);
+    akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self);
+    akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+  }
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1285
+        </td>
+        <td>
+          2740
+          -
+          2745
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1284
+        </td>
+        <td>
+          2734
+          -
+          2738
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1283
+        </td>
+        <td>
+          2713
+          -
+          2732
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.data
+        </td>
+        <td style="background: #F0ADAD">
+          req.offsetData.data
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1286
+        </td>
+        <td>
+          2706
+          -
+          2706
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.implicitTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.implicitTimeout
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1291
+        </td>
+        <td>
+          2819
+          -
+          2819
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1288
+        </td>
+        <td>
+          2845
+          -
+          2876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetData.apply(req.offsetData.data)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1287
+        </td>
+        <td>
+          2856
+          -
+          2875
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData.data
+        </td>
+        <td style="background: #F0ADAD">
+          req.offsetData.data
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1290
+        </td>
+        <td>
+          2821
+          -
+          2878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(req.offsetData.data)))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1292
+        </td>
+        <td>
+          2804
+          -
+          2878
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(req.offsetData.data))))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1289
+        </td>
+        <td>
+          2840
+          -
+          2877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetData, Nothing](OffsetManager.OffsetData.apply(req.offsetData.data))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1294
+        </td>
+        <td>
+          2887
+          -
+          2925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.log.debug(scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1293
+        </td>
+        <td>
+          2897
+          -
+          2924
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Finished saving to &quot;, &quot;&quot;).s(path)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1297
+        </td>
+        <td>
+          2934
+          -
+          2956
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.healthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1296
+        </td>
+        <td>
+          2941
+          -
+          2941
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          2943
+          -
+          2956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.healthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.healthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1298
+        </td>
+        <td>
+          2991
+          -
+          3032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.log.error(&quot;Uanble to write zk state&quot;, ex)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1300
+        </td>
+        <td>
+          3058
+          -
+          3087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.OffsetDataResponse.apply
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1299
+        </td>
+        <td>
+          3077
+          -
+          3086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, Throwable](ex)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1302
+        </td>
+        <td>
+          3041
+          -
+          3087
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(originalSender).!(OffsetManager.OffsetDataResponse.apply(scala.`package`.Right.apply[Nothing, Throwable](ex)))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1301
+        </td>
+        <td>
+          3056
+          -
+          3056
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1303
+        </td>
+        <td>
+          3105
+          -
+          3120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.unhealthy
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.unhealthy(path)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1305
+        </td>
+        <td>
+          3096
+          -
+          3120
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(parent).!(OffsetManager.this.unhealthy(path))(OffsetManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1304
+        </td>
+        <td>
+          3103
+          -
+          3103
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          OffsetManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1309
+        </td>
+        <td>
+          3176
+          -
+          3259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.ZKHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.ZKHealthState.apply(path, false, scala.StringContext.apply(&quot;Failed to fetch offset state &quot;, &quot; from ZK&quot;).s(path))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1308
+        </td>
+        <td>
+          3213
+          -
+          3258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failed to fetch offset state &quot;, &quot; from ZK&quot;).s(path)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1307
+        </td>
+        <td>
+          3206
+          -
+          3211
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1312
+        </td>
+        <td>
+          3303
+          -
+          3383
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.ZKHealthState.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.health.ZKHealthState.apply(path, true, scala.StringContext.apply(&quot;Successfully fetched state &quot;, &quot; from ZK&quot;).s(path))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1311
+        </td>
+        <td>
+          3339
+          -
+          3382
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Successfully fetched state &quot;, &quot; from ZK&quot;).s(path)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1310
+        </td>
+        <td>
+          3333
+          -
+          3337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

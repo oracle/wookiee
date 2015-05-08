@@ -1,0 +1,3381 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/KafkaConsumerCoordinator.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.kafka
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor._
+</span>23 <span style=''>import akka.util.Timeout
+</span>24 <span style=''>import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange}
+</span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
+</span>26 <span style=''>import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
+</span>27 <span style=''>import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
+</span>28 <span style=''>import com.webtrends.harness.component.kafka.health.CoordinatorHealth
+</span>29 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
+</span>30 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
+</span>31 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter
+</span>32 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>33 <span style=''>import net.liftweb.json.Serialization
+</span>34 <span style=''>import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
+</span>35 <span style=''>import scala.collection.mutable
+</span>36 <span style=''>import scala.concurrent.duration._
+</span>37 <span style=''>
+</span>38 <span style=''>object KafkaConsumerCoordinator {
+</span>39 <span style=''>
+</span>40 <span style=''>  def props(sourceProxy: ActorRef) =
+</span>41 <span style=''>    </span><span style='background: #F0ADAD'>Props(new KafkaConsumerCoordinator(sourceProxy))</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  case class NodeData(nodeId: String, data: String)
+</span>44 <span style=''>  case class TopicPartitionResp(partitionsByTopic: Set[PartitionAssignment])
+</span>45 <span style=''>  case class BroadcastToWorkers(msg: Any)
+</span>46 <span style=''>}
+</span>47 <span style=''>
+</span>48 <span style=''>class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
+</span>49 <span style=''>    with ActorLoggingAdapter
+</span>50 <span style=''>    with CoordinatorHealth
+</span>51 <span style=''>    with KafkaSettings
+</span>52 <span style=''>    with ZookeeperEventAdapter {
+</span>53 <span style=''>
+</span>54 <span style=''>  import AssignmentDistributorLeader._
+</span>55 <span style=''>  import KafkaConsumerCoordinator._
+</span>56 <span style=''>
+</span>57 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(10 seconds)</span><span style=''>
+</span>58 <span style=''>  implicit val system = </span><span style='background: #F0ADAD'>context.system</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  val offsetManager = </span><span style='background: #F0ADAD'>context.actorOf(OffsetManager.props(appRootPath), "offset-manager")</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  val workers = </span><span style='background: #F0ADAD'>mutable.Map.empty[String,WorkerRef]</span><span style=''>
+</span>63 <span style=''>
+</span>64 <span style=''>  override def preStart() {
+</span>65 <span style=''>    </span><span style='background: #F0ADAD'>register(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  override def postStop() {
+</span>70 <span style=''>    </span><span style='background: #F0ADAD'>unregister(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
+</span>73 <span style=''></span><span style='background: #F0ADAD'>      log.warning(s"Stopping child [${child.path}]")
+</span>74 <span style=''></span><span style='background: #F0ADAD'>      context.unwatch(child)
+</span>75 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
+</span>76 <span style=''>    }
+</span>77 <span style=''>  }
+</span>78 <span style=''>
+</span>79 <span style=''>  def receive = </span><span style='background: #F0ADAD'>initial</span><span style=''>
+</span>80 <span style=''>
+</span>81 <span style=''>  /**
+</span>82 <span style=''>   *
+</span>83 <span style=''>   * @return
+</span>84 <span style=''>   */
+</span>85 <span style=''>  def initial:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>    case NodeData(nodeId, data) =>
+</span>87 <span style=''></span><span style='background: #F0ADAD'>      val assignments = Serialization.read(data)(formats, manifest[List[PartitionAssignment]])
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      processAssignmentEvent(assignments)
+</span>89 <span style=''></span><span style='background: #F0ADAD'>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>    // ZK data has changed
+</span>91 <span style=''></span><span style='background: #F0ADAD'>    case ZookeeperChildEvent(event) =>
+</span>92 <span style=''></span><span style='background: #F0ADAD'>      // Node registration change
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      event.getType match {
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        // Node data has changed. If the node is local, notify the node actor
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        case CHILD_UPDATED | CHILD_ADDED | CHILD_REMOVED =>
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          val nodeId = event.getData.getPath.split("/").last
+</span>97 <span style=''></span><span style='background: #F0ADAD'>          if (hostname == nodeId) {
+</span>98 <span style=''></span><span style='background: #F0ADAD'>            log.debug(s"Node data for [$nodeId] has been updated. Notifying it")
+</span>99 <span style=''></span><span style='background: #F0ADAD'>            self ! NodeData(nodeId, new String(event.getData.getData, utf8))
+</span>100 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>101 <span style=''></span><span style='background: #F0ADAD'>
+</span>102 <span style=''></span><span style='background: #F0ADAD'>        case _ =>
+</span>103 <span style=''></span><span style='background: #F0ADAD'>        // To remove a compiler warning
+</span>104 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>105 <span style=''></span><span style='background: #F0ADAD'>
+</span>106 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
+</span>107 <span style=''></span><span style='background: #F0ADAD'>      //Stop all workers
+</span>108 <span style=''></span><span style='background: #F0ADAD'>      stopAllWorkers
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      context.become(awaitingShutdown)
+</span>110 <span style=''></span><span style='background: #F0ADAD'>
+</span>111 <span style=''></span><span style='background: #F0ADAD'>    case BroadcastToWorkers(msg) =>
+</span>112 <span style=''></span><span style='background: #F0ADAD'>      workers withFilter(_._2.started) foreach(_._2.actor.forward(msg))
+</span>113 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>114 <span style=''>
+</span>115 <span style=''>  /**
+</span>116 <span style=''>   * We got the prepare for shutdown event
+</span>117 <span style=''>   * @return
+</span>118 <span style=''>   */
+</span>119 <span style=''>  def awaitingShutdown:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>    case msg:Any => //Just ignore all other messages
+</span>121 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"Waiting for shutdown ignoring $msg")
+</span>122 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>
+</span>125 <span style=''>  def stopAllWorkers = {
+</span>126 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Stopping ${workers.size} workers")</span><span style=''>
+</span>127 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach(_._2.stopWorker())</span><span style=''>
+</span>128 <span style=''>  }
+</span>129 <span style=''>
+</span>130 <span style=''>  override def renewConfiguration() = {
+</span>131 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>132 <span style=''>    </span><span style='background: #F0ADAD'>kafkaProxy ! ConfigChange</span><span style=''>
+</span>133 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
+</span>134 <span style=''>  }
+</span>135 <span style=''>
+</span>136 <span style=''>  // Will stop all actors that are no longer needed and start any that are now needed
+</span>137 <span style=''>  def stopUnneededWorkers(assigns: List[PartitionAssignment]) {
+</span>138 <span style=''>    val specs = </span><span style='background: #F0ADAD'>assigns.map(_.assignmentName)</span><span style=''>
+</span>139 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach { worker =>
+</span>140 <span style=''></span><span style='background: #F0ADAD'>      if (specs.contains(worker._1)) worker._2.startWorker() else worker._2.stopWorker()</span><span style=''>
+</span>141 <span style=''>    }
+</span>142 <span style=''>  }
+</span>143 <span style=''>
+</span>144 <span style=''>  def createWorkerIfNeeded(assign: PartitionAssignment) {
+</span>145 <span style=''>    val spec = </span><span style='background: #F0ADAD'>assign.assignmentName</span><span style=''>
+</span>146 <span style=''>    if (</span><span style='background: #F0ADAD'>!workers.contains(spec)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>147 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Creating worker ${assign.host}, ${assign.topic}_${assign.partition}")
+</span>148 <span style=''></span><span style='background: #F0ADAD'>      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager), spec)
+</span>149 <span style=''></span><span style='background: #F0ADAD'>      workers.put(spec, new WorkerRef(true, ref))
+</span>150 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>151 <span style=''>  }
+</span>152 <span style=''>
+</span>153 <span style=''>  def processAssignmentEvent(assigns: List[PartitionAssignment]) {
+</span>154 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(s"Processing ${assigns.length} assignments.")</span><span style=''>
+</span>155 <span style=''>    </span><span style='background: #F0ADAD'>stopUnneededWorkers(assigns)</span><span style=''>
+</span>156 <span style=''>    </span><span style='background: #F0ADAD'>assigns foreach { assign => createWorkerIfNeeded(assign)</span><span style=''> }
+</span>157 <span style=''>  }
+</span>158 <span style=''>
+</span>159 <span style=''>  // Used to keep track of workers and their states, will start on construction if start=true
+</span>160 <span style=''>  class WorkerRef(start: Boolean, ref: ActorRef) {
+</span>161 <span style=''>    var started = </span><span style='background: #F0ADAD'>start</span><span style=''>
+</span>162 <span style=''>    val actor = </span><span style='background: #F0ADAD'>ref</span><span style=''>
+</span>163 <span style=''>    if (</span><span style='background: #F0ADAD'>started</span><span style=''>) {
+</span>164 <span style=''>      </span><span style='background: #F0ADAD'>startWorker()</span><span style=''>
+</span>165 <span style=''>    }
+</span>166 <span style=''>
+</span>167 <span style=''>    override def toString = </span><span style='background: #F0ADAD'>s"WorkerRef(started=$started, actor=$actor)"</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>    def stopWorker() {
+</span>170 <span style=''>      </span><span style='background: #F0ADAD'>ref ! PartitionConsumerWorker.Stop</span><span style=''>
+</span>171 <span style=''>      </span><span style='background: #F0ADAD'>started = false</span><span style=''>
+</span>172 <span style=''>    }
+</span>173 <span style=''>
+</span>174 <span style=''>    def startWorker() {
+</span>175 <span style=''>      </span><span style='background: #F0ADAD'>ref ! Start</span><span style=''>
+</span>176 <span style=''>      </span><span style='background: #F0ADAD'>started = true</span><span style=''>
+</span>177 <span style=''>    }
+</span>178 <span style=''>  }
+</span>179 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1853
+          -
+          1901
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator](new KafkaConsumerCoordinator(sourceProxy))((ClassTag.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator](classOf[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator]): scala.reflect.ClassTag[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator]))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1859
+          -
+          1900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new KafkaConsumerCoordinator(sourceProxy)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          2358
+          -
+          2377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(10).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          2366
+          -
+          2376
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          2366
+          -
+          2368
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          2402
+          -
+          2416
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          2470
+          -
+          2470
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.props$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.props$default$2
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          2440
+          -
+          2507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.actorOf(com.webtrends.harness.component.kafka.actor.OffsetManager.props(KafkaConsumerCoordinator.this.appRootPath, com.webtrends.harness.component.kafka.actor.OffsetManager.props$default$2), &quot;offset-manager&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          2476
+          -
+          2487
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.appRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.appRootPath
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          2490
+          -
+          2506
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;offset-manager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          2456
+          -
+          2488
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.OffsetManager.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.OffsetManager.props(KafkaConsumerCoordinator.this.appRootPath, com.webtrends.harness.component.kafka.actor.OffsetManager.props$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          2525
+          -
+          2560
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.empty[String, KafkaConsumerCoordinator.this.WorkerRef]
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2609
+          -
+          2679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply(KafkaConsumerCoordinator.this.self, KafkaConsumerCoordinator.this.distributorPaths.assignmentPath, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2641
+          -
+          2645
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          2603
+          -
+          2607
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2609
+          -
+          2609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2594
+          -
+          2680
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter.register
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.register(KafkaConsumerCoordinator.this.self, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply(KafkaConsumerCoordinator.this.self, KafkaConsumerCoordinator.this.distributorPaths.assignmentPath, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          2647
+          -
+          2678
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.distributorPaths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2685
+          -
+          2710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.CoordinatorHealth.renewTopicAgeThresholds
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.renewTopicAgeThresholds()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          2765
+          -
+          2765
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2759
+          -
+          2763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2803
+          -
+          2834
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.distributorPaths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2748
+          -
+          2836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter.unregister
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.unregister(KafkaConsumerCoordinator.this.self, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply(KafkaConsumerCoordinator.this.self, KafkaConsumerCoordinator.this.distributorPaths.assignmentPath, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          2797
+          -
+          2801
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2765
+          -
+          2835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply(KafkaConsumerCoordinator.this.self, KafkaConsumerCoordinator.this.distributorPaths.assignmentPath, com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEventRegistration.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2842
+          -
+          2984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.children.foreach[Unit](((child: akka.actor.ActorRef) =&gt; {
+  KafkaConsumerCoordinator.this.log.warning(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path));
+  KafkaConsumerCoordinator.this.context.unwatch(child);
+  KafkaConsumerCoordinator.this.context.stop(child)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2897
+          -
+          2914
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Stopping child [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2895
+          -
+          2928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2915
+          -
+          2925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          child.path
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2926
+          -
+          2928
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2883
+          -
+          2929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warning
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.warning(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2936
+          -
+          2958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.unwatch
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.unwatch(child)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2965
+          -
+          2984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.stop(child)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          3012
+          -
+          3019
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.initial
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.initial
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          3096
+          -
+          3109
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.configReceive
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.configReceive
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          3117
+          -
+          3117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          3075
+          -
+          4121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.healthReceive.orElse[Any, Unit](KafkaConsumerCoordinator.this.configReceive).orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (nodeId: String, data: String)com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.NodeData((nodeId @ _), (data @ _)) =&gt; {
+        val assignments: List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment] = net.liftweb.json.Serialization.read[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](data)(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.formats, scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.partsManifest));
+        KafkaConsumerCoordinator.this.processAssignmentEvent(assignments)
+      }
+      case (event: org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent)com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEvent((event @ _)) =&gt; event.getType() match {
+        case (CHILD_UPDATED| CHILD_ADDED| CHILD_REMOVED) =&gt; {
+          val nodeId: String = scala.this.Predef.refArrayOps[String](event.getData().getPath().split(&quot;/&quot;)).last;
+          if (KafkaConsumerCoordinator.this.hostname.==(nodeId))
+            {
+              KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Node data for [&quot;, &quot;] has been updated. Notifying it&quot;).s(nodeId));
+              akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.self).!(KafkaConsumerCoordinator.NodeData.apply(nodeId, new scala.this.Predef.String(event.getData().getData(), KafkaConsumerCoordinator.this.utf8)))(KafkaConsumerCoordinator.this.self)
+            }
+          else
+            ()
+        }
+        case _ =&gt; ()
+      }
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; {
+        KafkaConsumerCoordinator.this.stopAllWorkers;
+        KafkaConsumerCoordinator.this.context.become(KafkaConsumerCoordinator.this.awaitingShutdown)
+      }
+      case (msg: Any)com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.BroadcastToWorkers((msg @ _)) =&gt; KafkaConsumerCoordinator.this.workers.withFilter(((x$1: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; x$1._2.started)).foreach[Unit](((x$2: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; x$2._2.actor.forward(msg)(KafkaConsumerCoordinator.this.context)))
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (nodeId: String, data: String)com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.NodeData((nodeId @ _), (data @ _)) =&gt; true
+      case (event: org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent)com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperChildEvent((event @ _)) =&gt; true
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; true
+      case (msg: Any)com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.BroadcastToWorkers((msg @ _)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          3212
+          -
+          3247
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Predef.manifest
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.partsManifest)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          3220
+          -
+          3220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.partsManifest
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.partsManifest
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          3203
+          -
+          3210
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.formats
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.formats
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          3178
+          -
+          3248
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Serialization.read
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Serialization.read[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](data)(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.formats, scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.partsManifest))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          3255
+          -
+          3290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.processAssignmentEvent
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.processAssignmentEvent(assignments)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          3398
+          -
+          3411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.getType
+        </td>
+        <td style="background: #F0ADAD">
+          event.getType()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          3581
+          -
+          3618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.last
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](event.getData().getPath().split(&quot;/&quot;)).last
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          3581
+          -
+          3613
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          event.getData().getPath().split(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          3633
+          -
+          3651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.hostname.==(nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          3629
+          -
+          3629
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          3629
+          -
+          3629
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          3653
+          -
+          3824
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Node data for [&quot;, &quot;] has been updated. Notifying it&quot;).s(nodeId));
+  akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.self).!(KafkaConsumerCoordinator.NodeData.apply(nodeId, new scala.this.Predef.String(event.getData().getData(), KafkaConsumerCoordinator.this.utf8)))(KafkaConsumerCoordinator.this.self)
+}
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          3667
+          -
+          3735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Node data for [&quot;, &quot;] has been updated. Notifying it&quot;).s(nodeId))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          3677
+          -
+          3734
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Node data for [&quot;, &quot;] has been updated. Notifying it&quot;).s(nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          3772
+          -
+          3811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.this.Predef.String(event.getData().getData(), KafkaConsumerCoordinator.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          3748
+          -
+          3812
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.self).!(KafkaConsumerCoordinator.NodeData.apply(nodeId, new scala.this.Predef.String(event.getData().getData(), KafkaConsumerCoordinator.this.utf8)))(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          3748
+          -
+          3752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          3806
+          -
+          3810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          3753
+          -
+          3753
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          3783
+          -
+          3804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.recipes.cache.ChildData.getData
+        </td>
+        <td style="background: #F0ADAD">
+          event.getData().getData()
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          3755
+          -
+          3812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.NodeData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.NodeData.apply(nodeId, new scala.this.Predef.String(event.getData().getData(), KafkaConsumerCoordinator.this.utf8))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          3841
+          -
+          3843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          3955
+          -
+          3969
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.stopAllWorkers
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.stopAllWorkers
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          3991
+          -
+          4007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.awaitingShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.awaitingShutdown
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          3976
+          -
+          4008
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.become(KafkaConsumerCoordinator.this.awaitingShutdown)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          4111
+          -
+          4111
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          4052
+          -
+          4117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.FilterMonadic.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.withFilter(((x$1: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; x$1._2.started)).foreach[Unit](((x$2: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; x$2._2.actor.forward(msg)(KafkaConsumerCoordinator.this.context)))
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          4071
+          -
+          4083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._2.started
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          4093
+          -
+          4116
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ActorRef.forward
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._2.actor.forward(msg)(KafkaConsumerCoordinator.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          4224
+          -
+          4379
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.healthReceive.orElse[Any, Unit](KafkaConsumerCoordinator.this.configReceive).orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (msg @ (_: Any)) =&gt; KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Waiting for shutdown ignoring &quot;, &quot;&quot;).s(msg))
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (msg @ (_: Any)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          4245
+          -
+          4258
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.configReceive
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.configReceive
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          4266
+          -
+          4266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          4337
+          -
+          4374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Waiting for shutdown ignoring &quot;, &quot;&quot;).s(msg)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          4327
+          -
+          4375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Waiting for shutdown ignoring &quot;, &quot;&quot;).s(msg))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          4433
+          -
+          4445
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.size
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.size
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          4446
+          -
+          4455
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; workers&quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          4411
+          -
+          4456
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Stopping &quot;, &quot; workers&quot;).s(KafkaConsumerCoordinator.this.workers.size))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          4422
+          -
+          4432
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Stopping &quot;
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          4420
+          -
+          4455
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Stopping &quot;, &quot; workers&quot;).s(KafkaConsumerCoordinator.this.workers.size)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          4477
+          -
+          4494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.stopWorker
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._2.stopWorker()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          4461
+          -
+          4495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.foreach[Unit](((x$3: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; x$3._2.stopWorker()))
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          4545
+          -
+          4571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.renewConfiguration
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.super.renewConfiguration()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          4576
+          -
+          4601
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.kafkaProxy).!(com.webtrends.harness.app.HarnessActor.ConfigChange)(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          4576
+          -
+          4586
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.kafkaProxy
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.kafkaProxy
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          4587
+          -
+          4587
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          4589
+          -
+          4601
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ConfigChange
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.ConfigChange
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          4606
+          -
+          4631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.CoordinatorHealth.renewTopicAgeThresholds
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.renewTopicAgeThresholds()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          4814
+          -
+          4814
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          4815
+          -
+          4831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.assignmentName
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.assignmentName
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          4803
+          -
+          4832
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td style="background: #F0ADAD">
+          assigns.map[String, List[String]](((x$4: com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment) =&gt; x$4.assignmentName))(immutable.this.List.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          4837
+          -
+          4953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.foreach[Unit](((worker: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; if (specs.contains[String](worker._1))
+  worker._2.startWorker()
+else
+  worker._2.stopWorker()))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          4931
+          -
+          4953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.stopWorker
+        </td>
+        <td style="background: #F0ADAD">
+          worker._2.stopWorker()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          4875
+          -
+          4900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.contains
+        </td>
+        <td style="background: #F0ADAD">
+          specs.contains[String](worker._1)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          4902
+          -
+          4925
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
+        </td>
+        <td style="background: #F0ADAD">
+          worker._2.startWorker()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          4890
+          -
+          4899
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          worker._1
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          4902
+          -
+          4925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
+        </td>
+        <td style="background: #F0ADAD">
+          worker._2.startWorker()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          4931
+          -
+          4953
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.stopWorker
+        </td>
+        <td style="background: #F0ADAD">
+          worker._2.stopWorker()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          5038
+          -
+          5059
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.assignmentName
+        </td>
+        <td style="background: #F0ADAD">
+          assign.assignmentName
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          5064
+          -
+          5064
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          5064
+          -
+          5064
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          5068
+          -
+          5091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.contains(spec).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          5093
+          -
+          5330
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition));
+  val ref: akka.actor.ActorRef = KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager), spec);
+  {
+    KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref));
+    ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          5130
+          -
+          5141
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
+        </td>
+        <td style="background: #F0ADAD">
+          assign.host
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          5110
+          -
+          5180
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          5142
+          -
+          5145
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          5179
+          -
+          5180
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          5162
+          -
+          5178
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          assign.partition
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          5112
+          -
+          5129
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Creating worker &quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          5101
+          -
+          5181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition))
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          5159
+          -
+          5161
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          5146
+          -
+          5158
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.topic
+        </td>
+        <td style="background: #F0ADAD">
+          assign.topic
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          5198
+          -
+          5274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager), spec)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          5233
+          -
+          5243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.kafkaProxy
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.kafkaProxy
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          5220
+          -
+          5231
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.topicWorker
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.topicWorker
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          5214
+          -
+          5267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          5253
+          -
+          5266
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.offsetManager
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.offsetManager
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          5292
+          -
+          5292
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          5281
+          -
+          5324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          5299
+          -
+          5323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new KafkaConsumerCoordinator.this.WorkerRef(true, ref)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          5432
+          -
+          5446
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.length
+        </td>
+        <td style="background: #F0ADAD">
+          assigns.length
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          5447
+          -
+          5461
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; assignments.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          5407
+          -
+          5462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Processing &quot;, &quot; assignments.&quot;).s(assigns.length))
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          5417
+          -
+          5461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Processing &quot;, &quot; assignments.&quot;).s(assigns.length)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          5419
+          -
+          5431
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Processing &quot;
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          5467
+          -
+          5495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.stopUnneededWorkers
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.stopUnneededWorkers(assigns)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          5500
+          -
+          5556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          assigns.foreach[Unit](((assign: com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment) =&gt; KafkaConsumerCoordinator.this.createWorkerIfNeeded(assign)))
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          5528
+          -
+          5556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.createWorkerIfNeeded
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.createWorkerIfNeeded(assign)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          5727
+          -
+          5732
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.start
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.start
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          5749
+          -
+          5752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.ref
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.ref
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          5757
+          -
+          5757
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          5761
+          -
+          5768
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.started
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          5757
+          -
+          5757
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          5778
+          -
+          5791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.startWorker()
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          5778
+          -
+          5791
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.startWorker()
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          5827
+          -
+          5871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;WorkerRef(started=&quot;, &quot;, actor=&quot;, &quot;)&quot;).s(WorkerRef.this.started, WorkerRef.this.actor)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          5869
+          -
+          5871
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          5855
+          -
+          5864
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, actor=&quot;
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          5864
+          -
+          5869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.actor
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.actor
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          5829
+          -
+          5848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;WorkerRef(started=&quot;
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          5848
+          -
+          5855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.started
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          5906
+          -
+          5906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          5908
+          -
+          5936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          5902
+          -
+          5905
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.ref
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.ref
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          5902
+          -
+          5936
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop)(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          5943
+          -
+          5958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started_=
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.started_=(false)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          5996
+          -
+          6007
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start)(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          6000
+          -
+          6000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          6002
+          -
+          6007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          5996
+          -
+          5999
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.ref
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.ref
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          6014
+          -
+          6028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started_=
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.started_=(true)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
