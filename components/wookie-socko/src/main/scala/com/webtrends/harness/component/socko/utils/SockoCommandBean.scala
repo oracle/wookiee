@@ -15,6 +15,10 @@ class SockoCommandBean(rawEvent: HttpRequestEvent) extends CommandBean {
   }
   val query = rawEvent.endPoint.queryString
   val event = rawEvent
+
+  def getContent: Option[Array[Byte]] = {
+    get(SockoCommandBean.Content).asInstanceOf[Option[Array[Byte]]]
+  }
 }
 
 object SockoCommandBean {
@@ -25,4 +29,6 @@ object SockoCommandBean {
     }
     bean
   }
+
+  val Content = "raw-content"
 }
