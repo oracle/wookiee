@@ -81,4 +81,7 @@ class SprayManager(name:String) extends Component(name)
 
 object SprayManager {
   def ComponentName = "wookie-spray"
+
+  def KeyStaticRoot = "wookie-spray.static-content.root-path"
+  def KeyStaticType = "wookie-spray.static-content.type"
 }
