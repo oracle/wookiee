@@ -23,26 +23,20 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HActor
-import com.webtrends.harness.component.messages.{ClusterState, StatusRequest, Subscriptions}
 import com.webtrends.harness.component.socko.route.SockoRouteManager
 import com.webtrends.harness.component.socko.utils.SockoCommandException
-import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException, ComponentRequest}
-import com.webtrends.harness.health.{ApplicationHealth, ComponentState, HealthRequest, HealthResponseType}
-import com.webtrends.harness.service.ServiceManager.GetMetaDataByName
-import com.webtrends.harness.service.messages.GetMetaData
-import com.webtrends.harness.service.meta.ServiceMetaData
+import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException}
+import com.webtrends.harness.health.{ComponentState, HealthRequest, HealthResponseType}
 import com.webtrends.harness.utils.ConfigUtil
-import net.liftweb.json.Extraction._
-import net.liftweb.json.JsonAST.JValue
 import net.liftweb.json._
 import net.liftweb.json.ext.{EnumNameSerializer, JodaTimeSerializers}
 import org.joda.time.{DateTime, DateTimeZone}
 import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus}
-import org.mashupbots.socko.routes.{GET, Path, PathSegments}
+import org.mashupbots.socko.routes.{GET, Path}
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util.{Try, Failure, Success}
+import scala.util.{Failure, Success}
 
 case class SockoWorkerMessage(event:HttpRequestEvent)
 
@@ -50,7 +44,6 @@ class SockoHttpWorker extends HActor with ComponentHelper {
   import context.dispatcher
   implicit val timeout = Timeout(10 seconds)
   val staticContent = ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "")
-  val allowHealthCheck = ConfigUtil.getDefaultValue(SockoManager.AllowFullHealthCheck, context.system.settings.config.getBoolean, true)
 
   implicit val formats = DefaultFormats + new EnumNameSerializer(ComponentState) ++ JodaTimeSerializers.all
 
@@ -93,39 +86,6 @@ class SockoHttpWorker extends HActor with ComponentHelper {
           case GET(Path("/healthcheck/nagios")) =>
             (healthActor ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
               case Success(h) => event.response.write(h)
-              case Failure(f) => messageFailure(f, event)
-            }
-          case GET(Path("/healthcheck/full")) if allowHealthCheck =>
-            (healthActor ? HealthRequest(HealthResponseType.FULL)).mapTo[ApplicationHealth] onComplete {
-              case Success(h) => event.response.write(compactRender(decompose(h)))
-              case Failure(f) => messageFailure(f, event)
-            }
-          case GET(Path("/metrics")) if allowHealthCheck =>
-            componentRequest[StatusRequest, JValue]("wookie-metrics", ComponentRequest(StatusRequest())) onComplete {
-              case Success(s) => event.response.write(JsonAST.compactRender(s.resp))
-              case Failure(f) => messageFailure(f, event)
-            }
-          case GET(PathSegments("services" :: relativePath)) if allowHealthCheck =>
-            if (relativePath.size == 0 || relativePath(0).equals("")) {
-              (serviceActor ? GetMetaData(None)).mapTo[Seq[ServiceMetaData]] onComplete {
-                case Success(s) => event.response.write(compactRender(decompose(s)))
-                case Failure(f) => messageFailure(f, event)
-              }
-            } else {
-              (serviceActor ? GetMetaDataByName(relativePath(0))).mapTo[Seq[ServiceMetaData]] onComplete {
-                case Success(s) => event.response.write(compactRender(decompose(s)))
-                case Failure(f) => messageFailure(f, event)
-              }
-            }
-          case GET(Path("/cluster")) if allowHealthCheck =>
-            val req = ComponentRequest(ClusterState(), Some("cluster"))
-            componentRequest[ClusterState, JValue]("wookie-cluster", req) onComplete {
-              case Success(s) => event.response.write(compactRender(s.resp))
-              case Failure(f) => messageFailure(f, event)
-            }
-          case GET(Path("/cluster/discovery")) if allowHealthCheck =>
-            componentRequest[Subscriptions, JValue]("wookie-cluster", ComponentRequest(Subscriptions())) onComplete {
-              case Success(s) => event.response.write(compactRender(s.resp))
               case Failure(f) => messageFailure(f, event)
             }
           case _ =>
