@@ -114,7 +114,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     log.info("Received config change message, checking hosts for changes...")
     super.renewConfiguration()
     if (coordinator.isDefined) {
-      coordinator.get ! ConfigChange
+      coordinator.get ! ConfigChange()
     }
   }
 

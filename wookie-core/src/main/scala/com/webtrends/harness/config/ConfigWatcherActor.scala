@@ -31,14 +31,9 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.ServiceManager
 
 import scala.collection.JavaConversions._
-import scala.concurrent.Future
-import scala.util.control.Breaks._
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 
-/**
- * @author woods
- *         2/9/15
- */
 class ConfigWatcherActor extends HActor {
   val configWatcher = FileSystems.getDefault.newWatchService()
   var configDir = Paths.get(".")
@@ -48,7 +43,8 @@ class ConfigWatcherActor extends HActor {
 
   override def preStart(): Unit = {
     super.preStart()
-    ServiceManager.serviceDir(context.system.settings.config) match {
+    val conf = context.system.settings.config
+    ServiceManager.serviceDir(conf) match {
       case Some(s) =>
         configDir = s.toPath
         val dirs = s.listFiles.filter(_.isDirectory)
@@ -62,11 +58,27 @@ class ConfigWatcherActor extends HActor {
               path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
             }
         }
-        if (dirs.size > 0) {
+        if (dirs.length > 0) {
           configExists = true
           watchThread.start()
         }
       case None => log.warn("Service dir does not exist, not starting watchers")
+    }
+    conf.hasPath("config-dir-path") match {
+      case true =>
+        val cPath = new File(conf.getString("config-dir-path"))
+        if (cPath.isDirectory) {
+          val path = cPath.toPath
+          log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+          path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE), SensitivityWatchEventModifier.HIGH)
+          path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+
+          if (!configExists) {
+            configExists = true
+            watchThread.start()
+          }
+        }
+      case false =>
     }
   }
 

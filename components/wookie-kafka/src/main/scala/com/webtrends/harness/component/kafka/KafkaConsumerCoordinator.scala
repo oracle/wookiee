@@ -129,7 +129,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
 
   override def renewConfiguration() = {
     super.renewConfiguration()
-    kafkaProxy ! ConfigChange
+    kafkaProxy ! ConfigChange()
     renewTopicAgeThresholds()
   }
 
