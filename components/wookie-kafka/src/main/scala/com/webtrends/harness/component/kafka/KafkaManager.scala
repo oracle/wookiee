@@ -20,10 +20,17 @@
 package com.webtrends.harness.component.kafka
 
 import akka.actor.{ActorRef, Props}
+import akka.pattern.ask
 import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.component.kafka.actor.{KafkaConsumerProxy, KafkaProducer}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
+import com.webtrends.harness.health.{ComponentState, HealthComponent}
+import com.webtrends.harness.service.messages.CheckHealth
+
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.{Future, Promise}
+import scala.util.{Failure, Success}
 
 /**
  * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
@@ -98,6 +105,28 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     if (coordinator.isDefined) {
       coordinator.get ! ConfigChange()
     }
+  }
+
+  override def checkHealth: Future[HealthComponent] = {
+    val p = Promise[HealthComponent]()
+    val health = HealthComponent("wookie-kafka", ComponentState.NORMAL, "Kafka ready to process")
+    val healthFutures = List(proxy, coordinator, distributor, producer).flatten map { ref => Future { (ref ? CheckHealth).mapTo[HealthComponent] onComplete {
+      case Success(result) =>
+        health.addComponent(result)
+      case Failure(f) =>
+        health.addComponent(HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${f.getMessage}"))
+      }}
+    }
+
+    Future.sequence(healthFutures) onComplete {
+      case Failure(f) =>
+        log.debug(f, "Failed to retrieve health of children objects")
+        p success HealthComponent(health.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+      case Success(s) =>
+        p success health
+    }
+
+    p.future
   }
 
   override def postStop() {

@@ -79,7 +79,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     self ! KafkaRefreshReq(false)
   }
 
-  def receive = configReceive orElse {
+  def receive:Receive = configReceive orElse {
     // We will first pull the broker data from ZK and use that
     // To make topic meta data requests to get the partition information
     case KafkaRefreshReq(light) =>
@@ -121,7 +121,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
           refreshBrokerInfoIfNeeded()
       }
 
-    case CheckHealth => sender() ! health
+    case CheckHealth => sender ! health
   }
 
   override def renewConfiguration() = {

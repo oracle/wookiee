@@ -27,7 +27,7 @@ import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigValueType}
 import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.BrokerSpec
-import com.webtrends.harness.component.kafka.health.{KafkaProducerHealthCheck, SetHealth}
+import com.webtrends.harness.component.kafka.health.KafkaProducerHealthCheck
 import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
 import com.webtrends.harness.health.ComponentState
 import com.webtrends.harness.logging.ActorLoggingAdapter
@@ -52,8 +52,7 @@ object KafkaProducer {
   def props(): Props = Props[KafkaProducer]
 }
 
-class KafkaProducer extends Actor with ActorLoggingAdapter
-with KafkaProducerHealthCheck with ZookeeperAdapter {
+class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHealthCheck with ZookeeperAdapter {
   import KafkaProducer._
   implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
@@ -76,8 +75,7 @@ with KafkaProducerHealthCheck with ZookeeperAdapter {
   }
 
 
-  def receive = healthReceive orElse {
-
+  def receive:Receive = healthReceive orElse {
     case EventToWrite(topic, event) => sendData(topic, Seq(event))
 
     case EventsToWrite(topic, events) => sendData(topic, events)
@@ -106,12 +104,12 @@ with KafkaProducerHealthCheck with ZookeeperAdapter {
         dataProducer.foreach(_.send(keyedMessages: _*))
       }
 
-      self ! SetHealth(ComponentState.NORMAL, "Messages sending successfully")
+      setHealth(ComponentState.NORMAL, "Messages sending successfully")
       Left(ackId)
     } recover {
       case ex:Exception =>
         log.error("Unable To write Event", ex)
-        self ! SetHealth(ComponentState.CRITICAL, "Last message failed to send")
+        setHealth(ComponentState.CRITICAL, "Last message failed to send")
         resetProducer()
         Right(ex)
     } get

@@ -123,7 +123,7 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
       subComponents = List(
         collapseWithTimeCheck(workerKafkaHealth, "Kafka Health"),
         collapseHealthStates(workerZKHealth, "Zookeeper Health"),
-        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList)))
+        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList.mkString(", "))))
         ++ eventAgeHealthByServer()
     )
   }
