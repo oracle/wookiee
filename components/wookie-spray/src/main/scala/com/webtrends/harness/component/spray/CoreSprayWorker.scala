@@ -92,7 +92,7 @@ class CoreSprayWorker extends HttpServiceActor
    */
   def getRoutes: Route = {
     val serviceRoutes = RouteManager.getRoutes.filter(r => !r.equals(Map.empty))
-    (serviceRoutes ++ List(this.baseRoutes)).reduceLeft(_ ~ _)
+    (serviceRoutes ++ List(this.baseRoutes, this.staticRoutes)).reduceLeft(_ ~ _)
   }
 
   def baseRoutes = {
@@ -210,6 +210,18 @@ class CoreSprayWorker extends HttpServiceActor
             }
         }
       }
+  }
+
+  def staticRoutes = {
+    val rootPath = context.system.settings.config.getString(SprayManager.KeyStaticRoot)
+    context.system.settings.config.getString(SprayManager.KeyStaticType) match {
+      case "file" =>
+        getFromBrowseableDirectory(rootPath)
+      case "jar" =>
+        getFromResourceDirectory(rootPath)
+      case _ =>
+        getFromResourceDirectory(rootPath)
+    }
   }
 
   def myLog(request: HttpRequest): Any => Option[LogEntry] = {
