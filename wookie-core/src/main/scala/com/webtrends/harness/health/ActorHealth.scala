@@ -77,28 +77,21 @@ trait ActorHealth {
   def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
-    val h = getHealth.onComplete {
+    getHealth.onComplete {
       case Success(s) =>
-        if (context.children.size == 0) {
-          p success s
-        } else {
-          val futureList = Future.traverse(context.children) {
-            case a: ActorRef =>
-              val healthPromise = Promise[HealthComponent]()
-              (a ? CheckHealth)(2 seconds).mapTo[HealthComponent] onComplete {
-                case Success(suc) => healthPromise success suc
-                case Failure(f) => healthPromise success HealthComponent(a.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${f.getMessage}")
-              }
-              healthPromise.future
+        val healthFutures = context.children map { ref =>
+          (ref ? CheckHealth).mapTo[HealthComponent] recover {
+            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
           }
-          futureList onComplete {
-            case Failure(f) =>
-              _log.debug(f, "Failed to retrieve health of children objects")
-              p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
-            case Success(answers) =>
-              answers.foreach(h => s.addComponent(h))
-              p success s
-          }
+        }
+
+        Future.sequence(healthFutures) onComplete {
+          case Failure(f) =>
+            _log.debug(f, "Failed to retrieve health of children objects")
+            p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+          case Success(healths) =>
+            healths foreach { it => s.addComponent(it) }
+            p success s
         }
       case Failure(f) =>
         _log.debug(f, "Failed to get health from component")
