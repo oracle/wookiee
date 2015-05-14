@@ -145,7 +145,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
     val spec = assign.assignmentName
     if (!workers.contains(spec)) {
       log.info(s"Creating worker ${assign.host}, ${assign.topic}_${assign.partition}")
-      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager), spec)
+      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager).withDispatcher("worker-dispatcher"), spec)
       workers.put(spec, new WorkerRef(true, ref))
     }
   }
