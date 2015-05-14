@@ -44,8 +44,6 @@ object KafkaManager {
   case object GetDistributor
   // Kafka producer started up if 'producer' is configured
   var producer: Option[ActorRef] = None
-
-  def getProducer = producer
 }
 
 class KafkaManager(name: String) extends Component(name) with KafkaSettings {
