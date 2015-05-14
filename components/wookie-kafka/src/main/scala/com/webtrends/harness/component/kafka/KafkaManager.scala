@@ -79,7 +79,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
       }
     case PrepareForShutdown =>
       coordinator.foreach(_ ! PrepareForShutdown)
-
+      distributor.foreach(_ ! PrepareForShutdown)
   }
 
   def startProducer() {
@@ -110,12 +110,10 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   override def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
     val health = HealthComponent("wookie-kafka", ComponentState.NORMAL, "Kafka ready to process")
-    val healthFutures = List(proxy, coordinator, distributor, producer).flatten map { ref => Future { (ref ? CheckHealth).mapTo[HealthComponent] onComplete {
-      case Success(result) =>
-        health.addComponent(result)
-      case Failure(f) =>
-        health.addComponent(HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${f.getMessage}"))
-      }}
+    val healthFutures = List(proxy, coordinator, distributor, producer).flatten map { ref =>
+      (ref ? CheckHealth).mapTo[HealthComponent] recover {
+        case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+      }
     }
 
     Future.sequence(healthFutures) onComplete {
@@ -123,6 +121,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
         log.debug(f, "Failed to retrieve health of children objects")
         p success HealthComponent(health.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
       case Success(s) =>
+        s foreach { cHealth => health.addComponent(cHealth) }
         p success health
     }
 

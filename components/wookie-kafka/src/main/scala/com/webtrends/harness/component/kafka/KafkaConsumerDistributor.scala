@@ -21,6 +21,7 @@ package com.webtrends.harness.component.kafka
 
 import akka.actor._
 import akka.util.Timeout
+import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.RefreshNodeAssignments
 import com.webtrends.harness.component.kafka.util.KafkaSettings
@@ -86,7 +87,7 @@ class KafkaConsumerDistributor(sourceProxy: ActorRef) extends Actor
     self ! RegisterSelf
   }
 
-  override def postStop() {
+  def shutdown() {
     unregisterNode()
     unregister(self, ZookeeperStateEventRegistration(self))
     unregister(self, ZookeeperChildEventRegistration(self, distributorPaths.nodePath))
@@ -119,6 +120,8 @@ class KafkaConsumerDistributor(sourceProxy: ActorRef) extends Actor
     case CheckHealth => sender() ! HealthComponent(hcName,
                                                     ComponentState.DEGRADED,
                                                     "Distributor has not registered with ZK yet")
+
+    case PrepareForShutdown => shutdown()
 
     case msg => stash()
   }
@@ -156,6 +159,8 @@ class KafkaConsumerDistributor(sourceProxy: ActorRef) extends Actor
         getNodeAssignments(sender())
 
       case GetAssignmentLeader => sender ! AssignmentLeaderResult(assignmentLeader)
+
+      case PrepareForShutdown => shutdown()
 
       case CheckHealth =>
         val msg = assignmentLeader.map(_ => "LEADER - ")
