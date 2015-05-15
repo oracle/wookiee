@@ -137,7 +137,12 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
   def stopUnneededWorkers(assigns: List[PartitionAssignment]) {
     val specs = assigns.map(_.assignmentName)
     workers foreach { worker =>
-      if (specs.contains(worker._1)) worker._2.startWorker() else worker._2.stopWorker()
+      if (specs.contains(worker._1)) {
+        worker._2.startWorker()
+      } else {
+        worker._2.stopWorker()
+        workers.remove(worker._1)
+      }
     }
   }
 
