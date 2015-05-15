@@ -118,8 +118,8 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
 
   def aggregateHealthStates(): HealthComponent = {
     val workerList = listActiveWorkers
-    mergeHealths(name = "Leader Health",
-      desc = "Aggregate leader health",
+    mergeHealths(name = "Coordinator Health",
+      desc = "Aggregate coordinator health",
       subComponents = List(
         collapseWithTimeCheck(workerKafkaHealth, "Kafka Health"),
         collapseHealthStates(workerZKHealth, "Zookeeper Health"),
