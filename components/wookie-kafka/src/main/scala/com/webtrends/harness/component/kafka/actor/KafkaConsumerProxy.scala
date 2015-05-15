@@ -35,6 +35,7 @@ import net.liftweb.json.{NoTypeHints, Serialization}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 
 object KafkaConsumerProxy {
@@ -68,15 +69,15 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   val bufferSize = 1024*1024
   val clientId = s"kk_$hostname"
 
-  var brokers: Option[Seq[BrokerSpec]] = None
-  val consumersByHost = new mutable.HashMap[String,Option[SimpleConsumer]]()
+  var brokers = Seq[BrokerSpec]()
+  val consumersByHost = new mutable.HashMap[String,SimpleConsumer]()
   val hostsByTopicParts = new mutable.HashMap[(String, Int), Option[List[String]]]()
   val partitionsByTopic = new mutable.HashSet[PartitionAssignment]()
   val clusters = new mutable.HashMap[String, String]()
   var health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Proxy has not acquired brokers yet")
 
   override def preStart() = {
-    self ! KafkaRefreshReq(false)
+    self ! KafkaRefreshReq(light = false)
   }
 
   def receive:Receive = configReceive orElse {
@@ -100,14 +101,14 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
     case FetchReq(topic,part,offset,host) =>
       try {
-        if (consumersByHost(host).isDefined) {
-          sender ! fetchTopicPart(consumersByHost(host).get, topic, part, offset, clientId)
+        if (consumersByHost.get(host).isDefined) {
+          sender ! fetchTopicPart(consumersByHost(host), topic, part, offset, clientId)
         } else {
           throw new LeaderNotAvailableException()
         }
       } catch {
         case ex: OffsetOutOfRangeException =>
-          sender ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumersByHost(host).get, topic, part, offset, clientId))
+          sender ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumersByHost(host), topic, part, offset, clientId))
 
         case ex: InvalidMessageSizeException =>
           log.error(s"Failed to fetch message for $topic:$part from $host because message was too big for buffer, you need to increase the buffer size!")
@@ -126,7 +127,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
   override def renewConfiguration() = {
     super.renewConfiguration()
-    self ! KafkaRefreshReq(false)
+    self ! KafkaRefreshReq(light = false)
   }
 
   def fetchTopicPart(consumer: SimpleConsumer, topic: String, part: Int, offset: Long, clientId: String): FetchRes = {
@@ -150,6 +151,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   def requestBrokerInfo() = {
     log.info("Using kafka-hosts to set consumed hosts, {}", kafkaSources)
     var brokerData = Seq[BrokerSpec]()
+    clusters.clear()
     kafkaSources foreach { s =>
       s._2 foreach { broker =>
         val hostPort: Array[String] = broker.split(":")
@@ -165,15 +167,16 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
   def processBrokerData(newBrokers: Seq[BrokerSpec]) = {
     log.debug("Processing brokers {}", newBrokers.toString())
-    brokers = Some(newBrokers)
+    brokers = newBrokers
 
-    brokers.get.filter { it => partitionsByTopic.forall { part => part.host != it.host } }.map { b =>
+    brokers.filter { it => partitionsByTopic.forall { part => part.host != it.host } }.foreach { b =>
       try {
-        consumersByHost.put(b.host, Some(new SimpleConsumer(b.host, b.port, 15000, bufferSize, clientId)))
+        val oldConsumer = consumersByHost.get(b.host)
+        consumersByHost.put(b.host, new SimpleConsumer(b.host, b.port, 15000, bufferSize, clientId))
+        oldConsumer.foreach(_.close())
       } catch {
         case e: Throwable =>
           log.error(s"Exception creating simple consumer for ${b.host}: ${e.getMessage}")
-          consumersByHost.put(b.host, None)
       }
     }
 
@@ -191,11 +194,12 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     var failed = false
     val processedClusters = new mutable.HashSet[String]()
     val clusterSet = clusters.values.toSet
-    for (consumer <- consumersByHost.filter(_._2.isDefined)
+    for (bro <- brokers
         if !clusterSet.forall(x => processedClusters.contains(x))
-        if !processedClusters.contains(clusters(consumer._1))) {
+        if !processedClusters.contains(clusters(bro.host))) {
       try {
-        val topicsMetaResp = consumer._2.get.send(topicMetaRequest)
+        val consumer = consumersByHost(bro.host)
+        val topicsMetaResp = consumer.send(topicMetaRequest)
 
         for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => configuredTopics.contains(meta.topic) };
               partMeta <- topicMeta.partitionsMetadata )
@@ -214,11 +218,11 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
               log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
               hostsByTopicParts.put(key, None)
           }
-          processedClusters.add(clusters(consumer._1))
+          processedClusters.add(clusters(bro.host))
         }
       } catch {
         case e: Throwable =>
-          log.error(s"Unable to get topic meta data from ${consumer._2.get.host}, retrying in 10 seconds", e)
+          log.error(s"Unable to get topic meta data from ${bro.host}, retrying in 10 seconds", e)
           failed = true
       }
     }
@@ -233,24 +237,19 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   // clear out kafka mappings and kick it off. Clearing out the mappings means that any FetchReq messages received
   // before the refresh has finished will fail. Workers are responsible for handling the failure and retrying
   def refreshBrokerInfoIfNeeded() = {
-    brokers match {
-      case Some(brokers) =>
-        clearKafkaMappings()
-        self ! KafkaRefreshReq(false)
-      case None =>
+    partitionsByTopic.synchronized {
+      partitionsByTopic.isEmpty match {
+        case false =>
+          clearKafkaMappings()
+          self ! KafkaRefreshReq(light = true)
+        case true =>
         // Do nothing. A refresh is already in flight.
+      }
     }
   }
 
   def clearKafkaMappings() = {
-    consumersByHost.foreach { case (host, consumer) =>
-      if (consumer.isDefined)
-        consumer.get.close()
-    }
-    consumersByHost.clear()
     hostsByTopicParts.clear()
     partitionsByTopic.clear()
-    clusters.clear()
-    brokers = None
   }
 }
