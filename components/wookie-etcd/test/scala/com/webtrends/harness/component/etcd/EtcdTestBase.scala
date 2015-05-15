@@ -16,12 +16,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.webtrends.harness.component.etcd
 
-trait EtcdMessage {
-  def key: String
-}
+import ch.qos.logback.classic.Level
+import com.webtrends.harness.component.etcd.config.EtcdTestConfig
+import com.webtrends.harness.service.test.TestHarness
+import org.specs2.mutable.SpecificationLike
 
-case class RemoveKey(key: String) extends EtcdMessage
-case class SetKey(key: String, value: AnyRef) extends EtcdMessage
-case class GetKey(key:String) extends EtcdMessage
+
+class EtcdTestBase extends SpecificationLike {
+  TestHarness(EtcdTestConfig.config, None, Some(Map("wookie-etcd" -> classOf[EtcdManager])), Level.ALL)
+  Thread.sleep(1000)
+  implicit val actorSystem = TestHarness.system.get
+  val etcdManager = TestHarness.harness.get.getComponent("wookie-etcd").get
+}

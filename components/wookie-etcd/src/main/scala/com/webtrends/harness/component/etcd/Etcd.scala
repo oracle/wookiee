@@ -14,7 +14,7 @@ trait Etcd { this: Component =>
   var EtcdRef:Option[ActorRef] = None
 
   def startEtcdComponent : ActorRef = {
-    EtcdRef = Some(context.actorOf(EtcdActor.props, Etcd.EtcdName))
+    EtcdRef = Some(context.actorOf(EtcdActor.props(etcdSettings:EtcdSettings), Etcd.EtcdName))
     EtcdRef.get
   }
 

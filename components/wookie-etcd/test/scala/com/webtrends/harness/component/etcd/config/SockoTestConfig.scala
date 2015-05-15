@@ -16,12 +16,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.webtrends.harness.component.etcd
 
-trait EtcdMessage {
-  def key: String
+package com.webtrends.harness.component.etcd.config
+
+import com.webtrends.harness.service.test.config.TestConfig
+
+object EtcdTestConfig {
+  val config = TestConfig.conf("""
+      wookie-etcd {
+        etcd-endpoint = "http://localhost:4001"
+      }
+  """)
 }
-
-case class RemoveKey(key: String) extends EtcdMessage
-case class SetKey(key: String, value: AnyRef) extends EtcdMessage
-case class GetKey(key:String) extends EtcdMessage
