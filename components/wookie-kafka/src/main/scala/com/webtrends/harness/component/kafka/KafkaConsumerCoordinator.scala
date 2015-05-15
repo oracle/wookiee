@@ -25,7 +25,7 @@ import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange}
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
-import com.webtrends.harness.component.kafka.health.CoordinatorHealth
+import com.webtrends.harness.component.kafka.health.{KafkaHealthState, CoordinatorHealth}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
 import com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter
@@ -141,7 +141,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
         worker._2.startWorker()
       } else {
         worker._2.stopWorker()
-        workers.remove(worker._1)
+        self ! KafkaHealthState(worker._1, healthy = true, null, null)
       }
     }
   }
