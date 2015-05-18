@@ -129,7 +129,10 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
       try {
         val oldConsumer = consumersByHost.get(b.host)
         consumersByHost.put(b.host, new KafkaConsumer(b.host, b.port, 15000, bufferSize, clientId))
-        oldConsumer.foreach(_.close())
+        oldConsumer.foreach { it =>
+          it.closed = true
+          it.close()
+        }
       } catch {
         case e: Throwable =>
           log.error(s"Exception creating simple consumer for ${b.host}: ${e.getMessage}")

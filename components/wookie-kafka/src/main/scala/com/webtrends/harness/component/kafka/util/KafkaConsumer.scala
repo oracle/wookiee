@@ -9,9 +9,4 @@ class KafkaConsumer(host: String,
                     clientId: String) extends SimpleConsumer(host, port, soTimeout, bufferSize, clientId) {
   @volatile
   var closed = false
-
-  override def close(): Unit = {
-    closed = true
-    super.close()
-  }
 }
