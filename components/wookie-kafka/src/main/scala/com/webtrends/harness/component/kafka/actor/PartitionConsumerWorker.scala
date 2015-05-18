@@ -40,7 +40,7 @@ import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Leas
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
-
+import scala.util.Try
 
 
 /**
@@ -89,7 +89,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   val host = assign.host
   val cluster = assign.cluster
   val name = assign.assignmentName
-
+  val consumerWait = Try { kafkaConfig.getLong("consumer-wait-millis") } getOrElse 5000L
   val lockPath = s"$appRootPath/locks/${cluster}_${topic}_$partition"
 
   // Harness 3.0 does not provide distributed lock support. Need to pull the curator instance and create our own
@@ -178,7 +178,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   protected def fetchConsumer() {
     log.debug(s"$name: Consumer closed, fetching new one")
-    consumer = Await.result(kafkaProxy ? FetchConsumer(host), 2 seconds) match {
+    consumer = Await.result(kafkaProxy ? FetchConsumer(host), consumerWait milliseconds) match {
       case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
       case None =>
         log.error(s"No consumer found for $host")
