@@ -192,7 +192,15 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
       topicPartitions = Some(tr)
       isDone
 
-    case FetchTimeout => sendAndShutdown(FetchTimeout)
+    case FetchTimeout =>
+      if(nodes.isEmpty) {
+        log.warn(s"Zookeeper node request has timed out")
+      }
+
+      if(topicPartitions.isEmpty) {
+        log.warn(s"Topic Partitions request has timed out")
+      }
+      sendAndShutdown(FetchTimeout)
   }
 
   def isDone = (nodes, topicPartitions) match {
