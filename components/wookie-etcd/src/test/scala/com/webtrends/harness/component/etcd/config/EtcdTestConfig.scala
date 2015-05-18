@@ -17,17 +17,14 @@
  * limitations under the License.
  */
 
-package com.webtrends.harness.component.etcd
+package com.webtrends.harness.component.etcd.config
 
-import ch.qos.logback.classic.Level
-import com.webtrends.harness.component.etcd.config.EtcdTestConfig
-import com.webtrends.harness.service.test.TestHarness
-import org.specs2.mutable.SpecificationLike
+import com.webtrends.harness.service.test.config.TestConfig
 
-
-class EtcdTestBase extends SpecificationLike {
-  TestHarness(EtcdTestConfig.config, None, Some(Map("wookie-etcd" -> classOf[EtcdManager])), Level.ALL)
-  Thread.sleep(1000)
-  implicit val actorSystem = TestHarness.system.get
-  val etcdManager = TestHarness.harness.get.getComponent("wookie-etcd").get
+object EtcdTestConfig {
+  val config = TestConfig.conf("""
+      wookie-etcd {
+        etcd-endpoint = "http://192.168.59.103:4001"
+      }
+  """)
 }

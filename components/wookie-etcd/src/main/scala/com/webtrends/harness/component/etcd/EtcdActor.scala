@@ -7,29 +7,66 @@ package com.webtrends.harness.component.etcd
 import akka.actor._
 import akka.pattern.pipe
 import com.webtrends.harness.app.HActor
+import com.webtrends.harness.component.ComponentHelper
 import net.nikore.etcd.EtcdClient
+import net.nikore.etcd.EtcdJsonProtocol.{EtcdListResponse, EtcdResponse}
+
+import scala.concurrent.Promise
+import scala.util.{Failure, Success}
 
 
 object EtcdActor {
   def props(settings:EtcdSettings): Props = Props(classOf[EtcdActor], settings)
 }
 
-class EtcdActor(settings:EtcdSettings) extends HActor {
+class EtcdActor(settings:EtcdSettings) extends HActor with ComponentHelper{
   import context.dispatcher
 
   var client:Option[EtcdClient] = None
 
   override def receive = super.receive orElse {
+
     case SetKey(key:String, value:String) =>
-      client.foreach(_.setKey(key, value))
+      val p = Promise[Option[Boolean]]
+      client.get .setKey(key, value) onComplete {
+        case Success(s:EtcdResponse) =>
+          p success Option(s.node.value.get == value )
+        case Failure(f) =>
+          p failure f
+      }
+      p.future pipeTo sender
+
 
     case RemoveKey(key:String) =>
-      client.foreach(_.deleteKey(key))
+      val p = Promise[Option[Boolean]]
+      client.get.deleteKey(key) onComplete {
+        case Success(s:EtcdResponse) =>
+          p success Option(!s.node.value.isDefined)
+        case Failure(f) =>
+          p failure f
+      }
+      p.future pipeTo sender
 
     case GetKey(key:String) =>
-      client.foreach { x =>
-        x.getKey(key) pipeTo sender
+      val p = Promise[Option[String]]
+      client.get.getKey(key) onComplete {
+        case Success(s:EtcdResponse) =>
+          p success s.node.value
+        case Failure(f) =>
+          p failure f
       }
+      p.future pipeTo sender
+
+    case ListDir(dir:String, recursive:Boolean) =>
+      val p = Promise[Option[String]]
+      client.get.listDir(dir, recursive) onComplete {
+        case Success(s:EtcdListResponse) =>
+          p success Option(s.node.toJson.compactPrint)
+        case Failure(f) =>
+          p failure f
+      }
+      p.future pipeTo sender
+
   }
 
   override def preStart(): Unit = {
@@ -38,7 +75,7 @@ class EtcdActor(settings:EtcdSettings) extends HActor {
   }
 
   override def postStop(): Unit = {
-    Some(client.foreach(_.shutdown))
+    client.get.shutdown()
     super.postStop()
   }
 }

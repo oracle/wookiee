@@ -16,13 +16,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.webtrends.harness.component.etcd
 
-trait EtcdMessage {
-  def key: String
-}
+import akka.testkit.TestProbe
+import com.webtrends.harness.health.{ComponentState, HealthComponent}
+import com.webtrends.harness.service.messages.CheckHealth
+import net.nikore.etcd.EtcdJsonProtocol.EtcdResponse
+import org.junit.runner.RunWith
+import org.specs2.runner.JUnitRunner
 
-case class RemoveKey(key: String) extends EtcdMessage
-case class SetKey(key: String, value: AnyRef) extends EtcdMessage
-case class GetKey(key:String) extends EtcdMessage
-case class ListDir(key:String, recursive:Boolean = false) extends EtcdMessage
+@RunWith(classOf[JUnitRunner])
+class EtcdManagerSpec extends EtcdTestBase {
+
+  // Run these tests sequentially so that the probe does not bump into the same events
+  sequential
+
+  "EtcdManager" should {
+    "be ready" in {
+      val probe = TestProbe()
+      probe.send(etcdManager, CheckHealth)
+      probe.expectMsgPF() {
+        case health: HealthComponent =>
+          health.state mustEqual ComponentState.NORMAL
+        case _ =>
+          false mustEqual true
+      }
+    }
+  }
+
+}

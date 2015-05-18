@@ -19,25 +19,15 @@
 
 package com.webtrends.harness.component.etcd
 
-import akka.testkit.TestProbe
-import com.webtrends.harness.health.{ComponentState, HealthComponent}
-import com.webtrends.harness.service.messages.CheckHealth
-import org.junit.runner.RunWith
-import org.specs2.runner.JUnitRunner
+import ch.qos.logback.classic.Level
+import com.webtrends.harness.component.etcd.config.EtcdTestConfig
+import com.webtrends.harness.service.test.TestHarness
+import org.specs2.mutable.SpecificationLike
 
-@RunWith(classOf[JUnitRunner])
-class EtcdManagerSpec extends EtcdTestBase {
 
-  "EtcdManager" should {
-    "be ready" in {
-      val probe = TestProbe()
-      probe.send(etcdManager, CheckHealth)
-      probe.expectMsgPF() {
-        case health: HealthComponent =>
-          health.state mustEqual ComponentState.NORMAL
-        case _ =>
-          false mustEqual true
-      }
-    }
-  }
+class EtcdTestBase extends SpecificationLike  {
+  TestHarness(EtcdTestConfig.config, None, Some(Map("wookie-etcd" -> classOf[EtcdManager])), Level.ALL)
+  Thread.sleep(1000)
+  implicit val actorSystem = TestHarness.system.get
+  val etcdManager = TestHarness.harness.get.getComponent("wookie-etcd").get
 }

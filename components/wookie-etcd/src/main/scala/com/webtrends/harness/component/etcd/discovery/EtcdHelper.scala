@@ -4,16 +4,20 @@ import akka.actor.{ActorRef, Actor}
 import akka.pattern._
 import akka.util.Timeout
 import com.webtrends.harness.component.ComponentException
-import com.webtrends.harness.component.etcd.{SetKey, RemoveKey, GetKey, Etcd}
+import com.webtrends.harness.component.etcd._
 import scala.concurrent.duration._
 import scala.concurrent.{Promise, Future}
 import scala.util.{Failure, Success}
 
 trait EtcdHelper {
   this: Actor =>
+
   import context.dispatcher
+
   var etcdManager:Option[ActorRef] = None
   var etcdManagerInitialized:Boolean = false
+
+  implicit val timeout = Timeout(5 seconds)
 
   def initEtcdHelper : Future[ActorRef] = {
     val p = Promise[ActorRef]()
@@ -46,32 +50,52 @@ trait EtcdHelper {
 
   }
 
-  def locate(path:String): Future[AnyRef] = {
-    val f = initEtcdHelper
-    f onSuccess {
-      case actor =>
-        actor ! GetKey(path)
+  def list(path:String, recursive:Boolean = false): Future[Option[String]] = {
+    var f:Option[Future[Option[String]]] = None
+    initEtcdHelper onComplete {
+      case Success(actor) =>
+        val t:Future[Option[String]] = ask(actor, ListDir(path, recursive)).mapTo[Option[String]]
+        f = Option(t)
+      case Failure(e) =>
+        f = Option(Future.failed(e))
     }
-    f
+    f.get
   }
 
-  def delete(path:String): Future[AnyRef] = {
-
-    val f = initEtcdHelper
-    f onSuccess {
-      case actor =>
-        actor ! RemoveKey(path)
+  def locate(path:String): Future[Option[String]] = {
+    var f:Option[Future[Option[String]]] = None
+    initEtcdHelper onComplete {
+      case Success(actor) =>
+        val t:Future[Option[String]] = ask(actor, GetKey(path)).mapTo[Option[String]]
+        f = Option(t)
+      case Failure(e) =>
+        f = Option(Future.failed(e))
     }
-    f
+    f.get
   }
 
-  def publish(path:String, value:AnyRef): Future[AnyRef] = {
-    val f = initEtcdHelper
-    f onSuccess  {
-      case actor =>
-        actor ! SetKey(path, value)
+  def delete(path:String): Future[Option[Boolean]] = {
+    var f:Option[Future[Option[Boolean]]] = None
+    initEtcdHelper onComplete {
+      case Success(actor) =>
+        val t:Future[Option[Boolean]] = ask(actor, RemoveKey(path)).mapTo[Option[Boolean]]
+        f = Option(t)
+      case Failure(e) =>
+        f = Option(Future.failed(e))
     }
-    f
+    f.get
+  }
+
+  def publish(path:String, value:String): Future[Option[Boolean]] = {
+    var f:Option[Future[Option[Boolean]]] = None
+    initEtcdHelper onComplete {
+      case Success(actor) =>
+        val t:Future[Option[Boolean]] = ask(actor, SetKey(path, value)).mapTo[Option[Boolean]]
+        f = Option(t)
+      case Failure(e) =>
+        f = Option(Future.failed(e))
+    }
+    f.get
   }
 
 }

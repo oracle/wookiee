@@ -5,9 +5,14 @@ import com.webtrends.harness.service.Service
 
 trait Discoverable extends EtcdHelper with ServiceIdentity{
   this : Service =>
-  publish(serviceName, identity())
+  publish(identity(), announcement())
+
+  override def identity(): String = {
+    serviceName
+  }
 }
 
 trait ServiceIdentity {
-  def identity(): AnyRef
+  def identity(): String
+  def announcement(): String
 }
