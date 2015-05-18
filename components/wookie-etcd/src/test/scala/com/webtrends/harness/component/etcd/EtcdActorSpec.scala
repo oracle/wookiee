@@ -1,14 +1,10 @@
 package com.webtrends.harness.component.etcd
 
-import java.util.concurrent.Future
-
 import akka.actor.ActorSystem
 import akka.testkit.{TestActorRef, TestProbe}
 import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.component.etcd.config.EtcdTestConfig
-import net.nikore.etcd.EtcdJsonProtocol
 
-import scala.util.Failure
 
 class EtcdActorSpec extends EtcdTestBase {
 
