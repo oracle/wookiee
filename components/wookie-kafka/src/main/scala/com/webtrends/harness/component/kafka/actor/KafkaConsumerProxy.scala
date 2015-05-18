@@ -183,8 +183,9 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
       }
     }
 
-    if (hostsByTopicParts.isEmpty || failed || !clusterSet.forall(x => processedClusters.contains(x))) {
-      health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, "Failed to fetch broker info from ZK. Retrying in 10 seconds")
+    val unprocessed = clusterSet.filter(x => !processedClusters.contains(x))
+    if (hostsByTopicParts.isEmpty || failed || unprocessed.nonEmpty) {
+      health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, s"Brokers despondent: ${unprocessed.mkString(",")}. Retrying in 10 seconds")
       context.system.scheduler.scheduleOnce(10 seconds) { self ! KafkaRefreshReq(hostsByTopicParts.nonEmpty) }
     } else {
       health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
