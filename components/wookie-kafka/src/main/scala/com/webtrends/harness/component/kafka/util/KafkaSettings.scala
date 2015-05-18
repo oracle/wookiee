@@ -36,18 +36,19 @@ trait KafkaSettings extends ConfigHelper { this: Actor =>
   @volatile
   var kafkaConfig: Config = ConfigUtil.prepareSubConfig(renewableConfig, "wookie-kafka")
   val hostname = InetAddress.getLocalHost.getHostName
+  val clientId = s"kk_$hostname"
 
   // Used for ZK paths
   def pod = zkConf.get.dataCenter+"_"+zkConf.get.pod
   def appRootPath = s"/$appName/$pod"
 
-  def distributionRootPath = s"${appRootPath}/kafkaConsumerDistribution"
+  def distributionRootPath = s"$appRootPath/kafkaConsumerDistribution"
 
   val utf8 = StandardCharsets.UTF_8
 
-  def distributorPaths = DistributorPaths(s"${distributionRootPath}/nodes",
-                                          s"${distributionRootPath}/assignments",
-                                          s"${distributionRootPath}/leader")
+  def distributorPaths = DistributorPaths(s"$distributionRootPath/nodes",
+                                          s"$distributionRootPath/assignments",
+                                          s"$distributionRootPath/leader")
 
   def zkConf = renewableConfig.hasPath("wookie-zookeeper.quorum") match {
     case true => Some(ZookeeperSettings(renewableConfig.getConfig("wookie-zookeeper")))

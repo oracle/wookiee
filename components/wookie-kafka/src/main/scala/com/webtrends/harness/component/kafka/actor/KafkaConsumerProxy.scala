@@ -19,17 +19,15 @@
 
 package com.webtrends.harness.component.kafka.actor
 
-import akka.actor.{Props, Actor}
+import akka.actor.{Actor, Props}
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.{FetchErrorBadOffset, FetchErrorPartitionNotAvailable}
-import com.webtrends.harness.component.kafka.util.{KafkaMessageSet, KafkaSettings, KafkaUtil}
+import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.{ZookeeperAdapter, ZookeeperEventAdapter}
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.CheckHealth
-import kafka.api.{FetchRequestBuilder, TopicMetadataRequest}
-import kafka.common._
+import kafka.api.TopicMetadataRequest
 import kafka.consumer.SimpleConsumer
 import net.liftweb.json.{NoTypeHints, Serialization}
 
@@ -50,8 +48,7 @@ object KafkaConsumerProxy {
 
   case class KafkaRefreshReq(light: Boolean = false)
 
-  case class FetchReq(topic: String, part: Int, offset: Long, host: String)
-  case class FetchRes(messages: KafkaMessageSet, nextOffset: Long)
+  case class FetchConsumer(host: String)
 
   case object TopicPartitionReq
 
@@ -67,7 +64,6 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   import context.dispatcher
 
   val bufferSize = 1024*1024
-  val clientId = s"kk_$hostname"
 
   var brokers = Seq[BrokerSpec]()
   val consumersByHost = new mutable.HashMap[String,SimpleConsumer]()
@@ -99,28 +95,8 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     case TopicPartitionReq =>
       sender ! TopicPartitionResp(partitionsByTopic.toSet[PartitionAssignment])
 
-    case FetchReq(topic,part,offset,host) =>
-      try {
-        if (consumersByHost.get(host).isDefined) {
-          sender ! fetchTopicPart(consumersByHost(host), topic, part, offset, clientId)
-        } else {
-          throw new LeaderNotAvailableException()
-        }
-      } catch {
-        case ex: OffsetOutOfRangeException =>
-          sender ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumersByHost(host), topic, part, offset, clientId))
-
-        case ex: InvalidMessageSizeException =>
-          log.error(s"Failed to fetch message for $topic:$part from $host because message was too big for buffer, you need to increase the buffer size!")
-          sender ! FetchErrorPartitionNotAvailable(offset)
-
-        // Catch all. Respond with a generic error message that will result in the workers waiting before retrying
-        // and kick off a refresh of our kafka info
-        case ex: Exception =>
-          log.error(s"Failed to fetch from [$host] [$topic] [$part] [$offset] [${ex.getClass.toString}] [${ex.getMessage}]")
-          sender ! FetchErrorPartitionNotAvailable(offset)
-          refreshBrokerInfoIfNeeded()
-      }
+    case FetchConsumer(host) =>
+      sender ! consumersByHost.get(host)
 
     case CheckHealth => sender ! health
   }
@@ -128,24 +104,6 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   override def renewConfiguration() = {
     super.renewConfiguration()
     self ! KafkaRefreshReq(light = false)
-  }
-
-  def fetchTopicPart(consumer: SimpleConsumer, topic: String, part: Int, offset: Long, clientId: String): FetchRes = {
-    val fetch = new FetchRequestBuilder()
-      .clientId(clientId)
-      .addFetch(topic, part, offset, 150000)
-      .build()
-
-    val fetchResponse = consumer.fetch(fetch)
-    if (fetchResponse.hasError) {
-      ErrorMapping.maybeThrowException(fetchResponse.errorCode(topic, part))
-    }
-
-    val msgSet = fetchResponse.messageSet(topic, part)
-
-    val msgSeq = KafkaMessageSet(msgSet, offset) // This is needed since if Kafka is compressing the messages, the fetch request will return an entire compressed block even if the requested offset isn't the beginning of the compressed block. Thus a message we saw previously may be returned again.
-
-    FetchRes(msgSeq, if (msgSet.size > 0) msgSet.last.nextOffset else offset)
   }
 
   def requestBrokerInfo() = {

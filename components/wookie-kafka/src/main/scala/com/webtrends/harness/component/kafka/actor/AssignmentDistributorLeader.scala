@@ -54,7 +54,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
   var scheduler: Option[Cancellable] = None
   //log.debug(kafkaConfig.root().render())
   val refresh = Try { kafkaConfig.getInt("consumer.assignment-distributor.assignment-refresh-seconds")
-                    } getOrElse(20)
+                    } getOrElse 20
 
   val nodeName = self.path.name
 
@@ -165,10 +165,8 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
 
   val c = context.system.settings.config
 
-  //log.debug(s"Assignment ${c.root().render()}")
-
-  val fetchTimeout = Try {c.getLong(s"${configRoot}.fetch-timeout-millis")
-                         } getOrElse(500L)
+  val fetchTimeout = Try {c.getLong(s"$configRoot.fetch-timeout-millis")
+                         } getOrElse 2000L
 
   log.debug(s"Fetching with timeout $fetchTimeout")
 
