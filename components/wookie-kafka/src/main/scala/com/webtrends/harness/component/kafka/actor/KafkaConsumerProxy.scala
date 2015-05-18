@@ -80,10 +80,9 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     // To make topic meta data requests to get the partition information
     case KafkaRefreshReq(light) =>
       try {
-        log.info("Refreshing kafka broker/partition data")
+        log.debug("Refreshing kafka broker/partition data")
         if (!light) clearKafkaMappings()
         requestBrokerInfo()
-        health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
       } catch {
         case e: Exception =>
           log.error("Failed to fetch broker info from ZK. Retrying in 10 seconds", e)
@@ -187,6 +186,8 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     if (hostsByTopicParts.isEmpty || failed || !clusterSet.forall(x => processedClusters.contains(x))) {
       health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, "Failed to fetch broker info from ZK. Retrying in 10 seconds")
       context.system.scheduler.scheduleOnce(10 seconds) { self ! KafkaRefreshReq(hostsByTopicParts.nonEmpty) }
+    } else {
+      health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
     }
   }
 
