@@ -22,7 +22,7 @@ package com.webtrends.harness.component.kafka.actor
 import akka.actor.{Actor, Props}
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.util.KafkaSettings
+import com.webtrends.harness.component.kafka.util.{KafkaConsumer, KafkaSettings}
 import com.webtrends.harness.component.zookeeper.{ZookeeperAdapter, ZookeeperEventAdapter}
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.logging.ActorLoggingAdapter
@@ -66,7 +66,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   val bufferSize = 1024*1024
 
   var brokers = Seq[BrokerSpec]()
-  val consumersByHost = new mutable.HashMap[String,SimpleConsumer]()
+  val consumersByHost = new mutable.HashMap[String,KafkaConsumer]()
   val hostsByTopicParts = new mutable.HashMap[(String, Int), Option[List[String]]]()
   val partitionsByTopic = new mutable.HashSet[PartitionAssignment]()
   val clusters = new mutable.HashMap[String, String]()
@@ -130,7 +130,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     brokers.filter { it => partitionsByTopic.forall { part => part.host != it.host } }.foreach { b =>
       try {
         val oldConsumer = consumersByHost.get(b.host)
-        consumersByHost.put(b.host, new SimpleConsumer(b.host, b.port, 15000, bufferSize, clientId))
+        consumersByHost.put(b.host, new KafkaConsumer(b.host, b.port, 15000, bufferSize, clientId))
         oldConsumer.foreach(_.close())
       } catch {
         case e: Throwable =>

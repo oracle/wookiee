@@ -116,7 +116,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   // We need to ensure that the initial node completes before the new node reads the offsets out of ZK
   protected val lock = new InterProcessSemaphoreV2(curator, lockPath, 1)
 
-  protected var consumer: Option[SimpleConsumer] = None
+  protected var consumer: Option[KafkaConsumer] = None
 
   /**
    * Fetch Mode - Defaults to automatic
@@ -167,20 +167,25 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
     case Starting -> Consuming =>
       log.info(s"$name: Transitioning state to Consuming")
-      consumer = Await.result(kafkaProxy ? FetchConsumer(host), 2 seconds) match {
-        case Some(con) => Some(con.asInstanceOf[SimpleConsumer])
-        case None =>
-          log.error(s"No consumer found for $host")
-          context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
-          self ! Stop
-          None
-      }
+      fetchConsumer()
       if (consumer.isDefined) {
         context.parent ! KafkaHealthState(name, healthy = true, s"Worker started", topic)
         fetchRequest(ackedOffset)
         scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
           zkCommitRate milliseconds, self, CommitOffset)
       }
+  }
+
+  protected def fetchConsumer() {
+    log.debug(s"$name: Consumer closed, fetching new one")
+    consumer = Await.result(kafkaProxy ? FetchConsumer(host), 2 seconds) match {
+      case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
+      case None =>
+        log.error(s"No consumer found for $host")
+        context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
+        self ! Stop
+        None
+    }
   }
 
   when(Stopped) {
@@ -324,11 +329,11 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   protected def fetchRequest(nextOffset: Long) = {
     //log.debug(s"$name fetching offset $nextOffset")
     try {
+      if (consumer.forall(_.closed)) {
+        fetchConsumer()
+      }
       if (consumer.isDefined) {
         self ! fetchTopicPart(topic, partition, nextOffset, clientId)
-      } else {
-        log.error("No consumer set")
-        self ! FetchErrorPartitionNotAvailable(nextOffset)
       }
     } catch {
       case ex: OffsetOutOfRangeException =>
