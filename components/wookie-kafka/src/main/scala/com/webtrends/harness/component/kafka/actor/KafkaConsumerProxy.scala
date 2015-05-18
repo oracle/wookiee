@@ -28,7 +28,6 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.CheckHealth
 import kafka.api.TopicMetadataRequest
-import kafka.consumer.SimpleConsumer
 import net.liftweb.json.{NoTypeHints, Serialization}
 
 import scala.collection.mutable
@@ -165,7 +164,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
           val key = (topicMeta.topic, partMeta.partitionId)
           partMeta.leader match {
             case Some(broker) =>
-              log.info(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
+              log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
               partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, clusters(broker.host), broker.host))
               if (hostsByTopicParts.contains(key) && hostsByTopicParts.get(key).isDefined) {
                 hostsByTopicParts.put(key, Some(hostsByTopicParts.get(key).get.get :+ broker.host))
