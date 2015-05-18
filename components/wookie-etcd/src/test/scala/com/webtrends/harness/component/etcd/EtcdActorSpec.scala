@@ -26,24 +26,24 @@ class EtcdActorSpec extends EtcdTestBase {
     "be able to set key" in {
       probe.send(actor, SetKey("key1", "foo"))
       probe.expectMsgPF() {
-        case r: Option[Boolean] =>
-          r.get mustEqual true
+        case r: Boolean =>
+          r mustEqual true
       }
     }
 
     "be able to get a key and equal foo" in {
       probe.send(actor, GetKey("key1"))
       probe.expectMsgPF() {
-        case r: Option[String] =>
-          r.get mustEqual "foo"
+        case r: String =>
+          r mustEqual "foo"
       }
     }
 
     "be able to delete key" in {
       probe.send(actor, RemoveKey("key1"))
       probe.expectMsgPF() {
-        case r: Option[Boolean] =>
-          r.get mustEqual true
+        case r: Boolean =>
+          r mustEqual true
       }
 
     }
