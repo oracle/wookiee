@@ -146,9 +146,8 @@ private[route] trait SockoRoutes extends ComponentHelper {
       case ce: SockoCommandException =>
         ce.msg == null || ce.msg == "" match {
           case true => event.response.write(ce.code)
-          case false => event.response.write(ce.code, ce.msg.getBytes("utf-8"), ce.contentType, Map())
+          case false => event.response.write(ce.code, ce.msg)
         }
-
       case ce:CommandException =>
         event.response.write(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")
       case arg:IllegalArgumentException =>

@@ -21,10 +21,9 @@ package com.webtrends.harness.component.socko.utils
 
 import org.mashupbots.socko.events.HttpResponseStatus
 
-class SockoCommandException(val code:HttpResponseStatus, val msg:String, val contentType: String = "plain/text", val ex:Option[Throwable]=None) extends Exception(msg, ex.orNull)
+class SockoCommandException(val code:HttpResponseStatus, val msg:String, val ex:Option[Throwable]=None) extends Exception(msg, ex.orNull)
 
 object SockoCommandException {
     def apply(code:HttpResponseStatus, msg:String) = new SockoCommandException(code, msg)
-    def apply(code:HttpResponseStatus, msg:String, contentType: String) = new SockoCommandException(code, msg, contentType)
-    def apply(code:HttpResponseStatus, t:Throwable) = new SockoCommandException(code, t.getMessage, ex=Some(t))
+    def apply(code:HttpResponseStatus, t:Throwable) = new SockoCommandException(code, t.getMessage, Some(t))
 }
