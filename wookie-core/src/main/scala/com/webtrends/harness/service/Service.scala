@@ -44,7 +44,7 @@ trait Service extends HActor
     log.info("The service {} started", context.self.path)
   }
 
-  def servicePathPrefix : String = "explore"
+  def serviceName : String = this.getClass.getSimpleName
 
   // Combine the services receive along with any optional routes
   override def receive = super.receive orElse ({
