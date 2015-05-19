@@ -19,15 +19,17 @@
 
 package com.webtrends.harness.component.etcd
 
+import akka.actor.ActorSystem
 import akka.testkit.TestProbe
+import com.typesafe.config.ConfigFactory
+import com.webtrends.harness.component.etcd.config.EtcdTestConfig
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
-import net.nikore.etcd.EtcdJsonProtocol.EtcdResponse
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
 
 @RunWith(classOf[JUnitRunner])
-class EtcdManagerSpec extends EtcdTestBase {
+class EtcdManagerSpec extends TestKitSpecificationWithJUnit(ActorSystem("test", ConfigFactory.load(EtcdTestConfig.config))) {
 
   // Run these tests sequentially so that the probe does not bump into the same events
   sequential
