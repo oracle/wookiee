@@ -230,7 +230,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
       goto(Stopped) using Unlocked
 
     case Event(CommitOffset, aq: Acquired) =>
-      storeOffset()
+      storeOffsetAndUpdateHealth()
       stay()
 
     case Event(msg: OffsetDataResponse, aq: Acquired) =>
@@ -247,7 +247,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   initialize()
 
   // Will only store if the ackedOffset has changed or force is true
-  protected def storeOffset(force: Boolean = false): Unit = {
+  protected def storeOffsetAndUpdateHealth(force: Boolean = false): Unit = {
     if (force || (ackedOffset > 0 && lastSentToStorage != ackedOffset)) {
       context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched to $ackedOffset", topic)
       offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
