@@ -249,7 +249,8 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   // Will only store if the ackedOffset has changed or force is true
   protected def storeOffset(force: Boolean = false): Unit = {
     if (force || (ackedOffset > 0 && lastSentToStorage != ackedOffset)) {
-       offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
+      context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched to $ackedOffset", topic)
+      offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
     }
   }
 
