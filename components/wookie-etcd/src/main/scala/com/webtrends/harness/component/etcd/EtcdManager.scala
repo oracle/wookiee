@@ -4,12 +4,12 @@
  */
 package com.webtrends.harness.component.etcd
 
+import akka.pattern.ask
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.utils.ConfigUtil
 
 import scala.concurrent._
-import akka.pattern.ask
 import scala.util.{Failure, Success}
 
 class EtcdManager(name:String) extends Component(name) with Etcd {

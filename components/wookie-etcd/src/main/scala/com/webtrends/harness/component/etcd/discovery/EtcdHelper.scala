@@ -1,12 +1,13 @@
 package com.webtrends.harness.component.etcd.discovery
 
-import akka.actor.{ActorRef, Actor}
+import akka.actor.{Actor, ActorRef}
 import akka.pattern._
 import akka.util.Timeout
 import com.webtrends.harness.component.ComponentException
 import com.webtrends.harness.component.etcd._
+
 import scala.concurrent.duration._
-import scala.concurrent.{Promise, Future}
+import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
 
 trait EtcdHelper {

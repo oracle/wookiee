@@ -1,9 +1,6 @@
 package com.webtrends.harness.component.etcd
 
-import akka.actor.ActorSystem
 import akka.testkit.{TestActorRef, TestProbe}
-import com.typesafe.config.ConfigFactory
-import com.webtrends.harness.component.etcd.config.EtcdTestConfig
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
 

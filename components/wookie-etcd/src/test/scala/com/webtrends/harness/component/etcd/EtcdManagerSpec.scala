@@ -20,7 +20,6 @@
 package com.webtrends.harness.component.etcd
 
 import akka.testkit.TestProbe
-
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 import org.junit.runner.RunWith
