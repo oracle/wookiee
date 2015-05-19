@@ -156,5 +156,16 @@ class EntityRoutesSpec extends SpecificationWithJUnit with NoTimeConversions {
       unmarshalled("content") mustEqual "!@#$%^&*()_+"
 
     }
+
+    "not decode application/json content " in {
+
+      val rawBytes = """{"name": "ho%7B%22me%22%3A%22random%22%7D"}""".getBytes("utf-8")
+
+      val unmarshalled = testEntityRoute.unmarshall[Map[String, String]](rawBytes, "application/json").get
+
+      unmarshalled.size mustEqual 1
+      unmarshalled("name") mustEqual "ho%7B%22me%22%3A%22random%22%7D"
+
+    }
   }
 }

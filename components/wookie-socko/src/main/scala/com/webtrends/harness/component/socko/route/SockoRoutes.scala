@@ -298,7 +298,7 @@ trait EntityRoutes extends SockoRoutes {
           Some(jObj.extract[T])
 
         case "application/json" =>
-          Some(JsonParser.parse(URLDecoder.decode(new String(data), "UTF-8")).extract[T])
+          Some(JsonParser.parse(new String(data, "utf-8")).extract[T])
 
         case _ =>
           val dataString = new String(data, charset)
