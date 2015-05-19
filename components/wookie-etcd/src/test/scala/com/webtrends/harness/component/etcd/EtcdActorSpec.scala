@@ -6,9 +6,7 @@ import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.component.etcd.config.EtcdTestConfig
 
 
-class EtcdActorSpec extends EtcdTestBase {
-
-  val system = ActorSystem("test", ConfigFactory.load(EtcdTestConfig.config))
+class EtcdActorSpec extends TestKitSpecificationWithJUnit(ActorSystem("test",ConfigFactory.load(EtcdTestConfig.config))) {
 
   val probe = new TestProbe(system)
   val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(system.settings.config.getConfig("wookie-etcd"))))
