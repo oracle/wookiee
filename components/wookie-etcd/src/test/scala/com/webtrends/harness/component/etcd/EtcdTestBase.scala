@@ -19,22 +19,14 @@
 
 package com.webtrends.harness.component.etcd
 
-import akka.actor.ActorSystem
-import akka.testkit.TestKitBase
 import ch.qos.logback.classic.Level
 import com.webtrends.harness.component.etcd.config.EtcdTestConfig
 import com.webtrends.harness.service.test.TestHarness
-import org.junit.runner.RunWith
 import org.specs2.mutable.SpecificationLike
-import org.specs2.runner.JUnitRunner
 
-
-@RunWith(classOf[JUnitRunner])
-class TestKitSpecificationWithJUnit(_system: ActorSystem) extends {
-  implicit val system = _system
-} with TestKitBase with SpecificationLike {
+class EtcdTestBase extends SpecificationLike {
   TestHarness(EtcdTestConfig.config, None, Some(Map("wookie-etcd" -> classOf[EtcdManager])), Level.ALL)
   Thread.sleep(1000)
-  //implicit val actorSystem = TestHarness.system.get
+  implicit val actorSystem = TestHarness.system.get
   val etcdManager = TestHarness.harness.get.getComponent("wookie-etcd").get
 }

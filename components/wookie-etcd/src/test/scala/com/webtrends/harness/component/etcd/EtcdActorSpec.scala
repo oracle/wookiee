@@ -4,12 +4,14 @@ import akka.actor.ActorSystem
 import akka.testkit.{TestActorRef, TestProbe}
 import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.component.etcd.config.EtcdTestConfig
+import org.junit.runner.RunWith
+import org.specs2.runner.JUnitRunner
 
+@RunWith(classOf[JUnitRunner])
+class EtcdActorSpec extends EtcdTestBase {
 
-class EtcdActorSpec extends TestKitSpecificationWithJUnit(ActorSystem("test",ConfigFactory.load(EtcdTestConfig.config))) {
-
-  val probe = new TestProbe(system)
-  val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(system.settings.config.getConfig("wookie-etcd"))))
+  val probe = new TestProbe(actorSystem)
+  val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(actorSystem.settings.config.getConfig("wookie-etcd"))))
 
   Thread.sleep(2000)
 
