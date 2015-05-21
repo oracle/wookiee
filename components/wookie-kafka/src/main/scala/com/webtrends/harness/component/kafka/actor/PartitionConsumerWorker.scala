@@ -178,13 +178,17 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   protected def fetchConsumer() {
     log.debug(s"$name: Consumer closed, fetching new one")
-    consumer = Await.result(kafkaProxy ? FetchConsumer(host), consumerWait milliseconds) match {
+    Try { consumer = Await.result(kafkaProxy ? FetchConsumer(host), consumerWait milliseconds) match {
       case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
       case None =>
         log.error(s"No consumer found for $host")
         context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
         self ! Stop
         None
+    }} recover {
+      case ex: Exception =>
+        consumer = None
+        self ! Stop
     }
   }
 
