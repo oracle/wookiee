@@ -187,6 +187,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         None
     }} recover {
       case ex: Exception =>
+        log.error(s"Consumer request for $host timed out, stopping and will retry")
         consumer = None
         self ! Stop
     }
