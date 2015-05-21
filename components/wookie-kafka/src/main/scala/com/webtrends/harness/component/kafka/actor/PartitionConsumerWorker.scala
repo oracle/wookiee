@@ -55,8 +55,6 @@ object ConsumptionFetchMode extends Enumeration {
 object PartitionConsumerWorker {
   case object Stop
   case object Start
-  // Worker is reporting that it has stopped
-  case class WorkerStopped(name: String)
 
   case object CommitOffset
 
@@ -158,7 +156,6 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
     case (Consuming | Starting) -> Stopped =>
       log.info(s"$name: Transitioning state to Stopped")
       stopWorker()
-      context.parent ! WorkerStopped(name)
 
     case Stopped -> Starting =>
       log.debug(s"$name: Transitioning state to Starting")

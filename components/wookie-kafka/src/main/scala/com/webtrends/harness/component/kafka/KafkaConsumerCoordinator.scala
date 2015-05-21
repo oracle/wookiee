@@ -21,17 +21,18 @@ package com.webtrends.harness.component.kafka
 
 import akka.actor._
 import akka.util.Timeout
-import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
-import com.webtrends.harness.component.kafka.health.{KafkaHealthState, CoordinatorHealth}
+import com.webtrends.harness.component.kafka.health.CoordinatorHealth
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
 import com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import net.liftweb.json.Serialization
 import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
+
 import scala.collection.mutable
 import scala.concurrent.duration._
 
@@ -141,7 +142,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
         worker._2.startWorker()
       } else {
         worker._2.stopWorker()
-        self ! KafkaHealthState(worker._1, healthy = true, null, null)
+        workerKafkaHealth.remove(worker._1)
       }
     }
   }

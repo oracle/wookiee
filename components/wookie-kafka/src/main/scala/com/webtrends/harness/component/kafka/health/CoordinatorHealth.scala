@@ -21,7 +21,6 @@ package com.webtrends.harness.component.kafka.health
 
 import com.typesafe.config.Config
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
-import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped
 import com.webtrends.harness.health
 import com.webtrends.harness.health.ComponentState._
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
@@ -75,10 +74,6 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
       } else {
         workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))
       }
-
-    case msg: WorkerStopped =>
-      workers(msg.name).started = false
-      workerZKHealth.remove(msg.name)
 
     case msg: ZKHealthState =>
       workerZKHealth.put(msg.name, msg)
