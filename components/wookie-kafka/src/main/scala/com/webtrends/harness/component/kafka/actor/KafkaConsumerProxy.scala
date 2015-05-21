@@ -47,11 +47,11 @@ object KafkaConsumerProxy {
 
   case class KafkaRefreshReq(light: Boolean = false)
 
-  case class FetchConsumer(host: String)
-
   case object TopicPartitionReq
 
   def props() = Props[KafkaConsumerProxy]
+
+  val consumersByHost = new mutable.HashMap[String,KafkaConsumer]()
 }
 
 class KafkaConsumerProxy extends Actor with KafkaSettings
@@ -65,7 +65,6 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   val bufferSize = 1024*1024
 
   var brokers = Seq[BrokerSpec]()
-  val consumersByHost = new mutable.HashMap[String,KafkaConsumer]()
   val hostsByTopicParts = new mutable.HashMap[(String, Int), Option[List[String]]]()
   val partitionsByTopic = new mutable.HashSet[PartitionAssignment]()
   val clusters = new mutable.HashMap[String, String]()
@@ -92,9 +91,6 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
     case TopicPartitionReq =>
       sender ! TopicPartitionResp(partitionsByTopic.toSet[PartitionAssignment])
-
-    case FetchConsumer(host) =>
-      sender ! consumersByHost.get(host)
 
     case CheckHealth => sender ! health
   }

@@ -23,10 +23,9 @@ package com.webtrends.harness.component.kafka.actor
 import java.util.concurrent.TimeUnit
 
 import akka.actor._
-import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.{FetchConsumer, KafkaRefreshReq}
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.KafkaRefreshReq
 import com.webtrends.harness.component.kafka.actor.OffsetManager.{GetOffsetData, OffsetData, OffsetDataResponse, StoreOffsetData}
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.health.KafkaHealthState
@@ -37,7 +36,6 @@ import kafka.api.FetchRequestBuilder
 import kafka.common.{ErrorMapping, InvalidMessageSizeException, OffsetOutOfRangeException}
 import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
 
-import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -177,18 +175,13 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   protected def fetchConsumer() {
     log.debug(s"$name: Consumer closed, fetching new one")
-    Try { consumer = Await.result(kafkaProxy ? FetchConsumer(host), consumerWait milliseconds) match {
+    consumer = KafkaConsumerProxy.consumersByHost.get(host) match {
       case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
       case None =>
         log.error(s"No consumer found for $host")
         context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
         self ! Stop
         None
-    }} recover {
-      case ex: Exception =>
-        log.error(s"Consumer request for $host timed out, stopping and will retry")
-        consumer = None
-        self ! Stop
     }
   }
 
