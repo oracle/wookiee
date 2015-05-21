@@ -34,8 +34,7 @@ import com.webtrends.harness.component.kafka.receive.MessageResponse
 import com.webtrends.harness.component.kafka.util._
 import com.webtrends.harness.component.zookeeper.{Curator, ZookeeperAdapter}
 import kafka.api.FetchRequestBuilder
-import kafka.common.{ErrorMapping, InvalidMessageSizeException, LeaderNotAvailableException, OffsetOutOfRangeException}
-import kafka.consumer.SimpleConsumer
+import kafka.common.{ErrorMapping, InvalidMessageSizeException, OffsetOutOfRangeException}
 import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
 
 import scala.concurrent.Await
@@ -78,7 +77,7 @@ object PartitionConsumerWorker {
 
 class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment, offsetManager: ActorRef)
   extends LoggingFSM[State, Lock] with Actor with ZookeeperAdapter with KafkaSettings {
-  implicit val timeout = Timeout(2000, TimeUnit.MILLISECONDS)
+  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   import ConsumptionFetchMode._
   import context._
 
@@ -200,7 +199,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         case None => stay()
       }
 
-    case Event(msg: OffsetDataResponse, aq: Acquired) =>
+    case Event(OffsetDataResponse | CommitOffset | FetchRes, Unlocked) =>
       stay()
   }
 
