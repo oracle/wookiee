@@ -20,20 +20,26 @@
 package com.webtrends.harness.component.kafka.actor
 
 
+import java.util.concurrent.TimeUnit
+
 import akka.actor._
+import akka.pattern.ask
+import akka.util.Timeout
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.{FetchReq, FetchRes}
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.{FetchConsumer, KafkaRefreshReq}
 import com.webtrends.harness.component.kafka.actor.OffsetManager.{GetOffsetData, OffsetData, OffsetDataResponse, StoreOffsetData}
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.health.KafkaHealthState
 import com.webtrends.harness.component.kafka.receive.MessageResponse
 import com.webtrends.harness.component.kafka.util._
 import com.webtrends.harness.component.zookeeper.{Curator, ZookeeperAdapter}
+import kafka.api.FetchRequestBuilder
+import kafka.common.{ErrorMapping, InvalidMessageSizeException, OffsetOutOfRangeException}
 import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
 
+import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Try
-
 
 
 /**
@@ -49,13 +55,12 @@ object ConsumptionFetchMode extends Enumeration {
 object PartitionConsumerWorker {
   case object Stop
   case object Start
-  // Worker is reporting that it has stopped
-  case class WorkerStopped(name: String)
 
   case object CommitOffset
 
   case class FetchErrorBadOffset(nextAvailableOffset: Long)
   case class FetchErrorPartitionNotAvailable(offsetRequested: Long)
+  case class FetchRes(messages: KafkaMessageSet, nextOffset: Long)
 
   // FSM States
   trait State
@@ -70,9 +75,9 @@ object PartitionConsumerWorker {
 
 class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment, offsetManager: ActorRef)
   extends LoggingFSM[State, Lock] with Actor with ZookeeperAdapter with KafkaSettings {
-
-  import context._
+  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   import ConsumptionFetchMode._
+  import context._
 
   val decoder = utf8.newDecoder
 
@@ -81,7 +86,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   val host = assign.host
   val cluster = assign.cluster
   val name = assign.assignmentName
-
+  val consumerWait = Try { kafkaConfig.getLong("consumer-wait-millis") } getOrElse 20000L
   val lockPath = s"$appRootPath/locks/${cluster}_${topic}_$partition"
 
   // Harness 3.0 does not provide distributed lock support. Need to pull the curator instance and create our own
@@ -108,6 +113,8 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   // We need to ensure that the initial node completes before the new node reads the offsets out of ZK
   protected val lock = new InterProcessSemaphoreV2(curator, lockPath, 1)
 
+  protected var consumer: Option[KafkaConsumer] = None
+
   /**
    * Fetch Mode - Defaults to automatic
    * @return
@@ -122,7 +129,6 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   def onReceive(messageResponse: MessageResponse) = {
     ackedOffset = messageResponse.nextOffsetOfSet
   }
-
 
 
   // A worker can be in one of 4 standard states:
@@ -150,19 +156,37 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
     case (Consuming | Starting) -> Stopped =>
       log.info(s"$name: Transitioning state to Stopped")
       stopWorker()
-      context.parent ! WorkerStopped(name)
 
     case Stopped -> Starting =>
       log.debug(s"$name: Transitioning state to Starting")
       offsetManager ! GetOffsetData(partitionName(assign))
 
     case Starting -> Consuming =>
-      log.info(s"$name: Transitioning state to Consuming")
-      context.parent ! KafkaHealthState(name, healthy = true, s"Worker started, no data yet", topic)
+      fetchConsumer()
+      if (consumer.isDefined) {
+        context.parent ! KafkaHealthState(name, healthy = true, s"Worker started", topic)
+        fetchRequest(ackedOffset)
+        scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
+          zkCommitRate milliseconds, self, CommitOffset)
+      }
+      log.info(s"$name: We are transitioned to Consuming")
+  }
 
-      fetchRequest(ackedOffset)
-      scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
-        zkCommitRate milliseconds, self, CommitOffset)
+  protected def fetchConsumer() {
+    log.debug(s"$name: Consumer closed, fetching new one")
+    Try { consumer = Await.result(kafkaProxy.ask(FetchConsumer(host))(Timeout(consumerWait, TimeUnit.MILLISECONDS)), consumerWait milliseconds) match {
+      case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
+      case None =>
+        log.error(s"No consumer found for $host")
+        context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
+        self ! Stop
+        None
+    }} recover {
+      case ex: Exception =>
+        log.error(s"Consumer request for $host timed out, stopping and will retry")
+        consumer = None
+        self ! Stop
+    }
   }
 
   when(Stopped) {
@@ -171,6 +195,9 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         case Some(aq) => goto(Starting) using aq
         case None => stay()
       }
+
+    case Event(OffsetDataResponse | CommitOffset | FetchRes, Unlocked) =>
+      stay()
   }
 
   when(Starting, stateTimeout = 5 seconds) {
@@ -189,12 +216,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   when(Consuming) {
     case Event(msg: FetchRes, aq: Acquired) =>
-      if (msg.messages.size > 0) {
-        context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched ${msg.messages.size} events from kafka", topic)
-      }
-
       consume(msg)
-
       stay()
 
     case Event(msg: FetchErrorBadOffset, aq: Acquired) =>
@@ -209,7 +231,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
       goto(Stopped) using Unlocked
 
     case Event(CommitOffset, aq: Acquired) =>
-      storeOffset()
+      storeOffsetAndUpdateHealth()
       stay()
 
     case Event(msg: OffsetDataResponse, aq: Acquired) =>
@@ -226,9 +248,10 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   initialize()
 
   // Will only store if the ackedOffset has changed or force is true
-  protected def storeOffset(force: Boolean = false): Unit = {
+  protected def storeOffsetAndUpdateHealth(force: Boolean = false): Unit = {
     if (force || (ackedOffset > 0 && lastSentToStorage != ackedOffset)) {
-       offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
+      context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched to $ackedOffset", topic)
+      offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
     }
   }
 
@@ -275,7 +298,10 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   def acquireLock(): Option[Acquired] = {
     try {
-      val acquiredLease = lock.acquire()
+      val acquiredLease = lock.acquire(5, TimeUnit.SECONDS) match {
+        case null => throw new InterruptedException("Could not acquire lock before timeout")
+        case l: Lease => l
+      }
       log.debug(s"$name: Lock acquired")
       Some(Acquired(acquiredLease))
     } catch {
@@ -293,24 +319,59 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
    * @return Returns a request for more messages
    */
   def consume(fetchRes: FetchRes) = {
-
     lastSentToProxyOffset = fetchRes.nextOffset
-
     onReceive(MessageResponse(fetchRes.messages, fetchRes.nextOffset))
 
-    //After consumption of messages automatically fetch the next
+    // After consumption of messages automatically fetch the next
     if(fetchMode() == AUTOMATIC) {
       fetchRequest (fetchRes.nextOffset)
     }
   }
 
-
   /**
    * Fetch data from kafka
-   *
    */
   protected def fetchRequest(nextOffset: Long) = {
     //log.debug(s"$name fetching offset $nextOffset")
-    kafkaProxy ! FetchReq(topic, partition, nextOffset, host)
+    try {
+      if (consumer.forall(_.closed)) {
+        fetchConsumer()
+      }
+      if (consumer.isDefined) {
+        self ! fetchTopicPart(topic, partition, nextOffset, clientId)
+      }
+    } catch {
+      case ex: OffsetOutOfRangeException =>
+        self ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumer.get, topic, partition, nextOffset, clientId))
+
+      case ex: InvalidMessageSizeException =>
+        log.error(s"Failed to fetch message for $topic:$partition from $host because message was too big for buffer, you need to increase the buffer size!")
+        self ! FetchErrorPartitionNotAvailable(nextOffset)
+
+      // Catch all. Respond with a generic error message that will result in the workers waiting before retrying
+      // and kick off a refresh of our kafka info
+      case ex: Exception =>
+        log.error(s"Failed to fetch from [$host] [$topic] [$partition] [$nextOffset] [${ex.getClass.toString}] [${ex.getMessage}]")
+        kafkaProxy ! KafkaRefreshReq(light = true)
+        self ! FetchErrorPartitionNotAvailable(nextOffset)
+    }
+  }
+
+  def fetchTopicPart(topic: String, part: Int, offset: Long, clientId: String): FetchRes = {
+    val fetch = new FetchRequestBuilder()
+      .clientId(clientId)
+      .addFetch(topic, part, offset, 150000)
+      .build()
+
+    val fetchResponse = consumer.get.fetch(fetch)
+    if (fetchResponse.hasError) {
+      ErrorMapping.maybeThrowException(fetchResponse.errorCode(topic, part))
+    }
+
+    val msgSet = fetchResponse.messageSet(topic, part)
+
+    val msgSeq = KafkaMessageSet(msgSet, offset) // This is needed since if Kafka is compressing the messages, the fetch request will return an entire compressed block even if the requested offset isn't the beginning of the compressed block. Thus a message we saw previously may be returned again.
+
+    FetchRes(msgSeq, if (msgSet.size > 0) msgSet.last.nextOffset else offset)
   }
 }

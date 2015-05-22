@@ -21,7 +21,7 @@ package com.webtrends.harness.component.kafka
 
 import akka.actor._
 import akka.util.Timeout
-import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
@@ -32,6 +32,7 @@ import com.webtrends.harness.component.zookeeper.ZookeeperEventAdapter
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import net.liftweb.json.Serialization
 import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
+
 import scala.collection.mutable
 import scala.concurrent.duration._
 
@@ -129,7 +130,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
 
   override def renewConfiguration() = {
     super.renewConfiguration()
-    kafkaProxy ! ConfigChange
+    kafkaProxy ! ConfigChange()
     renewTopicAgeThresholds()
   }
 
@@ -137,7 +138,12 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
   def stopUnneededWorkers(assigns: List[PartitionAssignment]) {
     val specs = assigns.map(_.assignmentName)
     workers foreach { worker =>
-      if (specs.contains(worker._1)) worker._2.startWorker() else worker._2.stopWorker()
+      if (specs.contains(worker._1)) {
+        worker._2.startWorker()
+      } else {
+        worker._2.stopWorker()
+        workerKafkaHealth.remove(worker._1)
+      }
     }
   }
 
@@ -145,7 +151,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
     val spec = assign.assignmentName
     if (!workers.contains(spec)) {
       log.info(s"Creating worker ${assign.host}, ${assign.topic}_${assign.partition}")
-      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager), spec)
+      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager).withDispatcher("worker-dispatcher"), spec)
       workers.put(spec, new WorkerRef(true, ref))
     }
   }

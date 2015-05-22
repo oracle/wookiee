@@ -19,21 +19,11 @@
 
 package com.webtrends.harness.component.kafka
 
-import java.util.concurrent.TimeUnit
-
-import akka.actor.{Props, ActorRef}
-import akka.util.Timeout
-import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange, SystemReady}
+import akka.actor.{ActorRef, Props}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.component.kafka.actor.{KafkaConsumerProxy, KafkaProducer}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
-import com.webtrends.harness.health.{ComponentState, HealthComponent}
-import com.webtrends.harness.service.messages.CheckHealth
-import akka.pattern.ask
-import scala.concurrent.{Await, Future}
-import scala.util.{Failure, Success}
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration._
 
 /**
  * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
@@ -43,17 +33,14 @@ import scala.concurrent.duration._
 object KafkaManager {
   // User this to retrieve the coordinator in charge of managing Workers
   case object GetCoordinator
-  // This will return the kafka producer
-  case object GetProducer
   //Will return the distributor
   case object GetDistributor
+  // Kafka producer started up if 'producer' is configured
+  var producer: Option[ActorRef] = None
 }
 
 class KafkaManager(name: String) extends Component(name) with KafkaSettings {
-
   import KafkaManager._
-  // Kafka producer started up if 'producer' is configured
-  var producer: Option[ActorRef] = None
 
   // Consumer coordinator started up if 'consumer' is configured
   var coordinator: Option[ActorRef] = None
@@ -71,13 +58,6 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     case GetCoordinator =>
       sender ! coordinator
 
-    // Use this call to get the Kafka Producer, if configured
-    case GetProducer =>
-      if(producer.isEmpty)
-        log.warn("Writers not started, be sure to set 'producer' config in wookie-kafka")
-
-      sender ! producer
-
     case GetDistributor =>
       sender ! distributor
 
@@ -90,7 +70,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
       }
     case PrepareForShutdown =>
       coordinator.foreach(_ ! PrepareForShutdown)
-
+      distributor.foreach(_ ! PrepareForShutdown)
   }
 
   def startProducer() {
@@ -114,7 +94,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     log.info("Received config change message, checking hosts for changes...")
     super.renewConfiguration()
     if (coordinator.isDefined) {
-      coordinator.get ! ConfigChange
+      coordinator.get ! ConfigChange()
     }
   }
 

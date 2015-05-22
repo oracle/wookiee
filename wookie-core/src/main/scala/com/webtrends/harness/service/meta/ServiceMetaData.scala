@@ -18,8 +18,23 @@
  */
 package com.webtrends.harness.service.meta
 
+import com.webtrends.harness.utils.{Json, JsonSerializable}
 import org.joda.time.DateTime
 
 case class ServiceMetaData(name: String, version: String, loaded: DateTime,
                           path: String, akkaPath: String, jar: String,
-                          supportsHttp: Boolean, dependencies: List[String])
+                          supportsHttp: Boolean, dependencies: List[String]) extends JsonSerializable {
+  override def toJson(): String = {
+    val props = Map[String, Any](
+      "name" -> name,
+      "version" -> version,
+      "loaded" -> loaded.toString,
+      "path" -> path,
+      "akkaPath" -> akkaPath,
+      "jar" -> jar,
+      "supportsHttp" -> supportsHttp,
+      "dependencies" -> dependencies
+    )
+    Json.build(props).toString
+  }
+}

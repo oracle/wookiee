@@ -20,6 +20,7 @@
 package com.webtrends.harness.config
 
 import akka.actor.Actor
+import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.app.HarnessActor.ConfigChange
 import com.webtrends.harness.app.HarnessActorSystem
 
@@ -40,6 +41,7 @@ trait ConfigHelper {
    * to call super.renewConfiguration() though to ensure you get the new values
    */
   def renewConfiguration() {
+    ConfigFactory.invalidateCaches()
     renewableConfig = HarnessActorSystem.getConfig(None)
   }
 
