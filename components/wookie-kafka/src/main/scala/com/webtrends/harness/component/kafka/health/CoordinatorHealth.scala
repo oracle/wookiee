@@ -26,7 +26,6 @@ import com.webtrends.harness.health.ComponentState._
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 
-import scala.collection.JavaConversions._
 import scala.collection.mutable
 
 trait WorkerHealthState {
@@ -74,9 +73,9 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
       }
 
     case msg: KafkaHealthState =>
-      if (msg.topic == null && workerKafkaHealth.containsKey(msg.name)) {
+      if (msg.topic == null && workers.contains(msg.name)) {
         workers(msg.name).started = false
-      } else {
+      } else if (msg.status != null) {
         workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))
       }
 
