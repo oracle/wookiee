@@ -47,8 +47,8 @@ class MemoryManager(name:String) extends Cache(name) {
 
   import context.dispatcher
 
-  protected val ttl = if (config.hasPath(s"${name}.ttl")) {
-    Duration(config.getLong(s"${name}.ttl"), "seconds")
+  protected val ttl = if (config.hasPath(s"$name.ttl")) {
+    Duration(config.getLong(s"$name.ttl"), "seconds")
   } else {
     Duration(DEFAULT_TTL, "seconds")
   }
@@ -88,7 +88,7 @@ class MemoryManager(name:String) extends Cache(name) {
             expireList += cacheItem._1
           }
         }
-        (nc._1 -> expireList.toList)
+        nc._1 -> expireList.toList
     }
 
     // we delete here so that we don't get any concurrent modification exceptions
@@ -102,18 +102,18 @@ class MemoryManager(name:String) extends Cache(name) {
    */
   override def stop = {
     super.stop
-    caches.clear
+    caches.clear()
   }
 
   override protected def get(namespace: String, key: String): Future[Option[ChannelBuffer]] = {
     caches.get(namespace) match {
-      case Some(c) => future {
+      case Some(c) => Future {
         c.get(key) match {
           case Some(value) => Some(value.buffer)
           case None => None
         }
       }
-      case None => future { None }
+      case None => Future { None }
     }
   }
 
@@ -121,8 +121,8 @@ class MemoryManager(name:String) extends Cache(name) {
     caches.get(namespace) match {
       case Some(c) =>
         c.clear
-        future { true }
-      case None => future { false }
+        Future { true }
+      case None => Future { false }
     }
   }
 
@@ -136,9 +136,9 @@ class MemoryManager(name:String) extends Cache(name) {
     caches.get(namespace) match {
       case Some(c) =>
         c.remove(key)
-        future { true }
+        Future { true }
       case None =>
-        future { false }
+        Future { false }
     }
   }
 
@@ -150,7 +150,7 @@ class MemoryManager(name:String) extends Cache(name) {
   }
 
   override protected def getHealth(): Future[HealthComponent] =
-    future { HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size)) }
+    Future { HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size)) }
 
   /**
    * Creates a cache based on the implementer of the function. So could be any cache type
@@ -189,7 +189,7 @@ class MemoryManager(name:String) extends Cache(name) {
       case Some(c) =>
         c.put(key, TimedChannelBuffer(compat.Platform.currentTime, value))
         if (!c.isEmpty && !taskRunning) scheduleTimer
-        future { true }
+        Future { true }
       case None => future { false }
     }
   }

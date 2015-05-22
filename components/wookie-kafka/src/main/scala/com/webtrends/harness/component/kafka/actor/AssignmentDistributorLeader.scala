@@ -159,11 +159,12 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
   import KafkaConsumerProxy._
   import context.dispatcher
 
-  implicit val timeout = Timeout(5 seconds)
-
   val configRoot = "wookie-kafka.consumer.assignment-distributor"
 
   val c = context.system.settings.config
+
+  implicit val zkTimeout = Try { Timeout(c.getLong(s"$configRoot.zk-fetch-timeout-millis") milliseconds)}
+    .getOrElse[Timeout](5 seconds)
 
   val fetchTimeout = Try {c.getLong(s"$configRoot.fetch-timeout-millis")
                          } getOrElse 2000L
