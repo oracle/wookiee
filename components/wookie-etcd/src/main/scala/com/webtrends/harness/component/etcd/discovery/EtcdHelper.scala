@@ -51,11 +51,11 @@ trait EtcdHelper {
 
   }
 
-  def list(path:String, recursive:Boolean = false): Future[Option[String]] = {
-    var f:Option[Future[Option[String]]] = None
+  def list(path:String, recursive:Boolean = false): Future[String] = {
+    var f:Option[Future[String]] = None
     initEtcdHelper onComplete {
       case Success(actor) =>
-        val t:Future[Option[String]] = ask(actor, ListDir(path, recursive)).mapTo[Option[String]]
+        val t:Future[String] = ask(actor, ListDir(path, recursive)).mapTo[String]
         f = Option(t)
       case Failure(e) =>
         f = Option(Future.failed(e))
@@ -63,11 +63,11 @@ trait EtcdHelper {
     f.get
   }
 
-  def locate(path:String): Future[Option[String]] = {
-    var f:Option[Future[Option[String]]] = None
+  def locate(path:String): Future[String] = {
+    var f:Option[Future[String]] = None
     initEtcdHelper onComplete {
       case Success(actor) =>
-        val t:Future[Option[String]] = ask(actor, GetKey(path)).mapTo[Option[String]]
+        val t:Future[String] = ask(actor, GetKey(path)).mapTo[String]
         f = Option(t)
       case Failure(e) =>
         f = Option(Future.failed(e))
@@ -75,11 +75,11 @@ trait EtcdHelper {
     f.get
   }
 
-  def delete(path:String): Future[Option[Boolean]] = {
-    var f:Option[Future[Option[Boolean]]] = None
+  def delete(path:String): Future[Boolean] = {
+    var f:Option[Future[Boolean]] = None
     initEtcdHelper onComplete {
       case Success(actor) =>
-        val t:Future[Option[Boolean]] = ask(actor, RemoveKey(path)).mapTo[Option[Boolean]]
+        val t:Future[Boolean] = ask(actor, RemoveKey(path)).mapTo[Boolean]
         f = Option(t)
       case Failure(e) =>
         f = Option(Future.failed(e))
@@ -87,11 +87,11 @@ trait EtcdHelper {
     f.get
   }
 
-  def publish(path:String, value:String): Future[Option[Boolean]] = {
-    var f:Option[Future[Option[Boolean]]] = None
+  def publish(path:String, value:String): Future[Boolean] = {
+    var f:Option[Future[Boolean]] = None
     initEtcdHelper onComplete {
       case Success(actor) =>
-        val t:Future[Option[Boolean]] = ask(actor, SetKey(path, value)).mapTo[Option[Boolean]]
+        val t:Future[Boolean] = ask(actor, SetKey(path, value)).mapTo[Boolean]
         f = Option(t)
       case Failure(e) =>
         f = Option(Future.failed(e))

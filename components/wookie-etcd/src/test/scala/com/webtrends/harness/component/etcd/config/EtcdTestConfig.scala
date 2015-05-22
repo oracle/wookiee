@@ -24,7 +24,7 @@ import com.webtrends.harness.service.test.config.TestConfig
 object EtcdTestConfig {
   val config = TestConfig.conf("""
       wookie-etcd {
-        etcd-endpoint = "http://localhost:4001"
+        etcd-endpoint = "http://192.168.59.103:4001"
       }
   """)
 }

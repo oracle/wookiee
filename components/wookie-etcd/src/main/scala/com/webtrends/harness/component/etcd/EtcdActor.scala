@@ -27,10 +27,10 @@ class EtcdActor(settings:EtcdSettings) extends HActor with ComponentHelper{
   override def receive = super.receive orElse {
 
     case SetKey(key:String, value:String) =>
-      val p = Promise[Option[Boolean]]
+      val p = Promise[Boolean]
       client.get .setKey(key, value) onComplete {
         case Success(s:EtcdResponse) =>
-          p success Option(s.node.value.get == value )
+          p success (s.node.value.get == value)
         case Failure(f) =>
           p failure f
       }
@@ -38,30 +38,30 @@ class EtcdActor(settings:EtcdSettings) extends HActor with ComponentHelper{
 
 
     case RemoveKey(key:String) =>
-      val p = Promise[Option[Boolean]]
+      val p = Promise[Boolean]
       client.get.deleteKey(key) onComplete {
         case Success(s:EtcdResponse) =>
-          p success Option(!s.node.value.isDefined)
+          p success !s.node.value.isDefined
         case Failure(f) =>
           p failure f
       }
       p.future pipeTo sender
 
     case GetKey(key:String) =>
-      val p = Promise[Option[String]]
+      val p = Promise[String]
       client.get.getKey(key) onComplete {
         case Success(s:EtcdResponse) =>
-          p success s.node.value
+          p success s.node.value.get
         case Failure(f) =>
           p failure f
       }
       p.future pipeTo sender
 
     case ListDir(dir:String, recursive:Boolean) =>
-      val p = Promise[Option[String]]
+      val p = Promise[String]
       client.get.listDir(dir, recursive) onComplete {
         case Success(s:EtcdListResponse) =>
-          p success Option(s.node.toJson.compactPrint)
+          p success s.node.toJson.compactPrint
         case Failure(f) =>
           p failure f
       }

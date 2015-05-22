@@ -59,7 +59,7 @@ class EtcdManager(name:String) extends Component(name) with Etcd {
       p success HealthComponent(self.path.name, ComponentState.CRITICAL, "Etcd is not connected or started.")
     } else {
 
-      val check: Future[Option[String]] = ask(EtcdRef.get, ListDir("/")).mapTo[Option[String]]
+      val check: Future[String] = ask(EtcdRef.get, ListDir("/")).mapTo[String]
 
       check onComplete {
         case Success(result) =>
