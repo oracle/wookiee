@@ -16,4 +16,5 @@ if [[ ${TRAVIS_PULL_REQUEST}  == "" ]]; then
 else
  curl -sLo - http://j.mp/install-travis-docker | sh -xe
  nohup ./run "docker-compose up -d etcd && docker-compose ps && date" &
+ echo $! > etcd.pid
 fi

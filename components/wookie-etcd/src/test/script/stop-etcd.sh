@@ -12,5 +12,6 @@ if [[ ${TRAVIS_PULL_REQUEST}  == "" ]]; then
  docker-compose stop
  docker-compose rm --force
 else
+ kill `cat etcd.pid`
  ./run "docker-compose stop && docker-compose rm --force && docker-compose ps && date"
 fi
