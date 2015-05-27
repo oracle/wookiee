@@ -18,6 +18,6 @@ if [[ ${TRAVIS_PULL_REQUEST}  == "" ]]; then
 else
  # running in travis-ci and stop and remove the pid
  kill `cat etcd.pid`
- ./run "docker-compose stop && docker-compose rm --force && docker-compose ps && date"
- rm docker.started etcd.pid
+ rm -f docker.started etcd.pid
+ echo "Shutdown docker.."
 fi
