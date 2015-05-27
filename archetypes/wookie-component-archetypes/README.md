@@ -176,7 +176,8 @@ wookie-system {
     componentJarName = "componentName"
   }
   ...
-}```
+}
+```
 
 #### Deploying Component as Directory Structure
 

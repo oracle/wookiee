@@ -36,7 +36,7 @@ import scala.util.{Failure, Success}
 
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
-
+  val upTime = DateTime.now
   implicit val timeout = Timeout(5 seconds)
 
   val scalaVersion = util.Properties.versionString
@@ -118,10 +118,10 @@ trait HealthCheckProvider {
         // Rollup the statuses
         val overallHealth = rollupStatuses(alerts)
         alerts.clear()
-        p success new ApplicationHealth(application, version, DateTime.now, overallHealth.state, overallHealth.details, checks)
+        p success new ApplicationHealth(application, version, upTime, overallHealth.state, overallHealth.details, checks)
       case Failure(e) =>
         log.error("An error occurred while fetching the health request results", e)
-        p success new ApplicationHealth(application, version, DateTime.now, ComponentState.CRITICAL, e.getMessage, Nil)
+        p success new ApplicationHealth(application, version, upTime, ComponentState.CRITICAL, e.getMessage, Nil)
     })
 
     p.future

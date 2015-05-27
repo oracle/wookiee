@@ -31,6 +31,7 @@ case class ApplicationHealth(applicationName: String,
   override def toJson(): String = {
     val props = Map[String, Any](
       "applicationName" -> applicationName,
+      "startedTime" -> time,
       "version" -> version,
       "state" -> state.toString,
       "details" -> details,

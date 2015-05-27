@@ -51,13 +51,14 @@ trait ComponentHelper {
       if (timeOut.isOverdue() && !componentManagerInitialized) {
         componentManagerInitialized = true
         p failure ComponentException("Component Manager", "Failed to get component manager")
-      }
-      context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
-        case Success(s) =>
-          componentManager = Some(s)
-          componentManagerInitialized = true
-          p success s
-        case Failure(f) => awaitComponentManager(timeOut)
+      } else {
+        context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
+          case Success(s) =>
+            componentManager = Some(s)
+            componentManagerInitialized = true
+            p success s
+          case Failure(f) => awaitComponentManager(timeOut)
+        }
       }
     }
 

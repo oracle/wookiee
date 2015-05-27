@@ -19,22 +19,20 @@
 
 package com.webtrends.harness.component.kafka.actor
 
-import akka.actor.{Props, Actor}
+import akka.actor.{Actor, Props}
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.{FetchErrorBadOffset, FetchErrorPartitionNotAvailable}
-import com.webtrends.harness.component.kafka.util.{KafkaMessageSet, KafkaSettings, KafkaUtil}
+import com.webtrends.harness.component.kafka.util.{KafkaConsumer, KafkaSettings}
 import com.webtrends.harness.component.zookeeper.{ZookeeperAdapter, ZookeeperEventAdapter}
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.CheckHealth
-import kafka.api.{FetchRequestBuilder, TopicMetadataRequest}
-import kafka.common._
-import kafka.consumer.SimpleConsumer
+import kafka.api.TopicMetadataRequest
 import net.liftweb.json.{NoTypeHints, Serialization}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 
 object KafkaConsumerProxy {
@@ -49,8 +47,7 @@ object KafkaConsumerProxy {
 
   case class KafkaRefreshReq(light: Boolean = false)
 
-  case class FetchReq(topic: String, part: Int, offset: Long, host: String)
-  case class FetchRes(messages: KafkaMessageSet, nextOffset: Long)
+  case class FetchConsumer(host: String)
 
   case object TopicPartitionReq
 
@@ -66,28 +63,26 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   import context.dispatcher
 
   val bufferSize = 1024*1024
-  val clientId = s"kk_$hostname"
 
-  var brokers: Option[Seq[BrokerSpec]] = None
-  val consumersByHost = new mutable.HashMap[String,Option[SimpleConsumer]]()
+  var brokers = Seq[BrokerSpec]()
+  val consumersByHost = new mutable.HashMap[String,KafkaConsumer]()
   val hostsByTopicParts = new mutable.HashMap[(String, Int), Option[List[String]]]()
   val partitionsByTopic = new mutable.HashSet[PartitionAssignment]()
   val clusters = new mutable.HashMap[String, String]()
   var health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Proxy has not acquired brokers yet")
 
   override def preStart() = {
-    self ! KafkaRefreshReq(false)
+    self ! KafkaRefreshReq(light = false)
   }
 
-  def receive = configReceive orElse {
+  def receive:Receive = configReceive orElse {
     // We will first pull the broker data from ZK and use that
     // To make topic meta data requests to get the partition information
     case KafkaRefreshReq(light) =>
       try {
-        log.info("Refreshing kafka broker/partition data")
+        log.debug("Refreshing kafka broker/partition data")
         if (!light) clearKafkaMappings()
         requestBrokerInfo()
-        health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
       } catch {
         case e: Exception =>
           log.error("Failed to fetch broker info from ZK. Retrying in 10 seconds", e)
@@ -98,58 +93,21 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     case TopicPartitionReq =>
       sender ! TopicPartitionResp(partitionsByTopic.toSet[PartitionAssignment])
 
-    case FetchReq(topic,part,offset,host) =>
-      try {
-        if (consumersByHost(host).isDefined) {
-          sender ! fetchTopicPart(consumersByHost(host).get, topic, part, offset, clientId)
-        } else {
-          throw new LeaderNotAvailableException()
-        }
-      } catch {
-        case ex: OffsetOutOfRangeException =>
-          sender ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumersByHost(host).get, topic, part, offset, clientId))
+    case FetchConsumer(host) =>
+      sender ! consumersByHost.get(host)
 
-        case ex: InvalidMessageSizeException =>
-          log.error(s"Failed to fetch message for $topic:$part from $host because message was too big for buffer, you need to increase the buffer size!")
-          sender ! FetchErrorPartitionNotAvailable(offset)
-
-        // Catch all. Respond with a generic error message that will result in the workers waiting before retrying
-        // and kick off a refresh of our kafka info
-        case ex: Exception =>
-          log.error(s"Failed to fetch from [$host] [$topic] [$part] [$offset] [${ex.getClass.toString}] [${ex.getMessage}]")
-          sender ! FetchErrorPartitionNotAvailable(offset)
-          refreshBrokerInfoIfNeeded()
-      }
-
-    case CheckHealth => sender() ! health
+    case CheckHealth => sender ! health
   }
 
   override def renewConfiguration() = {
     super.renewConfiguration()
-    self ! KafkaRefreshReq(false)
-  }
-
-  def fetchTopicPart(consumer: SimpleConsumer, topic: String, part: Int, offset: Long, clientId: String): FetchRes = {
-    val fetch = new FetchRequestBuilder()
-      .clientId(clientId)
-      .addFetch(topic, part, offset, 150000)
-      .build()
-
-    val fetchResponse = consumer.fetch(fetch)
-    if (fetchResponse.hasError) {
-      ErrorMapping.maybeThrowException(fetchResponse.errorCode(topic, part))
-    }
-
-    val msgSet = fetchResponse.messageSet(topic, part)
-
-    val msgSeq = KafkaMessageSet(msgSet, offset) // This is needed since if Kafka is compressing the messages, the fetch request will return an entire compressed block even if the requested offset isn't the beginning of the compressed block. Thus a message we saw previously may be returned again.
-
-    FetchRes(msgSeq, if (msgSet.size > 0) msgSet.last.nextOffset else offset)
+    self ! KafkaRefreshReq(light = false)
   }
 
   def requestBrokerInfo() = {
     log.info("Using kafka-hosts to set consumed hosts, {}", kafkaSources)
     var brokerData = Seq[BrokerSpec]()
+    clusters.clear()
     kafkaSources foreach { s =>
       s._2 foreach { broker =>
         val hostPort: Array[String] = broker.split(":")
@@ -165,15 +123,19 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
   def processBrokerData(newBrokers: Seq[BrokerSpec]) = {
     log.debug("Processing brokers {}", newBrokers.toString())
-    brokers = Some(newBrokers)
+    brokers = newBrokers
 
-    brokers.get.filter { it => partitionsByTopic.forall { part => part.host != it.host } }.map { b =>
+    brokers.filter { it => partitionsByTopic.forall { part => part.host != it.host } }.foreach { b =>
       try {
-        consumersByHost.put(b.host, Some(new SimpleConsumer(b.host, b.port, 15000, bufferSize, clientId)))
+        val oldConsumer = consumersByHost.get(b.host)
+        consumersByHost.put(b.host, new KafkaConsumer(b.host, b.port, 15000, bufferSize, clientId))
+        oldConsumer.foreach { it =>
+          it.closed = true
+          it.close()
+        }
       } catch {
         case e: Throwable =>
           log.error(s"Exception creating simple consumer for ${b.host}: ${e.getMessage}")
-          consumersByHost.put(b.host, None)
       }
     }
 
@@ -191,11 +153,12 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     var failed = false
     val processedClusters = new mutable.HashSet[String]()
     val clusterSet = clusters.values.toSet
-    for (consumer <- consumersByHost.filter(_._2.isDefined)
+    for (bro <- brokers
         if !clusterSet.forall(x => processedClusters.contains(x))
-        if !processedClusters.contains(clusters(consumer._1))) {
+        if !processedClusters.contains(clusters(bro.host))) {
       try {
-        val topicsMetaResp = consumer._2.get.send(topicMetaRequest)
+        val consumer = consumersByHost(bro.host)
+        val topicsMetaResp = consumer.send(topicMetaRequest)
 
         for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => configuredTopics.contains(meta.topic) };
               partMeta <- topicMeta.partitionsMetadata )
@@ -203,7 +166,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
           val key = (topicMeta.topic, partMeta.partitionId)
           partMeta.leader match {
             case Some(broker) =>
-              log.info(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
+              log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
               partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, clusters(broker.host), broker.host))
               if (hostsByTopicParts.contains(key) && hostsByTopicParts.get(key).isDefined) {
                 hostsByTopicParts.put(key, Some(hostsByTopicParts.get(key).get.get :+ broker.host))
@@ -214,18 +177,21 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
               log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
               hostsByTopicParts.put(key, None)
           }
-          processedClusters.add(clusters(consumer._1))
+          processedClusters.add(clusters(bro.host))
         }
       } catch {
         case e: Throwable =>
-          log.error(s"Unable to get topic meta data from ${consumer._2.get.host}, retrying in 10 seconds", e)
+          log.error(s"Unable to get topic meta data from ${bro.host}, retrying in 10 seconds", e)
           failed = true
       }
     }
 
-    if (hostsByTopicParts.isEmpty || failed || !clusterSet.forall(x => processedClusters.contains(x))) {
-      health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, "Failed to fetch broker info from ZK. Retrying in 10 seconds")
+    val unprocessed = clusterSet.filter(x => !processedClusters.contains(x))
+    if (hostsByTopicParts.isEmpty || failed || unprocessed.nonEmpty) {
+      health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, s"Brokers despondent: ${unprocessed.mkString(",")}. Retrying in 10 seconds")
       context.system.scheduler.scheduleOnce(10 seconds) { self ! KafkaRefreshReq(hostsByTopicParts.nonEmpty) }
+    } else {
+      health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
     }
   }
 
@@ -233,24 +199,19 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   // clear out kafka mappings and kick it off. Clearing out the mappings means that any FetchReq messages received
   // before the refresh has finished will fail. Workers are responsible for handling the failure and retrying
   def refreshBrokerInfoIfNeeded() = {
-    brokers match {
-      case Some(brokers) =>
-        clearKafkaMappings()
-        self ! KafkaRefreshReq(false)
-      case None =>
+    partitionsByTopic.synchronized {
+      partitionsByTopic.isEmpty match {
+        case false =>
+          clearKafkaMappings()
+          self ! KafkaRefreshReq(light = true)
+        case true =>
         // Do nothing. A refresh is already in flight.
+      }
     }
   }
 
   def clearKafkaMappings() = {
-    consumersByHost.foreach { case (host, consumer) =>
-      if (consumer.isDefined)
-        consumer.get.close()
-    }
-    consumersByHost.clear()
     hostsByTopicParts.clear()
     partitionsByTopic.clear()
-    clusters.clear()
-    brokers = None
   }
 }

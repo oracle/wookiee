@@ -31,14 +31,9 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.ServiceManager
 
 import scala.collection.JavaConversions._
-import scala.concurrent.Future
-import scala.util.control.Breaks._
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 
-/**
- * @author woods
- *         2/9/15
- */
 class ConfigWatcherActor extends HActor {
   val configWatcher = FileSystems.getDefault.newWatchService()
   var configDir = Paths.get(".")
@@ -48,7 +43,8 @@ class ConfigWatcherActor extends HActor {
 
   override def preStart(): Unit = {
     super.preStart()
-    ServiceManager.serviceDir(context.system.settings.config) match {
+    val conf = context.system.settings.config
+    ServiceManager.serviceDir(conf) match {
       case Some(s) =>
         configDir = s.toPath
         val dirs = s.listFiles.filter(_.isDirectory)
@@ -58,15 +54,29 @@ class ConfigWatcherActor extends HActor {
             val path = Paths.get(dir.getPath.concat("/conf"))
             if (Files.exists(path)) {
               log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
-              path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE), SensitivityWatchEventModifier.HIGH)
-              path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+              path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
             }
         }
-        if (dirs.size > 0) {
+        if (dirs.length > 0) {
           configExists = true
           watchThread.start()
         }
       case None => log.warn("Service dir does not exist, not starting watchers")
+    }
+    System.getProperty("config.file") match {
+      case s: String =>
+        val cPath = new File(s)
+        if (cPath.exists()) {
+          val path = cPath.getParentFile.toPath
+          log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+          path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+
+          if (!configExists) {
+            configExists = true
+            watchThread.start()
+          }
+        }
+      case null => log.info("Prop config.file not set, not watching for config changes")
     }
   }
 

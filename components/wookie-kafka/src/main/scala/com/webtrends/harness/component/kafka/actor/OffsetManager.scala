@@ -52,7 +52,6 @@ class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
       case Success(data) =>
          Try {
            originalSender ! OffsetDataResponse(Left(OffsetData(data)))
-           log.debug(s"Finished saving to $path")
            parent ! healthy(path)
          } recover {
            case ex =>
@@ -81,7 +80,6 @@ class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
     setData(path, req.offsetData.data, true, false).onComplete {
       case Success(bytesWritten) =>
         originalSender ! OffsetDataResponse(Left(OffsetData(req.offsetData.data)))
-        log.debug(s"Finished saving to $path")
         parent ! healthy(path)
       case Failure(ex) =>
         log.error("Uanble to write zk state", ex)
