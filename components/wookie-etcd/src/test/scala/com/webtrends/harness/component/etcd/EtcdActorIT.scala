@@ -5,7 +5,7 @@ import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
 
 @RunWith(classOf[JUnitRunner])
-class EtcdActorSpec extends EtcdTestBase {
+class EtcdActorIT extends EtcdTestBase {
 
   val probe = new TestProbe(actorSystem)
   val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(actorSystem.settings.config.getConfig("wookie-etcd"))))
