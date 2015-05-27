@@ -28,6 +28,7 @@ import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigValueType}
 import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.BrokerSpec
 import com.webtrends.harness.component.kafka.health.KafkaProducerHealthCheck
+import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
 import com.webtrends.harness.health.ComponentState
 import com.webtrends.harness.logging.ActorLoggingAdapter
@@ -52,13 +53,17 @@ object KafkaProducer {
   def props(): Props = Props[KafkaProducer]
 }
 
-class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHealthCheck with ZookeeperAdapter {
+class KafkaProducer extends Actor
+  with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter with KafkaSettings {
   import KafkaProducer._
   implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
   var dataProducer: Option[Producer[String, Array[Byte]]] = None
   val formats = Serialization.formats(NoTypeHints)
-  val utf8 = StandardCharsets.UTF_8
+
+  var partitionKey = 0L
+
+  val evenPartitionDistribution = Try { kafkaConfig.getBoolean("even-partition-distribution")} getOrElse true
 
   override def preStart() = {
     resetProducer()
@@ -97,7 +102,7 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
       ensureProducer()
       
       val keyedMessages = eventMessages.withFilter(_.length > 0)
-                                       .map(new KeyedMessage[String, Array[Byte]](topic, _))
+                                       .map(keyedMessage(topic, _))
 
       //Only Send if we have 1 valid messages
       if(keyedMessages.nonEmpty) {
@@ -113,6 +118,18 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
         resetProducer()
         Right(ex)
     } get
+  }
+
+  private def keyedMessage(topic: String, value: Array[Byte]): KeyedMessage[String, Array[Byte]] = {
+    val keyedMessage =
+      if(evenPartitionDistribution)
+        new KeyedMessage[String, Array[Byte]](topic, partitionKey.toString, value)
+      else
+        new KeyedMessage[String, Array[Byte]](topic, value)
+
+    partitionKey += 1
+
+    keyedMessage
   }
 
   /**
@@ -179,6 +196,7 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
       }
     }
     val brokerList = getKafkaNodes(context.system.settings.config.getConfig("wookie-kafka.producer"))
+    props.put("key.serializer.class","kafka.serializer.StringEncoder")
     props.put("metadata.broker.list", brokerList)
     props
   }
