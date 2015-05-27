@@ -19,7 +19,6 @@
 package com.webtrends.harness.component.spray.directive
 
 import akka.testkit.TestKit
-import com.webtrends.harness.component.spray.directive.CORSDirectives
 import org.specs2.mutable.SpecificationWithJUnit
 import spray.http.HttpHeaders.{Origin, RawHeader}
 import spray.http.{AllOrigins, HttpOrigin, SomeOrigins}

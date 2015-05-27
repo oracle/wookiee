@@ -21,13 +21,11 @@ package com.webtrends.harness.component.kafka.health
 
 import com.typesafe.config.Config
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
-import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.WorkerStopped
 import com.webtrends.harness.health
 import com.webtrends.harness.health.ComponentState._
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 
-import scala.collection.JavaConversions._
 import scala.collection.mutable
 
 trait WorkerHealthState {
@@ -67,18 +65,19 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
 
   def healthReceive: Receive = {
     case CheckHealth =>
-      sender ! aggregateHealthStates()
-
-    case msg: KafkaHealthState =>
-      if (msg.topic == null && workerKafkaHealth.containsKey(msg.name)) {
-        workers(msg.name).started = false
-      } else {
-        workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))
+      try {
+        sender ! aggregateHealthStates()
+      } catch {
+        case ex: Exception => sender ! HealthComponent("Coordinator Health",
+          ComponentState.CRITICAL, s"Could not get health: ${ex.getMessage}")
       }
 
-    case msg: WorkerStopped =>
-      workers(msg.name).started = false
-      workerZKHealth.remove(msg.name)
+    case msg: KafkaHealthState =>
+      if (msg.topic == null && workers.contains(msg.name)) {
+        workers(msg.name).started = false
+      } else if (msg.status != null) {
+        workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))
+      }
 
     case msg: ZKHealthState =>
       workerZKHealth.put(msg.name, msg)
@@ -86,7 +85,7 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
 
   def eventAgeHealthByServer(): List[HealthComponent]  = {
 
-    (for ( (topic, partitionsByServer) <- criticalPartsByTopicAndServer) yield {
+    (for ((topic, partitionsByServer) <- criticalPartsByTopicAndServer) yield {
 
       val serverHealths = for ( (server, partitions) <- partitionsByServer) yield {
         HealthComponent(name = s"$server",
@@ -118,17 +117,17 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
 
   def aggregateHealthStates(): HealthComponent = {
     val workerList = listActiveWorkers
-    mergeHealths(name = "Leader Health",
-      desc = "Aggregate leader health",
+    mergeHealths(name = "Coordinator Health",
+      desc = "Aggregate coordinator health",
       subComponents = List(
-        collapseWithTimeCheck(workerKafkaHealth, "Kafka Health"),
-        collapseHealthStates(workerZKHealth, "Zookeeper Health"),
-        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList)))
+        collapseWithTimeCheck(workerKafkaHealth.toMap, "Kafka Health"),
+        collapseHealthStates(workerZKHealth.toMap, "Zookeeper Health"),
+        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList.mkString(", "))))
         ++ eventAgeHealthByServer()
     )
   }
 
-  def collapseWithTimeCheck(healths: java.util.Map[String, (WorkerHealthState, Long, String)], label: String): HealthComponent = {
+  def collapseWithTimeCheck(healths: Map[String, (WorkerHealthState, Long, String)], label: String): HealthComponent = {
     val filteredHealths = healths.filter { h =>
       workers.contains(h._1) && (workers(h._1).started || (!workers(h._1).started && !h._2._1.healthy))
     }
@@ -149,7 +148,7 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
     aggregatedComponent(filteredHealths.toMap, label, unHealthy)
   }
 
-  def collapseHealthStates(healths: java.util.Map[String, WorkerHealthState], label: String): HealthComponent = {
+  def collapseHealthStates(healths: Map[String, WorkerHealthState], label: String): HealthComponent = {
     val unHealthy = healths.filterNot { h => h._2.healthy }.map { h: (String, WorkerHealthState) =>
       HealthComponent(name = h._2.name,
         state = ComponentState.CRITICAL,

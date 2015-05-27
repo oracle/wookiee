@@ -188,14 +188,13 @@ class SockoRequestHandler(server: WebServer, routes: PartialFunction[SockoEvent,
       // Websockets handshake error
       case ex: WebSocketHandshakeException => writeErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, ex)
       // Catch all
-      case ex => {
+      case ex =>
         try {
           log.debug("Error handling request", ex)
           ctx.channel.close
         } catch {
           case ex2: Throwable => log.debug("Error closing channel", ex2)
         }
-      }
     }
   }
 
@@ -210,12 +209,12 @@ class SockoRequestHandler(server: WebServer, routes: PartialFunction[SockoEvent,
     val sf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S Z")
 
     val msg = "Failure: %s\n\n%s\n\n%s".format(
-      status.toString(),
+      status.toString,
       if (ex == null) "" else ex.getMessage,
-      sf.format(Calendar.getInstance().getTime()))
+      sf.format(Calendar.getInstance().getTime))
 
     // Write HTTP Response
-    val bytes = s"Failure: ${status}\r\n\r\n${ex.getMessage}\r\n".getBytes(CharsetUtil.UTF_8)
+    val bytes = s"$msg\r\n\r\n${ex.getMessage}\r\n".getBytes(CharsetUtil.UTF_8)
     val content = Unpooled.wrappedBuffer(bytes)
     val response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content)
     response.headers.set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8")
@@ -292,20 +291,16 @@ class SockoRequestHandler(server: WebServer, routes: PartialFunction[SockoEvent,
     sb.append("://")
     sb.append(e.request.headers.get(HttpHeaders.Names.HOST))
     sb.append(e.endPoint.uri)
-    sb.toString
+    sb.toString()
   }
 
   /**
    * Check if SSL is being used
    */
-  private def isSSLConnection(channel: Channel): Boolean = {
-    (channel.pipeline.get(classOf[SslHandler]) != null)
-  }
+  private def isSSLConnection(channel: Channel): Boolean = channel.pipeline.get(classOf[SslHandler]) != null
 
   /**
    * Check if this channel is aggregating chunks
    */
-  private def isAggreatingChunks(channel: Channel): Boolean = {
-    (channel.pipeline.get(classOf[HttpObjectAggregator]) != null)
-  }
+  private def isAggreatingChunks(channel: Channel): Boolean = channel.pipeline.get(classOf[HttpObjectAggregator]) != null
 }

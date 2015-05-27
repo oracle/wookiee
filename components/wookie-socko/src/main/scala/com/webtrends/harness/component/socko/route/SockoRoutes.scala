@@ -21,7 +21,7 @@ package com.webtrends.harness.component.socko.route
 
 import java.io._
 import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
+import java.nio.charset.{Charset, StandardCharsets}
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 
 import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
@@ -281,26 +281,46 @@ trait EntityRoutes extends SockoRoutes {
     }
   }
 
-  def unmarshall[T<:AnyRef:Manifest](obj: Array[Byte], contentType: String = "application/json"): Option[T] = {
-    if (obj == null || obj.length == 0) {
+  def unmarshall[T<:AnyRef:Manifest](data: Array[Byte], contentTypeValue: String = "application/json"): Option[T] = {
+    if (data == null || data.length == 0) {
       None
     } else {
-      val stringObj = new String(obj, StandardCharsets.UTF_8).trim()
-      if (stringObj.length == 0) {
-        None
-      } else if (contentType == "application/x-www-form-urlencoded" || contentType == "multipart/form-data") {
-        var jObj = JObject(Nil)
-        new QueryStringDecoder("?" + stringObj, CharsetUtil.UTF_8).parameters foreach {
-          e => jObj = jObj merge JObject(List(JField(e._1, JString(e._2.last))))
-        }
-        Some(jObj.extract[T])
-      } else if (contentType == "application/json") {
-        Some(JsonParser.parse(URLDecoder.decode(stringObj, "UTF-8")).extract[T])
-      } else {
-        val text = JString(URLDecoder.decode(stringObj, "UTF-8"))
-        Some(JObject(List(JField("content", text))).extract[T])
+
+      val (contentType, charset) = parseContentType(contentTypeValue)
+
+      contentType match {
+
+        case "application/x-www-form-urlencoded" | "multipart/form-data" =>
+          val dataString = new String(data, charset).dropWhile( _ == "?")
+          val jObj = JObject(new QueryStringDecoder("?" + dataString, charset).parameters.map { kvp =>
+            JField(kvp._1, if (kvp._2 != null) new JString(kvp._2.last) else JNull)
+            }.toList)
+          Some(jObj.extract[T])
+
+        case "application/json" =>
+          Some(JsonParser.parse(new String(data, "utf-8")).extract[T])
+
+        case _ =>
+          val dataString = new String(data, charset)
+          Some(JObject(List(JField("content", new JString(dataString)))).extract[T])
       }
     }
+  }
+
+  def parseContentType(ct: String): (String, Charset) = {
+
+    val parts = ct.split(";").toList.map{part => part.toLowerCase.trim}
+
+    val contentType = if (parts.length > 0 && !parts(0).isEmpty) parts(0) else "text/plain"
+
+    val charSet = if (parts.length >= 2 && parts(1).startsWith("charset=")) {
+      Charset.forName(parts(1).split("=")(1))
+    }
+    else {
+      CharsetUtil.UTF_8
+    }
+
+    (contentType, charSet)
   }
 }
 

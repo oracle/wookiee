@@ -25,14 +25,12 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 
 case object KafkaHealthRequest
-case class SetHealth(health: ComponentState, details: String)
 
 trait KafkaProducerHealthCheck { this: KafkaProducer =>
   var currentHealth: Option[HealthComponent] = None
 
   def healthReceive: Receive = {
     case CheckHealth => sender ! getCurrentHealth
-    case s: SetHealth => setHealth(s.health, s.details)
   }
 
   def getCurrentHealth: HealthComponent = {

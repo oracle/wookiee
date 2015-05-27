@@ -54,7 +54,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
   var scheduler: Option[Cancellable] = None
   //log.debug(kafkaConfig.root().render())
   val refresh = Try { kafkaConfig.getInt("consumer.assignment-distributor.assignment-refresh-seconds")
-                    } getOrElse(20)
+                    } getOrElse 20
 
   val nodeName = self.path.name
 
@@ -159,16 +159,15 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
   import KafkaConsumerProxy._
   import context.dispatcher
 
-  implicit val timeout = Timeout(5 seconds)
-
   val configRoot = "wookie-kafka.consumer.assignment-distributor"
 
   val c = context.system.settings.config
 
-  //log.debug(s"Assignment ${c.root().render()}")
+  implicit val zkTimeout = Try { Timeout(c.getLong(s"$configRoot.zk-fetch-timeout-millis") milliseconds)}
+    .getOrElse[Timeout](5 seconds)
 
-  val fetchTimeout = Try {c.getLong(s"${configRoot}.fetch-timeout-millis")
-                         } getOrElse(500L)
+  val fetchTimeout = Try {c.getLong(s"$configRoot.fetch-timeout-millis")
+                         } getOrElse 2000L
 
   log.debug(s"Fetching with timeout $fetchTimeout")
 
@@ -194,7 +193,15 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
       topicPartitions = Some(tr)
       isDone
 
-    case FetchTimeout => sendAndShutdown(FetchTimeout)
+    case FetchTimeout =>
+      if(nodes.isEmpty) {
+        log.warn(s"Zookeeper node request has timed out")
+      }
+
+      if(topicPartitions.isEmpty) {
+        log.warn(s"Topic Partitions request has timed out")
+      }
+      sendAndShutdown(FetchTimeout)
   }
 
   def isDone = (nodes, topicPartitions) match {

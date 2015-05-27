@@ -110,7 +110,7 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
       case Some(x) => GetMetaDataByName(x)
     }
     (servicesActor ? msg) onComplete {
-      case Success(s) => Json.build(s).toString
+      case Success(s) => respond(httpExchange, Json.build(s).toString, 200, "application/json")
       case Failure(f) => respond(httpExchange, f.getMessage, 500)
     }
   }
@@ -135,12 +135,12 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
                 case "/metrics" => handleMetricsMessage(httpExchange)
                 case x if x.startsWith("/services") =>
                   val p = x.split("/")
-                  val path = if (p.length == 2) {
-                    p(1)
+                  val path = if (p.length == 3) {
+                    Some(p(2))
                   } else {
-                    ""
+                    None
                   }
-                  handleServicesMessage(httpExchange, Some(path))
+                  handleServicesMessage(httpExchange, path)
               }
             } else {
               // Could be a 403 Forbidden, but obscurity is better

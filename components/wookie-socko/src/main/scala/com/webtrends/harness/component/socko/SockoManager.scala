@@ -120,7 +120,6 @@ object SockoManager {
 
   val KeyNumHandlerRoutees = "wookie-socko.num-handler-routees"
   val StaticFileHandlerName = "static-file-handler"
-
   val StaticContentRoot = "wookie-socko.static-content"
   val KeyRootPaths = s"$StaticContentRoot.rootPaths"
   val KeyServerCacheMaxFileSize = s"$StaticContentRoot.serverCacheMaxFileSize"
