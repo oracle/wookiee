@@ -16,6 +16,9 @@ if [[ ${TRAVIS_PULL_REQUEST}  == "" ]]; then
  docker-compose rm --force
 
 else
+ # remove when travis is happy with docker
+ exit 0
+
  # running in travis-ci and stop and remove the pid
  kill `cat etcd.pid`
  rm -f docker.started etcd.pid

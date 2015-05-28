@@ -1,8 +1,6 @@
 package com.webtrends.harness.component.etcd
 
 import akka.testkit.{TestActorRef, TestProbe}
-import org.junit.runner.RunWith
-import org.specs2.runner.JUnitRunner
 
 class EtcdActorIT extends EtcdTestBase {
 
