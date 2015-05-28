@@ -73,9 +73,9 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
       }
 
     case msg: KafkaHealthState =>
-      if (msg.topic == null && workers.contains(msg.name)) {
+      if (msg.topic.isEmpty && workers.contains(msg.name)) {
         workers(msg.name).started = false
-      } else if (msg.status != null) {
+      } else {
         workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))
       }
 

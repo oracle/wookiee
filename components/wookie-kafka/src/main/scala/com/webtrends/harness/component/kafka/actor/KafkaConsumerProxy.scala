@@ -19,6 +19,8 @@
 
 package com.webtrends.harness.component.kafka.actor
 
+import java.util.concurrent.locks.ReentrantLock
+
 import akka.actor.{Actor, Props}
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
@@ -29,8 +31,9 @@ import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.CheckHealth
 import kafka.api.TopicMetadataRequest
 import net.liftweb.json.{NoTypeHints, Serialization}
-
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.collection.mutable
+import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
@@ -55,15 +58,14 @@ object KafkaConsumerProxy {
 }
 
 class KafkaConsumerProxy extends Actor with KafkaSettings
-  with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
+with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
 
   def configuredTopics = topicMap.keys.toList
   val formats = Serialization.formats(NoTypeHints)
   import KafkaConsumerProxy._
-  import context.dispatcher
 
   val bufferSize = 1024*1024
-
+  val refreshLock = new ReentrantLock()
   var brokers = Seq[BrokerSpec]()
   val consumersByHost = new mutable.HashMap[String,KafkaConsumer]()
   val hostsByTopicParts = new mutable.HashMap[(String, Int), Option[List[String]]]()
@@ -79,15 +81,24 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     // We will first pull the broker data from ZK and use that
     // To make topic meta data requests to get the partition information
     case KafkaRefreshReq(light) =>
-      try {
-        log.debug("Refreshing kafka broker/partition data")
-        if (!light) clearKafkaMappings()
-        requestBrokerInfo()
-      } catch {
-        case e: Exception =>
-          log.error("Failed to fetch broker info from ZK. Retrying in 10 seconds", e)
-          health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, "Failed to fetch broker info from ZK. Retrying in 10 seconds")
-          context.system.scheduler.scheduleOnce(10 seconds) { self ! KafkaRefreshReq(light) }
+      if (!refreshLock.isLocked) {
+        Future {
+          refreshLock.lock()
+          try {
+            log.debug("Refreshing kafka broker/partition data")
+            if (!light) clearKafkaMappings()
+            requestBrokerInfo()
+          } catch {
+            case e: Exception =>
+              log.error("Failed to fetch broker info from ZK. Retrying in 10 seconds", e)
+              health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, "Failed to fetch broker info from ZK. Retrying in 10 seconds")
+              context.system.scheduler.scheduleOnce(10 seconds) {
+                self ! KafkaRefreshReq(light)
+              }
+          } finally {
+            refreshLock.unlock()
+          }
+        }
       }
 
     case TopicPartitionReq =>
@@ -105,7 +116,7 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
   }
 
   def requestBrokerInfo() = {
-    log.info("Using kafka-hosts to set consumed hosts, {}", kafkaSources)
+    log.debug("Using kafka-hosts to set consumed hosts, {}", kafkaSources)
     var brokerData = Seq[BrokerSpec]()
     clusters.clear()
     kafkaSources foreach { s =>
@@ -154,31 +165,31 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
     val processedClusters = new mutable.HashSet[String]()
     val clusterSet = clusters.values.toSet
     for (bro <- brokers
-        if !clusterSet.forall(x => processedClusters.contains(x))
-        if !processedClusters.contains(clusters(bro.host))) {
+         if !clusterSet.forall(x => processedClusters.contains(x))
+         if !processedClusters.contains(clusters(bro.host))) {
       try {
         val consumer = consumersByHost(bro.host)
         val topicsMetaResp = consumer.send(topicMetaRequest)
 
         for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => configuredTopics.contains(meta.topic) };
               partMeta <- topicMeta.partitionsMetadata )
-        yield {
-          val key = (topicMeta.topic, partMeta.partitionId)
-          partMeta.leader match {
-            case Some(broker) =>
-              log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
-              partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, clusters(broker.host), broker.host))
-              if (hostsByTopicParts.contains(key) && hostsByTopicParts.get(key).isDefined) {
-                hostsByTopicParts.put(key, Some(hostsByTopicParts.get(key).get.get :+ broker.host))
-              } else {
-                hostsByTopicParts.put(key, Some(List(broker.host)))
-              }
-            case None =>
-              log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
-              hostsByTopicParts.put(key, None)
+          yield {
+            val key = (topicMeta.topic, partMeta.partitionId)
+            partMeta.leader match {
+              case Some(broker) =>
+                log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
+                partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, clusters(broker.host), broker.host))
+                if (hostsByTopicParts.contains(key) && hostsByTopicParts.get(key).isDefined) {
+                  hostsByTopicParts.put(key, Some(hostsByTopicParts.get(key).get.get :+ broker.host))
+                } else {
+                  hostsByTopicParts.put(key, Some(List(broker.host)))
+                }
+              case None =>
+                log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
+                hostsByTopicParts.put(key, None)
+            }
+            processedClusters.add(clusters(bro.host))
           }
-          processedClusters.add(clusters(bro.host))
-        }
       } catch {
         case e: Throwable =>
           log.error(s"Unable to get topic meta data from ${bro.host}, retrying in 10 seconds", e)
@@ -188,9 +199,11 @@ class KafkaConsumerProxy extends Actor with KafkaSettings
 
     val unprocessed = clusterSet.filter(x => !processedClusters.contains(x))
     if (hostsByTopicParts.isEmpty || failed || unprocessed.nonEmpty) {
+      log.warn(s"Some brokers despondent: ${unprocessed.mkString(",")}. Retrying in 10 seconds. Remaining brokers will start their workers")
       health = HealthComponent("kafka-proxy", ComponentState.DEGRADED, s"Brokers despondent: ${unprocessed.mkString(",")}. Retrying in 10 seconds")
       context.system.scheduler.scheduleOnce(10 seconds) { self ! KafkaRefreshReq(hostsByTopicParts.nonEmpty) }
     } else {
+      log.debug("Successfully processed brokers {}", brokers.toString())
       health = HealthComponent("kafka-proxy", ComponentState.NORMAL, "Successfully fetched broker data")
     }
   }
