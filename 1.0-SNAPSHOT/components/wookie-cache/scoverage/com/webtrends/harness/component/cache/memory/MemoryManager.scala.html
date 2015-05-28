@@ -81,17 +81,17 @@
 </span>56 <span style=''>  private[this] val scheduler = </span><span style='background: #F0ADAD'>context.system.scheduler</span><span style=''>
 </span>57 <span style=''>  private[this] var taskRunning: Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
 </span>58 <span style=''>
-</span>59 <span style=''>  private[this] def scheduleTimer : Unit = </span><span style='background: #F0ADAD'>synchronized {
+</span>59 <span style=''>  private[this] def scheduleTimer() : Unit = </span><span style='background: #F0ADAD'>synchronized {
 </span>60 <span style=''></span><span style='background: #F0ADAD'>    require(!taskRunning)
 </span>61 <span style=''></span><span style='background: #F0ADAD'>    taskRunning = true
-</span>62 <span style=''></span><span style='background: #F0ADAD'>    scheduler.scheduleOnce(ttl)(() => timeout)
+</span>62 <span style=''></span><span style='background: #F0ADAD'>    scheduler.scheduleOnce(ttl)(() => timeout())
 </span>63 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
 </span>64 <span style=''>
 </span>65 <span style=''>  private[this] def timeout() = {
 </span>66 <span style=''>    </span><span style='background: #F0ADAD'>synchronized {
-</span>67 <span style=''></span><span style='background: #F0ADAD'>      removeExpiredItems
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      removeExpiredItems()
 </span>68 <span style=''></span><span style='background: #F0ADAD'>      taskRunning = false
-</span>69 <span style=''></span><span style='background: #F0ADAD'>      if (!caches.isEmpty) scheduleTimer
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      if (caches.nonEmpty) scheduleTimer()
 </span>70 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
 </span>71 <span style=''>  }
 </span>72 <span style=''>
@@ -103,7 +103,7 @@
 </span>78 <span style=''>    }
 </span>79 <span style=''>  }
 </span>80 <span style=''>
-</span>81 <span style=''>  private[this] def removeExpiredItems = </span><span style='background: #F0ADAD'>synchronized {
+</span>81 <span style=''>  private[this] def removeExpiredItems() = </span><span style='background: #F0ADAD'>synchronized {
 </span>82 <span style=''></span><span style='background: #F0ADAD'>    val cache = caches
 </span>83 <span style=''></span><span style='background: #F0ADAD'>    val expired:mutable.Map[String, List[String]] = cache map {
 </span>84 <span style=''></span><span style='background: #F0ADAD'>      nc =>
@@ -145,7 +145,7 @@
 </span>120 <span style=''>  override protected def clear(namespace: String): Future[Boolean] = {
 </span>121 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
 </span>122 <span style=''>      case Some(c) =>
-</span>123 <span style=''>        </span><span style='background: #F0ADAD'>c.clear</span><span style=''>
+</span>123 <span style=''>        </span><span style='background: #F0ADAD'>c.clear()</span><span style=''>
 </span>124 <span style=''>        </span><span style='background: #F0ADAD'>Future { true }</span><span style=''>
 </span>125 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
 </span>126 <span style=''>    }
@@ -169,12 +169,12 @@
 </span>144 <span style=''>
 </span>145 <span style=''>  override protected def contains(namespace: String, key: String): Future[Boolean] = {
 </span>146 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
-</span>147 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>future { c.contains(key) }</span><span style=''>
-</span>148 <span style=''>      case None => </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>147 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>Future { c.contains(key) }</span><span style=''>
+</span>148 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
 </span>149 <span style=''>    }
 </span>150 <span style=''>  }
 </span>151 <span style=''>
-</span>152 <span style=''>  override protected def getHealth(): Future[HealthComponent] =
+</span>152 <span style=''>  override protected def getHealth: Future[HealthComponent] =
 </span>153 <span style=''>    </span><span style='background: #F0ADAD'>Future { HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size)) }</span><span style=''>
 </span>154 <span style=''>
 </span>155 <span style=''>  /**
@@ -197,7 +197,7 @@
 </span>172 <span style=''>  /**
 </span>173 <span style=''>   * Deletes the cache from the in memory map
 </span>174 <span style=''>   *
-</span>175 <span style=''>   * @param namespace
+</span>175 <span style=''>   * @param namespace namespace for the cache you are deleting
 </span>176 <span style=''>   * @return
 </span>177 <span style=''>   */
 </span>178 <span style=''>  override protected def deleteCache(namespace:String): Boolean = {
@@ -213,9 +213,9 @@
 </span>188 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
 </span>189 <span style=''>      case Some(c) =>
 </span>190 <span style=''>        </span><span style='background: #F0ADAD'>c.put(key, TimedChannelBuffer(compat.Platform.currentTime, value))</span><span style=''>
-</span>191 <span style=''>        if (</span><span style='background: #F0ADAD'>!c.isEmpty && !taskRunning</span><span style=''>) </span><span style='background: #F0ADAD'>scheduleTimer</span><span style=''>
+</span>191 <span style=''>        if (</span><span style='background: #F0ADAD'>c.nonEmpty && !taskRunning</span><span style=''>) </span><span style='background: #F0ADAD'>scheduleTimer()</span><span style=''>
 </span>192 <span style=''>        </span><span style='background: #F0ADAD'>Future { true }</span><span style=''>
-</span>193 <span style=''>      case None => </span><span style='background: #F0ADAD'>future { false }</span><span style=''>
+</span>193 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
 </span>194 <span style=''>    }
 </span>195 <span style=''>  }
 </span>196 <span style=''>}
@@ -700,9 +700,9 @@
           173
         </td>
         <td>
-          2042
+          2044
           -
-          2156
+          2160
         </td>
         <td>
           Apply
@@ -728,9 +728,9 @@
           174
         </td>
         <td>
-          2055
+          2057
           -
-          2055
+          2057
         </td>
         <td>
           Literal
@@ -749,9 +749,9 @@
           166
         </td>
         <td>
-          2061
+          2063
           -
-          2082
+          2084
         </td>
         <td>
           Apply
@@ -770,9 +770,9 @@
           165
         </td>
         <td>
-          2069
+          2071
           -
-          2081
+          2083
         </td>
         <td>
           Select
@@ -791,9 +791,9 @@
           167
         </td>
         <td>
-          2101
+          2103
           -
-          2105
+          2107
         </td>
         <td>
           Literal
@@ -812,9 +812,9 @@
           169
         </td>
         <td>
-          2144
+          2146
           -
-          2151
+          2155
         </td>
         <td>
           Apply
@@ -833,9 +833,9 @@
           172
         </td>
         <td>
-          2110
+          2112
           -
-          2152
+          2156
         </td>
         <td>
           ApplyToImplicitArgs
@@ -857,9 +857,9 @@
           168
         </td>
         <td>
-          2133
+          2135
           -
-          2136
+          2138
         </td>
         <td>
           Select
@@ -878,9 +878,9 @@
           171
         </td>
         <td>
-          2137
+          2139
           -
-          2137
+          2139
         </td>
         <td>
           Select
@@ -899,9 +899,9 @@
           170
         </td>
         <td>
-          2141
+          2143
           -
-          2141
+          2143
         </td>
         <td>
           Literal
@@ -920,9 +920,9 @@
           182
         </td>
         <td>
-          2196
+          2200
           -
-          2308
+          2316
         </td>
         <td>
           Apply
@@ -932,10 +932,10 @@
         </td>
         <td style="background: #F0ADAD">
           MemoryManager.this.synchronized[Unit]({
-  MemoryManager.this.removeExpiredItems;
+  MemoryManager.this.removeExpiredItems();
   MemoryManager.this.taskRunning = false;
-  if (MemoryManager.this.caches.isEmpty.unary_!)
-    MemoryManager.this.scheduleTimer
+  if (MemoryManager.this.caches.nonEmpty)
+    MemoryManager.this.scheduleTimer()
   else
     ()
 })
@@ -948,18 +948,18 @@
           175
         </td>
         <td>
-          2217
+          2221
           -
-          2235
+          2241
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
           com.webtrends.harness.component.cache.memory.MemoryManager.removeExpiredItems
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.removeExpiredItems
+          MemoryManager.this.removeExpiredItems()
         </td>
       </tr><tr>
         <td>
@@ -969,9 +969,9 @@
           176
         </td>
         <td>
-          2256
+          2262
           -
-          2261
+          2267
         </td>
         <td>
           Literal
@@ -990,18 +990,18 @@
           178
         </td>
         <td>
-          2289
+          2295
           -
-          2302
+          2310
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
           com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.scheduleTimer
+          MemoryManager.this.scheduleTimer()
         </td>
       </tr><tr>
         <td>
@@ -1011,9 +1011,9 @@
           181
         </td>
         <td>
-          2268
+          2274
           -
-          2268
+          2274
         </td>
         <td>
           Block
@@ -1032,9 +1032,9 @@
           180
         </td>
         <td>
-          2268
+          2274
           -
-          2268
+          2274
         </td>
         <td>
           Literal
@@ -1053,18 +1053,18 @@
           177
         </td>
         <td>
-          2272
+          2278
           -
-          2287
+          2293
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Boolean.unary_!
+          scala.collection.TraversableOnce.nonEmpty
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.caches.isEmpty.unary_!
+          MemoryManager.this.caches.nonEmpty
         </td>
       </tr><tr>
         <td>
@@ -1074,9 +1074,9 @@
           179
         </td>
         <td>
-          2289
+          2295
           -
-          2302
+          2310
         </td>
         <td>
           Block
@@ -1085,7 +1085,7 @@
           com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.scheduleTimer
+          MemoryManager.this.scheduleTimer()
         </td>
       </tr><tr>
         <td>
@@ -1095,9 +1095,9 @@
           183
         </td>
         <td>
-          2389
+          2397
           -
-          2456
+          2464
         </td>
         <td>
           Apply
@@ -1116,9 +1116,9 @@
           185
         </td>
         <td>
-          2466
+          2474
           -
-          2470
+          2478
         </td>
         <td>
           Block
@@ -1137,9 +1137,9 @@
           184
         </td>
         <td>
-          2466
+          2474
           -
-          2470
+          2478
         </td>
         <td>
           Literal
@@ -1158,9 +1158,9 @@
           187
         </td>
         <td>
-          2490
+          2498
           -
-          2495
+          2503
         </td>
         <td>
           Block
@@ -1179,9 +1179,9 @@
           186
         </td>
         <td>
-          2490
+          2498
           -
-          2495
+          2503
         </td>
         <td>
           Literal
@@ -1200,9 +1200,9 @@
           207
         </td>
         <td>
-          2548
+          2558
           -
-          3075
+          3085
         </td>
         <td>
           Apply
@@ -1232,9 +1232,9 @@
           188
         </td>
         <td>
-          2579
+          2589
           -
-          2585
+          2595
         </td>
         <td>
           Select
@@ -1253,9 +1253,9 @@
           202
         </td>
         <td>
-          2638
+          2648
           -
-          2907
+          2917
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1281,9 +1281,9 @@
           201
         </td>
         <td>
-          2644
+          2654
           -
-          2644
+          2654
         </td>
         <td>
           TypeApply
@@ -1302,9 +1302,9 @@
           189
         </td>
         <td>
-          2687
+          2697
           -
-          2716
+          2726
         </td>
         <td>
           Apply
@@ -1323,9 +1323,9 @@
           197
         </td>
         <td>
-          2725
+          2735
           -
-          2862
+          2872
         </td>
         <td>
           Apply
@@ -1347,9 +1347,9 @@ else
           191
         </td>
         <td>
-          2768
+          2778
           -
-          2808
+          2818
         </td>
         <td>
           Apply
@@ -1368,9 +1368,9 @@ else
           196
         </td>
         <td>
-          2764
+          2774
           -
-          2764
+          2774
         </td>
         <td>
           Block
@@ -1389,9 +1389,9 @@ else
           190
         </td>
         <td>
-          2781
+          2791
           -
-          2807
+          2817
         </td>
         <td>
           Select
@@ -1410,9 +1410,9 @@ else
           195
         </td>
         <td>
-          2764
+          2774
           -
-          2764
+          2774
         </td>
         <td>
           Literal
@@ -1431,9 +1431,9 @@ else
           194
         </td>
         <td>
-          2824
+          2834
           -
-          2850
+          2860
         </td>
         <td>
           Block
@@ -1452,9 +1452,9 @@ else
           193
         </td>
         <td>
-          2824
+          2834
           -
-          2850
+          2860
         </td>
         <td>
           Apply
@@ -1473,9 +1473,9 @@ else
           192
         </td>
         <td>
-          2838
+          2848
           -
-          2850
+          2860
         </td>
         <td>
           Select
@@ -1494,9 +1494,9 @@ else
           200
         </td>
         <td>
-          2881
+          2891
           -
-          2907
+          2917
         </td>
         <td>
           Apply
@@ -1515,9 +1515,9 @@ else
           199
         </td>
         <td>
-          2890
+          2900
           -
-          2907
+          2917
         </td>
         <td>
           Select
@@ -1536,9 +1536,9 @@ else
           198
         </td>
         <td>
-          2881
+          2891
           -
-          2886
+          2896
         </td>
         <td>
           Select
@@ -1557,9 +1557,9 @@ else
           206
         </td>
         <td>
-          3001
+          3011
           -
-          3065
+          3075
         </td>
         <td>
           Apply
@@ -1578,9 +1578,9 @@ else
           205
         </td>
         <td>
-          3031
+          3041
           -
-          3063
+          3073
         </td>
         <td>
           Apply
@@ -1599,9 +1599,9 @@ else
           204
         </td>
         <td>
-          3047
+          3057
           -
-          3063
+          3073
         </td>
         <td>
           Apply
@@ -1620,9 +1620,9 @@ else
           203
         </td>
         <td>
-          3054
+          3064
           -
-          3059
+          3069
         </td>
         <td>
           Select
@@ -1641,9 +1641,9 @@ else
           208
         </td>
         <td>
-          3154
-          -
           3164
+          -
+          3174
         </td>
         <td>
           Select
@@ -1662,9 +1662,9 @@ else
           209
         </td>
         <td>
-          3169
+          3179
           -
-          3183
+          3193
         </td>
         <td>
           Apply
@@ -1683,9 +1683,9 @@ else
           210
         </td>
         <td>
-          3289
+          3299
           -
-          3310
+          3320
         </td>
         <td>
           Apply
@@ -1704,9 +1704,9 @@ else
           216
         </td>
         <td>
-          3341
+          3351
           -
-          3471
+          3481
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1728,9 +1728,9 @@ else
           215
         </td>
         <td>
-          3348
+          3358
           -
-          3348
+          3358
         </td>
         <td>
           Select
@@ -1749,9 +1749,9 @@ else
           211
         </td>
         <td>
-          3358
-          -
           3368
+          -
+          3378
         </td>
         <td>
           Apply
@@ -1770,9 +1770,9 @@ else
           213
         </td>
         <td>
-          3407
+          3417
           -
-          3425
+          3435
         </td>
         <td>
           Apply
@@ -1791,9 +1791,9 @@ else
           212
         </td>
         <td>
-          3412
+          3422
           -
-          3424
+          3434
         </td>
         <td>
           Select
@@ -1812,9 +1812,9 @@ else
           214
         </td>
         <td>
-          3449
+          3459
           -
-          3453
+          3463
         </td>
         <td>
           Select
@@ -1833,9 +1833,9 @@ else
           218
         </td>
         <td>
-          3498
+          3508
           -
-          3498
+          3508
         </td>
         <td>
           Select
@@ -1854,9 +1854,9 @@ else
           217
         </td>
         <td>
-          3500
+          3510
           -
-          3504
+          3514
         </td>
         <td>
           Select
@@ -1875,9 +1875,9 @@ else
           219
         </td>
         <td>
-          3491
+          3501
           -
-          3506
+          3516
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1896,9 +1896,9 @@ else
           220
         </td>
         <td>
-          3593
+          3603
           -
-          3614
+          3624
         </td>
         <td>
           Apply
@@ -1917,9 +1917,9 @@ else
           221
         </td>
         <td>
-          3653
+          3663
           -
-          3660
+          3672
         </td>
         <td>
           Apply
@@ -1938,9 +1938,9 @@ else
           223
         </td>
         <td>
-          3676
+          3688
           -
-          3676
+          3688
         </td>
         <td>
           Select
@@ -1959,9 +1959,9 @@ else
           222
         </td>
         <td>
-          3678
+          3690
           -
-          3682
+          3694
         </td>
         <td>
           Literal
@@ -1980,9 +1980,9 @@ else
           224
         </td>
         <td>
-          3669
+          3681
           -
-          3684
+          3696
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2001,9 +2001,9 @@ else
           227
         </td>
         <td>
-          3704
+          3716
           -
-          3720
+          3732
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2022,9 +2022,9 @@ else
           226
         </td>
         <td>
-          3711
+          3723
           -
-          3711
+          3723
         </td>
         <td>
           Select
@@ -2043,9 +2043,9 @@ else
           225
         </td>
         <td>
-          3713
+          3725
           -
-          3718
+          3730
         </td>
         <td>
           Literal
@@ -2064,9 +2064,9 @@ else
           228
         </td>
         <td>
-          3880
+          3892
           -
-          3883
+          3895
         </td>
         <td>
           Select
@@ -2085,9 +2085,9 @@ else
           229
         </td>
         <td>
-          4033
+          4045
           -
-          4036
+          4048
         </td>
         <td>
           Select
@@ -2106,9 +2106,9 @@ else
           230
         </td>
         <td>
-          4127
+          4139
           -
-          4148
+          4160
         </td>
         <td>
           Apply
@@ -2127,9 +2127,9 @@ else
           231
         </td>
         <td>
-          4187
+          4199
           -
-          4200
+          4212
         </td>
         <td>
           Apply
@@ -2148,9 +2148,9 @@ else
           232
         </td>
         <td>
-          4218
+          4230
           -
-          4222
+          4234
         </td>
         <td>
           Literal
@@ -2169,9 +2169,9 @@ else
           234
         </td>
         <td>
-          4209
+          4221
           -
-          4224
+          4236
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2190,9 +2190,9 @@ else
           233
         </td>
         <td>
-          4216
+          4228
           -
-          4216
+          4228
         </td>
         <td>
           Select
@@ -2211,9 +2211,9 @@ else
           236
         </td>
         <td>
-          4259
+          4271
           -
-          4259
+          4271
         </td>
         <td>
           Select
@@ -2232,9 +2232,9 @@ else
           235
         </td>
         <td>
-          4261
+          4273
           -
-          4266
+          4278
         </td>
         <td>
           Literal
@@ -2253,9 +2253,9 @@ else
           237
         </td>
         <td>
-          4252
+          4264
           -
-          4268
+          4280
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2274,9 +2274,9 @@ else
           238
         </td>
         <td>
-          4371
+          4383
           -
-          4392
+          4404
         </td>
         <td>
           Apply
@@ -2295,18 +2295,18 @@ else
           241
         </td>
         <td>
-          4423
+          4435
           -
-          4449
+          4461
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          scala.concurrent.future
+          scala.concurrent.Future.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.concurrent.`package`.future[Boolean](c.contains(key))(MemoryManager.this.context.dispatcher)
+          scala.concurrent.Future.apply[Boolean](c.contains(key))(MemoryManager.this.context.dispatcher)
         </td>
       </tr><tr>
         <td>
@@ -2316,9 +2316,9 @@ else
           240
         </td>
         <td>
-          4430
+          4442
           -
-          4430
+          4442
         </td>
         <td>
           Select
@@ -2337,9 +2337,9 @@ else
           239
         </td>
         <td>
-          4432
+          4444
           -
-          4447
+          4459
         </td>
         <td>
           Apply
@@ -2358,18 +2358,18 @@ else
           244
         </td>
         <td>
-          4469
+          4481
           -
-          4485
+          4497
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          scala.concurrent.future
+          scala.concurrent.Future.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.concurrent.`package`.future[Boolean](false)(MemoryManager.this.context.dispatcher)
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
         </td>
       </tr><tr>
         <td>
@@ -2379,9 +2379,9 @@ else
           243
         </td>
         <td>
-          4476
+          4488
           -
-          4476
+          4488
         </td>
         <td>
           Select
@@ -2400,9 +2400,9 @@ else
           242
         </td>
         <td>
-          4478
+          4490
           -
-          4483
+          4495
         </td>
         <td>
           Literal
@@ -2421,9 +2421,9 @@ else
           254
         </td>
         <td>
-          4565
+          4575
           -
-          4682
+          4692
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2442,9 +2442,9 @@ else
           245
         </td>
         <td>
-          4590
+          4600
           -
-          4604
+          4614
         </td>
         <td>
           Select
@@ -2463,9 +2463,9 @@ else
           253
         </td>
         <td>
-          4572
+          4582
           -
-          4572
+          4582
         </td>
         <td>
           Select
@@ -2484,9 +2484,9 @@ else
           247
         </td>
         <td>
-          4629
+          4639
           -
-          4659
+          4669
         </td>
         <td>
           Literal
@@ -2505,9 +2505,9 @@ else
           250
         </td>
         <td>
-          4574
+          4584
           -
-          4574
+          4584
         </td>
         <td>
           Select
@@ -2526,9 +2526,9 @@ else
           249
         </td>
         <td>
-          4629
+          4639
           -
-          4679
+          4689
         </td>
         <td>
           Apply
@@ -2547,9 +2547,9 @@ else
           252
         </td>
         <td>
-          4574
+          4584
           -
-          4680
+          4690
         </td>
         <td>
           Apply
@@ -2568,9 +2568,9 @@ else
           246
         </td>
         <td>
-          4606
+          4616
           -
-          4627
+          4637
         </td>
         <td>
           Select
@@ -2589,9 +2589,9 @@ else
           248
         </td>
         <td>
-          4667
+          4677
           -
-          4678
+          4688
         </td>
         <td>
           Select
@@ -2610,9 +2610,9 @@ else
           251
         </td>
         <td>
-          4574
+          4584
           -
-          4574
+          4584
         </td>
         <td>
           Select
@@ -2631,9 +2631,9 @@ else
           256
         </td>
         <td>
-          4944
+          4954
           -
-          4972
+          4982
         </td>
         <td>
           Apply
@@ -2652,9 +2652,9 @@ else
           255
         </td>
         <td>
-          4955
+          4965
           -
-          4971
+          4981
         </td>
         <td>
           Select
@@ -2673,9 +2673,9 @@ else
           257
         </td>
         <td>
-          5011
+          5021
           -
-          5016
+          5026
         </td>
         <td>
           Literal
@@ -2694,9 +2694,9 @@ else
           258
         </td>
         <td>
-          5056
+          5066
           -
-          5097
+          5107
         </td>
         <td>
           Apply
@@ -2715,9 +2715,9 @@ else
           259
         </td>
         <td>
-          5117
+          5127
           -
-          5142
+          5152
         </td>
         <td>
           Apply
@@ -2736,9 +2736,9 @@ else
           260
         </td>
         <td>
-          5106
+          5116
           -
-          5143
+          5153
         </td>
         <td>
           Apply
@@ -2757,9 +2757,9 @@ else
           261
         </td>
         <td>
-          5152
+          5162
           -
-          5156
+          5166
         </td>
         <td>
           Literal
@@ -2778,9 +2778,9 @@ else
           262
         </td>
         <td>
-          5342
+          5393
           -
-          5368
+          5419
         </td>
         <td>
           Apply
@@ -2799,9 +2799,9 @@ else
           265
         </td>
         <td>
-          5370
+          5421
           -
-          5419
+          5470
         </td>
         <td>
           Block
@@ -2823,9 +2823,9 @@ else
           263
         </td>
         <td>
-          5378
+          5429
           -
-          5402
+          5453
         </td>
         <td>
           Apply
@@ -2844,9 +2844,9 @@ else
           264
         </td>
         <td>
-          5409
+          5460
           -
-          5413
+          5464
         </td>
         <td>
           Literal
@@ -2865,9 +2865,9 @@ else
           267
         </td>
         <td>
-          5433
+          5484
           -
-          5438
+          5489
         </td>
         <td>
           Block
@@ -2886,9 +2886,9 @@ else
           266
         </td>
         <td>
-          5433
+          5484
           -
-          5438
+          5489
         </td>
         <td>
           Literal
@@ -2907,9 +2907,9 @@ else
           268
         </td>
         <td>
-          5558
+          5609
           -
-          5579
+          5630
         </td>
         <td>
           Apply
@@ -2928,9 +2928,9 @@ else
           271
         </td>
         <td>
-          5618
+          5669
           -
-          5684
+          5735
         </td>
         <td>
           Apply
@@ -2949,9 +2949,9 @@ else
           270
         </td>
         <td>
-          5629
+          5680
           -
-          5683
+          5734
         </td>
         <td>
           Apply
@@ -2970,9 +2970,9 @@ else
           269
         </td>
         <td>
-          5648
+          5699
           -
-          5675
+          5726
         </td>
         <td>
           Select
@@ -2991,18 +2991,18 @@ else
           274
         </td>
         <td>
-          5725
+          5776
           -
-          5738
+          5791
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
           com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.scheduleTimer
+          MemoryManager.this.scheduleTimer()
         </td>
       </tr><tr>
         <td>
@@ -3012,9 +3012,9 @@ else
           277
         </td>
         <td>
-          5693
+          5744
           -
-          5693
+          5744
         </td>
         <td>
           Block
@@ -3033,9 +3033,9 @@ else
           276
         </td>
         <td>
-          5693
+          5744
           -
-          5693
+          5744
         </td>
         <td>
           Literal
@@ -3054,9 +3054,9 @@ else
           273
         </td>
         <td>
-          5697
+          5748
           -
-          5723
+          5774
         </td>
         <td>
           Apply
@@ -3065,7 +3065,7 @@ else
           scala.Boolean.&amp;&amp;
         </td>
         <td style="background: #F0ADAD">
-          c.isEmpty.unary_!.&amp;&amp;(MemoryManager.this.taskRunning.unary_!)
+          c.nonEmpty.&amp;&amp;(MemoryManager.this.taskRunning.unary_!)
         </td>
       </tr><tr>
         <td>
@@ -3075,9 +3075,9 @@ else
           272
         </td>
         <td>
-          5711
+          5762
           -
-          5723
+          5774
         </td>
         <td>
           Select
@@ -3096,9 +3096,9 @@ else
           275
         </td>
         <td>
-          5725
+          5776
           -
-          5738
+          5791
         </td>
         <td>
           Block
@@ -3107,7 +3107,7 @@ else
           com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
         </td>
         <td style="background: #F0ADAD">
-          MemoryManager.this.scheduleTimer
+          MemoryManager.this.scheduleTimer()
         </td>
       </tr><tr>
         <td>
@@ -3117,9 +3117,9 @@ else
           280
         </td>
         <td>
-          5747
+          5800
           -
-          5762
+          5815
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3138,9 +3138,9 @@ else
           279
         </td>
         <td>
-          5754
+          5807
           -
-          5754
+          5807
         </td>
         <td>
           Select
@@ -3159,9 +3159,9 @@ else
           278
         </td>
         <td>
-          5756
+          5809
           -
-          5760
+          5813
         </td>
         <td>
           Literal
@@ -3180,18 +3180,18 @@ else
           283
         </td>
         <td>
-          5782
+          5835
           -
-          5798
+          5851
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          scala.concurrent.future
+          scala.concurrent.Future.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.concurrent.`package`.future[Boolean](false)(MemoryManager.this.context.dispatcher)
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
         </td>
       </tr><tr>
         <td>
@@ -3201,9 +3201,9 @@ else
           282
         </td>
         <td>
-          5789
+          5842
           -
-          5789
+          5842
         </td>
         <td>
           Select
@@ -3222,9 +3222,9 @@ else
           281
         </td>
         <td>
-          5791
+          5844
           -
-          5796
+          5849
         </td>
         <td>
           Literal
