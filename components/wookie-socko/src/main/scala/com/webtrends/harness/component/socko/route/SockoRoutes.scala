@@ -332,6 +332,9 @@ trait SockoPost extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+        // Work around for Socko issue
+        // https://github.com/mashupbots/socko/issues/111
+        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
@@ -415,6 +418,9 @@ trait SockoPut extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+        // Work around for Socko issue
+        // https://github.com/mashupbots/socko/issues/111
+        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
