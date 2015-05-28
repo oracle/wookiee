@@ -16,10 +16,10 @@ the harness.
 
 ## Where's the Source
 
-As of version **1.0**, Wookie code is now located in our GitHub public repository for [Wookie](https://github.com/Webtrends/wookie).
+As of version **1.0**, Wookiee code is now located in our GitHub public repository for [Wookiee](https://github.com/Webtrends/wookiee).
 You can fork this code into your own repository and work with it from there.
 
-## Compiling Wookie
+## Compiling Wookiee
 
 - Supported Profiles 
 	* core (default)
@@ -38,7 +38,7 @@ You can fork this code into your own repository and work with it from there.
 1. Open IntelliJ Idea, and start any project
 2. Use the maven plugin in Idea to add the pom.xml to your project.  Idea will automagically download the dependencies
 you need into the your local repository.
-3. Go to the Wookie project and click "install" and this will compile, test, package, and move the jar into your
+3. Go to the Wookiee project and click "install" and this will compile, test, package, and move the jar into your
 local repository.
 
 ## Compiling Example Service
@@ -46,13 +46,13 @@ local repository.
 1.  Go to relevant directory
 2.  mvn package or mvn compile
 
-## Installing Example Service inside Wookie and IDE Debugging
+## Installing Example Service inside Wookiee and IDE Debugging
 
-To install a service inside of Wookie for production, please refer to the packaging documentation (Coming soon). For development deploying a service is done through a bash script found in wookie-core/bin. This script will simply create symbolic links to the service jar, the service library folder and the service configuration file. The script expects that you are using the default setup, which is the following:
+To install a service inside of Wookiee for production, please refer to the packaging documentation (Coming soon). For development deploying a service is done through a bash script found in wookiee-core/bin. This script will simply create symbolic links to the service jar, the service library folder and the service configuration file. The script expects that you are using the default setup, which is the following:
 
-* Your services directory is contained withing your wookie-core folder
+* Your services directory is contained withing your wookiee-core folder
 * You service is built according to the service archetype in this repo
 
-To execute the script you would do the following ```./deployService.sh example-rest ~/src/wookie/examples/example-rest```
-For more information see [Bash Scripts](../wookie-core/bin/readme.md)
+To execute the script you would do the following ```./deployService.sh example-rest ~/src/wookiee/examples/example-rest```
+For more information see [Bash Scripts](../wookiee-core/bin/readme.md)
 

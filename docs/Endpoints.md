@@ -1,4 +1,4 @@
-# Wookie - Default HTTP Endpoints
+# Wookiee - Default HTTP Endpoints
 
 ## Overview
 
@@ -44,4 +44,4 @@ This results in the following output in the application.conf file:
         deny=[]
      }
 	 
-Currently the CIDR rules do not support IPv6, so if you have setup the CIDR rules and an IPv6 address comes into Wookie it will simply fail and send back a NotFound.
+Currently the CIDR rules do not support IPv6, so if you have setup the CIDR rules and an IPv6 address comes into Wookiee it will simply fail and send back a NotFound.
