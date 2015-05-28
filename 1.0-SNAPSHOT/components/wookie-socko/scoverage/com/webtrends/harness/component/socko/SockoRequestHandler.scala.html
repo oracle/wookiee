@@ -213,127 +213,122 @@
 </span>188 <span style=''>      // Websockets handshake error
 </span>189 <span style=''>      case ex: WebSocketHandshakeException => </span><span style='background: #F0ADAD'>writeErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, ex)</span><span style=''>
 </span>190 <span style=''>      // Catch all
-</span>191 <span style=''>      case ex => {
+</span>191 <span style=''>      case ex =>
 </span>192 <span style=''>        try {
 </span>193 <span style=''>          </span><span style='background: #F0ADAD'>log.debug("Error handling request", ex)
 </span>194 <span style=''></span><span style='background: #F0ADAD'>          ctx.channel.close</span><span style=''>
 </span>195 <span style=''>        } catch {
 </span>196 <span style=''>          case ex2: Throwable => </span><span style='background: #F0ADAD'>log.debug("Error closing channel", ex2)</span><span style=''>
 </span>197 <span style=''>        }
-</span>198 <span style=''>      }
-</span>199 <span style=''>    }
-</span>200 <span style=''>  }
-</span>201 <span style=''>
-</span>202 <span style=''>  /**
-</span>203 <span style=''>   * Write HTTP error response and close the channel
-</span>204 <span style=''>   *
-</span>205 <span style=''>   * @param ctx Channel Event
-</span>206 <span style=''>   * @param status HTTP error status indicating the nature of the error
-</span>207 <span style=''>   * @param ex Exception
-</span>208 <span style=''>   */
-</span>209 <span style=''>  private def writeErrorResponse(ctx: ChannelHandlerContext, status: HttpResponseStatus, ex: Throwable) {
-</span>210 <span style=''>    val sf = </span><span style='background: #F0ADAD'>new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S Z")</span><span style=''>
-</span>211 <span style=''>
-</span>212 <span style=''>    val msg = </span><span style='background: #F0ADAD'>"Failure: %s\n\n%s\n\n%s".format(
-</span>213 <span style=''></span><span style='background: #F0ADAD'>      status.toString(),
-</span>214 <span style=''></span><span style='background: #F0ADAD'>      if (ex == null) "" else ex.getMessage,
-</span>215 <span style=''></span><span style='background: #F0ADAD'>      sf.format(Calendar.getInstance().getTime()))</span><span style=''>
-</span>216 <span style=''>
-</span>217 <span style=''>    // Write HTTP Response
-</span>218 <span style=''>    val bytes = </span><span style='background: #F0ADAD'>s"Failure: ${status}\r\n\r\n${ex.getMessage}\r\n".getBytes(CharsetUtil.UTF_8)</span><span style=''>
-</span>219 <span style=''>    val content = </span><span style='background: #F0ADAD'>Unpooled.wrappedBuffer(bytes)</span><span style=''>
-</span>220 <span style=''>    val response = </span><span style='background: #F0ADAD'>new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content)</span><span style=''>
-</span>221 <span style=''>    </span><span style='background: #F0ADAD'>response.headers.set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8")</span><span style=''>
-</span>222 <span style=''>
-</span>223 <span style=''>    // Close the connection as soon as the error message is sent.
-</span>224 <span style=''>    </span><span style='background: #F0ADAD'>ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE)</span><span style=''>
-</span>225 <span style=''>  }
-</span>226 <span style=''>
-</span>227 <span style=''>  /**
-</span>228 <span style=''>   * When channel open, add it to our channel group so we know which channels are
-</span>229 <span style=''>   * opened.
-</span>230 <span style=''>   *
-</span>231 <span style=''>   * Note that when a channel closes, `allChannels` automatically removes it.
-</span>232 <span style=''>   */
-</span>233 <span style=''>  override def channelActive(ctx: ChannelHandlerContext) {
-</span>234 <span style=''>    </span><span style='background: #AEF1AE'>server.allChannels.add(ctx.channel)</span><span style=''>
-</span>235 <span style=''>  }
-</span>236 <span style=''>
-</span>237 <span style=''>  /**
-</span>238 <span style=''>   * Performs web socket handshake
-</span>239 <span style=''>   *
-</span>240 <span style=''>   * @param event Handshake event
-</span>241 <span style=''>   */
-</span>242 <span style=''>  private def doWebSocketHandshake(event: WebSocketHandshakeEvent): Unit = {
-</span>243 <span style=''>    if (</span><span style='background: #F0ADAD'>!event.isAuthorized</span><span style=''>) {
-</span>244 <span style=''>      </span><span style='background: #F0ADAD'>throw new UnsupportedOperationException("Websocket not supported at this end point")</span><span style=''>
-</span>245 <span style=''>    }
-</span>246 <span style=''>
-</span>247 <span style=''>    val wsFactory = </span><span style='background: #F0ADAD'>new WebSocketServerHandshakerFactory(
-</span>248 <span style=''></span><span style='background: #F0ADAD'>      createWebSocketLocation(event),
-</span>249 <span style=''></span><span style='background: #F0ADAD'>      if (event.authorizedSubprotocols == "") null else event.authorizedSubprotocols,
-</span>250 <span style=''></span><span style='background: #F0ADAD'>      false,
-</span>251 <span style=''></span><span style='background: #F0ADAD'>      event.maxFrameSize)</span><span style=''>
-</span>252 <span style=''>    </span><span style='background: #F0ADAD'>wsHandshaker = wsFactory.newHandshaker(event.nettyHttpRequest)</span><span style=''>
-</span>253 <span style=''>    if (</span><span style='background: #F0ADAD'>wsHandshaker == null</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>254 <span style=''></span><span style='background: #F0ADAD'>      WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(event.context.channel)
-</span>255 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.UPGRADE_REQUIRED.code, 0)
-</span>256 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
-</span>257 <span style=''></span><span style='background: #F0ADAD'>      val id = event.webSocketId
-</span>258 <span style=''></span><span style='background: #F0ADAD'>      val future = wsHandshaker.handshake(event.context.channel, event.nettyHttpRequest)
-</span>259 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.SWITCHING_PROTOCOLS.code, 0)
-</span>260 <span style=''></span><span style='background: #F0ADAD'>
-</span>261 <span style=''></span><span style='background: #F0ADAD'>      // Register websockets with the manager
-</span>262 <span style=''></span><span style='background: #F0ADAD'>      server.webSocketConnections.allWebSocketChannels.add(event.context.channel)
-</span>263 <span style=''></span><span style='background: #F0ADAD'>
-</span>264 <span style=''></span><span style='background: #F0ADAD'>      // Callback on complete AFTER data sent to the client
-</span>265 <span style=''></span><span style='background: #F0ADAD'>      if (event.onComplete.isDefined) {
-</span>266 <span style=''></span><span style='background: #F0ADAD'>        class OnCompleteListender extends ChannelFutureListener {
-</span>267 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
-</span>268 <span style=''></span><span style='background: #F0ADAD'>            event.onComplete.get(id)
-</span>269 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>270 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>271 <span style=''></span><span style='background: #F0ADAD'>        future.addListener(new OnCompleteListender())
-</span>272 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>273 <span style=''></span><span style='background: #F0ADAD'>
-</span>274 <span style=''></span><span style='background: #F0ADAD'>      // Callback on close - after the web socket connection (netty channel) is closed
-</span>275 <span style=''></span><span style='background: #F0ADAD'>      if (event.onClose.isDefined) {
-</span>276 <span style=''></span><span style='background: #F0ADAD'>        class OnCloseListender extends ChannelFutureListener {
-</span>277 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
-</span>278 <span style=''></span><span style='background: #F0ADAD'>            event.onClose.get(id)
-</span>279 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>280 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>281 <span style=''></span><span style='background: #F0ADAD'>        event.context.channel.closeFuture.addListener(new OnCloseListender())
-</span>282 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>283 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>284 <span style=''>  }
-</span>285 <span style=''>
-</span>286 <span style=''>  /**
-</span>287 <span style=''>   * Creates the web socket location - basically the same as the URL but http is replaced with ws
-</span>288 <span style=''>   */
-</span>289 <span style=''>  private def createWebSocketLocation(e: WebSocketHandshakeEvent): String = {
-</span>290 <span style=''>    val sb = </span><span style='background: #F0ADAD'>new StringBuilder</span><span style=''>
-</span>291 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(if (isSSLConnection(e.context.channel)) "wss" else "ws")</span><span style=''>
-</span>292 <span style=''>    </span><span style='background: #F0ADAD'>sb.append("://")</span><span style=''>
-</span>293 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.request.headers.get(HttpHeaders.Names.HOST))</span><span style=''>
-</span>294 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.endPoint.uri)</span><span style=''>
-</span>295 <span style=''>    </span><span style='background: #F0ADAD'>sb.toString</span><span style=''>
-</span>296 <span style=''>  }
-</span>297 <span style=''>
-</span>298 <span style=''>  /**
-</span>299 <span style=''>   * Check if SSL is being used
-</span>300 <span style=''>   */
-</span>301 <span style=''>  private def isSSLConnection(channel: Channel): Boolean = {
-</span>302 <span style=''>    (</span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[SslHandler]) != null</span><span style=''>)
-</span>303 <span style=''>  }
-</span>304 <span style=''>
-</span>305 <span style=''>  /**
-</span>306 <span style=''>   * Check if this channel is aggregating chunks
-</span>307 <span style=''>   */
-</span>308 <span style=''>  private def isAggreatingChunks(channel: Channel): Boolean = {
-</span>309 <span style=''>    (</span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[HttpObjectAggregator]) != null</span><span style=''>)
-</span>310 <span style=''>  }
-</span>311 <span style=''>}
+</span>198 <span style=''>    }
+</span>199 <span style=''>  }
+</span>200 <span style=''>
+</span>201 <span style=''>  /**
+</span>202 <span style=''>   * Write HTTP error response and close the channel
+</span>203 <span style=''>   *
+</span>204 <span style=''>   * @param ctx Channel Event
+</span>205 <span style=''>   * @param status HTTP error status indicating the nature of the error
+</span>206 <span style=''>   * @param ex Exception
+</span>207 <span style=''>   */
+</span>208 <span style=''>  private def writeErrorResponse(ctx: ChannelHandlerContext, status: HttpResponseStatus, ex: Throwable) {
+</span>209 <span style=''>    val sf = </span><span style='background: #F0ADAD'>new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S Z")</span><span style=''>
+</span>210 <span style=''>
+</span>211 <span style=''>    val msg = </span><span style='background: #F0ADAD'>"Failure: %s\n\n%s\n\n%s".format(
+</span>212 <span style=''></span><span style='background: #F0ADAD'>      status.toString,
+</span>213 <span style=''></span><span style='background: #F0ADAD'>      if (ex == null) "" else ex.getMessage,
+</span>214 <span style=''></span><span style='background: #F0ADAD'>      sf.format(Calendar.getInstance().getTime))</span><span style=''>
+</span>215 <span style=''>
+</span>216 <span style=''>    // Write HTTP Response
+</span>217 <span style=''>    val bytes = </span><span style='background: #F0ADAD'>s"$msg\r\n\r\n${ex.getMessage}\r\n".getBytes(CharsetUtil.UTF_8)</span><span style=''>
+</span>218 <span style=''>    val content = </span><span style='background: #F0ADAD'>Unpooled.wrappedBuffer(bytes)</span><span style=''>
+</span>219 <span style=''>    val response = </span><span style='background: #F0ADAD'>new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status, content)</span><span style=''>
+</span>220 <span style=''>    </span><span style='background: #F0ADAD'>response.headers.set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8")</span><span style=''>
+</span>221 <span style=''>
+</span>222 <span style=''>    // Close the connection as soon as the error message is sent.
+</span>223 <span style=''>    </span><span style='background: #F0ADAD'>ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE)</span><span style=''>
+</span>224 <span style=''>  }
+</span>225 <span style=''>
+</span>226 <span style=''>  /**
+</span>227 <span style=''>   * When channel open, add it to our channel group so we know which channels are
+</span>228 <span style=''>   * opened.
+</span>229 <span style=''>   *
+</span>230 <span style=''>   * Note that when a channel closes, `allChannels` automatically removes it.
+</span>231 <span style=''>   */
+</span>232 <span style=''>  override def channelActive(ctx: ChannelHandlerContext) {
+</span>233 <span style=''>    </span><span style='background: #AEF1AE'>server.allChannels.add(ctx.channel)</span><span style=''>
+</span>234 <span style=''>  }
+</span>235 <span style=''>
+</span>236 <span style=''>  /**
+</span>237 <span style=''>   * Performs web socket handshake
+</span>238 <span style=''>   *
+</span>239 <span style=''>   * @param event Handshake event
+</span>240 <span style=''>   */
+</span>241 <span style=''>  private def doWebSocketHandshake(event: WebSocketHandshakeEvent): Unit = {
+</span>242 <span style=''>    if (</span><span style='background: #F0ADAD'>!event.isAuthorized</span><span style=''>) {
+</span>243 <span style=''>      </span><span style='background: #F0ADAD'>throw new UnsupportedOperationException("Websocket not supported at this end point")</span><span style=''>
+</span>244 <span style=''>    }
+</span>245 <span style=''>
+</span>246 <span style=''>    val wsFactory = </span><span style='background: #F0ADAD'>new WebSocketServerHandshakerFactory(
+</span>247 <span style=''></span><span style='background: #F0ADAD'>      createWebSocketLocation(event),
+</span>248 <span style=''></span><span style='background: #F0ADAD'>      if (event.authorizedSubprotocols == "") null else event.authorizedSubprotocols,
+</span>249 <span style=''></span><span style='background: #F0ADAD'>      false,
+</span>250 <span style=''></span><span style='background: #F0ADAD'>      event.maxFrameSize)</span><span style=''>
+</span>251 <span style=''>    </span><span style='background: #F0ADAD'>wsHandshaker = wsFactory.newHandshaker(event.nettyHttpRequest)</span><span style=''>
+</span>252 <span style=''>    if (</span><span style='background: #F0ADAD'>wsHandshaker == null</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>253 <span style=''></span><span style='background: #F0ADAD'>      WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(event.context.channel)
+</span>254 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.UPGRADE_REQUIRED.code, 0)
+</span>255 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
+</span>256 <span style=''></span><span style='background: #F0ADAD'>      val id = event.webSocketId
+</span>257 <span style=''></span><span style='background: #F0ADAD'>      val future = wsHandshaker.handshake(event.context.channel, event.nettyHttpRequest)
+</span>258 <span style=''></span><span style='background: #F0ADAD'>      event.writeWebLog(HttpResponseStatus.SWITCHING_PROTOCOLS.code, 0)
+</span>259 <span style=''></span><span style='background: #F0ADAD'>
+</span>260 <span style=''></span><span style='background: #F0ADAD'>      // Register websockets with the manager
+</span>261 <span style=''></span><span style='background: #F0ADAD'>      server.webSocketConnections.allWebSocketChannels.add(event.context.channel)
+</span>262 <span style=''></span><span style='background: #F0ADAD'>
+</span>263 <span style=''></span><span style='background: #F0ADAD'>      // Callback on complete AFTER data sent to the client
+</span>264 <span style=''></span><span style='background: #F0ADAD'>      if (event.onComplete.isDefined) {
+</span>265 <span style=''></span><span style='background: #F0ADAD'>        class OnCompleteListender extends ChannelFutureListener {
+</span>266 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
+</span>267 <span style=''></span><span style='background: #F0ADAD'>            event.onComplete.get(id)
+</span>268 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>269 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>270 <span style=''></span><span style='background: #F0ADAD'>        future.addListener(new OnCompleteListender())
+</span>271 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>272 <span style=''></span><span style='background: #F0ADAD'>
+</span>273 <span style=''></span><span style='background: #F0ADAD'>      // Callback on close - after the web socket connection (netty channel) is closed
+</span>274 <span style=''></span><span style='background: #F0ADAD'>      if (event.onClose.isDefined) {
+</span>275 <span style=''></span><span style='background: #F0ADAD'>        class OnCloseListender extends ChannelFutureListener {
+</span>276 <span style=''></span><span style='background: #F0ADAD'>          def operationComplete(future: ChannelFuture) {
+</span>277 <span style=''></span><span style='background: #F0ADAD'>            event.onClose.get(id)
+</span>278 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>279 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>280 <span style=''></span><span style='background: #F0ADAD'>        event.context.channel.closeFuture.addListener(new OnCloseListender())
+</span>281 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>282 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>283 <span style=''>  }
+</span>284 <span style=''>
+</span>285 <span style=''>  /**
+</span>286 <span style=''>   * Creates the web socket location - basically the same as the URL but http is replaced with ws
+</span>287 <span style=''>   */
+</span>288 <span style=''>  private def createWebSocketLocation(e: WebSocketHandshakeEvent): String = {
+</span>289 <span style=''>    val sb = </span><span style='background: #F0ADAD'>new StringBuilder</span><span style=''>
+</span>290 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(if (isSSLConnection(e.context.channel)) "wss" else "ws")</span><span style=''>
+</span>291 <span style=''>    </span><span style='background: #F0ADAD'>sb.append("://")</span><span style=''>
+</span>292 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.request.headers.get(HttpHeaders.Names.HOST))</span><span style=''>
+</span>293 <span style=''>    </span><span style='background: #F0ADAD'>sb.append(e.endPoint.uri)</span><span style=''>
+</span>294 <span style=''>    </span><span style='background: #F0ADAD'>sb.toString()</span><span style=''>
+</span>295 <span style=''>  }
+</span>296 <span style=''>
+</span>297 <span style=''>  /**
+</span>298 <span style=''>   * Check if SSL is being used
+</span>299 <span style=''>   */
+</span>300 <span style=''>  private def isSSLConnection(channel: Channel): Boolean = </span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[SslHandler]) != null</span><span style=''>
+</span>301 <span style=''>
+</span>302 <span style=''>  /**
+</span>303 <span style=''>   * Check if this channel is aggregating chunks
+</span>304 <span style=''>   */
+</span>305 <span style=''>  private def isAggreatingChunks(channel: Channel): Boolean = </span><span style='background: #F0ADAD'>channel.pipeline.get(classOf[HttpObjectAggregator]) != null</span><span style=''>
+</span>306 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -350,7 +345,7 @@
           19
         </td>
         <td>
-          408
+          336
         </td>
         <td>
           766
@@ -371,7 +366,7 @@
           24
         </td>
         <td>
-          409
+          337
         </td>
         <td>
           931
@@ -392,7 +387,7 @@
           29
         </td>
         <td>
-          410
+          338
         </td>
         <td>
           1103
@@ -413,7 +408,7 @@
           31
         </td>
         <td>
-          416
+          344
         </td>
         <td>
           1136
@@ -434,7 +429,7 @@
           32
         </td>
         <td>
-          411
+          339
         </td>
         <td>
           1157
@@ -455,7 +450,7 @@
           33
         </td>
         <td>
-          412
+          340
         </td>
         <td>
           1187
@@ -476,7 +471,7 @@
           34
         </td>
         <td>
-          413
+          341
         </td>
         <td>
           1245
@@ -497,7 +492,7 @@
           35
         </td>
         <td>
-          414
+          342
         </td>
         <td>
           1303
@@ -518,7 +513,7 @@
           36
         </td>
         <td>
-          415
+          343
         </td>
         <td>
           1352
@@ -539,7 +534,7 @@
           41
         </td>
         <td>
-          418
+          346
         </td>
         <td>
           1504
@@ -560,7 +555,7 @@
           41
         </td>
         <td>
-          417
+          345
         </td>
         <td>
           1478
@@ -581,7 +576,7 @@
           41
         </td>
         <td>
-          419
+          347
         </td>
         <td>
           1457
@@ -602,7 +597,7 @@
           49
         </td>
         <td>
-          424
+          352
         </td>
         <td>
           1751
@@ -623,7 +618,7 @@
           49
         </td>
         <td>
-          420
+          348
         </td>
         <td>
           1755
@@ -644,7 +639,7 @@
           49
         </td>
         <td>
-          425
+          353
         </td>
         <td>
           1751
@@ -665,7 +660,7 @@
           50
         </td>
         <td>
-          421
+          349
         </td>
         <td>
           1813
@@ -686,7 +681,7 @@
           50
         </td>
         <td>
-          423
+          351
         </td>
         <td>
           1813
@@ -710,7 +705,7 @@
           50
         </td>
         <td>
-          422
+          350
         </td>
         <td>
           1822
@@ -731,7 +726,7 @@
           52
         </td>
         <td>
-          426
+          354
         </td>
         <td>
           1848
@@ -752,7 +747,7 @@
           59
         </td>
         <td>
-          427
+          355
         </td>
         <td>
           1999
@@ -773,7 +768,7 @@
           60
         </td>
         <td>
-          429
+          357
         </td>
         <td>
           2066
@@ -794,7 +789,7 @@
           60
         </td>
         <td>
-          428
+          356
         </td>
         <td>
           2099
@@ -815,7 +810,7 @@
           61
         </td>
         <td>
-          430
+          358
         </td>
         <td>
           2118
@@ -836,7 +831,7 @@
           67
         </td>
         <td>
-          431
+          359
         </td>
         <td>
           2201
@@ -857,7 +852,7 @@
           68
         </td>
         <td>
-          433
+          361
         </td>
         <td>
           2245
@@ -878,7 +873,7 @@
           68
         </td>
         <td>
-          432
+          360
         </td>
         <td>
           2280
@@ -899,7 +894,7 @@
           70
         </td>
         <td>
-          436
+          364
         </td>
         <td>
           2365
@@ -920,28 +915,7 @@
           70
         </td>
         <td>
-          438
-        </td>
-        <td>
-          2301
-          -
-          2378
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.slf4j.Logger.debug
-        </td>
-        <td style="background: #AEF1AE">
-          SockoRequestHandler.this.log.debug(&quot;HTTP FULL REQUEST {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          435
+          363
         </td>
         <td>
           2349
@@ -962,28 +936,28 @@
           70
         </td>
         <td>
-          437
+          366
         </td>
         <td>
-          2375
+          2301
           -
-          2377
+          2378
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          org.slf4j.Logger.debug
         </td>
         <td style="background: #AEF1AE">
-          &quot;&quot;
+          SockoRequestHandler.this.log.debug(&quot;HTTP FULL REQUEST {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
         </td>
       </tr><tr>
         <td>
           70
         </td>
         <td>
-          434
+          362
         </td>
         <td>
           2311
@@ -1001,10 +975,31 @@
         </td>
       </tr><tr>
         <td>
+          70
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          2375
+          -
+          2377
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
           72
         </td>
         <td>
-          439
+          367
         </td>
         <td>
           2392
@@ -1025,7 +1020,7 @@
           72
         </td>
         <td>
-          449
+          377
         </td>
         <td>
           2426
@@ -1051,7 +1046,7 @@
           73
         </td>
         <td>
-          441
+          369
         </td>
         <td>
           2450
@@ -1072,7 +1067,7 @@
           73
         </td>
         <td>
-          440
+          368
         </td>
         <td>
           2492
@@ -1093,7 +1088,7 @@
           74
         </td>
         <td>
-          442
+          370
         </td>
         <td>
           2514
@@ -1114,7 +1109,7 @@
           75
         </td>
         <td>
-          443
+          371
         </td>
         <td>
           2538
@@ -1135,7 +1130,7 @@
           76
         </td>
         <td>
-          445
+          373
         </td>
         <td>
           2647
@@ -1156,7 +1151,7 @@
           76
         </td>
         <td>
-          448
+          376
         </td>
         <td>
           2576
@@ -1177,28 +1172,7 @@
           76
         </td>
         <td>
-          447
-        </td>
-        <td>
-          2597
-          -
-          2664
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          444
+          372
         </td>
         <td>
           2632
@@ -1219,7 +1193,28 @@
           76
         </td>
         <td>
-          446
+          375
+        </td>
+        <td>
+          2597
+          -
+          2664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          374
         </td>
         <td>
           2602
@@ -1240,7 +1235,7 @@
           78
         </td>
         <td>
-          451
+          379
         </td>
         <td>
           2692
@@ -1261,7 +1256,7 @@
           78
         </td>
         <td>
-          450
+          378
         </td>
         <td>
           2692
@@ -1282,7 +1277,7 @@
           82
         </td>
         <td>
-          452
+          380
         </td>
         <td>
           2764
@@ -1303,7 +1298,7 @@
           83
         </td>
         <td>
-          454
+          382
         </td>
         <td>
           2808
@@ -1324,7 +1319,7 @@
           83
         </td>
         <td>
-          453
+          381
         </td>
         <td>
           2843
@@ -1345,7 +1340,7 @@
           85
         </td>
         <td>
-          457
+          385
         </td>
         <td>
           2923
@@ -1366,28 +1361,7 @@
           85
         </td>
         <td>
-          456
-        </td>
-        <td>
-          2907
-          -
-          2921
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpRequestEvent.endPoint
-        </td>
-        <td style="background: #F0ADAD">
-          event.endPoint
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          459
+          387
         </td>
         <td>
           2864
@@ -1408,7 +1382,28 @@
           85
         </td>
         <td>
-          455
+          384
+        </td>
+        <td>
+          2907
+          -
+          2921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpRequestEvent.endPoint
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          383
         </td>
         <td>
           2874
@@ -1429,7 +1424,7 @@
           85
         </td>
         <td>
-          458
+          386
         </td>
         <td>
           2933
@@ -1450,7 +1445,7 @@
           87
         </td>
         <td>
-          460
+          388
         </td>
         <td>
           2946
@@ -1471,7 +1466,7 @@
           88
         </td>
         <td>
-          461
+          389
         </td>
         <td>
           2980
@@ -1492,7 +1487,7 @@
           89
         </td>
         <td>
-          463
+          391
         </td>
         <td>
           3073
@@ -1513,10 +1508,10 @@
           89
         </td>
         <td>
-          465
+          394
         </td>
         <td>
-          3023
+          3002
           -
           3090
         </td>
@@ -1524,17 +1519,17 @@
           Apply
         </td>
         <td>
-          scala.Some.apply
+          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
         </td>
         <td style="background: #F0ADAD">
-          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
+          SockoRequestHandler.this.initialHttpRequest_=(scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)))
         </td>
       </tr><tr>
         <td>
           89
         </td>
         <td>
-          462
+          390
         </td>
         <td>
           3058
@@ -1555,7 +1550,28 @@
           89
         </td>
         <td>
-          464
+          393
+        </td>
+        <td>
+          3023
+          -
+          3090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          392
         </td>
         <td>
           3028
@@ -1573,31 +1589,10 @@
         </td>
       </tr><tr>
         <td>
-          89
-        </td>
-        <td>
-          466
-        </td>
-        <td>
-          3002
-          -
-          3090
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.SockoRequestHandler.initialHttpRequest_=
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.initialHttpRequest_=(scala.Some.apply[org.mashupbots.socko.events.InitialHttpRequestMessage](new org.mashupbots.socko.events.InitialHttpRequestMessage(event.request, event.createdOn)))
-        </td>
-      </tr><tr>
-        <td>
           92
         </td>
         <td>
-          469
+          397
         </td>
         <td>
           3157
@@ -1618,7 +1613,7 @@
           92
         </td>
         <td>
-          468
+          396
         </td>
         <td>
           3220
@@ -1639,7 +1634,7 @@
           92
         </td>
         <td>
-          467
+          395
         </td>
         <td>
           3181
@@ -1660,7 +1655,7 @@
           94
         </td>
         <td>
-          472
+          400
         </td>
         <td>
           3303
@@ -1681,28 +1676,7 @@
           94
         </td>
         <td>
-          474
-        </td>
-        <td>
-          3241
-          -
-          3316
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.slf4j.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.log.debug(&quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          94
-        </td>
-        <td>
-          471
+          399
         </td>
         <td>
           3287
@@ -1723,28 +1697,28 @@
           94
         </td>
         <td>
-          470
+          402
         </td>
         <td>
-          3251
+          3241
           -
-          3285
+          3316
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          org.slf4j.Logger.debug
         </td>
         <td style="background: #F0ADAD">
-          &quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;
+          SockoRequestHandler.this.log.debug(&quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;, event.endPoint, ctx.name(), &quot;&quot;)
         </td>
       </tr><tr>
         <td>
           94
         </td>
         <td>
-          473
+          401
         </td>
         <td>
           3313
@@ -1762,10 +1736,31 @@
         </td>
       </tr><tr>
         <td>
+          94
+        </td>
+        <td>
+          398
+        </td>
+        <td>
+          3251
+          -
+          3285
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HTTP LAST CHUNK {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
           96
         </td>
         <td>
-          475
+          403
         </td>
         <td>
           3326
@@ -1786,7 +1781,7 @@
           97
         </td>
         <td>
-          476
+          404
         </td>
         <td>
           3348
@@ -1807,7 +1802,7 @@
           100
         </td>
         <td>
-          478
+          406
         </td>
         <td>
           3486
@@ -1828,7 +1823,7 @@
           100
         </td>
         <td>
-          477
+          405
         </td>
         <td>
           3451
@@ -1849,7 +1844,7 @@
           100
         </td>
         <td>
-          479
+          407
         </td>
         <td>
           3431
@@ -1870,7 +1865,7 @@
           101
         </td>
         <td>
-          481
+          409
         </td>
         <td>
           3506
@@ -1891,7 +1886,7 @@
           101
         </td>
         <td>
-          480
+          408
         </td>
         <td>
           3556
@@ -1912,7 +1907,7 @@
           101
         </td>
         <td>
-          482
+          410
         </td>
         <td>
           3506
@@ -1933,7 +1928,7 @@
           103
         </td>
         <td>
-          487
+          415
         </td>
         <td>
           3597
@@ -1954,28 +1949,28 @@
           103
         </td>
         <td>
-          483
+          412
         </td>
         <td>
-          3607
+          3638
           -
-          3636
+          3652
         </td>
         <td>
-          Literal
+          Select
         </td>
         <td>
-          &lt;nosymbol&gt;
+          org.mashupbots.socko.events.HttpChunkEvent.endPoint
         </td>
         <td style="background: #F0ADAD">
-          &quot;HTTP CHUNK {} CHANNEL={} {}&quot;
+          event.endPoint
         </td>
       </tr><tr>
         <td>
           103
         </td>
         <td>
-          486
+          414
         </td>
         <td>
           3664
@@ -1996,7 +1991,28 @@
           103
         </td>
         <td>
-          485
+          411
+        </td>
+        <td>
+          3607
+          -
+          3636
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;HTTP CHUNK {} CHANNEL={} {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          413
         </td>
         <td>
           3654
@@ -2014,31 +2030,10 @@
         </td>
       </tr><tr>
         <td>
-          103
-        </td>
-        <td>
-          484
-        </td>
-        <td>
-          3638
-          -
-          3652
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpChunkEvent.endPoint
-        </td>
-        <td style="background: #F0ADAD">
-          event.endPoint
-        </td>
-      </tr><tr>
-        <td>
           105
         </td>
         <td>
-          488
+          416
         </td>
         <td>
           3677
@@ -2059,7 +2054,7 @@
           108
         </td>
         <td>
-          490
+          418
         </td>
         <td>
           3750
@@ -2080,7 +2075,7 @@
           108
         </td>
         <td>
-          489
+          417
         </td>
         <td>
           3775
@@ -2101,7 +2096,28 @@
           110
         </td>
         <td>
-          492
+          421
+        </td>
+        <td>
+          3876
+          -
+          3884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.name
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.name()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          420
         </td>
         <td>
           3860
@@ -2122,7 +2138,7 @@
           110
         </td>
         <td>
-          495
+          423
         </td>
         <td>
           3827
@@ -2143,7 +2159,7 @@
           110
         </td>
         <td>
-          491
+          419
         </td>
         <td>
           3837
@@ -2164,7 +2180,7 @@
           110
         </td>
         <td>
-          494
+          422
         </td>
         <td>
           3886
@@ -2182,31 +2198,10 @@
         </td>
       </tr><tr>
         <td>
-          110
-        </td>
-        <td>
-          493
-        </td>
-        <td>
-          3876
-          -
-          3884
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.channel.ChannelHandlerContext.name
-        </td>
-        <td style="background: #F0ADAD">
-          ctx.name()
-        </td>
-      </tr><tr>
-        <td>
           114
         </td>
         <td>
-          496
+          424
         </td>
         <td>
           3967
@@ -2227,7 +2222,7 @@
           117
         </td>
         <td>
-          497
+          425
         </td>
         <td>
           4036
@@ -2248,7 +2243,7 @@
           120
         </td>
         <td>
-          498
+          426
         </td>
         <td>
           4111
@@ -2269,7 +2264,7 @@
           123
         </td>
         <td>
-          499
+          427
         </td>
         <td>
           4198
@@ -2290,7 +2285,7 @@
           123
         </td>
         <td>
-          501
+          429
         </td>
         <td>
           4197
@@ -2311,7 +2306,7 @@
           123
         </td>
         <td>
-          500
+          428
         </td>
         <td>
           4179
@@ -2332,7 +2327,7 @@
           127
         </td>
         <td>
-          505
+          433
         </td>
         <td>
           4316
@@ -2353,28 +2348,28 @@
           127
         </td>
         <td>
-          507
+          430
         </td>
         <td>
-          4315
+          4339
           -
-          4315
+          4356
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          io.netty.handler.codec.http.websocketx.WebSocketFrame.isFinalFragment
         </td>
         <td style="background: #F0ADAD">
-          ()
+          f.isFinalFragment()
         </td>
       </tr><tr>
         <td>
           127
         </td>
         <td>
-          504
+          432
         </td>
         <td>
           4365
@@ -2395,7 +2390,28 @@
           127
         </td>
         <td>
-          503
+          435
+        </td>
+        <td>
+          4315
+          -
+          4315
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          431
         </td>
         <td>
           4358
@@ -2416,7 +2432,7 @@
           127
         </td>
         <td>
-          506
+          434
         </td>
         <td>
           4298
@@ -2434,31 +2450,10 @@
         </td>
       </tr><tr>
         <td>
-          127
-        </td>
-        <td>
-          502
-        </td>
-        <td>
-          4339
-          -
-          4356
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.handler.codec.http.websocketx.WebSocketFrame.isFinalFragment
-        </td>
-        <td style="background: #F0ADAD">
-          f.isFinalFragment()
-        </td>
-      </tr><tr>
-        <td>
           131
         </td>
         <td>
-          508
+          436
         </td>
         <td>
           4452
@@ -2479,7 +2474,7 @@
           131
         </td>
         <td>
-          509
+          437
         </td>
         <td>
           4460
@@ -2500,7 +2495,7 @@
           134
         </td>
         <td>
-          510
+          438
         </td>
         <td>
           4501
@@ -2521,7 +2516,7 @@
           138
         </td>
         <td>
-          511
+          439
         </td>
         <td>
           4639
@@ -2542,49 +2537,7 @@
           150
         </td>
         <td>
-          513
-        </td>
-        <td>
-          4986
-          -
-          5027
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.SockoRequestHandler.isAggreatingChunks
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.isAggreatingChunks(event.context.channel())
-        </td>
-      </tr><tr>
-        <td>
-          150
-        </td>
-        <td>
-          512
-        </td>
-        <td>
-          5005
-          -
-          5026
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.channel.ChannelHandlerContext.channel
-        </td>
-        <td style="background: #F0ADAD">
-          event.context.channel()
-        </td>
-      </tr><tr>
-        <td>
-          150
-        </td>
-        <td>
-          529
+          457
         </td>
         <td>
           5029
@@ -2614,10 +2567,52 @@
         </td>
       </tr><tr>
         <td>
+          150
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          4986
+          -
+          5027
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.isAggreatingChunks
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.isAggreatingChunks(event.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          5005
+          -
+          5026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.channel
+        </td>
+        <td style="background: #F0ADAD">
+          event.context.channel()
+        </td>
+      </tr><tr>
+        <td>
           151
         </td>
         <td>
-          514
+          442
         </td>
         <td>
           5041
@@ -2638,7 +2633,7 @@
           151
         </td>
         <td>
-          522
+          450
         </td>
         <td>
           5037
@@ -2659,7 +2654,7 @@
           151
         </td>
         <td>
-          521
+          449
         </td>
         <td>
           5037
@@ -2680,70 +2675,7 @@
           152
         </td>
         <td>
-          519
-        </td>
-        <td>
-          5076
-          -
-          5076
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          515
-        </td>
-        <td>
-          5080
-          -
-          5108
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Option.isDefined
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.initialHttpRequest.isDefined
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          518
-        </td>
-        <td>
-          5076
-          -
-          5076
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          520
+          448
         </td>
         <td>
           5076
@@ -2764,10 +2696,73 @@ else
         </td>
       </tr><tr>
         <td>
+          152
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          5076
+          -
+          5076
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          5080
+          -
+          5108
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.initialHttpRequest.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          5076
+          -
+          5076
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
           153
         </td>
         <td>
-          517
+          445
         </td>
         <td>
           5122
@@ -2788,7 +2783,7 @@ else
           153
         </td>
         <td>
-          516
+          444
         </td>
         <td>
           5122
@@ -2809,7 +2804,7 @@ else
           156
         </td>
         <td>
-          523
+          451
         </td>
         <td>
           5263
@@ -2830,7 +2825,7 @@ else
           156
         </td>
         <td>
-          528
+          456
         </td>
         <td>
           5231
@@ -2851,7 +2846,7 @@ else
           156
         </td>
         <td>
-          524
+          452
         </td>
         <td>
           5235
@@ -2872,7 +2867,7 @@ else
           156
         </td>
         <td>
-          527
+          455
         </td>
         <td>
           5231
@@ -2893,7 +2888,28 @@ else
           157
         </td>
         <td>
-          525
+          454
+        </td>
+        <td>
+          5303
+          -
+          5390
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;New request received before the previous chunk ended&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          453
         </td>
         <td>
           5303
@@ -2911,94 +2927,10 @@ else
         </td>
       </tr><tr>
         <td>
-          157
-        </td>
-        <td>
-          526
-        </td>
-        <td>
-          5303
-          -
-          5390
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;New request received before the previous chunk ended&quot;)
-        </td>
-      </tr><tr>
-        <td>
           159
         </td>
         <td>
-          534
-        </td>
-        <td>
-          5410
-          -
-          5410
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          159
-        </td>
-        <td>
-          530
-        </td>
-        <td>
-          5414
-          -
-          5437
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.CurrentHttpRequestMessage.isChunked
-        </td>
-        <td style="background: #F0ADAD">
-          event.request.isChunked
-        </td>
-      </tr><tr>
-        <td>
-          159
-        </td>
-        <td>
-          533
-        </td>
-        <td>
-          5410
-          -
-          5410
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          159
-        </td>
-        <td>
-          535
+          463
         </td>
         <td>
           5410
@@ -3019,10 +2951,73 @@ else
         </td>
       </tr><tr>
         <td>
+          159
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          5410
+          -
+          5410
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          5410
+          -
+          5410
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          5414
+          -
+          5437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.CurrentHttpRequestMessage.isChunked
+        </td>
+        <td style="background: #F0ADAD">
+          event.request.isChunked
+        </td>
+      </tr><tr>
+        <td>
           160
         </td>
         <td>
-          532
+          460
         </td>
         <td>
           5447
@@ -3043,7 +3038,7 @@ else
           160
         </td>
         <td>
-          531
+          459
         </td>
         <td>
           5447
@@ -3064,7 +3059,7 @@ else
           168
         </td>
         <td>
-          537
+          465
         </td>
         <td>
           5656
@@ -3085,7 +3080,7 @@ else
           168
         </td>
         <td>
-          536
+          464
         </td>
         <td>
           5675
@@ -3106,7 +3101,7 @@ else
           169
         </td>
         <td>
-          540
+          468
         </td>
         <td>
           5707
@@ -3127,7 +3122,7 @@ else
           169
         </td>
         <td>
-          539
+          467
         </td>
         <td>
           5707
@@ -3148,7 +3143,7 @@ else
           169
         </td>
         <td>
-          538
+          466
         </td>
         <td>
           5728
@@ -3169,7 +3164,7 @@ else
           171
         </td>
         <td>
-          541
+          469
         </td>
         <td>
           5752
@@ -3190,7 +3185,7 @@ else
           171
         </td>
         <td>
-          542
+          470
         </td>
         <td>
           5752
@@ -3211,7 +3206,7 @@ else
           179
         </td>
         <td>
-          543
+          471
         </td>
         <td>
           5999
@@ -3232,28 +3227,7 @@ else
           183
         </td>
         <td>
-          545
-        </td>
-        <td>
-          6125
-          -
-          6182
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND, ex)
-        </td>
-      </tr><tr>
-        <td>
-          183
-        </td>
-        <td>
-          544
+          472
         </td>
         <td>
           6149
@@ -3271,10 +3245,31 @@ else
         </td>
       </tr><tr>
         <td>
+          183
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          6125
+          -
+          6182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.writeErrorResponse
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.writeErrorResponse(ctx, io.netty.handler.codec.http.HttpResponseStatus.NOT_FOUND, ex)
+        </td>
+      </tr><tr>
+        <td>
           185
         </td>
         <td>
-          546
+          474
         </td>
         <td>
           6282
@@ -3295,7 +3290,7 @@ else
           185
         </td>
         <td>
-          547
+          475
         </td>
         <td>
           6258
@@ -3316,7 +3311,7 @@ else
           187
         </td>
         <td>
-          549
+          477
         </td>
         <td>
           6414
@@ -3337,7 +3332,7 @@ else
           187
         </td>
         <td>
-          548
+          476
         </td>
         <td>
           6438
@@ -3358,7 +3353,7 @@ else
           189
         </td>
         <td>
-          550
+          478
         </td>
         <td>
           6580
@@ -3379,7 +3374,7 @@ else
           189
         </td>
         <td>
-          551
+          479
         </td>
         <td>
           6556
@@ -3400,12 +3395,12 @@ else
           192
         </td>
         <td>
-          555
+          483
         </td>
         <td>
-          6678
+          6676
           -
-          6745
+          6743
         </td>
         <td>
           Block
@@ -3427,12 +3422,12 @@ else
           193
         </td>
         <td>
-          552
+          480
         </td>
         <td>
-          6678
+          6676
           -
-          6717
+          6715
         </td>
         <td>
           Apply
@@ -3448,33 +3443,12 @@ else
           194
         </td>
         <td>
-          554
+          481
         </td>
         <td>
-          6740
+          6726
           -
-          6740
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          194
-        </td>
-        <td>
-          553
-        </td>
-        <td>
-          6728
-          -
-          6745
+          6743
         </td>
         <td>
           Apply
@@ -3487,15 +3461,36 @@ else
         </td>
       </tr><tr>
         <td>
+          194
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          6738
+          -
+          6738
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
           196
         </td>
         <td>
-          556
+          484
         </td>
         <td>
-          6797
+          6795
           -
-          6836
+          6834
         </td>
         <td>
           Apply
@@ -3508,15 +3503,15 @@ else
         </td>
       </tr><tr>
         <td>
-          210
+          209
         </td>
         <td>
-          557
+          485
         </td>
         <td>
-          7182
+          7172
           -
-          7229
+          7219
         </td>
         <td>
           Apply
@@ -3529,15 +3524,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          567
+          495
         </td>
         <td>
-          7245
+          7235
           -
-          7399
+          7385
         </td>
         <td>
           Apply
@@ -3553,15 +3548,15 @@ else
         </td>
       </tr><tr>
         <td>
-          212
+          211
         </td>
         <td>
-          558
+          486
         </td>
         <td>
-          7245
+          7235
           -
-          7270
+          7260
         </td>
         <td>
           Literal
@@ -3574,15 +3569,15 @@ else
         </td>
       </tr><tr>
         <td>
-          213
+          212
         </td>
         <td>
-          559
+          487
         </td>
         <td>
-          7285
+          7275
           -
-          7302
+          7290
         </td>
         <td>
           Apply
@@ -3595,15 +3590,36 @@ else
         </td>
       </tr><tr>
         <td>
-          214
+          213
         </td>
         <td>
-          561
+          490
         </td>
         <td>
-          7326
+          7314
           -
-          7328
+          7316
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          7314
+          -
+          7316
         </td>
         <td>
           Literal
@@ -3616,15 +3632,15 @@ else
         </td>
       </tr><tr>
         <td>
-          214
+          213
         </td>
         <td>
-          564
+          492
         </td>
         <td>
-          7334
+          7322
           -
-          7347
+          7335
         </td>
         <td>
           Block
@@ -3637,36 +3653,15 @@ else
         </td>
       </tr><tr>
         <td>
-          214
+          213
         </td>
         <td>
-          563
+          488
         </td>
         <td>
-          7334
+          7302
           -
-          7347
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          ex.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          214
-        </td>
-        <td>
-          560
-        </td>
-        <td>
-          7314
-          -
-          7324
+          7312
         </td>
         <td>
           Apply
@@ -3679,183 +3674,15 @@ else
         </td>
       </tr><tr>
         <td>
-          214
+          213
         </td>
         <td>
-          562
+          491
         </td>
         <td>
-          7326
+          7322
           -
-          7328
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          215
-        </td>
-        <td>
-          566
-        </td>
-        <td>
-          7355
-          -
-          7398
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.text.DateFormat.format
-        </td>
-        <td style="background: #F0ADAD">
-          sf.format(java.util.Calendar.getInstance().getTime())
-        </td>
-      </tr><tr>
-        <td>
-          215
-        </td>
-        <td>
-          565
-        </td>
-        <td>
-          7365
-          -
-          7397
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.util.Calendar.getTime
-        </td>
-        <td style="background: #F0ADAD">
-          java.util.Calendar.getInstance().getTime()
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          568
-        </td>
-        <td>
-          7446
-          -
-          7456
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Failure: &quot;
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          570
-        </td>
-        <td>
-          7488
-          -
-          7493
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;\\r\\n&quot;
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          573
-        </td>
-        <td>
-          7444
-          -
-          7521
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.getBytes
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Failure: &quot;, &quot;\\r\\n\\r\\n&quot;, &quot;\\r\\n&quot;).s(status, ex.getMessage()).getBytes(org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8)
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          572
-        </td>
-        <td>
-          7503
-          -
-          7520
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
-        </td>
-        <td style="background: #F0ADAD">
-          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          569
-        </td>
-        <td>
-          7464
-          -
-          7473
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;\\r\\n\\r\\n&quot;
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          571
-        </td>
-        <td>
-          7474
-          -
-          7487
+          7335
         </td>
         <td>
           Apply
@@ -3868,15 +3695,183 @@ else
         </td>
       </tr><tr>
         <td>
-          219
+          214
         </td>
         <td>
-          574
+          494
         </td>
         <td>
-          7540
+          7343
           -
-          7569
+          7384
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.text.DateFormat.format
+        </td>
+        <td style="background: #F0ADAD">
+          sf.format(java.util.Calendar.getInstance().getTime())
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          7353
+          -
+          7383
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Calendar.getTime
+        </td>
+        <td style="background: #F0ADAD">
+          java.util.Calendar.getInstance().getTime()
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          7432
+          -
+          7433
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          7446
+          -
+          7459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          7460
+          -
+          7465
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\r\\n&quot;
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          7430
+          -
+          7493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;\\r\\n\\r\\n&quot;, &quot;\\r\\n&quot;).s(msg, ex.getMessage()).getBytes(org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          7436
+          -
+          7445
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\r\\n\\r\\n&quot;
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          7475
+          -
+          7492
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          7512
+          -
+          7541
         </td>
         <td>
           Apply
@@ -3889,15 +3884,15 @@ else
         </td>
       </tr><tr>
         <td>
-          220
+          219
         </td>
         <td>
-          576
+          504
         </td>
         <td>
-          7589
+          7561
           -
-          7655
+          7627
         </td>
         <td>
           Apply
@@ -3910,15 +3905,15 @@ else
         </td>
       </tr><tr>
         <td>
-          220
+          219
         </td>
         <td>
-          575
+          503
         </td>
         <td>
-          7617
+          7589
           -
-          7637
+          7609
         </td>
         <td>
           Select
@@ -3931,15 +3926,15 @@ else
         </td>
       </tr><tr>
         <td>
-          221
+          220
         </td>
         <td>
-          577
+          505
         </td>
         <td>
-          7660
+          7632
           -
-          7741
+          7713
         </td>
         <td>
           Apply
@@ -3952,15 +3947,36 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          579
+          508
         </td>
         <td>
-          7813
+          7824
           -
-          7881
+          7824
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          7785
+          -
+          7853
         </td>
         <td>
           Apply
@@ -3973,15 +3989,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          578
+          506
         </td>
         <td>
-          7853
+          7825
           -
-          7880
+          7852
         </td>
         <td>
           Select
@@ -3994,36 +4010,15 @@ else
         </td>
       </tr><tr>
         <td>
-          224
+          233
         </td>
         <td>
-          580
+          510
         </td>
         <td>
-          7852
+          8112
           -
-          7852
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          234
-        </td>
-        <td>
-          582
-        </td>
-        <td>
-          8140
-          -
-          8175
+          8147
         </td>
         <td>
           Apply
@@ -4036,15 +4031,15 @@ else
         </td>
       </tr><tr>
         <td>
-          234
+          233
         </td>
         <td>
-          581
+          509
         </td>
         <td>
-          8163
+          8135
           -
-          8174
+          8146
         </td>
         <td>
           Apply
@@ -4057,15 +4052,15 @@ else
         </td>
       </tr><tr>
         <td>
-          234
+          233
         </td>
         <td>
-          583
+          511
         </td>
         <td>
-          8162
+          8134
           -
-          8162
+          8134
         </td>
         <td>
           Literal
@@ -4078,15 +4073,15 @@ else
         </td>
       </tr><tr>
         <td>
-          243
+          242
         </td>
         <td>
-          588
+          516
         </td>
         <td>
-          8348
+          8320
           -
-          8348
+          8320
         </td>
         <td>
           Block
@@ -4099,15 +4094,15 @@ else
         </td>
       </tr><tr>
         <td>
-          243
+          242
         </td>
         <td>
-          584
+          512
         </td>
         <td>
-          8352
+          8324
           -
-          8371
+          8343
         </td>
         <td>
           Select
@@ -4120,15 +4115,15 @@ else
         </td>
       </tr><tr>
         <td>
-          243
+          242
         </td>
         <td>
-          587
+          515
         </td>
         <td>
-          8348
+          8320
           -
-          8348
+          8320
         </td>
         <td>
           Literal
@@ -4141,36 +4136,15 @@ else
         </td>
       </tr><tr>
         <td>
-          244
+          243
         </td>
         <td>
-          585
+          514
         </td>
         <td>
-          8381
+          8353
           -
-          8465
-        </td>
-        <td>
-          Throw
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new scala.`package`.UnsupportedOperationException(&quot;Websocket not supported at this end point&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          244
-        </td>
-        <td>
-          586
-        </td>
-        <td>
-          8381
-          -
-          8465
+          8437
         </td>
         <td>
           Block
@@ -4183,15 +4157,36 @@ else
         </td>
       </tr><tr>
         <td>
-          247
+          243
         </td>
         <td>
-          597
+          513
         </td>
         <td>
-          8493
+          8353
           -
-          8693
+          8437
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Websocket not supported at this end point&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          8465
+          -
+          8665
         </td>
         <td>
           Apply
@@ -4207,15 +4202,15 @@ else
         </td>
       </tr><tr>
         <td>
-          248
+          247
         </td>
         <td>
-          589
+          517
         </td>
         <td>
-          8537
+          8509
           -
-          8567
+          8539
         </td>
         <td>
           Apply
@@ -4228,36 +4223,15 @@ else
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
-          594
+          519
         </td>
         <td>
-          8625
+          8587
           -
-          8653
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
-        </td>
-        <td style="background: #F0ADAD">
-          event.authorizedSubprotocols
-        </td>
-      </tr><tr>
-        <td>
-          249
-        </td>
-        <td>
-          591
-        </td>
-        <td>
-          8615
-          -
-          8619
+          8591
         </td>
         <td>
           Literal
@@ -4270,15 +4244,57 @@ else
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
-          590
+          522
         </td>
         <td>
-          8579
+          8597
           -
-          8613
+          8625
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
+        </td>
+        <td style="background: #F0ADAD">
+          event.authorizedSubprotocols
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          8597
+          -
+          8625
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
+        </td>
+        <td style="background: #F0ADAD">
+          event.authorizedSubprotocols
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          8551
+          -
+          8585
         </td>
         <td>
           Apply
@@ -4291,36 +4307,15 @@ else
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
-          593
+          520
         </td>
         <td>
-          8625
+          8587
           -
-          8653
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.WebSocketHandshakeEvent.authorizedSubprotocols
-        </td>
-        <td style="background: #F0ADAD">
-          event.authorizedSubprotocols
-        </td>
-      </tr><tr>
-        <td>
-          249
-        </td>
-        <td>
-          592
-        </td>
-        <td>
-          8615
-          -
-          8619
+          8591
         </td>
         <td>
           Block
@@ -4333,15 +4328,15 @@ else
         </td>
       </tr><tr>
         <td>
-          250
+          249
         </td>
         <td>
-          595
+          523
         </td>
         <td>
-          8661
+          8633
           -
-          8666
+          8638
         </td>
         <td>
           Literal
@@ -4354,15 +4349,15 @@ else
         </td>
       </tr><tr>
         <td>
-          251
+          250
         </td>
         <td>
-          596
+          524
         </td>
         <td>
-          8674
+          8646
           -
-          8692
+          8664
         </td>
         <td>
           Select
@@ -4375,15 +4370,15 @@ else
         </td>
       </tr><tr>
         <td>
-          252
+          251
         </td>
         <td>
-          600
+          528
         </td>
         <td>
-          8698
+          8670
           -
-          8760
+          8732
         </td>
         <td>
           Apply
@@ -4396,15 +4391,15 @@ else
         </td>
       </tr><tr>
         <td>
-          252
+          251
         </td>
         <td>
-          599
+          527
         </td>
         <td>
-          8713
+          8685
           -
-          8760
+          8732
         </td>
         <td>
           Apply
@@ -4417,15 +4412,15 @@ else
         </td>
       </tr><tr>
         <td>
-          252
+          251
         </td>
         <td>
-          598
+          526
         </td>
         <td>
-          8737
+          8709
           -
-          8759
+          8731
         </td>
         <td>
           Select
@@ -4438,15 +4433,15 @@ else
         </td>
       </tr><tr>
         <td>
-          253
+          252
         </td>
         <td>
-          607
+          535
         </td>
         <td>
-          8791
+          8763
           -
-          8960
+          8932
         </td>
         <td>
           Block
@@ -4462,15 +4457,15 @@ else
         </td>
       </tr><tr>
         <td>
-          253
+          252
         </td>
         <td>
-          601
+          529
         </td>
         <td>
-          8769
+          8741
           -
-          8789
+          8761
         </td>
         <td>
           Apply
@@ -4483,15 +4478,15 @@ else
         </td>
       </tr><tr>
         <td>
-          254
+          253
         </td>
         <td>
-          603
+          531
         </td>
         <td>
-          8799
+          8771
           -
-          8885
+          8857
         </td>
         <td>
           Apply
@@ -4504,15 +4499,15 @@ else
         </td>
       </tr><tr>
         <td>
-          254
+          253
         </td>
         <td>
-          602
+          530
         </td>
         <td>
-          8863
+          8835
           -
-          8884
+          8856
         </td>
         <td>
           Apply
@@ -4525,15 +4520,36 @@ else
         </td>
       </tr><tr>
         <td>
-          255
+          254
         </td>
         <td>
-          606
+          532
         </td>
         <td>
-          8892
+          8882
           -
-          8954
+          8922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.code
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.UPGRADE_REQUIRED.code()
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          8864
+          -
+          8926
         </td>
         <td>
           Apply
@@ -4546,15 +4562,15 @@ else
         </td>
       </tr><tr>
         <td>
-          255
+          254
         </td>
         <td>
-          605
+          533
         </td>
         <td>
-          8952
+          8924
           -
-          8953
+          8925
         </td>
         <td>
           Literal
@@ -4570,33 +4586,12 @@ else
           255
         </td>
         <td>
-          604
+          560
         </td>
         <td>
-          8910
+          8938
           -
-          8950
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.handler.codec.http.HttpResponseStatus.code
-        </td>
-        <td style="background: #F0ADAD">
-          io.netty.handler.codec.http.HttpResponseStatus.UPGRADE_REQUIRED.code()
-        </td>
-      </tr><tr>
-        <td>
-          256
-        </td>
-        <td>
-          632
-        </td>
-        <td>
-          8966
-          -
-          10028
+          10000
         </td>
         <td>
           Block
@@ -4643,15 +4638,15 @@ else
         </td>
       </tr><tr>
         <td>
-          257
+          256
         </td>
         <td>
-          608
+          536
         </td>
         <td>
-          8983
+          8955
           -
-          9000
+          8972
         </td>
         <td>
           Select
@@ -4664,15 +4659,15 @@ else
         </td>
       </tr><tr>
         <td>
-          258
+          257
         </td>
         <td>
-          609
+          537
         </td>
         <td>
-          9043
+          9015
           -
-          9064
+          9036
         </td>
         <td>
           Apply
@@ -4685,15 +4680,15 @@ else
         </td>
       </tr><tr>
         <td>
-          258
+          257
         </td>
         <td>
-          611
+          539
         </td>
         <td>
-          9020
+          8992
           -
-          9089
+          9061
         </td>
         <td>
           Apply
@@ -4706,15 +4701,15 @@ else
         </td>
       </tr><tr>
         <td>
-          258
+          257
         </td>
         <td>
-          610
+          538
         </td>
         <td>
-          9066
+          9038
           -
-          9088
+          9060
         </td>
         <td>
           Select
@@ -4727,57 +4722,15 @@ else
         </td>
       </tr><tr>
         <td>
-          259
+          258
         </td>
         <td>
-          612
+          541
         </td>
         <td>
-          9114
+          9131
           -
-          9157
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.handler.codec.http.HttpResponseStatus.code
-        </td>
-        <td style="background: #F0ADAD">
-          io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code()
-        </td>
-      </tr><tr>
-        <td>
-          259
-        </td>
-        <td>
-          614
-        </td>
-        <td>
-          9096
-          -
-          9161
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.mashupbots.socko.events.WebSocketHandshakeEvent.writeWebLog
-        </td>
-        <td style="background: #F0ADAD">
-          event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code(), 0L)
-        </td>
-      </tr><tr>
-        <td>
-          259
-        </td>
-        <td>
-          613
-        </td>
-        <td>
-          9159
-          -
-          9160
+          9132
         </td>
         <td>
           Literal
@@ -4790,15 +4743,57 @@ else
         </td>
       </tr><tr>
         <td>
-          262
+          258
         </td>
         <td>
-          615
+          540
         </td>
         <td>
-          9268
+          9086
           -
-          9289
+          9129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.code
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code()
+        </td>
+      </tr><tr>
+        <td>
+          258
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          9068
+          -
+          9133
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.WebSocketHandshakeEvent.writeWebLog
+        </td>
+        <td style="background: #F0ADAD">
+          event.writeWebLog(io.netty.handler.codec.http.HttpResponseStatus.SWITCHING_PROTOCOLS.code(), 0L)
+        </td>
+      </tr><tr>
+        <td>
+          261
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          9240
+          -
+          9261
         </td>
         <td>
           Apply
@@ -4811,15 +4806,15 @@ else
         </td>
       </tr><tr>
         <td>
-          262
+          261
         </td>
         <td>
-          616
+          544
         </td>
         <td>
-          9215
+          9187
           -
-          9290
+          9262
         </td>
         <td>
           Apply
@@ -4832,15 +4827,36 @@ else
         </td>
       </tr><tr>
         <td>
-          265
+          264
         </td>
         <td>
-          621
+          550
         </td>
         <td>
-          9390
+          9330
           -
-          9635
+          9330
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          9362
+          -
+          9607
         </td>
         <td>
           Block
@@ -4862,15 +4878,15 @@ else
         </td>
       </tr><tr>
         <td>
-          265
+          264
         </td>
         <td>
-          623
+          551
         </td>
         <td>
-          9358
+          9330
           -
-          9358
+          9330
         </td>
         <td>
           Block
@@ -4883,15 +4899,15 @@ else
         </td>
       </tr><tr>
         <td>
-          265
+          264
         </td>
         <td>
-          617
+          545
         </td>
         <td>
-          9362
+          9334
           -
-          9388
+          9360
         </td>
         <td>
           Select
@@ -4904,36 +4920,15 @@ else
         </td>
       </tr><tr>
         <td>
-          265
+          267
         </td>
         <td>
-          622
+          546
         </td>
         <td>
-          9358
+          9499
           -
-          9358
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          268
-        </td>
-        <td>
-          618
-        </td>
-        <td>
-          9527
-          -
-          9551
+          9523
         </td>
         <td>
           Apply
@@ -4946,15 +4941,15 @@ else
         </td>
       </tr><tr>
         <td>
-          271
+          270
         </td>
         <td>
-          620
+          548
         </td>
         <td>
-          9582
+          9554
           -
-          9627
+          9599
         </td>
         <td>
           Apply
@@ -4967,15 +4962,15 @@ else
         </td>
       </tr><tr>
         <td>
-          271
+          270
         </td>
         <td>
-          619
+          547
         </td>
         <td>
-          9601
+          9573
           -
-          9626
+          9598
         </td>
         <td>
           Apply
@@ -4988,15 +4983,36 @@ else
         </td>
       </tr><tr>
         <td>
-          275
+          274
         </td>
         <td>
-          630
+          559
         </td>
         <td>
-          9730
+          9702
           -
-          9730
+          9702
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          9702
+          -
+          9702
         </td>
         <td>
           Literal
@@ -5009,15 +5025,15 @@ else
         </td>
       </tr><tr>
         <td>
-          275
+          274
         </td>
         <td>
-          624
+          552
         </td>
         <td>
-          9734
+          9706
           -
-          9757
+          9729
         </td>
         <td>
           Select
@@ -5030,15 +5046,15 @@ else
         </td>
       </tr><tr>
         <td>
-          275
+          274
         </td>
         <td>
-          629
+          557
         </td>
         <td>
-          9759
+          9731
           -
-          10022
+          9994
         </td>
         <td>
           Block
@@ -5063,36 +5079,15 @@ else
         </td>
       </tr><tr>
         <td>
-          275
+          277
         </td>
         <td>
-          631
+          553
         </td>
         <td>
-          9730
+          9865
           -
-          9730
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          278
-        </td>
-        <td>
-          625
-        </td>
-        <td>
-          9893
-          -
-          9914
+          9886
         </td>
         <td>
           Apply
@@ -5105,15 +5100,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          280
         </td>
         <td>
-          627
+          555
         </td>
         <td>
-          9945
+          9917
           -
-          10014
+          9986
         </td>
         <td>
           Apply
@@ -5126,15 +5121,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          280
         </td>
         <td>
-          626
+          554
         </td>
         <td>
-          9991
+          9963
           -
-          10013
+          9985
         </td>
         <td>
           Apply
@@ -5147,15 +5142,15 @@ else
         </td>
       </tr><tr>
         <td>
-          281
+          280
         </td>
         <td>
-          628
+          556
         </td>
         <td>
-          9990
+          9962
           -
-          9990
+          9962
         </td>
         <td>
           Literal
@@ -5168,15 +5163,15 @@ else
         </td>
       </tr><tr>
         <td>
-          290
+          289
         </td>
         <td>
-          633
+          561
         </td>
         <td>
-          10235
+          10207
           -
-          10252
+          10224
         </td>
         <td>
           Apply
@@ -5189,99 +5184,15 @@ else
         </td>
       </tr><tr>
         <td>
-          291
+          290
         </td>
         <td>
-          636
+          568
         </td>
         <td>
-          10307
+          10229
           -
-          10312
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;wss&quot;
-        </td>
-      </tr><tr>
-        <td>
-          291
-        </td>
-        <td>
-          639
-        </td>
-        <td>
-          10318
-          -
-          10322
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;ws&quot;
-        </td>
-      </tr><tr>
-        <td>
-          291
-        </td>
-        <td>
-          635
-        </td>
-        <td>
-          10271
-          -
-          10305
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.SockoRequestHandler.isSSLConnection
-        </td>
-        <td style="background: #F0ADAD">
-          SockoRequestHandler.this.isSSLConnection(e.context.channel())
-        </td>
-      </tr><tr>
-        <td>
-          291
-        </td>
-        <td>
-          638
-        </td>
-        <td>
-          10318
-          -
-          10322
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;ws&quot;
-        </td>
-      </tr><tr>
-        <td>
-          291
-        </td>
-        <td>
-          640
-        </td>
-        <td>
-          10257
-          -
-          10323
+          10295
         </td>
         <td>
           Apply
@@ -5297,15 +5208,99 @@ else
         </td>
       </tr><tr>
         <td>
-          291
+          290
         </td>
         <td>
-          634
+          567
         </td>
         <td>
-          10287
+          10290
           -
-          10304
+          10294
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ws&quot;
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          10279
+          -
+          10284
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wss&quot;
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          10243
+          -
+          10277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoRequestHandler.isSSLConnection
+        </td>
+        <td style="background: #F0ADAD">
+          SockoRequestHandler.this.isSSLConnection(e.context.channel())
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          10290
+          -
+          10294
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ws&quot;
+        </td>
+      </tr><tr>
+        <td>
+          290
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          10259
+          -
+          10276
         </td>
         <td>
           Apply
@@ -5318,15 +5313,15 @@ else
         </td>
       </tr><tr>
         <td>
-          291
+          290
         </td>
         <td>
-          637
+          565
         </td>
         <td>
-          10307
+          10279
           -
-          10312
+          10284
         </td>
         <td>
           Block
@@ -5339,15 +5334,15 @@ else
         </td>
       </tr><tr>
         <td>
-          292
+          291
         </td>
         <td>
-          641
+          569
         </td>
         <td>
-          10328
+          10300
           -
-          10344
+          10316
         </td>
         <td>
           Apply
@@ -5360,15 +5355,15 @@ else
         </td>
       </tr><tr>
         <td>
-          293
+          292
         </td>
         <td>
-          642
+          570
         </td>
         <td>
-          10359
+          10331
           -
-          10404
+          10376
         </td>
         <td>
           Apply
@@ -5381,15 +5376,15 @@ else
         </td>
       </tr><tr>
         <td>
-          293
+          292
         </td>
         <td>
-          643
+          571
         </td>
         <td>
-          10349
+          10321
           -
-          10405
+          10377
         </td>
         <td>
           Apply
@@ -5402,15 +5397,15 @@ else
         </td>
       </tr><tr>
         <td>
-          294
+          293
         </td>
         <td>
-          645
+          573
         </td>
         <td>
-          10410
+          10382
           -
-          10435
+          10407
         </td>
         <td>
           Apply
@@ -5423,15 +5418,15 @@ else
         </td>
       </tr><tr>
         <td>
-          294
+          293
         </td>
         <td>
-          644
+          572
         </td>
         <td>
-          10420
+          10392
           -
-          10434
+          10406
         </td>
         <td>
           Select
@@ -5444,15 +5439,15 @@ else
         </td>
       </tr><tr>
         <td>
-          295
+          294
         </td>
         <td>
-          646
+          574
         </td>
         <td>
-          10440
+          10412
           -
-          10451
+          10425
         </td>
         <td>
           Apply
@@ -5465,15 +5460,15 @@ else
         </td>
       </tr><tr>
         <td>
-          302
+          300
         </td>
         <td>
-          647
+          575
         </td>
         <td>
-          10567
+          10534
           -
-          10616
+          10583
         </td>
         <td>
           Apply
@@ -5486,15 +5481,15 @@ else
         </td>
       </tr><tr>
         <td>
-          309
+          305
         </td>
         <td>
-          648
+          576
         </td>
         <td>
-          10753
+          10708
           -
-          10812
+          10767
         </td>
         <td>
           Apply

@@ -46,7 +46,7 @@
 </span>21 <span style=''>
 </span>22 <span style=''>import java.io._
 </span>23 <span style=''>import java.net.URLDecoder
-</span>24 <span style=''>import java.nio.charset.StandardCharsets
+</span>24 <span style=''>import java.nio.charset.{Charset, StandardCharsets}
 </span>25 <span style=''>import java.util.zip.{GZIPInputStream, InflaterInputStream}
 </span>26 <span style=''>
 </span>27 <span style=''>import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
@@ -306,131 +306,151 @@
 </span>281 <span style=''>    }
 </span>282 <span style=''>  }
 </span>283 <span style=''>
-</span>284 <span style=''>  def unmarshall[T<:AnyRef:Manifest](obj: Array[Byte], contentType: String = "application/json"): Option[T] = {
-</span>285 <span style=''>    if (</span><span style='background: #AEF1AE'>obj == null || obj.length == 0</span><span style=''>) {
+</span>284 <span style=''>  def unmarshall[T<:AnyRef:Manifest](data: Array[Byte], contentTypeValue: String = "application/json"): Option[T] = {
+</span>285 <span style=''>    if (</span><span style='background: #AEF1AE'>data == null || data.length == 0</span><span style=''>) {
 </span>286 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>287 <span style=''>    } else </span><span style='background: #F0ADAD'>{
-</span>288 <span style=''></span><span style='background: #F0ADAD'>      val stringObj = new String(obj, StandardCharsets.UTF_8).trim()
-</span>289 <span style=''></span><span style='background: #F0ADAD'>      if (stringObj.length == 0) {
-</span>290 <span style=''></span><span style='background: #F0ADAD'>        None
-</span>291 <span style=''></span><span style='background: #F0ADAD'>      } else if (contentType == "application/x-www-form-urlencoded" || contentType == "multipart/form-data") {
-</span>292 <span style=''></span><span style='background: #F0ADAD'>        var jObj = JObject(Nil)
-</span>293 <span style=''></span><span style='background: #F0ADAD'>        new QueryStringDecoder("?" + stringObj, CharsetUtil.UTF_8).parameters foreach {
-</span>294 <span style=''></span><span style='background: #F0ADAD'>          e => jObj = jObj merge JObject(List(JField(e._1, JString(e._2.last))))
-</span>295 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>296 <span style=''></span><span style='background: #F0ADAD'>        Some(jObj.extract[T])
-</span>297 <span style=''></span><span style='background: #F0ADAD'>      } else if (contentType == "application/json") {
-</span>298 <span style=''></span><span style='background: #F0ADAD'>        Some(JsonParser.parse(URLDecoder.decode(stringObj, "UTF-8")).extract[T])
-</span>299 <span style=''></span><span style='background: #F0ADAD'>      } else {
-</span>300 <span style=''></span><span style='background: #F0ADAD'>        val text = JString(URLDecoder.decode(stringObj, "UTF-8"))
-</span>301 <span style=''></span><span style='background: #F0ADAD'>        Some(JObject(List(JField("content", text))).extract[T])
-</span>302 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>303 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>304 <span style=''>  }
-</span>305 <span style=''>}
-</span>306 <span style=''>
-</span>307 <span style=''>trait SockoPost extends EntityRoutes {
-</span>308 <span style=''>  this:Command =>
+</span>287 <span style=''>    } else </span><span style='background: #AEF1AE'>{
+</span>288 <span style=''></span><span style='background: #AEF1AE'>
+</span>289 <span style=''></span><span style='background: #AEF1AE'>      val (contentType, charset) = parseContentType(contentTypeValue)
+</span>290 <span style=''></span><span style='background: #AEF1AE'>
+</span>291 <span style=''></span><span style='background: #AEF1AE'>      contentType match {
+</span>292 <span style=''></span><span style='background: #AEF1AE'>
+</span>293 <span style=''></span><span style='background: #AEF1AE'>        case "application/x-www-form-urlencoded" | "multipart/form-data" =>
+</span>294 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset).dropWhile( _ == "?")
+</span>295 <span style=''></span><span style='background: #AEF1AE'>          val jObj = JObject(new QueryStringDecoder("?" + dataString, charset).parameters.map { kvp =>
+</span>296 <span style=''></span><span style='background: #AEF1AE'>            JField(kvp._1, if (kvp._2 != null) new JString(kvp._2.last) else </span><span style='background: #F0ADAD'>JNull</span><span style='background: #AEF1AE'>)
+</span>297 <span style=''></span><span style='background: #AEF1AE'>            }.toList)
+</span>298 <span style=''></span><span style='background: #AEF1AE'>          Some(jObj.extract[T])
+</span>299 <span style=''></span><span style='background: #AEF1AE'>
+</span>300 <span style=''></span><span style='background: #AEF1AE'>        case "application/json" =>
+</span>301 <span style=''></span><span style='background: #AEF1AE'>          Some(JsonParser.parse(new String(data, "utf-8")).extract[T])
+</span>302 <span style=''></span><span style='background: #AEF1AE'>
+</span>303 <span style=''></span><span style='background: #AEF1AE'>        case _ =>
+</span>304 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset)
+</span>305 <span style=''></span><span style='background: #AEF1AE'>          Some(JObject(List(JField("content", new JString(dataString)))).extract[T])
+</span>306 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>307 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>308 <span style=''>  }
 </span>309 <span style=''>
-</span>310 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>311 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>312 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>313 <span style=''></span><span style='background: #AEF1AE'>      try {
-</span>314 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-</span>315 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
-</span>316 <span style=''></span><span style='background: #AEF1AE'>      } catch {
-</span>317 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
-</span>318 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>319 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>320 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>321 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>322 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>323 <span style=''></span><span style='background: #AEF1AE'>    "POST"
-</span>324 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>310 <span style=''>  def parseContentType(ct: String): (String, Charset) = {
+</span>311 <span style=''>
+</span>312 <span style=''>    val parts = </span><span style='background: #AEF1AE'>ct.split(";").toList.map{part => part.toLowerCase.trim}</span><span style=''>
+</span>313 <span style=''>
+</span>314 <span style=''>    val contentType = if (</span><span style='background: #AEF1AE'>parts.length > 0 && !parts(0).isEmpty</span><span style=''>) </span><span style='background: #AEF1AE'>parts(0)</span><span style=''> else </span><span style='background: #F0ADAD'>"text/plain"</span><span style=''>
+</span>315 <span style=''>
+</span>316 <span style=''>    val charSet = if (</span><span style='background: #AEF1AE'>parts.length >= 2 && parts(1).startsWith("charset=")</span><span style=''>) {
+</span>317 <span style=''>      </span><span style='background: #AEF1AE'>Charset.forName(parts(1).split("=")(1))</span><span style=''>
+</span>318 <span style=''>    }
+</span>319 <span style=''>    else {
+</span>320 <span style=''>      </span><span style='background: #AEF1AE'>CharsetUtil.UTF_8</span><span style=''>
+</span>321 <span style=''>    }
+</span>322 <span style=''>
+</span>323 <span style=''>    </span><span style='background: #AEF1AE'>(contentType, charSet)</span><span style=''>
+</span>324 <span style=''>  }
 </span>325 <span style=''>}
 </span>326 <span style=''>
-</span>327 <span style=''>trait SockoDelete extends SockoRoutes {
+</span>327 <span style=''>trait SockoPost extends EntityRoutes {
 </span>328 <span style=''>  this:Command =>
 </span>329 <span style=''>
-</span>330 <span style=''>  </span><span style='background: #F0ADAD'>addAutoHandler(
-</span>331 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>332 <span style=''></span><span style='background: #F0ADAD'>      innerExecute(SockoCommandBean(bean.toMap, event))
-</span>333 <span style=''></span><span style='background: #F0ADAD'>    },
-</span>334 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent) => {
-</span>335 <span style=''></span><span style='background: #F0ADAD'>      defaultPathMatcher(event, paths)
-</span>336 <span style=''></span><span style='background: #F0ADAD'>    },
-</span>337 <span style=''></span><span style='background: #F0ADAD'>    "DELETE"
-</span>338 <span style=''></span><span style='background: #F0ADAD'>  )</span><span style=''>
-</span>339 <span style=''>}
-</span>340 <span style=''>
-</span>341 <span style=''>trait SockoOptions extends SockoRoutes {
-</span>342 <span style=''>  this:Command =>
-</span>343 <span style=''>
-</span>344 <span style=''>  /**
-</span>345 <span style=''>   * Override this function to give the options specific information about the command
-</span>346 <span style=''>   *
-</span>347 <span style=''>   * @return
-</span>348 <span style=''>   */
-</span>349 <span style=''>  def sockoOptionsResponse : Any =  </span><span style='background: #AEF1AE'>""</span><span style=''>
-</span>350 <span style=''>  def sockoOptionResponseType : String = </span><span style='background: #AEF1AE'>"text"</span><span style=''>
-</span>351 <span style=''>
-</span>352 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>353 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>354 <span style=''></span><span style='background: #AEF1AE'>      // build the Allow and Access-Control-Allow-Methods headers
-</span>355 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>356 <span style=''></span><span style='background: #AEF1AE'>      val methods = getMethods.mkString(", ")
-</span>357 <span style=''></span><span style='background: #AEF1AE'>      val optionsHeaders = Map[String, String](
-</span>358 <span style=''></span><span style='background: #AEF1AE'>        "Allow" -> methods,
-</span>359 <span style=''></span><span style='background: #AEF1AE'>        "Access-Control-Allow-Methods" -> methods
-</span>360 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>361 <span style=''></span><span style='background: #AEF1AE'>      val cType = SockoUtils.normalizeContentType(sockoOptionResponseType)
-</span>362 <span style=''></span><span style='background: #AEF1AE'>      val content = marshallObject(sockoOptionsResponse, cType)
-</span>363 <span style=''></span><span style='background: #AEF1AE'>      sBean.event.response.write(
-</span>364 <span style=''></span><span style='background: #AEF1AE'>        HttpResponseStatus.OK,
-</span>365 <span style=''></span><span style='background: #AEF1AE'>        content,
-</span>366 <span style=''></span><span style='background: #AEF1AE'>        cType,
-</span>367 <span style=''></span><span style='background: #AEF1AE'>        SockoUtils.toSockoHeaderFormat("OPTIONS", getResponseHeaders(sBean.event.request.headers)) ++ optionsHeaders
-</span>368 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>369 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>370 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>371 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>372 <span style=''></span><span style='background: #AEF1AE'>    }, "OPTIONS"
-</span>373 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>374 <span style=''>}
-</span>375 <span style=''>
-</span>376 <span style=''>trait SockoHead extends SockoRoutes {
-</span>377 <span style=''>  this:Command =>
-</span>378 <span style=''>
-</span>379 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>380 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>381 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
-</span>382 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>383 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>384 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>385 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>386 <span style=''></span><span style='background: #AEF1AE'>    "HEAD"
-</span>387 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>388 <span style=''>}
-</span>389 <span style=''>
-</span>390 <span style=''>trait SockoPut extends EntityRoutes {
-</span>391 <span style=''>  this:Command =>
-</span>392 <span style=''>
-</span>393 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>394 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>395 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>396 <span style=''></span><span style='background: #AEF1AE'>      try {
-</span>397 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-</span>398 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
-</span>399 <span style=''></span><span style='background: #AEF1AE'>      } catch {
-</span>400 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
-</span>401 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>330 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>331 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>332 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>333 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>334 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>335 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>336 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>337 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>338 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>339 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>340 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>341 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>342 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>343 <span style=''></span><span style='background: #AEF1AE'>    "POST"
+</span>344 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>345 <span style=''>}
+</span>346 <span style=''>
+</span>347 <span style=''>trait SockoDelete extends SockoRoutes {
+</span>348 <span style=''>  this:Command =>
+</span>349 <span style=''>
+</span>350 <span style=''>  </span><span style='background: #F0ADAD'>addAutoHandler(
+</span>351 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>352 <span style=''></span><span style='background: #F0ADAD'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>353 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>354 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent) => {
+</span>355 <span style=''></span><span style='background: #F0ADAD'>      defaultPathMatcher(event, paths)
+</span>356 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>357 <span style=''></span><span style='background: #F0ADAD'>    "DELETE"
+</span>358 <span style=''></span><span style='background: #F0ADAD'>  )</span><span style=''>
+</span>359 <span style=''>}
+</span>360 <span style=''>
+</span>361 <span style=''>trait SockoOptions extends SockoRoutes {
+</span>362 <span style=''>  this:Command =>
+</span>363 <span style=''>
+</span>364 <span style=''>  /**
+</span>365 <span style=''>   * Override this function to give the options specific information about the command
+</span>366 <span style=''>   *
+</span>367 <span style=''>   * @return
+</span>368 <span style=''>   */
+</span>369 <span style=''>  def sockoOptionsResponse : Any =  </span><span style='background: #AEF1AE'>""</span><span style=''>
+</span>370 <span style=''>  def sockoOptionResponseType : String = </span><span style='background: #AEF1AE'>"text"</span><span style=''>
+</span>371 <span style=''>
+</span>372 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>373 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>374 <span style=''></span><span style='background: #AEF1AE'>      // build the Allow and Access-Control-Allow-Methods headers
+</span>375 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>376 <span style=''></span><span style='background: #AEF1AE'>      val methods = getMethods.mkString(", ")
+</span>377 <span style=''></span><span style='background: #AEF1AE'>      val optionsHeaders = Map[String, String](
+</span>378 <span style=''></span><span style='background: #AEF1AE'>        "Allow" -> methods,
+</span>379 <span style=''></span><span style='background: #AEF1AE'>        "Access-Control-Allow-Methods" -> methods
+</span>380 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>381 <span style=''></span><span style='background: #AEF1AE'>      val cType = SockoUtils.normalizeContentType(sockoOptionResponseType)
+</span>382 <span style=''></span><span style='background: #AEF1AE'>      val content = marshallObject(sockoOptionsResponse, cType)
+</span>383 <span style=''></span><span style='background: #AEF1AE'>      sBean.event.response.write(
+</span>384 <span style=''></span><span style='background: #AEF1AE'>        HttpResponseStatus.OK,
+</span>385 <span style=''></span><span style='background: #AEF1AE'>        content,
+</span>386 <span style=''></span><span style='background: #AEF1AE'>        cType,
+</span>387 <span style=''></span><span style='background: #AEF1AE'>        SockoUtils.toSockoHeaderFormat("OPTIONS", getResponseHeaders(sBean.event.request.headers)) ++ optionsHeaders
+</span>388 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>389 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>390 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>391 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>392 <span style=''></span><span style='background: #AEF1AE'>    }, "OPTIONS"
+</span>393 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>394 <span style=''>}
+</span>395 <span style=''>
+</span>396 <span style=''>trait SockoHead extends SockoRoutes {
+</span>397 <span style=''>  this:Command =>
+</span>398 <span style=''>
+</span>399 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>400 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>401 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
 </span>402 <span style=''></span><span style='background: #AEF1AE'>    },
 </span>403 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
 </span>404 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
 </span>405 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>406 <span style=''></span><span style='background: #AEF1AE'>    "PUT"
+</span>406 <span style=''></span><span style='background: #AEF1AE'>    "HEAD"
 </span>407 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
 </span>408 <span style=''>}
+</span>409 <span style=''>
+</span>410 <span style=''>trait SockoPut extends EntityRoutes {
+</span>411 <span style=''>  this:Command =>
+</span>412 <span style=''>
+</span>413 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>414 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>415 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>416 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>417 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>418 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>419 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>420 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>421 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>422 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>423 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>424 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>425 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>426 <span style=''></span><span style='background: #AEF1AE'>    "PUT"
+</span>427 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>428 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -447,12 +467,12 @@
           52
         </td>
         <td>
-          892
+          820
         </td>
         <td>
-          2288
+          2299
           -
-          2308
+          2319
         </td>
         <td>
           Apply
@@ -468,12 +488,12 @@
           61
         </td>
         <td>
-          893
+          821
         </td>
         <td>
-          2707
+          2718
           -
-          2721
+          2732
         </td>
         <td>
           Apply
@@ -489,12 +509,33 @@
           80
         </td>
         <td>
-          896
+          822
         </td>
         <td>
-          3340
+          3373
           -
-          3401
+          3384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          3351
+          -
+          3412
         </td>
         <td>
           Apply
@@ -510,12 +551,12 @@
           80
         </td>
         <td>
-          895
+          823
         </td>
         <td>
-          3378
+          3389
           -
-          3401
+          3412
         </td>
         <td>
           Select
@@ -525,102 +566,18 @@
         </td>
         <td style="background: #AEF1AE">
           net.liftweb.json.ext.JodaTimeSerializers.all
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          894
-        </td>
-        <td>
-          3362
-          -
-          3373
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          net.liftweb.json.NoTypeHints
-        </td>
-        <td style="background: #AEF1AE">
-          net.liftweb.json.NoTypeHints
         </td>
       </tr><tr>
         <td>
           87
         </td>
         <td>
-          899
+          828
         </td>
         <td>
           3682
           -
-          3699
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          898
-        </td>
-        <td>
-          3690
-          -
-          3699
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.LinearSeqOptimized.last
-        </td>
-        <td style="background: #F0ADAD">
-          e._2.last
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          901
-        </td>
-        <td>
-          3636
-          -
-          3699
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableLike.map
-        </td>
-        <td style="background: #AEF1AE">
-          bean.event.endPoint.queryStringMap.map[(String, String), scala.collection.immutable.Map[String,String]](((e: (String, List[String])) =&gt; scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)))(immutable.this.Map.canBuildFrom[String, String])
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          900
-        </td>
-        <td>
-          3671
-          -
-          3671
+          3682
         </td>
         <td>
           TypeApply
@@ -636,12 +593,75 @@
           87
         </td>
         <td>
-          897
+          827
         </td>
         <td>
-          3682
+          3693
           -
-          3686
+          3710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          3701
+          -
+          3710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.last
+        </td>
+        <td style="background: #F0ADAD">
+          e._2.last
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          3647
+          -
+          3710
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          bean.event.endPoint.queryStringMap.map[(String, String), scala.collection.immutable.Map[String,String]](((e: (String, List[String])) =&gt; scala.this.Predef.ArrowAssoc[String](e._1).-&gt;[String](e._2.last)))(immutable.this.Map.canBuildFrom[String, String])
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          3693
+          -
+          3697
         </td>
         <td>
           Select
@@ -657,12 +677,12 @@
           88
         </td>
         <td>
-          902
+          830
         </td>
         <td>
-          3706
+          3717
           -
-          3730
+          3741
         </td>
         <td>
           Apply
@@ -678,12 +698,12 @@
           92
         </td>
         <td>
-          903
+          831
         </td>
         <td>
-          3834
+          3845
           -
-          3875
+          3886
         </td>
         <td>
           Apply
@@ -699,12 +719,12 @@
           93
         </td>
         <td>
-          904
+          832
         </td>
         <td>
-          3884
+          3895
           -
-          3918
+          3929
         </td>
         <td>
           Apply
@@ -720,12 +740,12 @@
           94
         </td>
         <td>
-          907
+          835
         </td>
         <td>
-          3928
+          3939
           -
-          4041
+          4052
         </td>
         <td>
           Match
@@ -744,12 +764,12 @@
           95
         </td>
         <td>
-          905
+          833
         </td>
         <td>
-          3966
+          3977
           -
-          3976
+          3987
         </td>
         <td>
           Apply
@@ -765,12 +785,12 @@
           96
         </td>
         <td>
-          906
+          834
         </td>
         <td>
-          3995
+          4006
           -
-          4033
+          4044
         </td>
         <td>
           Apply
@@ -786,12 +806,12 @@
           98
         </td>
         <td>
-          909
+          837
         </td>
         <td>
-          4053
+          4064
           -
-          4163
+          4174
         </td>
         <td>
           Match
@@ -810,12 +830,12 @@
           102
         </td>
         <td>
-          908
+          836
         </td>
         <td>
-          4136
+          4147
           -
-          4157
+          4168
         </td>
         <td>
           Apply
@@ -831,12 +851,12 @@
           113
         </td>
         <td>
-          910
+          838
         </td>
         <td>
-          4414
+          4425
           -
-          4435
+          4446
         </td>
         <td>
           Select
@@ -852,12 +872,12 @@
           124
         </td>
         <td>
-          911
+          839
         </td>
         <td>
-          4962
+          4973
           -
-          5000
+          5011
         </td>
         <td>
           Select
@@ -873,12 +893,12 @@
           128
         </td>
         <td>
-          924
+          852
         </td>
         <td>
-          5134
+          5145
           -
-          5462
+          5473
         </td>
         <td>
           Apply
@@ -902,12 +922,12 @@
           129
         </td>
         <td>
-          914
+          842
         </td>
         <td>
-          5161
+          5172
           -
-          5205
+          5216
         </td>
         <td>
           Apply
@@ -923,12 +943,12 @@
           129
         </td>
         <td>
-          913
+          841
         </td>
         <td>
-          5185
+          5196
           -
-          5204
+          5215
         </td>
         <td>
           Select
@@ -944,12 +964,12 @@
           129
         </td>
         <td>
-          912
+          840
         </td>
         <td>
-          5179
+          5190
           -
-          5183
+          5194
         </td>
         <td>
           Select
@@ -965,12 +985,12 @@
           131
         </td>
         <td>
-          917
+          845
         </td>
         <td>
-          5248
+          5259
           -
-          5285
+          5296
         </td>
         <td>
           Apply
@@ -986,12 +1006,12 @@
           131
         </td>
         <td>
-          916
+          844
         </td>
         <td>
-          5280
+          5291
           -
-          5284
+          5295
         </td>
         <td>
           Select
@@ -1007,12 +1027,12 @@
           131
         </td>
         <td>
-          915
+          843
         </td>
         <td>
-          5259
+          5270
           -
-          5278
+          5289
         </td>
         <td>
           Select
@@ -1028,12 +1048,12 @@
           132
         </td>
         <td>
-          918
+          846
         </td>
         <td>
-          5307
+          5318
           -
-          5334
+          5345
         </td>
         <td>
           Apply
@@ -1049,12 +1069,12 @@
           133
         </td>
         <td>
-          920
+          848
         </td>
         <td>
-          5360
+          5371
           -
-          5367
+          5378
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1070,12 +1090,12 @@
           133
         </td>
         <td>
-          919
+          847
         </td>
         <td>
-          5362
+          5373
           -
-          5362
+          5373
         </td>
         <td>
           TypeApply
@@ -1091,12 +1111,12 @@
           133
         </td>
         <td>
-          921
+          849
         </td>
         <td>
-          5345
+          5356
           -
-          5368
+          5379
         </td>
         <td>
           Apply
@@ -1112,12 +1132,12 @@
           134
         </td>
         <td>
-          922
+          850
         </td>
         <td>
-          5386
+          5397
           -
-          5396
+          5407
         </td>
         <td>
           Apply
@@ -1133,12 +1153,12 @@
           135
         </td>
         <td>
-          923
+          851
         </td>
         <td>
-          5415
+          5426
           -
-          5417
+          5428
         </td>
         <td>
           Literal
@@ -1154,12 +1174,12 @@
           138
         </td>
         <td>
-          925
+          853
         </td>
         <td>
-          5473
+          5484
           -
-          5477
+          5488
         </td>
         <td>
           Select
@@ -1175,33 +1195,12 @@
           142
         </td>
         <td>
-          926
+          855
         </td>
         <td>
-          5574
+          5575
           -
-          5586
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          e.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          142
-        </td>
-        <td>
-          927
-        </td>
-        <td>
-          5564
-          -
-          5590
+          5601
         </td>
         <td>
           Apply
@@ -1214,36 +1213,36 @@
         </td>
       </tr><tr>
         <td>
-          145
+          142
         </td>
         <td>
-          932
+          854
         </td>
         <td>
-          5699
+          5585
           -
-          5733
+          5597
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.StringContext.s
+          java.lang.Throwable.getMessage
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Invalid JSON - &quot;, &quot;&quot;).s(ce.getMessage())
+          e.getMessage()
         </td>
       </tr><tr>
         <td>
           145
         </td>
         <td>
-          929
+          857
         </td>
         <td>
-          5701
+          5712
           -
-          5717
+          5728
         </td>
         <td>
           Literal
@@ -1259,33 +1258,33 @@
           145
         </td>
         <td>
-          931
+          860
         </td>
         <td>
-          5718
+          5710
           -
-          5731
+          5744
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.Throwable.getMessage
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          ce.getMessage()
+          scala.StringContext.apply(&quot;Invalid JSON - &quot;, &quot;&quot;).s(ce.getMessage())
         </td>
       </tr><tr>
         <td>
           145
         </td>
         <td>
-          928
+          856
         </td>
         <td>
-          5667
+          5678
           -
-          5697
+          5708
         </td>
         <td>
           Select
@@ -1301,12 +1300,33 @@
           145
         </td>
         <td>
-          930
+          859
         </td>
         <td>
-          5732
+          5729
           -
-          5733
+          5742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ce.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          5743
+          -
+          5744
         </td>
         <td>
           Literal
@@ -1322,12 +1342,12 @@
           145
         </td>
         <td>
-          933
+          861
         </td>
         <td>
-          5646
+          5657
           -
-          5734
+          5745
         </td>
         <td>
           Apply
@@ -1343,12 +1363,33 @@
           147
         </td>
         <td>
-          935
+          864
         </td>
         <td>
-          5801
+          5794
           -
-          5813
+          5824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          ce.msg.==(null).||(ce.msg.==(&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          5812
+          -
+          5824
         </td>
         <td>
           Apply
@@ -1364,12 +1405,12 @@
           147
         </td>
         <td>
-          934
+          862
         </td>
         <td>
-          5793
+          5804
           -
-          5797
+          5808
         </td>
         <td>
           Literal
@@ -1382,36 +1423,15 @@
         </td>
       </tr><tr>
         <td>
-          147
-        </td>
-        <td>
-          936
-        </td>
-        <td>
-          5783
-          -
-          5813
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.||
-        </td>
-        <td style="background: #F0ADAD">
-          ce.msg.==(null).||(ce.msg.==(&quot;&quot;))
-        </td>
-      </tr><tr>
-        <td>
           148
         </td>
         <td>
-          938
+          866
         </td>
         <td>
-          5845
+          5856
           -
-          5874
+          5885
         </td>
         <td>
           Apply
@@ -1427,12 +1447,12 @@
           148
         </td>
         <td>
-          937
+          865
         </td>
         <td>
-          5866
+          5877
           -
-          5873
+          5884
         </td>
         <td>
           Select
@@ -1448,12 +1468,12 @@
           149
         </td>
         <td>
-          941
+          869
         </td>
         <td>
-          5899
+          5910
           -
-          5936
+          5947
         </td>
         <td>
           Apply
@@ -1469,12 +1489,12 @@
           149
         </td>
         <td>
-          940
+          868
         </td>
         <td>
-          5929
+          5940
           -
-          5935
+          5946
         </td>
         <td>
           Select
@@ -1490,12 +1510,12 @@
           149
         </td>
         <td>
-          939
+          867
         </td>
         <td>
-          5920
+          5931
           -
-          5927
+          5938
         </td>
         <td>
           Select
@@ -1511,12 +1531,33 @@
           152
         </td>
         <td>
-          944
+          873
         </td>
         <td>
-          6080
+          6109
           -
-          6085
+          6110
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          6091
+          -
+          6096
         </td>
         <td>
           Literal
@@ -1532,12 +1573,12 @@
           152
         </td>
         <td>
-          947
+          875
         </td>
         <td>
-          6086
-          -
           6097
+          -
+          6108
         </td>
         <td>
           Apply
@@ -1553,33 +1594,12 @@
           152
         </td>
         <td>
-          946
+          877
         </td>
         <td>
-          6066
+          6000
           -
-          6079
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          ce.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          949
-        </td>
-        <td>
-          5989
-          -
-          6100
+          6111
         </td>
         <td>
           Apply
@@ -1595,12 +1615,12 @@
           152
         </td>
         <td>
-          943
+          871
         </td>
         <td>
-          6044
+          6055
           -
-          6065
+          6076
         </td>
         <td>
           Literal
@@ -1616,33 +1636,33 @@
           152
         </td>
         <td>
-          945
+          874
         </td>
         <td>
-          6098
+          6077
           -
-          6099
+          6090
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          java.lang.Throwable.getMessage
         </td>
         <td style="background: #F0ADAD">
-          &quot;&quot;
+          ce.getMessage()
         </td>
       </tr><tr>
         <td>
           152
         </td>
         <td>
-          948
+          876
         </td>
         <td>
-          6042
+          6053
           -
-          6099
+          6110
         </td>
         <td>
           Apply
@@ -1658,12 +1678,12 @@
           152
         </td>
         <td>
-          942
+          870
         </td>
         <td>
-          6010
+          6021
           -
-          6040
+          6051
         </td>
         <td>
           Select
@@ -1679,117 +1699,12 @@
           154
         </td>
         <td>
-          950
+          882
         </td>
         <td>
-          6173
+          6240
           -
-          6203
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
-        </td>
-        <td style="background: #F0ADAD">
-          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          953
-        </td>
-        <td>
-          6263
-          -
-          6264
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          956
-        </td>
-        <td>
-          6205
-          -
-          6264
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Illegal Arguments - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(arg.getMessage(), arg.toString())
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          955
-        </td>
-        <td>
-          6250
-          -
-          6262
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.toString
-        </td>
-        <td style="background: #F0ADAD">
-          arg.toString()
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          952
-        </td>
-        <td>
-          6244
-          -
-          6249
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;\\n\\t&quot;
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          954
-        </td>
-        <td>
-          6229
-          -
-          6243
+          6254
         </td>
         <td>
           Apply
@@ -1805,12 +1720,117 @@
           154
         </td>
         <td>
-          957
+          881
         </td>
         <td>
-          6152
+          6274
           -
-          6265
+          6275
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          6216
+          -
+          6275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Illegal Arguments - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(arg.getMessage(), arg.toString())
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          878
+        </td>
+        <td>
+          6184
+          -
+          6214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          6255
+          -
+          6260
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\\n\\t&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          6261
+          -
+          6273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          arg.toString()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          885
+        </td>
+        <td>
+          6163
+          -
+          6276
         </td>
         <td>
           Apply
@@ -1826,12 +1846,12 @@
           154
         </td>
         <td>
-          951
+          879
         </td>
         <td>
-          6207
+          6218
           -
-          6228
+          6239
         </td>
         <td>
           Literal
@@ -1847,33 +1867,33 @@
           156
         </td>
         <td>
-          959
+          891
         </td>
         <td>
-          6363
+          6416
           -
-          6384
+          6427
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          java.lang.Throwable.toString
         </td>
         <td style="background: #F0ADAD">
-          &quot;Mapping Exception - &quot;
+          me.toString()
         </td>
       </tr><tr>
         <td>
           156
         </td>
         <td>
-          962
+          890
         </td>
         <td>
-          6385
+          6396
           -
-          6398
+          6409
         </td>
         <td>
           Apply
@@ -1889,12 +1909,12 @@
           156
         </td>
         <td>
-          965
+          893
         </td>
         <td>
-          6308
+          6319
           -
-          6419
+          6430
         </td>
         <td>
           Apply
@@ -1910,12 +1930,75 @@
           156
         </td>
         <td>
-          964
+          887
         </td>
         <td>
-          6361
+          6374
           -
-          6418
+          6395
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Mapping Exception - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          6340
+          -
+          6370
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+        <td style="background: #F0ADAD">
+          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          6428
+          -
+          6429
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          6372
+          -
+          6429
         </td>
         <td>
           Apply
@@ -1931,96 +2014,12 @@
           156
         </td>
         <td>
-          958
+          888
         </td>
         <td>
-          6329
+          6410
           -
-          6359
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
-        </td>
-        <td style="background: #F0ADAD">
-          org.mashupbots.socko.events.HttpResponseStatus.BAD_REQUEST
-        </td>
-      </tr><tr>
-        <td>
-          156
-        </td>
-        <td>
-          961
-        </td>
-        <td>
-          6417
-          -
-          6418
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          156
-        </td>
-        <td>
-          960
-        </td>
-        <td>
-          6399
-          -
-          6404
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;\\n\\t&quot;
-        </td>
-      </tr><tr>
-        <td>
-          156
-        </td>
-        <td>
-          963
-        </td>
-        <td>
-          6405
-          -
-          6416
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.toString
-        </td>
-        <td style="background: #F0ADAD">
-          me.toString()
-        </td>
-      </tr><tr>
-        <td>
-          158
-        </td>
-        <td>
-          968
-        </td>
-        <td>
-          6551
-          -
-          6556
+          6415
         </td>
         <td>
           Literal
@@ -2036,12 +2035,12 @@
           158
         </td>
         <td>
-          971
+          899
         </td>
         <td>
-          6557
-          -
           6568
+          -
+          6579
         </td>
         <td>
           Apply
@@ -2057,33 +2056,33 @@
           158
         </td>
         <td>
-          973
+          896
         </td>
         <td>
-          6455
+          6562
           -
-          6571
+          6567
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          org.mashupbots.socko.events.HttpResponseMessage.write
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, scala.StringContext.apply(&quot;Server Error - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ex.getMessage(), ex.toString()))
+          &quot;\\n\\t&quot;
         </td>
       </tr><tr>
         <td>
           158
         </td>
         <td>
-          967
+          895
         </td>
         <td>
-          6520
+          6531
           -
-          6536
+          6547
         </td>
         <td>
           Literal
@@ -2099,12 +2098,12 @@
           158
         </td>
         <td>
-          970
+          898
         </td>
         <td>
-          6537
+          6548
           -
-          6550
+          6561
         </td>
         <td>
           Apply
@@ -2120,33 +2119,33 @@
           158
         </td>
         <td>
-          969
+          901
         </td>
         <td>
-          6569
+          6466
           -
-          6570
+          6582
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          org.mashupbots.socko.events.HttpResponseMessage.write
         </td>
         <td style="background: #F0ADAD">
-          &quot;&quot;
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, scala.StringContext.apply(&quot;Server Error - &quot;, &quot;\\n\\t&quot;, &quot;&quot;).s(ex.getMessage(), ex.toString()))
         </td>
       </tr><tr>
         <td>
           158
         </td>
         <td>
-          972
+          900
         </td>
         <td>
-          6518
+          6529
           -
-          6570
+          6581
         </td>
         <td>
           Apply
@@ -2162,12 +2161,12 @@
           158
         </td>
         <td>
-          966
+          894
         </td>
         <td>
-          6476
+          6487
           -
-          6516
+          6527
         </td>
         <td>
           Select
@@ -2180,15 +2179,36 @@
         </td>
       </tr><tr>
         <td>
+          158
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          6580
+          -
+          6581
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
           171
         </td>
         <td>
-          974
+          902
         </td>
         <td>
-          7061
+          7072
           -
-          7074
+          7085
         </td>
         <td>
           Apply
@@ -2204,12 +2224,12 @@
           171
         </td>
         <td>
-          975
+          903
         </td>
         <td>
-          7038
+          7049
           -
-          7075
+          7086
         </td>
         <td>
           Apply
@@ -2225,12 +2245,12 @@
           172
         </td>
         <td>
-          976
+          904
         </td>
         <td>
-          7105
+          7116
           -
-          7117
+          7128
         </td>
         <td>
           Apply
@@ -2246,12 +2266,12 @@
           173
         </td>
         <td>
-          977
+          905
         </td>
         <td>
-          7140
+          7151
           -
-          7144
+          7155
         </td>
         <td>
           Select
@@ -2267,12 +2287,12 @@
           178
         </td>
         <td>
-          978
+          906
         </td>
         <td>
-          7192
+          7203
           -
-          7227
+          7238
         </td>
         <td>
           Apply
@@ -2288,12 +2308,12 @@
           179
         </td>
         <td>
-          979
+          907
         </td>
         <td>
-          7235
+          7246
           -
-          7272
+          7283
         </td>
         <td>
           Apply
@@ -2309,12 +2329,12 @@
           180
         </td>
         <td>
-          980
+          908
         </td>
         <td>
-          7280
+          7291
           -
-          7315
+          7326
         </td>
         <td>
           Apply
@@ -2330,12 +2350,12 @@
           181
         </td>
         <td>
-          981
+          909
         </td>
         <td>
-          7323
+          7334
           -
-          7360
+          7371
         </td>
         <td>
           Apply
@@ -2351,12 +2371,12 @@
           182
         </td>
         <td>
-          982
+          910
         </td>
         <td>
-          7368
+          7379
           -
-          7411
+          7422
         </td>
         <td>
           Apply
@@ -2372,12 +2392,12 @@
           183
         </td>
         <td>
-          983
+          911
         </td>
         <td>
-          7419
+          7430
           -
-          7460
+          7471
         </td>
         <td>
           Apply
@@ -2393,12 +2413,12 @@
           184
         </td>
         <td>
-          985
+          913
         </td>
         <td>
-          7164
+          7175
           -
-          7474
+          7485
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2416,12 +2436,12 @@
           184
         </td>
         <td>
-          984
+          912
         </td>
         <td>
-          7467
+          7478
           -
-          7467
+          7478
         </td>
         <td>
           Apply
@@ -2437,12 +2457,12 @@
           188
         </td>
         <td>
-          1012
+          940
         </td>
         <td>
-          7564
+          7575
           -
-          8680
+          8691
         </td>
         <td>
           Block
@@ -2476,12 +2496,12 @@
           189
         </td>
         <td>
-          986
+          914
         </td>
         <td>
-          7564
+          7575
           -
-          7580
+          7591
         </td>
         <td>
           Apply
@@ -2497,12 +2517,12 @@
           190
         </td>
         <td>
-          1010
+          938
         </td>
         <td>
-          7633
+          7644
           -
-          7633
+          7644
         </td>
         <td>
           Select
@@ -2518,33 +2538,12 @@
           190
         </td>
         <td>
-          987
+          939
         </td>
         <td>
-          7595
+          7598
           -
-          7605
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #AEF1AE">
-          scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)
-        </td>
-      </tr><tr>
-        <td>
-          190
-        </td>
-        <td>
-          1011
-        </td>
-        <td>
-          7587
-          -
-          8680
+          8691
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2572,15 +2571,36 @@
         </td>
       </tr><tr>
         <td>
+          190
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          7606
+          -
+          7616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.component.socko.utils.SockoCommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
           192
         </td>
         <td>
-          988
+          916
         </td>
         <td>
-          7686
+          7697
           -
-          7695
+          7706
         </td>
         <td>
           Select
@@ -2596,33 +2616,12 @@
           194
         </td>
         <td>
-          992
+          917
         </td>
         <td>
-          7862
+          7779
           -
-          7879
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.command.CommandResponse.responseType
-        </td>
-        <td style="background: #AEF1AE">
-          resp.responseType
-        </td>
-      </tr><tr>
-        <td>
-          194
-        </td>
-        <td>
-          989
-        </td>
-        <td>
-          7768
-          -
-          7819
+          7830
         </td>
         <td>
           Apply
@@ -2638,33 +2637,33 @@
           194
         </td>
         <td>
-          991
+          920
         </td>
         <td>
-          7821
+          7873
           -
-          7834
+          7890
         </td>
         <td>
-          Block
+          Select
         </td>
         <td>
-          scala.Array.apply
+          com.webtrends.harness.command.CommandResponse.responseType
         </td>
         <td style="background: #AEF1AE">
-          scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+          resp.responseType
         </td>
       </tr><tr>
         <td>
           194
         </td>
         <td>
-          994
+          922
         </td>
         <td>
-          7840
+          7851
           -
-          7880
+          7891
         </td>
         <td>
           Block
@@ -2680,12 +2679,33 @@
           194
         </td>
         <td>
-          990
+          919
         </td>
         <td>
-          7821
+          7832
           -
-          7834
+          7845
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[Byte]()((ClassTag.Byte: scala.reflect.ClassTag[Byte]))
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          7832
+          -
+          7845
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2701,12 +2721,12 @@
           194
         </td>
         <td>
-          993
+          921
         </td>
         <td>
-          7840
+          7851
           -
-          7880
+          7891
         </td>
         <td>
           Apply
@@ -2722,12 +2742,12 @@
           195
         </td>
         <td>
-          1002
+          930
         </td>
         <td>
-          7895
+          7906
           -
-          8349
+          8360
         </td>
         <td>
           Apply
@@ -2743,12 +2763,12 @@
           196
         </td>
         <td>
-          995
+          923
         </td>
         <td>
-          7938
+          7949
           -
-          7956
+          7967
         </td>
         <td>
           Select
@@ -2764,12 +2784,12 @@
           199
         </td>
         <td>
-          997
+          925
         </td>
         <td>
-          8125
+          8136
           -
-          8175
+          8186
         </td>
         <td>
           Apply
@@ -2785,12 +2805,12 @@
           199
         </td>
         <td>
-          996
+          924
         </td>
         <td>
-          8157
+          8168
           -
-          8174
+          8185
         </td>
         <td>
           Select
@@ -2806,33 +2826,12 @@
           200
         </td>
         <td>
-          1001
+          926
         </td>
         <td>
-          8193
+          8235
           -
-          8333
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length)
-        </td>
-      </tr><tr>
-        <td>
-          200
-        </td>
-        <td>
-          998
-        </td>
-        <td>
-          8224
-          -
-          8268
+          8279
         </td>
         <td>
           Apply
@@ -2848,12 +2847,33 @@
           200
         </td>
         <td>
-          1000
+          929
         </td>
         <td>
-          8318
+          8204
           -
-          8332
+          8344
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod().name(), SockoRoutes.this.getResponseHeaders(bean.event.request.headers), content.length)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          8329
+          -
+          8343
         </td>
         <td>
           Select
@@ -2869,12 +2889,12 @@
           200
         </td>
         <td>
-          999
+          927
         </td>
         <td>
-          8270
+          8281
           -
-          8316
+          8327
         </td>
         <td>
           Apply
@@ -2890,12 +2910,12 @@
           202
         </td>
         <td>
-          1004
+          932
         </td>
         <td>
-          8375
+          8386
           -
-          8431
+          8442
         </td>
         <td>
           Apply
@@ -2911,12 +2931,12 @@
           202
         </td>
         <td>
-          1003
+          931
         </td>
         <td>
-          8401
+          8412
           -
-          8430
+          8441
         </td>
         <td>
           Select
@@ -2932,12 +2952,12 @@
           205
         </td>
         <td>
-          1006
+          934
         </td>
         <td>
-          8525
+          8536
           -
-          8560
+          8571
         </td>
         <td>
           Apply
@@ -2953,12 +2973,12 @@
           205
         </td>
         <td>
-          1005
+          933
         </td>
         <td>
-          8545
+          8556
           -
-          8555
+          8566
         </td>
         <td>
           Select
@@ -2974,12 +2994,12 @@
           206
         </td>
         <td>
-          1007
+          935
         </td>
         <td>
-          8607
+          8618
           -
-          8647
+          8658
         </td>
         <td>
           Select
@@ -2995,12 +3015,12 @@
           206
         </td>
         <td>
-          1009
+          937
         </td>
         <td>
-          8581
+          8592
           -
-          8662
+          8673
         </td>
         <td>
           Apply
@@ -3016,12 +3036,12 @@
           206
         </td>
         <td>
-          1008
+          936
         </td>
         <td>
-          8649
+          8660
           -
-          8661
+          8672
         </td>
         <td>
           Apply
@@ -3037,12 +3057,12 @@
           210
         </td>
         <td>
-          1013
+          941
         </td>
         <td>
-          8741
+          8752
           -
-          8751
+          8762
         </td>
         <td>
           Select
@@ -3058,12 +3078,12 @@
           210
         </td>
         <td>
-          1014
+          942
         </td>
         <td>
-          8721
+          8732
           -
-          8755
+          8766
         </td>
         <td>
           Apply
@@ -3079,12 +3099,12 @@
           215
         </td>
         <td>
-          1023
+          951
         </td>
         <td>
-          8977
+          8988
           -
-          9152
+          9163
         </td>
         <td>
           Apply
@@ -3100,12 +3120,12 @@
           216
         </td>
         <td>
-          1016
+          944
         </td>
         <td>
-          9031
+          9042
           -
-          9032
+          9043
         </td>
         <td>
           Literal
@@ -3121,33 +3141,12 @@
           216
         </td>
         <td>
-          1015
+          946
         </td>
         <td>
-          9019
+          9028
           -
-          9020
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          1018
-        </td>
-        <td>
-          9017
-          -
-          9032
+          9043
         </td>
         <td>
           Apply
@@ -3163,33 +3162,33 @@
           216
         </td>
         <td>
-          1020
+          943
         </td>
         <td>
-          9001
+          9030
           -
-          9103
+          9031
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          com.webtrends.harness.component.socko.AddSockoHandler.apply
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.AddSockoHandler.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(SockoRoutes.this.commandName), new AutoSockoHandler(matcher, handler), method)
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
           216
         </td>
         <td>
-          1017
+          945
         </td>
         <td>
-          9020
-          -
           9031
+          -
+          9042
         </td>
         <td>
           Select
@@ -3202,15 +3201,36 @@
         </td>
       </tr><tr>
         <td>
+          216
+        </td>
+        <td>
+          948
+        </td>
+        <td>
+          9012
+          -
+          9114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.AddSockoHandler.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.AddSockoHandler.apply(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(SockoRoutes.this.commandName), new AutoSockoHandler(matcher, handler), method)
+        </td>
+      </tr><tr>
+        <td>
           217
         </td>
         <td>
-          1019
+          947
         </td>
         <td>
-          9056
+          9067
           -
-          9094
+          9105
         </td>
         <td>
           Apply
@@ -3226,12 +3246,12 @@
           218
         </td>
         <td>
-          1022
+          950
         </td>
         <td>
-          9111
+          9122
           -
-          9146
+          9157
         </td>
         <td>
           Apply
@@ -3247,12 +3267,12 @@
           218
         </td>
         <td>
-          1021
+          949
         </td>
         <td>
-          9116
+          9127
           -
-          9145
+          9156
         </td>
         <td>
           Select
@@ -3268,12 +3288,12 @@
           220
         </td>
         <td>
-          1024
+          952
         </td>
         <td>
-          9157
+          9168
           -
-          9194
+          9205
         </td>
         <td>
           Apply
@@ -3289,33 +3309,12 @@
           227
         </td>
         <td>
-          1028
+          953
         </td>
         <td>
-          9290
+          9279
           -
-          9296
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;POST&quot;
-        </td>
-      </tr><tr>
-        <td>
-          227
-        </td>
-        <td>
-          1025
-        </td>
-        <td>
-          9268
-          -
-          9273
+          9284
         </td>
         <td>
           Literal
@@ -3331,12 +3330,12 @@
           227
         </td>
         <td>
-          1034
+          962
         </td>
         <td>
-          9263
+          9274
           -
-          9569
+          9580
         </td>
         <td>
           Apply
@@ -3352,12 +3351,33 @@
           227
         </td>
         <td>
-          1027
+          956
         </td>
         <td>
-          9283
+          9301
           -
-          9288
+          9307
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;POST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          955
+        </td>
+        <td>
+          9294
+          -
+          9299
         </td>
         <td>
           Literal
@@ -3373,12 +3393,12 @@
           227
         </td>
         <td>
-          1030
+          958
         </td>
         <td>
-          9309
+          9320
           -
-          9317
+          9328
         </td>
         <td>
           Literal
@@ -3394,33 +3414,12 @@
           227
         </td>
         <td>
-          1029
+          954
         </td>
         <td>
-          9298
+          9286
           -
-          9307
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;OPTIONS&quot;
-        </td>
-      </tr><tr>
-        <td>
-          227
-        </td>
-        <td>
-          1026
-        </td>
-        <td>
-          9275
-          -
-          9281
+          9292
         </td>
         <td>
           Literal
@@ -3433,15 +3432,36 @@
         </td>
       </tr><tr>
         <td>
+          227
+        </td>
+        <td>
+          957
+        </td>
+        <td>
+          9309
+          -
+          9318
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;OPTIONS&quot;
+        </td>
+      </tr><tr>
+        <td>
           228
         </td>
         <td>
-          1033
+          961
         </td>
         <td>
-          9343
+          9354
           -
-          9569
+          9580
         </td>
         <td>
           Apply
@@ -3457,12 +3477,12 @@
           230
         </td>
         <td>
-          1031
+          959
         </td>
         <td>
-          9441
+          9452
           -
-          9467
+          9478
         </td>
         <td>
           Apply
@@ -3478,12 +3498,12 @@
           233
         </td>
         <td>
-          1032
+          960
         </td>
         <td>
-          9521
+          9532
           -
-          9541
+          9552
         </td>
         <td>
           Apply
@@ -3499,12 +3519,12 @@
           247
         </td>
         <td>
-          1043
+          971
         </td>
         <td>
-          9808
+          9819
           -
-          10052
+          10063
         </td>
         <td>
           Apply
@@ -3520,12 +3540,12 @@
           249
         </td>
         <td>
-          1037
+          965
         </td>
         <td>
-          9915
+          9926
           -
-          9950
+          9961
         </td>
         <td>
           Apply
@@ -3541,12 +3561,12 @@
           249
         </td>
         <td>
-          1036
+          964
         </td>
         <td>
-          9932
+          9943
           -
-          9942
+          9953
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3562,12 +3582,12 @@
           249
         </td>
         <td>
-          1039
+          967
         </td>
         <td>
-          9902
+          9913
           -
-          9951
+          9962
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3583,33 +3603,12 @@
           249
         </td>
         <td>
-          1038
+          963
         </td>
         <td>
-          9914
+          9948
           -
-          9914
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.Nothing
-        </td>
-        <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.Nothing
-        </td>
-      </tr><tr>
-        <td>
-          249
-        </td>
-        <td>
-          1035
-        </td>
-        <td>
-          9937
-          -
-          9937
+          9948
         </td>
         <td>
           TypeApply
@@ -3622,15 +3621,36 @@
         </td>
       </tr><tr>
         <td>
+          249
+        </td>
+        <td>
+          966
+        </td>
+        <td>
+          9925
+          -
+          9925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
           252
         </td>
         <td>
-          1040
+          968
         </td>
         <td>
-          10025
+          10036
           -
-          10030
+          10041
         </td>
         <td>
           Select
@@ -3646,12 +3666,12 @@
           252
         </td>
         <td>
-          1041
+          969
         </td>
         <td>
-          9999
+          10010
           -
-          10031
+          10042
         </td>
         <td>
           Apply
@@ -3667,12 +3687,12 @@
           254
         </td>
         <td>
-          1042
+          970
         </td>
         <td>
-          10043
+          10054
           -
-          10048
+          10059
         </td>
         <td>
           Literal
@@ -3688,12 +3708,12 @@
           262
         </td>
         <td>
-          1044
+          972
         </td>
         <td>
-          10235
+          10246
           -
-          10267
+          10278
         </td>
         <td>
           Apply
@@ -3709,12 +3729,12 @@
           263
         </td>
         <td>
-          1045
+          973
         </td>
         <td>
-          10295
+          10306
           -
-          10330
+          10341
         </td>
         <td>
           Literal
@@ -3730,12 +3750,12 @@
           268
         </td>
         <td>
-          1046
+          974
         </td>
         <td>
-          10413
+          10424
           -
-          10449
+          10460
         </td>
         <td>
           Apply
@@ -3751,12 +3771,12 @@
           271
         </td>
         <td>
-          1047
+          975
         </td>
         <td>
-          10517
+          10528
           -
-          10613
+          10624
         </td>
         <td>
           Apply
@@ -3772,12 +3792,12 @@
           273
         </td>
         <td>
-          1048
+          976
         </td>
         <td>
-          10656
+          10667
           -
-          10756
+          10767
         </td>
         <td>
           Apply
@@ -3793,12 +3813,12 @@
           274
         </td>
         <td>
-          1049
+          977
         </td>
         <td>
-          10770
+          10781
           -
-          10772
+          10783
         </td>
         <td>
           Literal
@@ -3814,12 +3834,12 @@
           277
         </td>
         <td>
-          1051
+          979
         </td>
         <td>
-          10784
+          10795
           -
-          10827
+          10838
         </td>
         <td>
           Apply
@@ -3835,12 +3855,12 @@
           277
         </td>
         <td>
-          1050
+          978
         </td>
         <td>
-          10793
+          10804
           -
-          10817
+          10828
         </td>
         <td>
           Select
@@ -3856,12 +3876,12 @@
           278
         </td>
         <td>
-          1052
+          980
         </td>
         <td>
-          10832
+          10843
           -
-          10860
+          10871
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3877,12 +3897,12 @@
           279
         </td>
         <td>
-          1055
+          983
         </td>
         <td>
-          10891
+          10902
           -
-          10938
+          10949
         </td>
         <td>
           Apply
@@ -3898,12 +3918,12 @@
           279
         </td>
         <td>
-          1054
+          982
         </td>
         <td>
-          10906
+          10917
           -
-          10937
+          10948
         </td>
         <td>
           Apply
@@ -3919,12 +3939,12 @@
           279
         </td>
         <td>
-          1053
+          981
         </td>
         <td>
-          10910
+          10921
           -
-          10936
+          10947
         </td>
         <td>
           Apply
@@ -3940,12 +3960,12 @@
           280
         </td>
         <td>
-          1056
+          984
         </td>
         <td>
-          10955
+          10966
           -
-          10957
+          10968
         </td>
         <td>
           Literal
@@ -3961,12 +3981,12 @@
           285
         </td>
         <td>
-          1058
+          986
         </td>
         <td>
-          11113
+          11131
           -
-          11128
+          11147
         </td>
         <td>
           Apply
@@ -3975,19 +3995,19 @@
           scala.Int.==
         </td>
         <td style="background: #AEF1AE">
-          obj.length.==(0)
+          data.length.==(0)
         </td>
       </tr><tr>
         <td>
           285
         </td>
         <td>
-          1057
+          985
         </td>
         <td>
-          11105
+          11123
           -
-          11109
+          11127
         </td>
         <td>
           Literal
@@ -4003,12 +4023,12 @@
           285
         </td>
         <td>
-          1059
+          987
         </td>
         <td>
-          11098
+          11115
           -
-          11128
+          11147
         </td>
         <td>
           Apply
@@ -4017,19 +4037,19 @@
           scala.Boolean.||
         </td>
         <td style="background: #AEF1AE">
-          obj.==(null).||(obj.length.==(0))
+          data.==(null).||(data.length.==(0))
         </td>
       </tr><tr>
         <td>
           286
         </td>
         <td>
-          1061
+          989
         </td>
         <td>
-          11138
+          11157
           -
-          11142
+          11161
         </td>
         <td>
           Block
@@ -4045,12 +4065,12 @@
           286
         </td>
         <td>
-          1060
+          988
         </td>
         <td>
-          11138
+          11157
           -
-          11142
+          11161
         </td>
         <td>
           Select
@@ -4066,12 +4086,12 @@
           287
         </td>
         <td>
-          1102
+          1023
         </td>
         <td>
-          11154
+          11173
           -
-          11918
+          11942
         </td>
         <td>
           Block
@@ -4079,39 +4099,743 @@
         <td>
           &lt;nosymbol&gt;
         </td>
-        <td style="background: #F0ADAD">
+        <td style="background: #AEF1AE">
           {
-  val stringObj: String = new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8).trim();
-  if (stringObj.length().==(0))
-    scala.None
-  else
-    if (contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;)))
-      {
-        var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
-        scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
-        scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
-      }
-    else
-      if (contentType.==(&quot;application/json&quot;))
-        scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
-      else
-        {
-          val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
-          scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
-        }
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, java.nio.charset.Charset) = (EntityRoutes.this.parseContentType(contentTypeValue): (String, java.nio.charset.Charset) @unchecked) match {
+    case (_1: String, _2: java.nio.charset.Charset)(String, java.nio.charset.Charset)((contentType @ _), (charset @ _)) =&gt; scala.Tuple2.apply[String, java.nio.charset.Charset](contentType, charset)
+  };
+  val contentType: String = x$1._1;
+  val charset: java.nio.charset.Charset = x$1._2;
+  contentType match {
+    case (&quot;application/x-www-form-urlencoded&quot;| &quot;multipart/form-data&quot;) =&gt; {
+      val dataString: String = scala.this.Predef.augmentString(new scala.this.Predef.String(data, charset)).dropWhile(((x$2: Char) =&gt; x$2.==(&quot;?&quot;)));
+      val jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(dataString), charset).parameters()).map[net.liftweb.json.JsonAST.JField, scala.collection.mutable.Iterable[net.liftweb.json.JsonAST.JField]](((kvp: (String, java.util.List[String])) =&gt; net.liftweb.json.JsonAST.JField.apply(kvp._1, if (kvp._2.!=(null))
+  new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+else
+  net.liftweb.json.`package`.JNull)))(mutable.this.Iterable.canBuildFrom[net.liftweb.json.JsonAST.JField]).toList);
+      scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+    }
+    case &quot;application/json&quot; =&gt; scala.Some.apply[T](net.liftweb.json.JsonParser.parse(new scala.this.Predef.String(data, &quot;utf-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+    case _ =&gt; {
+      val dataString: String = new scala.this.Predef.String(data, charset);
+      scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, new net.liftweb.json.JsonAST.JString(dataString)))).extract[T](EntityRoutes.this.formats, evidence$3))
+    }
+  }
 }
         </td>
       </tr><tr>
         <td>
-          288
+          289
         </td>
         <td>
-          1062
+          991
         </td>
         <td>
-          11178
+          11200
           -
-          11224
+          11200
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          289
+        </td>
+        <td>
+          990
+        </td>
+        <td>
+          11187
+          -
+          11187
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          11377
+          -
+          11402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.this.Predef.String(data, charset)
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          994
+        </td>
+        <td>
+          11377
+          -
+          11423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.dropWhile
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.augmentString(new scala.this.Predef.String(data, charset)).dropWhile(((x$2: Char) =&gt; x$2.==(&quot;?&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          993
+        </td>
+        <td>
+          11414
+          -
+          11422
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.==(&quot;?&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          295
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          11453
+          -
+          11513
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.QueryStringDecoder.parameters
+        </td>
+        <td style="background: #AEF1AE">
+          new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(dataString), charset).parameters()
+        </td>
+      </tr><tr>
+        <td>
+          295
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          11445
+          -
+          11632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JObject.apply
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonAST.JObject.apply(scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(dataString), charset).parameters()).map[net.liftweb.json.JsonAST.JField, scala.collection.mutable.Iterable[net.liftweb.json.JsonAST.JField]](((kvp: (String, java.util.List[String])) =&gt; net.liftweb.json.JsonAST.JField.apply(kvp._1, if (kvp._2.!=(null))
+  new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+else
+  net.liftweb.json.`package`.JNull)))(mutable.this.Iterable.canBuildFrom[net.liftweb.json.JsonAST.JField]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          295
+        </td>
+        <td>
+          1005
+        </td>
+        <td>
+          11518
+          -
+          11518
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          mutable.this.Iterable.canBuildFrom[net.liftweb.json.JsonAST.JField]
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1001
+        </td>
+        <td>
+          11574
+          -
+          11598
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          11539
+          -
+          11610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JField.apply
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonAST.JField.apply(kvp._1, if (kvp._2.!=(null))
+  new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+else
+  net.liftweb.json.`package`.JNull)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          998
+        </td>
+        <td>
+          11586
+          -
+          11592
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #AEF1AE">
+          kvp._2
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          11558
+          -
+          11572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          kvp._2.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          11574
+          -
+          11598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1003
+        </td>
+        <td>
+          11604
+          -
+          11609
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          net.liftweb.json.JNull
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.JNull
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          11546
+          -
+          11552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          kvp._1
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          999
+        </td>
+        <td>
+          11586
+          -
+          11597
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.last
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1002
+        </td>
+        <td>
+          11604
+          -
+          11609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.JNull
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.JNull
+        </td>
+      </tr><tr>
+        <td>
+          297
+        </td>
+        <td>
+          1006
+        </td>
+        <td>
+          11453
+          -
+          11631
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(dataString), charset).parameters()).map[net.liftweb.json.JsonAST.JField, scala.collection.mutable.Iterable[net.liftweb.json.JsonAST.JField]](((kvp: (String, java.util.List[String])) =&gt; net.liftweb.json.JsonAST.JField.apply(kvp._1, if (kvp._2.!=(null))
+  new net.liftweb.json.JsonAST.JString(scala.collection.JavaConversions.asScalaBuffer[String](kvp._2).last)
+else
+  net.liftweb.json.`package`.JNull)))(mutable.this.Iterable.canBuildFrom[net.liftweb.json.JsonAST.JField]).toList
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1010
+        </td>
+        <td>
+          11643
+          -
+          11664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1009
+        </td>
+        <td>
+          11648
+          -
+          11663
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #AEF1AE">
+          jObj.extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1008
+        </td>
+        <td>
+          11660
+          -
+          11660
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #AEF1AE">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          11716
+          -
+          11770
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonParser.parse(new scala.this.Predef.String(data, &quot;utf-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1012
+        </td>
+        <td>
+          11767
+          -
+          11767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #AEF1AE">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1014
+        </td>
+        <td>
+          11711
+          -
+          11771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(new scala.this.Predef.String(data, &quot;utf-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          1011
+        </td>
+        <td>
+          11733
+          -
+          11758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.this.Predef.String(data, &quot;utf-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          1015
+        </td>
+        <td>
+          11818
+          -
+          11843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.this.Predef.String(data, charset)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1019
+        </td>
+        <td>
+          11867
+          -
+          11915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.apply
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, new net.liftweb.json.JsonAST.JString(dataString)))
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1022
+        </td>
+        <td>
+          11854
+          -
+          11928
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, new net.liftweb.json.JsonAST.JString(dataString)))).extract[T](EntityRoutes.this.formats, evidence$3))
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1016
+        </td>
+        <td>
+          11879
+          -
+          11888
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;content&quot;
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          11872
+          -
+          11914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JField.apply
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, new net.liftweb.json.JsonAST.JString(dataString))
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1021
+        </td>
+        <td>
+          11859
+          -
+          11927
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, new net.liftweb.json.JsonAST.JString(dataString)))).extract[T](EntityRoutes.this.formats, evidence$3)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1020
+        </td>
+        <td>
+          11924
+          -
+          11924
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+        </td>
+        <td style="background: #AEF1AE">
+          EntityRoutes.this.formats
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1017
+        </td>
+        <td>
+          11890
+          -
+          11913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new net.liftweb.json.JsonAST.JString(dataString)
+        </td>
+      </tr><tr>
+        <td>
+          312
+        </td>
+        <td>
+          1025
+        </td>
+        <td>
+          12056
+          -
+          12077
         </td>
         <td>
           Apply
@@ -4119,129 +4843,125 @@
         <td>
           java.lang.String.trim
         </td>
-        <td style="background: #F0ADAD">
-          new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8).trim()
+        <td style="background: #AEF1AE">
+          part.toLowerCase().trim()
         </td>
       </tr><tr>
         <td>
-          289
+          312
         </td>
         <td>
-          1063
+          1024
         </td>
         <td>
-          11235
+          12023
           -
-          11256
+          12036
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Int.==
+          java.lang.String.split
         </td>
-        <td style="background: #F0ADAD">
-          stringObj.length().==(0)
-        </td>
-      </tr><tr>
-        <td>
-          290
-        </td>
-        <td>
-          1064
-        </td>
-        <td>
-          11268
-          -
-          11272
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td style="background: #F0ADAD">
-          scala.None
+        <td style="background: #AEF1AE">
+          ct.split(&quot;;&quot;)
         </td>
       </tr><tr>
         <td>
-          290
+          312
         </td>
         <td>
-          1065
+          1027
         </td>
         <td>
-          11268
+          12023
           -
-          11272
+          12078
         </td>
         <td>
-          Block
+          ApplyToImplicitArgs
         </td>
         <td>
-          scala.None
+          scala.collection.immutable.List.map
         </td>
-        <td style="background: #F0ADAD">
-          scala.None
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[String](ct.split(&quot;;&quot;)).toList.map[String, List[String]](((part: String) =&gt; part.toLowerCase().trim()))(immutable.this.List.canBuildFrom[String])
         </td>
       </tr><tr>
         <td>
-          291
+          312
         </td>
         <td>
-          1067
+          1026
         </td>
         <td>
-          11344
+          12047
           -
-          11380
+          12047
         </td>
         <td>
-          Apply
+          TypeApply
         </td>
         <td>
-          java.lang.Object.==
+          scala.collection.immutable.List.canBuildFrom
         </td>
-        <td style="background: #F0ADAD">
-          contentType.==(&quot;multipart/form-data&quot;)
+        <td style="background: #AEF1AE">
+          immutable.this.List.canBuildFrom[String]
         </td>
       </tr><tr>
         <td>
-          291
+          314
         </td>
         <td>
-          1085
+          1028
         </td>
         <td>
-          11382
+          12121
           -
-          11632
+          12122
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
           &lt;nosymbol&gt;
         </td>
-        <td style="background: #F0ADAD">
-          {
-  var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
-  scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
-  scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
-}
+        <td style="background: #AEF1AE">
+          0
         </td>
       </tr><tr>
         <td>
-          291
+          314
         </td>
         <td>
-          1066
+          1031
         </td>
         <td>
-          11305
+          12106
           -
-          11340
+          12143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          parts.length.&gt;(0).&amp;&amp;(parts.apply(0).isEmpty().unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1034
+        </td>
+        <td>
+          12159
+          -
+          12171
         </td>
         <td>
           Literal
@@ -4250,563 +4970,103 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;application/x-www-form-urlencoded&quot;
+          &quot;text/plain&quot;
         </td>
       </tr><tr>
         <td>
-          291
+          314
         </td>
         <td>
-          1101
+          1033
         </td>
         <td>
-          11286
+          12145
           -
-          11912
-        </td>
-        <td>
-          If
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          if (contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;)))
-  {
-    var jObj: net.liftweb.json.JsonAST.JObject = net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil);
-    scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)));
-    scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
-  }
-else
-  if (contentType.==(&quot;application/json&quot;))
-    scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
-  else
-    {
-      val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
-      scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
-    }
-        </td>
-      </tr><tr>
-        <td>
-          291
-        </td>
-        <td>
-          1068
-        </td>
-        <td>
-          11290
-          -
-          11380
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.||
-        </td>
-        <td style="background: #F0ADAD">
-          contentType.==(&quot;application/x-www-form-urlencoded&quot;).||(contentType.==(&quot;multipart/form-data&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          292
-        </td>
-        <td>
-          1070
-        </td>
-        <td>
-          11403
-          -
-          11415
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JObject.apply
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JObject.apply(immutable.this.Nil)
-        </td>
-      </tr><tr>
-        <td>
-          292
-        </td>
-        <td>
-          1069
-        </td>
-        <td>
-          11411
-          -
-          11414
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.immutable.Nil
-        </td>
-        <td style="background: #F0ADAD">
-          immutable.this.Nil
-        </td>
-      </tr><tr>
-        <td>
-          293
-        </td>
-        <td>
-          1081
-        </td>
-        <td>
-          11424
-          -
-          11584
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.IterableLike.foreach
-        </td>
-        <td style="background: #F0ADAD">
-          scala.collection.JavaConversions.mapAsScalaMap[String, java.util.List[String]](new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()).foreach[Unit](((e: (String, java.util.List[String])) =&gt; jObj = JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)))
-        </td>
-      </tr><tr>
-        <td>
-          293
-        </td>
-        <td>
-          1071
-        </td>
-        <td>
-          11424
-          -
-          11493
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          io.netty.handler.codec.http.QueryStringDecoder.parameters
-        </td>
-        <td style="background: #F0ADAD">
-          new io.netty.handler.codec.http.QueryStringDecoder(&quot;?&quot;.+(stringObj), org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8).parameters()
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1079
-        </td>
-        <td>
-          11531
-          -
-          11531
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          net.liftweb.json.MergeDeps.ooo
-        </td>
-        <td style="background: #F0ADAD">
-          JsonAST.this.JValue.ooo
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1073
-        </td>
-        <td>
-          11571
-          -
-          11575
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._2
-        </td>
-        <td style="background: #F0ADAD">
-          e._2
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1076
-        </td>
-        <td>
-          11550
-          -
-          11582
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JField.apply
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last))
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1075
-        </td>
-        <td>
-          11563
-          -
-          11581
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JString.apply
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1078
-        </td>
-        <td>
-          11537
-          -
-          11584
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JObject.apply
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last))))
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1072
-        </td>
-        <td>
-          11557
-          -
-          11561
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td style="background: #F0ADAD">
-          e._1
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1080
-        </td>
-        <td>
-          11526
-          -
-          11584
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          net.liftweb.json.Merge.Mergeable.MergeSyntax.merge
-        </td>
-        <td style="background: #F0ADAD">
-          JsonAST.this.JValue.j2m[net.liftweb.json.JsonAST.JObject](jObj).merge[net.liftweb.json.JsonAST.JObject, net.liftweb.json.JObject](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))))(JsonAST.this.JValue.ooo)
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1074
-        </td>
-        <td>
-          11571
-          -
-          11580
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableLike.last
-        </td>
-        <td style="background: #F0ADAD">
-          scala.collection.JavaConversions.asScalaBuffer[String](e._2).last
-        </td>
-      </tr><tr>
-        <td>
-          294
-        </td>
-        <td>
-          1077
-        </td>
-        <td>
-          11545
-          -
-          11583
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.List.apply
-        </td>
-        <td style="background: #F0ADAD">
-          immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(e._1, net.liftweb.json.JsonAST.JString.apply(scala.collection.JavaConversions.asScalaBuffer[String](e._2).last)))
-        </td>
-      </tr><tr>
-        <td>
-          296
-        </td>
-        <td>
-          1082
-        </td>
-        <td>
-          11620
-          -
-          11620
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.formats
-        </td>
-        <td style="background: #F0ADAD">
-          EntityRoutes.this.formats
-        </td>
-      </tr><tr>
-        <td>
-          296
-        </td>
-        <td>
-          1084
-        </td>
-        <td>
-          11603
-          -
-          11624
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[T](jObj.extract[T](EntityRoutes.this.formats, evidence$3))
-        </td>
-      </tr><tr>
-        <td>
-          296
-        </td>
-        <td>
-          1083
-        </td>
-        <td>
-          11608
-          -
-          11623
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JValue.extract
-        </td>
-        <td style="background: #F0ADAD">
-          jObj.extract[T](EntityRoutes.this.formats, evidence$3)
-        </td>
-      </tr><tr>
-        <td>
-          297
-        </td>
-        <td>
-          1100
-        </td>
-        <td>
-          11638
-          -
-          11912
-        </td>
-        <td>
-          If
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          if (contentType.==(&quot;application/json&quot;))
-  scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
-else
-  {
-    val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
-    scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
-  }
-        </td>
-      </tr><tr>
-        <td>
-          297
-        </td>
-        <td>
-          1086
-        </td>
-        <td>
-          11642
-          -
-          11675
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Object.==
-        </td>
-        <td style="background: #F0ADAD">
-          contentType.==(&quot;application/json&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          298
-        </td>
-        <td>
-          1088
-        </td>
-        <td>
-          11755
-          -
-          11755
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.formats
-        </td>
-        <td style="background: #F0ADAD">
-          EntityRoutes.this.formats
-        </td>
-      </tr><tr>
-        <td>
-          298
-        </td>
-        <td>
-          1091
-        </td>
-        <td>
-          11687
-          -
-          11759
+          12153
         </td>
         <td>
           Block
         </td>
         <td>
-          scala.Some.apply
+          scala.collection.LinearSeqOptimized.apply
         </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+        <td style="background: #AEF1AE">
+          parts.apply(0)
         </td>
       </tr><tr>
         <td>
-          298
+          314
         </td>
         <td>
-          1087
+          1030
         </td>
         <td>
-          11709
+          12126
           -
-          11746
+          12143
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          parts.apply(0).isEmpty().unary_!
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          12133
+          -
+          12134
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          314
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          12145
+          -
+          12153
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.net.URLDecoder.decode
+          scala.collection.LinearSeqOptimized.apply
         </td>
-        <td style="background: #F0ADAD">
-          java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          298
-        </td>
-        <td>
-          1090
-        </td>
-        <td>
-          11687
-          -
-          11759
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3))
+        <td style="background: #AEF1AE">
+          parts.apply(0)
         </td>
       </tr><tr>
         <td>
-          298
+          314
         </td>
         <td>
-          1089
+          1035
         </td>
         <td>
-          11692
+          12159
           -
-          11758
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JValue.extract
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonParser.parse(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)).extract[T](EntityRoutes.this.formats, evidence$3)
-        </td>
-      </tr><tr>
-        <td>
-          299
-        </td>
-        <td>
-          1099
-        </td>
-        <td>
-          11773
-          -
-          11912
+          12171
         </td>
         <td>
           Block
@@ -4815,169 +5075,208 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          {
-  val text: net.liftweb.json.JsonAST.JString = net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;));
-  scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
-}
+          &quot;text/plain&quot;
         </td>
       </tr><tr>
         <td>
-          300
+          316
         </td>
         <td>
-          1093
+          1037
         </td>
         <td>
-          11794
+          12216
           -
-          11840
+          12247
         </td>
         <td>
           Apply
         </td>
         <td>
-          net.liftweb.json.JsonAST.JString.apply
+          java.lang.String.startsWith
         </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JString.apply(java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;))
+        <td style="background: #AEF1AE">
+          parts.apply(1).startsWith(&quot;charset=&quot;)
         </td>
       </tr><tr>
         <td>
-          300
+          316
         </td>
         <td>
-          1092
+          1036
         </td>
         <td>
-          11802
+          12211
           -
-          11839
+          12212
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          316
+        </td>
+        <td>
+          1038
+        </td>
+        <td>
+          12195
+          -
+          12247
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.net.URLDecoder.decode
+          scala.Boolean.&amp;&amp;
         </td>
-        <td style="background: #F0ADAD">
-          java.net.URLDecoder.decode(stringObj, &quot;UTF-8&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          301
-        </td>
-        <td>
-          1097
-        </td>
-        <td>
-          11854
-          -
-          11903
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          net.liftweb.json.JsonAST.JValue.extract
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3)
+        <td style="background: #AEF1AE">
+          parts.length.&gt;=(2).&amp;&amp;(parts.apply(1).startsWith(&quot;charset=&quot;))
         </td>
       </tr><tr>
         <td>
-          301
+          317
         </td>
         <td>
-          1094
+          1040
         </td>
         <td>
-          11867
+          12257
           -
-          11890
+          12296
         </td>
         <td>
           Apply
         </td>
         <td>
-          net.liftweb.json.JsonAST.JField.apply
+          java.nio.charset.Charset.forName
         </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text)
+        <td style="background: #AEF1AE">
+          java.nio.charset.Charset.forName(parts.apply(1).split(&quot;=&quot;).apply(1))
         </td>
       </tr><tr>
         <td>
-          301
+          317
         </td>
         <td>
-          1096
+          1039
         </td>
         <td>
-          11900
+          12273
           -
-          11900
+          12295
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          parts.apply(1).split(&quot;=&quot;).apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          12257
+          -
+          12296
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.nio.charset.Charset.forName
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.charset.Charset.forName(parts.apply(1).split(&quot;=&quot;).apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          12320
+          -
+          12337
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          320
+        </td>
+        <td>
+          1042
+        </td>
+        <td>
+          12320
+          -
+          12337
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.formats
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
         </td>
-        <td style="background: #F0ADAD">
-          EntityRoutes.this.formats
+        <td style="background: #AEF1AE">
+          org.mashupbots.socko.infrastructure.CharsetUtil.UTF_8
         </td>
       </tr><tr>
         <td>
-          301
+          323
         </td>
         <td>
-          1098
+          1044
         </td>
         <td>
-          11849
+          12349
           -
-          11904
+          12371
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Some.apply
+          scala.Tuple2.apply
         </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[T](net.liftweb.json.JsonAST.JObject.apply(immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))).extract[T](EntityRoutes.this.formats, evidence$3))
-        </td>
-      </tr><tr>
-        <td>
-          301
-        </td>
-        <td>
-          1095
-        </td>
-        <td>
-          11862
-          -
-          11891
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.List.apply
-        </td>
-        <td style="background: #F0ADAD">
-          immutable.this.List.apply[net.liftweb.json.JsonAST.JField](net.liftweb.json.JsonAST.JField.apply(&quot;content&quot;, text))
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[String, java.nio.charset.Charset](contentType, charSet)
         </td>
       </tr><tr>
         <td>
-          310
+          330
         </td>
         <td>
-          1117
+          1059
         </td>
         <td>
-          11986
+          12439
           -
-          12437
+          12890
         </td>
         <td>
           Apply
@@ -4998,36 +5297,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          332
         </td>
         <td>
-          1105
+          1046
         </td>
         <td>
-          12092
+          12562
           -
-          12127
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
-        </td>
-      </tr><tr>
-        <td>
-          312
-        </td>
-        <td>
-          1104
-        </td>
-        <td>
-          12109
-          -
-          12119
+          12572
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5040,15 +5318,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          332
         </td>
         <td>
-          1103
+          1045
         </td>
         <td>
-          12114
+          12567
           -
-          12114
+          12567
         </td>
         <td>
           TypeApply
@@ -5061,15 +5339,36 @@ else
         </td>
       </tr><tr>
         <td>
-          313
+          332
         </td>
         <td>
-          1111
+          1047
         </td>
         <td>
-          12148
+          12545
           -
-          12244
+          12580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          333
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          12601
+          -
+          12697
         </td>
         <td>
           Block
@@ -5085,57 +5384,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          334
         </td>
         <td>
-          1106
+          1049
         </td>
         <td>
-          12180
+          12625
           -
-          12215
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpContent.toBytes
-        </td>
-        <td style="background: #AEF1AE">
-          sBean.event.request.content.toBytes
-        </td>
-      </tr><tr>
-        <td>
-          314
-        </td>
-        <td>
-          1108
-        </td>
-        <td>
-          12148
-          -
-          12216
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.EntityRoutes.addEntityToBean
-        </td>
-        <td style="background: #AEF1AE">
-          SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
-        </td>
-      </tr><tr>
-        <td>
-          314
-        </td>
-        <td>
-          1107
-        </td>
-        <td>
-          12172
-          -
-          12172
+          12625
         </td>
         <td>
           Apply
@@ -5148,36 +5405,57 @@ else
         </td>
       </tr><tr>
         <td>
-          315
+          334
         </td>
         <td>
-          1109
+          1048
         </td>
         <td>
-          12237
+          12633
           -
-          12237
+          12668
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.reflect.ManifestFactory.Nothing
+          org.mashupbots.socko.events.HttpContent.toBytes
         </td>
         <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.Nothing
+          sBean.event.request.content.toBytes
         </td>
       </tr><tr>
         <td>
-          315
+          334
         </td>
         <td>
-          1110
+          1050
         </td>
         <td>
-          12225
+          12601
           -
-          12244
+          12669
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.EntityRoutes.addEntityToBean
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          12678
+          -
+          12697
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5190,15 +5468,36 @@ else
         </td>
       </tr><tr>
         <td>
-          317
+          335
         </td>
         <td>
-          1113
+          1051
         </td>
         <td>
-          12291
+          12690
           -
-          12327
+          12690
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          1055
+        </td>
+        <td>
+          12744
+          -
+          12780
         </td>
         <td>
           Apply
@@ -5211,15 +5510,15 @@ else
         </td>
       </tr><tr>
         <td>
-          317
+          337
         </td>
         <td>
-          1112
+          1054
         </td>
         <td>
-          12311
+          12764
           -
-          12322
+          12775
         </td>
         <td>
           Select
@@ -5232,15 +5531,15 @@ else
         </td>
       </tr><tr>
         <td>
-          321
+          341
         </td>
         <td>
-          1115
+          1057
         </td>
         <td>
-          12383
+          12836
           -
-          12415
+          12868
         </td>
         <td>
           Apply
@@ -5253,15 +5552,15 @@ else
         </td>
       </tr><tr>
         <td>
-          321
+          341
         </td>
         <td>
-          1114
+          1056
         </td>
         <td>
-          12409
+          12862
           -
-          12414
+          12867
         </td>
         <td>
           Select
@@ -5274,15 +5573,15 @@ else
         </td>
       </tr><tr>
         <td>
-          323
+          343
         </td>
         <td>
-          1116
+          1058
         </td>
         <td>
-          12427
+          12880
           -
-          12433
+          12886
         </td>
         <td>
           Literal
@@ -5295,15 +5594,15 @@ else
         </td>
       </tr><tr>
         <td>
-          330
+          350
         </td>
         <td>
-          1126
+          1068
         </td>
         <td>
-          12502
+          12955
           -
-          12749
+          13202
         </td>
         <td>
           Apply
@@ -5316,57 +5615,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          352
         </td>
         <td>
-          1118
+          1061
         </td>
         <td>
-          12631
+          13079
           -
-          12631
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.$conforms[(String, AnyRef)]
-        </td>
-      </tr><tr>
-        <td>
-          332
-        </td>
-        <td>
-          1120
-        </td>
-        <td>
-          12609
-          -
-          12644
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
-        </td>
-      </tr><tr>
-        <td>
-          332
-        </td>
-        <td>
-          1119
-        </td>
-        <td>
-          12626
-          -
-          12636
+          13089
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5379,15 +5636,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          352
         </td>
         <td>
-          1122
+          1064
         </td>
         <td>
-          12596
+          13049
           -
-          12645
+          13098
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5400,15 +5657,36 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          352
         </td>
         <td>
-          1121
+          1060
         </td>
         <td>
-          12608
+          13084
           -
-          12608
+          13084
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          352
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          13061
+          -
+          13061
         </td>
         <td>
           Select
@@ -5421,15 +5699,36 @@ else
         </td>
       </tr><tr>
         <td>
-          335
+          352
         </td>
         <td>
-          1124
+          1062
         </td>
         <td>
-          12693
+          13062
           -
-          12725
+          13097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          355
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          13146
+          -
+          13178
         </td>
         <td>
           Apply
@@ -5442,15 +5741,15 @@ else
         </td>
       </tr><tr>
         <td>
-          335
+          355
         </td>
         <td>
-          1123
+          1065
         </td>
         <td>
-          12719
+          13172
           -
-          12724
+          13177
         </td>
         <td>
           Select
@@ -5463,15 +5762,15 @@ else
         </td>
       </tr><tr>
         <td>
-          337
+          357
         </td>
         <td>
-          1125
+          1067
         </td>
         <td>
-          12737
+          13190
           -
-          12745
+          13198
         </td>
         <td>
           Literal
@@ -5484,15 +5783,15 @@ else
         </td>
       </tr><tr>
         <td>
-          349
+          369
         </td>
         <td>
-          1127
+          1069
         </td>
         <td>
-          12966
+          13419
           -
-          12968
+          13421
         </td>
         <td>
           Literal
@@ -5505,15 +5804,15 @@ else
         </td>
       </tr><tr>
         <td>
-          350
+          370
         </td>
         <td>
-          1128
+          1070
         </td>
         <td>
-          13010
+          13463
           -
-          13016
+          13469
         </td>
         <td>
           Literal
@@ -5526,15 +5825,15 @@ else
         </td>
       </tr><tr>
         <td>
-          352
+          372
         </td>
         <td>
-          1146
+          1088
         </td>
         <td>
-          13020
+          13473
           -
-          13869
+          14322
         </td>
         <td>
           Apply
@@ -5554,36 +5853,15 @@ else
         </td>
       </tr><tr>
         <td>
-          355
+          375
         </td>
         <td>
-          1129
+          1073
         </td>
         <td>
-          13214
+          13645
           -
-          13214
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Predef.$conforms[(String, AnyRef)]
-        </td>
-      </tr><tr>
-        <td>
-          355
-        </td>
-        <td>
-          1131
-        </td>
-        <td>
-          13192
-          -
-          13227
+          13680
         </td>
         <td>
           Apply
@@ -5596,15 +5874,15 @@ else
         </td>
       </tr><tr>
         <td>
-          355
+          375
         </td>
         <td>
-          1130
+          1072
         </td>
         <td>
-          13209
+          13662
           -
-          13219
+          13672
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5617,15 +5895,36 @@ else
         </td>
       </tr><tr>
         <td>
-          356
+          375
         </td>
         <td>
-          1132
+          1071
         </td>
         <td>
-          13248
+          13667
           -
-          13273
+          13667
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          376
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          13701
+          -
+          13726
         </td>
         <td>
           Apply
@@ -5638,15 +5937,15 @@ else
         </td>
       </tr><tr>
         <td>
-          357
+          377
         </td>
         <td>
-          1135
+          1077
         </td>
         <td>
-          13301
+          13754
           -
-          13407
+          13860
         </td>
         <td>
           Apply
@@ -5659,15 +5958,15 @@ else
         </td>
       </tr><tr>
         <td>
-          358
+          378
         </td>
         <td>
-          1133
+          1075
         </td>
         <td>
-          13330
+          13783
           -
-          13348
+          13801
         </td>
         <td>
           Apply
@@ -5680,15 +5979,15 @@ else
         </td>
       </tr><tr>
         <td>
-          359
+          379
         </td>
         <td>
-          1134
+          1076
         </td>
         <td>
-          13358
+          13811
           -
-          13399
+          13852
         </td>
         <td>
           Apply
@@ -5701,36 +6000,15 @@ else
         </td>
       </tr><tr>
         <td>
-          361
+          381
         </td>
         <td>
-          1136
+          1079
         </td>
         <td>
-          13458
+          13879
           -
-          13481
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionResponseType
-        </td>
-        <td style="background: #AEF1AE">
-          SockoOptions.this.sockoOptionResponseType
-        </td>
-      </tr><tr>
-        <td>
-          361
-        </td>
-        <td>
-          1137
-        </td>
-        <td>
-          13426
-          -
-          13482
+          13935
         </td>
         <td>
           Apply
@@ -5743,36 +6021,36 @@ else
         </td>
       </tr><tr>
         <td>
-          362
+          381
         </td>
         <td>
-          1138
+          1078
         </td>
         <td>
-          13518
+          13911
           -
-          13538
+          13934
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionsResponse
+          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionResponseType
         </td>
         <td style="background: #AEF1AE">
-          SockoOptions.this.sockoOptionsResponse
+          SockoOptions.this.sockoOptionResponseType
         </td>
       </tr><tr>
         <td>
-          362
+          382
         </td>
         <td>
-          1139
+          1081
         </td>
         <td>
-          13503
+          13956
           -
-          13546
+          13999
         </td>
         <td>
           Apply
@@ -5785,15 +6063,36 @@ else
         </td>
       </tr><tr>
         <td>
-          363
+          382
         </td>
         <td>
-          1142
+          1080
         </td>
         <td>
-          13553
+          13971
           -
-          13768
+          13991
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoOptions.sockoOptionsResponse
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.sockoOptionsResponse
+        </td>
+      </tr><tr>
+        <td>
+          383
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          14006
+          -
+          14221
         </td>
         <td>
           Apply
@@ -5806,15 +6105,15 @@ else
         </td>
       </tr><tr>
         <td>
-          364
+          384
         </td>
         <td>
-          1140
+          1082
         </td>
         <td>
-          13589
+          14042
           -
-          13610
+          14063
         </td>
         <td>
           Select
@@ -5827,15 +6126,15 @@ else
         </td>
       </tr><tr>
         <td>
-          367
+          387
         </td>
         <td>
-          1141
+          1083
         </td>
         <td>
-          13652
+          14105
           -
-          13760
+          14213
         </td>
         <td>
           Apply
@@ -5848,36 +6147,15 @@ else
         </td>
       </tr><tr>
         <td>
-          371
+          391
         </td>
         <td>
-          1144
+          1085
         </td>
         <td>
-          13816
+          14295
           -
-          13848
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
-        </td>
-        <td style="background: #AEF1AE">
-          SockoOptions.this.defaultPathMatcher(event, SockoOptions.this.paths)
-        </td>
-      </tr><tr>
-        <td>
-          371
-        </td>
-        <td>
-          1143
-        </td>
-        <td>
-          13842
-          -
-          13847
+          14300
         </td>
         <td>
           Select
@@ -5890,15 +6168,36 @@ else
         </td>
       </tr><tr>
         <td>
-          372
+          391
         </td>
         <td>
-          1145
+          1086
         </td>
         <td>
-          13856
+          14269
           -
-          13865
+          14301
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.defaultPathMatcher(event, SockoOptions.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          392
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          14309
+          -
+          14318
         </td>
         <td>
           Literal
@@ -5911,15 +6210,15 @@ else
         </td>
       </tr><tr>
         <td>
-          379
+          399
         </td>
         <td>
-          1155
+          1097
         </td>
         <td>
-          13932
+          14385
           -
-          14177
+          14630
         </td>
         <td>
           Apply
@@ -5932,78 +6231,15 @@ else
         </td>
       </tr><tr>
         <td>
-          381
+          401
         </td>
         <td>
-          1151
+          1091
         </td>
         <td>
-          14026
+          14492
           -
-          14075
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
-        </td>
-        <td style="background: #AEF1AE">
-          SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
-        </td>
-      </tr><tr>
-        <td>
-          381
-        </td>
-        <td>
-          1147
-        </td>
-        <td>
-          14061
-          -
-          14061
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Predef.$conforms[(String, AnyRef)]
-        </td>
-      </tr><tr>
-        <td>
-          381
-        </td>
-        <td>
-          1150
-        </td>
-        <td>
-          14038
-          -
-          14038
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.Nothing
-        </td>
-        <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.Nothing
-        </td>
-      </tr><tr>
-        <td>
-          381
-        </td>
-        <td>
-          1149
-        </td>
-        <td>
-          14039
-          -
-          14074
+          14527
         </td>
         <td>
           Apply
@@ -6016,15 +6252,36 @@ else
         </td>
       </tr><tr>
         <td>
-          381
+          401
         </td>
         <td>
-          1148
+          1093
         </td>
         <td>
-          14056
+          14479
           -
-          14066
+          14528
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          401
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          14509
+          -
+          14519
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6037,36 +6294,57 @@ else
         </td>
       </tr><tr>
         <td>
-          384
+          401
         </td>
         <td>
-          1153
+          1089
         </td>
         <td>
-          14123
+          14514
           -
-          14155
+          14514
         </td>
         <td>
-          Apply
+          TypeApply
         </td>
         <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+          scala.Predef.$conforms
         </td>
         <td style="background: #AEF1AE">
-          SockoHead.this.defaultPathMatcher(event, SockoHead.this.paths)
+          scala.this.Predef.$conforms[(String, AnyRef)]
         </td>
       </tr><tr>
         <td>
-          384
+          401
         </td>
         <td>
-          1152
+          1092
         </td>
         <td>
-          14149
+          14491
           -
-          14154
+          14491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          404
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          14602
+          -
+          14607
         </td>
         <td>
           Select
@@ -6079,15 +6357,36 @@ else
         </td>
       </tr><tr>
         <td>
-          386
+          404
         </td>
         <td>
-          1154
+          1095
         </td>
         <td>
-          14167
+          14576
           -
-          14173
+          14608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.defaultPathMatcher(event, SockoHead.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          14620
+          -
+          14626
         </td>
         <td>
           Literal
@@ -6100,15 +6399,15 @@ else
         </td>
       </tr><tr>
         <td>
-          393
+          413
         </td>
         <td>
-          1170
+          1112
         </td>
         <td>
-          14240
+          14693
           -
-          14690
+          15143
         </td>
         <td>
           Apply
@@ -6129,36 +6428,15 @@ else
         </td>
       </tr><tr>
         <td>
-          395
+          415
         </td>
         <td>
-          1156
+          1100
         </td>
         <td>
-          14368
+          14799
           -
-          14368
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Predef.$conforms[(String, AnyRef)]
-        </td>
-      </tr><tr>
-        <td>
-          395
-        </td>
-        <td>
-          1158
-        </td>
-        <td>
-          14346
-          -
-          14381
+          14834
         </td>
         <td>
           Apply
@@ -6171,15 +6449,15 @@ else
         </td>
       </tr><tr>
         <td>
-          395
+          415
         </td>
         <td>
-          1157
+          1099
         </td>
         <td>
-          14363
+          14816
           -
-          14373
+          14826
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6192,15 +6470,36 @@ else
         </td>
       </tr><tr>
         <td>
-          396
+          415
         </td>
         <td>
-          1164
+          1098
         </td>
         <td>
-          14402
+          14821
           -
-          14498
+          14821
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(String, AnyRef)]
+        </td>
+      </tr><tr>
+        <td>
+          416
+        </td>
+        <td>
+          1106
+        </td>
+        <td>
+          14855
+          -
+          14951
         </td>
         <td>
           Block
@@ -6216,15 +6515,15 @@ else
         </td>
       </tr><tr>
         <td>
-          397
+          417
         </td>
         <td>
-          1160
+          1102
         </td>
         <td>
-          14426
+          14879
           -
-          14426
+          14879
         </td>
         <td>
           Apply
@@ -6237,15 +6536,15 @@ else
         </td>
       </tr><tr>
         <td>
-          397
+          417
         </td>
         <td>
-          1159
+          1101
         </td>
         <td>
-          14434
+          14887
           -
-          14469
+          14922
         </td>
         <td>
           Select
@@ -6258,15 +6557,15 @@ else
         </td>
       </tr><tr>
         <td>
-          397
+          417
         </td>
         <td>
-          1161
+          1103
         </td>
         <td>
-          14402
+          14855
           -
-          14470
+          14923
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6279,36 +6578,15 @@ else
         </td>
       </tr><tr>
         <td>
-          398
+          418
         </td>
         <td>
-          1162
+          1105
         </td>
         <td>
-          14491
+          14932
           -
-          14491
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.Nothing
-        </td>
-        <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.Nothing
-        </td>
-      </tr><tr>
-        <td>
-          398
-        </td>
-        <td>
-          1163
-        </td>
-        <td>
-          14479
-          -
-          14498
+          14951
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6321,36 +6599,36 @@ else
         </td>
       </tr><tr>
         <td>
-          400
+          418
         </td>
         <td>
-          1165
+          1104
         </td>
         <td>
-          14565
+          14944
           -
-          14576
+          14944
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
+          scala.reflect.ManifestFactory.Nothing
         </td>
-        <td style="background: #F0ADAD">
-          sBean.event
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
         </td>
       </tr><tr>
         <td>
-          400
+          420
         </td>
         <td>
-          1166
+          1108
         </td>
         <td>
-          14545
+          14998
           -
-          14581
+          15034
         </td>
         <td>
           Apply
@@ -6363,36 +6641,36 @@ else
         </td>
       </tr><tr>
         <td>
-          404
+          420
         </td>
         <td>
-          1168
+          1107
         </td>
         <td>
-          14637
+          15018
           -
-          14669
+          15029
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.event
         </td>
-        <td style="background: #AEF1AE">
-          SockoPut.this.defaultPathMatcher(event, SockoPut.this.paths)
+        <td style="background: #F0ADAD">
+          sBean.event
         </td>
       </tr><tr>
         <td>
-          404
+          424
         </td>
         <td>
-          1167
+          1109
         </td>
         <td>
-          14663
+          15116
           -
-          14668
+          15121
         </td>
         <td>
           Select
@@ -6405,15 +6683,36 @@ else
         </td>
       </tr><tr>
         <td>
-          406
+          424
         </td>
         <td>
-          1169
+          1110
         </td>
         <td>
-          14681
+          15090
           -
-          14686
+          15122
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.defaultPathMatcher
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.defaultPathMatcher(event, SockoPut.this.paths)
+        </td>
+      </tr><tr>
+        <td>
+          426
+        </td>
+        <td>
+          1111
+        </td>
+        <td>
+          15134
+          -
+          15139
         </td>
         <td>
           Literal
