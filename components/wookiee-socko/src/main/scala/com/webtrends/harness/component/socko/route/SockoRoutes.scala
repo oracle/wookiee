@@ -290,7 +290,7 @@ trait EntityRoutes extends SockoRoutes {
       contentType match {
 
         case "application/x-www-form-urlencoded" | "multipart/form-data" =>
-          val dataString = new String(data, charset).dropWhile( _ == "?")
+          val dataString = new String(data, charset).dropWhile( _ == '?')
           val jObj = JObject(new QueryStringDecoder("?" + dataString, charset).parameters.map { kvp =>
             JField(kvp._1, if (kvp._2 != null) new JString(kvp._2.last) else JNull)
             }.toList)
