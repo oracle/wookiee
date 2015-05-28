@@ -46,7 +46,7 @@
 </span>21 <span style=''>
 </span>22 <span style=''>import akka.actor._
 </span>23 <span style=''>import akka.util.Timeout
-</span>24 <span style=''>import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange}
+</span>24 <span style=''>import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
 </span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 </span>26 <span style=''>import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 </span>27 <span style=''>import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
@@ -57,151 +57,157 @@
 </span>32 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
 </span>33 <span style=''>import net.liftweb.json.Serialization
 </span>34 <span style=''>import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
-</span>35 <span style=''>import scala.collection.mutable
-</span>36 <span style=''>import scala.concurrent.duration._
-</span>37 <span style=''>
-</span>38 <span style=''>object KafkaConsumerCoordinator {
-</span>39 <span style=''>
-</span>40 <span style=''>  def props(sourceProxy: ActorRef) =
-</span>41 <span style=''>    </span><span style='background: #F0ADAD'>Props(new KafkaConsumerCoordinator(sourceProxy))</span><span style=''>
-</span>42 <span style=''>
-</span>43 <span style=''>  case class NodeData(nodeId: String, data: String)
-</span>44 <span style=''>  case class TopicPartitionResp(partitionsByTopic: Set[PartitionAssignment])
-</span>45 <span style=''>  case class BroadcastToWorkers(msg: Any)
-</span>46 <span style=''>}
-</span>47 <span style=''>
-</span>48 <span style=''>class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
-</span>49 <span style=''>    with ActorLoggingAdapter
-</span>50 <span style=''>    with CoordinatorHealth
-</span>51 <span style=''>    with KafkaSettings
-</span>52 <span style=''>    with ZookeeperEventAdapter {
-</span>53 <span style=''>
-</span>54 <span style=''>  import AssignmentDistributorLeader._
-</span>55 <span style=''>  import KafkaConsumerCoordinator._
-</span>56 <span style=''>
-</span>57 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(10 seconds)</span><span style=''>
-</span>58 <span style=''>  implicit val system = </span><span style='background: #F0ADAD'>context.system</span><span style=''>
-</span>59 <span style=''>
-</span>60 <span style=''>  val offsetManager = </span><span style='background: #F0ADAD'>context.actorOf(OffsetManager.props(appRootPath), "offset-manager")</span><span style=''>
-</span>61 <span style=''>
-</span>62 <span style=''>  val workers = </span><span style='background: #F0ADAD'>mutable.Map.empty[String,WorkerRef]</span><span style=''>
-</span>63 <span style=''>
-</span>64 <span style=''>  override def preStart() {
-</span>65 <span style=''>    </span><span style='background: #F0ADAD'>register(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
-</span>66 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
-</span>67 <span style=''>  }
-</span>68 <span style=''>
-</span>69 <span style=''>  override def postStop() {
-</span>70 <span style=''>    </span><span style='background: #F0ADAD'>unregister(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
-</span>71 <span style=''>
-</span>72 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
-</span>73 <span style=''></span><span style='background: #F0ADAD'>      log.warning(s"Stopping child [${child.path}]")
-</span>74 <span style=''></span><span style='background: #F0ADAD'>      context.unwatch(child)
-</span>75 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
-</span>76 <span style=''>    }
-</span>77 <span style=''>  }
-</span>78 <span style=''>
-</span>79 <span style=''>  def receive = </span><span style='background: #F0ADAD'>initial</span><span style=''>
-</span>80 <span style=''>
-</span>81 <span style=''>  /**
-</span>82 <span style=''>   *
-</span>83 <span style=''>   * @return
-</span>84 <span style=''>   */
-</span>85 <span style=''>  def initial:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
-</span>86 <span style=''></span><span style='background: #F0ADAD'>    case NodeData(nodeId, data) =>
-</span>87 <span style=''></span><span style='background: #F0ADAD'>      val assignments = Serialization.read(data)(formats, manifest[List[PartitionAssignment]])
-</span>88 <span style=''></span><span style='background: #F0ADAD'>      processAssignmentEvent(assignments)
-</span>89 <span style=''></span><span style='background: #F0ADAD'>
-</span>90 <span style=''></span><span style='background: #F0ADAD'>    // ZK data has changed
-</span>91 <span style=''></span><span style='background: #F0ADAD'>    case ZookeeperChildEvent(event) =>
-</span>92 <span style=''></span><span style='background: #F0ADAD'>      // Node registration change
-</span>93 <span style=''></span><span style='background: #F0ADAD'>      event.getType match {
-</span>94 <span style=''></span><span style='background: #F0ADAD'>        // Node data has changed. If the node is local, notify the node actor
-</span>95 <span style=''></span><span style='background: #F0ADAD'>        case CHILD_UPDATED | CHILD_ADDED | CHILD_REMOVED =>
-</span>96 <span style=''></span><span style='background: #F0ADAD'>          val nodeId = event.getData.getPath.split("/").last
-</span>97 <span style=''></span><span style='background: #F0ADAD'>          if (hostname == nodeId) {
-</span>98 <span style=''></span><span style='background: #F0ADAD'>            log.debug(s"Node data for [$nodeId] has been updated. Notifying it")
-</span>99 <span style=''></span><span style='background: #F0ADAD'>            self ! NodeData(nodeId, new String(event.getData.getData, utf8))
-</span>100 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>101 <span style=''></span><span style='background: #F0ADAD'>
-</span>102 <span style=''></span><span style='background: #F0ADAD'>        case _ =>
-</span>103 <span style=''></span><span style='background: #F0ADAD'>        // To remove a compiler warning
-</span>104 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>105 <span style=''></span><span style='background: #F0ADAD'>
-</span>106 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
-</span>107 <span style=''></span><span style='background: #F0ADAD'>      //Stop all workers
-</span>108 <span style=''></span><span style='background: #F0ADAD'>      stopAllWorkers
-</span>109 <span style=''></span><span style='background: #F0ADAD'>      context.become(awaitingShutdown)
-</span>110 <span style=''></span><span style='background: #F0ADAD'>
-</span>111 <span style=''></span><span style='background: #F0ADAD'>    case BroadcastToWorkers(msg) =>
-</span>112 <span style=''></span><span style='background: #F0ADAD'>      workers withFilter(_._2.started) foreach(_._2.actor.forward(msg))
-</span>113 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>114 <span style=''>
-</span>115 <span style=''>  /**
-</span>116 <span style=''>   * We got the prepare for shutdown event
-</span>117 <span style=''>   * @return
-</span>118 <span style=''>   */
-</span>119 <span style=''>  def awaitingShutdown:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
-</span>120 <span style=''></span><span style='background: #F0ADAD'>    case msg:Any => //Just ignore all other messages
-</span>121 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"Waiting for shutdown ignoring $msg")
-</span>122 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>123 <span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>import scala.collection.mutable
+</span>37 <span style=''>import scala.concurrent.duration._
+</span>38 <span style=''>
+</span>39 <span style=''>object KafkaConsumerCoordinator {
+</span>40 <span style=''>
+</span>41 <span style=''>  def props(sourceProxy: ActorRef) =
+</span>42 <span style=''>    </span><span style='background: #F0ADAD'>Props(new KafkaConsumerCoordinator(sourceProxy))</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  case class NodeData(nodeId: String, data: String)
+</span>45 <span style=''>  case class TopicPartitionResp(partitionsByTopic: Set[PartitionAssignment])
+</span>46 <span style=''>  case class BroadcastToWorkers(msg: Any)
+</span>47 <span style=''>}
+</span>48 <span style=''>
+</span>49 <span style=''>class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
+</span>50 <span style=''>    with ActorLoggingAdapter
+</span>51 <span style=''>    with CoordinatorHealth
+</span>52 <span style=''>    with KafkaSettings
+</span>53 <span style=''>    with ZookeeperEventAdapter {
+</span>54 <span style=''>
+</span>55 <span style=''>  import AssignmentDistributorLeader._
+</span>56 <span style=''>  import KafkaConsumerCoordinator._
+</span>57 <span style=''>
+</span>58 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(10 seconds)</span><span style=''>
+</span>59 <span style=''>  implicit val system = </span><span style='background: #F0ADAD'>context.system</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>  val offsetManager = </span><span style='background: #F0ADAD'>context.actorOf(OffsetManager.props(appRootPath), "offset-manager")</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  val workers = </span><span style='background: #F0ADAD'>mutable.Map.empty[String,WorkerRef]</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  override def preStart() {
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>register(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  override def postStop() {
+</span>71 <span style=''>    </span><span style='background: #F0ADAD'>unregister(self, ZookeeperChildEventRegistration(self, distributorPaths.assignmentPath))</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
+</span>74 <span style=''></span><span style='background: #F0ADAD'>      log.warning(s"Stopping child [${child.path}]")
+</span>75 <span style=''></span><span style='background: #F0ADAD'>      context.unwatch(child)
+</span>76 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
+</span>77 <span style=''>    }
+</span>78 <span style=''>  }
+</span>79 <span style=''>
+</span>80 <span style=''>  def receive = </span><span style='background: #F0ADAD'>initial</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>  /**
+</span>83 <span style=''>   *
+</span>84 <span style=''>   * @return
+</span>85 <span style=''>   */
+</span>86 <span style=''>  def initial:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
+</span>87 <span style=''></span><span style='background: #F0ADAD'>    case NodeData(nodeId, data) =>
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      val assignments = Serialization.read(data)(formats, manifest[List[PartitionAssignment]])
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      processAssignmentEvent(assignments)
+</span>90 <span style=''></span><span style='background: #F0ADAD'>
+</span>91 <span style=''></span><span style='background: #F0ADAD'>    // ZK data has changed
+</span>92 <span style=''></span><span style='background: #F0ADAD'>    case ZookeeperChildEvent(event) =>
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      // Node registration change
+</span>94 <span style=''></span><span style='background: #F0ADAD'>      event.getType match {
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        // Node data has changed. If the node is local, notify the node actor
+</span>96 <span style=''></span><span style='background: #F0ADAD'>        case CHILD_UPDATED | CHILD_ADDED | CHILD_REMOVED =>
+</span>97 <span style=''></span><span style='background: #F0ADAD'>          val nodeId = event.getData.getPath.split("/").last
+</span>98 <span style=''></span><span style='background: #F0ADAD'>          if (hostname == nodeId) {
+</span>99 <span style=''></span><span style='background: #F0ADAD'>            log.debug(s"Node data for [$nodeId] has been updated. Notifying it")
+</span>100 <span style=''></span><span style='background: #F0ADAD'>            self ! NodeData(nodeId, new String(event.getData.getData, utf8))
+</span>101 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>102 <span style=''></span><span style='background: #F0ADAD'>
+</span>103 <span style=''></span><span style='background: #F0ADAD'>        case _ =>
+</span>104 <span style=''></span><span style='background: #F0ADAD'>        // To remove a compiler warning
+</span>105 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>106 <span style=''></span><span style='background: #F0ADAD'>
+</span>107 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
+</span>108 <span style=''></span><span style='background: #F0ADAD'>      //Stop all workers
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      stopAllWorkers
+</span>110 <span style=''></span><span style='background: #F0ADAD'>      context.become(awaitingShutdown)
+</span>111 <span style=''></span><span style='background: #F0ADAD'>
+</span>112 <span style=''></span><span style='background: #F0ADAD'>    case BroadcastToWorkers(msg) =>
+</span>113 <span style=''></span><span style='background: #F0ADAD'>      workers withFilter(_._2.started) foreach(_._2.actor.forward(msg))
+</span>114 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>115 <span style=''>
+</span>116 <span style=''>  /**
+</span>117 <span style=''>   * We got the prepare for shutdown event
+</span>118 <span style=''>   * @return
+</span>119 <span style=''>   */
+</span>120 <span style=''>  def awaitingShutdown:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse configReceive orElse {
+</span>121 <span style=''></span><span style='background: #F0ADAD'>    case msg:Any => //Just ignore all other messages
+</span>122 <span style=''></span><span style='background: #F0ADAD'>      log.debug(s"Waiting for shutdown ignoring $msg")
+</span>123 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
 </span>124 <span style=''>
-</span>125 <span style=''>  def stopAllWorkers = {
-</span>126 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Stopping ${workers.size} workers")</span><span style=''>
-</span>127 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach(_._2.stopWorker())</span><span style=''>
-</span>128 <span style=''>  }
-</span>129 <span style=''>
-</span>130 <span style=''>  override def renewConfiguration() = {
-</span>131 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
-</span>132 <span style=''>    </span><span style='background: #F0ADAD'>kafkaProxy ! ConfigChange</span><span style=''>
-</span>133 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
-</span>134 <span style=''>  }
-</span>135 <span style=''>
-</span>136 <span style=''>  // Will stop all actors that are no longer needed and start any that are now needed
-</span>137 <span style=''>  def stopUnneededWorkers(assigns: List[PartitionAssignment]) {
-</span>138 <span style=''>    val specs = </span><span style='background: #F0ADAD'>assigns.map(_.assignmentName)</span><span style=''>
-</span>139 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach { worker =>
-</span>140 <span style=''></span><span style='background: #F0ADAD'>      if (specs.contains(worker._1)) worker._2.startWorker() else worker._2.stopWorker()</span><span style=''>
-</span>141 <span style=''>    }
-</span>142 <span style=''>  }
-</span>143 <span style=''>
-</span>144 <span style=''>  def createWorkerIfNeeded(assign: PartitionAssignment) {
-</span>145 <span style=''>    val spec = </span><span style='background: #F0ADAD'>assign.assignmentName</span><span style=''>
-</span>146 <span style=''>    if (</span><span style='background: #F0ADAD'>!workers.contains(spec)</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>147 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Creating worker ${assign.host}, ${assign.topic}_${assign.partition}")
-</span>148 <span style=''></span><span style='background: #F0ADAD'>      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager), spec)
-</span>149 <span style=''></span><span style='background: #F0ADAD'>      workers.put(spec, new WorkerRef(true, ref))
-</span>150 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>151 <span style=''>  }
-</span>152 <span style=''>
-</span>153 <span style=''>  def processAssignmentEvent(assigns: List[PartitionAssignment]) {
-</span>154 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(s"Processing ${assigns.length} assignments.")</span><span style=''>
-</span>155 <span style=''>    </span><span style='background: #F0ADAD'>stopUnneededWorkers(assigns)</span><span style=''>
-</span>156 <span style=''>    </span><span style='background: #F0ADAD'>assigns foreach { assign => createWorkerIfNeeded(assign)</span><span style=''> }
+</span>125 <span style=''>
+</span>126 <span style=''>  def stopAllWorkers = {
+</span>127 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Stopping ${workers.size} workers")</span><span style=''>
+</span>128 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach(_._2.stopWorker())</span><span style=''>
+</span>129 <span style=''>  }
+</span>130 <span style=''>
+</span>131 <span style=''>  override def renewConfiguration() = {
+</span>132 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>133 <span style=''>    </span><span style='background: #F0ADAD'>kafkaProxy ! ConfigChange()</span><span style=''>
+</span>134 <span style=''>    </span><span style='background: #F0ADAD'>renewTopicAgeThresholds()</span><span style=''>
+</span>135 <span style=''>  }
+</span>136 <span style=''>
+</span>137 <span style=''>  // Will stop all actors that are no longer needed and start any that are now needed
+</span>138 <span style=''>  def stopUnneededWorkers(assigns: List[PartitionAssignment]) {
+</span>139 <span style=''>    val specs = </span><span style='background: #F0ADAD'>assigns.map(_.assignmentName)</span><span style=''>
+</span>140 <span style=''>    </span><span style='background: #F0ADAD'>workers foreach { worker =>
+</span>141 <span style=''></span><span style='background: #F0ADAD'>      if (specs.contains(worker._1)) {
+</span>142 <span style=''></span><span style='background: #F0ADAD'>        worker._2.startWorker()
+</span>143 <span style=''></span><span style='background: #F0ADAD'>      } else {
+</span>144 <span style=''></span><span style='background: #F0ADAD'>        worker._2.stopWorker()
+</span>145 <span style=''></span><span style='background: #F0ADAD'>        workerKafkaHealth.remove(worker._1)
+</span>146 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>147 <span style=''>    }
+</span>148 <span style=''>  }
+</span>149 <span style=''>
+</span>150 <span style=''>  def createWorkerIfNeeded(assign: PartitionAssignment) {
+</span>151 <span style=''>    val spec = </span><span style='background: #F0ADAD'>assign.assignmentName</span><span style=''>
+</span>152 <span style=''>    if (</span><span style='background: #F0ADAD'>!workers.contains(spec)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>153 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Creating worker ${assign.host}, ${assign.topic}_${assign.partition}")
+</span>154 <span style=''></span><span style='background: #F0ADAD'>      val ref = context.actorOf(Props(topicWorker, kafkaProxy, assign, offsetManager).withDispatcher("worker-dispatcher"), spec)
+</span>155 <span style=''></span><span style='background: #F0ADAD'>      workers.put(spec, new WorkerRef(true, ref))
+</span>156 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
 </span>157 <span style=''>  }
 </span>158 <span style=''>
-</span>159 <span style=''>  // Used to keep track of workers and their states, will start on construction if start=true
-</span>160 <span style=''>  class WorkerRef(start: Boolean, ref: ActorRef) {
-</span>161 <span style=''>    var started = </span><span style='background: #F0ADAD'>start</span><span style=''>
-</span>162 <span style=''>    val actor = </span><span style='background: #F0ADAD'>ref</span><span style=''>
-</span>163 <span style=''>    if (</span><span style='background: #F0ADAD'>started</span><span style=''>) {
-</span>164 <span style=''>      </span><span style='background: #F0ADAD'>startWorker()</span><span style=''>
-</span>165 <span style=''>    }
-</span>166 <span style=''>
-</span>167 <span style=''>    override def toString = </span><span style='background: #F0ADAD'>s"WorkerRef(started=$started, actor=$actor)"</span><span style=''>
-</span>168 <span style=''>
-</span>169 <span style=''>    def stopWorker() {
-</span>170 <span style=''>      </span><span style='background: #F0ADAD'>ref ! PartitionConsumerWorker.Stop</span><span style=''>
-</span>171 <span style=''>      </span><span style='background: #F0ADAD'>started = false</span><span style=''>
-</span>172 <span style=''>    }
-</span>173 <span style=''>
-</span>174 <span style=''>    def startWorker() {
-</span>175 <span style=''>      </span><span style='background: #F0ADAD'>ref ! Start</span><span style=''>
-</span>176 <span style=''>      </span><span style='background: #F0ADAD'>started = true</span><span style=''>
-</span>177 <span style=''>    }
-</span>178 <span style=''>  }
-</span>179 <span style=''>}
+</span>159 <span style=''>  def processAssignmentEvent(assigns: List[PartitionAssignment]) {
+</span>160 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(s"Processing ${assigns.length} assignments.")</span><span style=''>
+</span>161 <span style=''>    </span><span style='background: #F0ADAD'>stopUnneededWorkers(assigns)</span><span style=''>
+</span>162 <span style=''>    </span><span style='background: #F0ADAD'>assigns foreach { assign => createWorkerIfNeeded(assign)</span><span style=''> }
+</span>163 <span style=''>  }
+</span>164 <span style=''>
+</span>165 <span style=''>  // Used to keep track of workers and their states, will start on construction if start=true
+</span>166 <span style=''>  class WorkerRef(start: Boolean, ref: ActorRef) {
+</span>167 <span style=''>    var started = </span><span style='background: #F0ADAD'>start</span><span style=''>
+</span>168 <span style=''>    val actor = </span><span style='background: #F0ADAD'>ref</span><span style=''>
+</span>169 <span style=''>    if (</span><span style='background: #F0ADAD'>started</span><span style=''>) {
+</span>170 <span style=''>      </span><span style='background: #F0ADAD'>startWorker()</span><span style=''>
+</span>171 <span style=''>    }
+</span>172 <span style=''>
+</span>173 <span style=''>    override def toString = </span><span style='background: #F0ADAD'>s"WorkerRef(started=$started, actor=$actor)"</span><span style=''>
+</span>174 <span style=''>
+</span>175 <span style=''>    def stopWorker() {
+</span>176 <span style=''>      </span><span style='background: #F0ADAD'>ref ! PartitionConsumerWorker.Stop</span><span style=''>
+</span>177 <span style=''>      </span><span style='background: #F0ADAD'>started = false</span><span style=''>
+</span>178 <span style=''>    }
+</span>179 <span style=''>
+</span>180 <span style=''>    def startWorker() {
+</span>181 <span style=''>      </span><span style='background: #F0ADAD'>ref ! Start</span><span style=''>
+</span>182 <span style=''>      </span><span style='background: #F0ADAD'>started = true</span><span style=''>
+</span>183 <span style=''>    }
+</span>184 <span style=''>  }
+</span>185 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -215,15 +221,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          41
+          42
         </td>
         <td>
           2
         </td>
         <td>
-          1853
+          1854
           -
-          1901
+          1902
         </td>
         <td>
           ApplyToImplicitArgs
@@ -236,15 +242,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          42
         </td>
         <td>
           1
         </td>
         <td>
-          1859
+          1860
           -
-          1900
+          1901
         </td>
         <td>
           Apply
@@ -257,15 +263,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          58
         </td>
         <td>
           5
         </td>
         <td>
-          2358
+          2359
           -
-          2377
+          2378
         </td>
         <td>
           Apply
@@ -278,15 +284,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          58
         </td>
         <td>
           4
         </td>
         <td>
-          2366
+          2367
           -
-          2376
+          2377
         </td>
         <td>
           Select
@@ -299,15 +305,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          58
         </td>
         <td>
           3
         </td>
         <td>
-          2366
+          2367
           -
-          2368
+          2369
         </td>
         <td>
           Literal
@@ -320,15 +326,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          59
         </td>
         <td>
           6
         </td>
         <td>
-          2402
+          2403
           -
-          2416
+          2417
         </td>
         <td>
           Select
@@ -341,15 +347,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
           8
         </td>
         <td>
-          2470
+          2471
           -
-          2470
+          2471
         </td>
         <td>
           Select
@@ -362,15 +368,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
           11
         </td>
         <td>
-          2440
+          2441
           -
-          2507
+          2508
         </td>
         <td>
           Apply
@@ -383,15 +389,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
           7
         </td>
         <td>
-          2476
+          2477
           -
-          2487
+          2488
         </td>
         <td>
           Select
@@ -404,15 +410,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
           10
         </td>
         <td>
-          2490
+          2491
           -
-          2506
+          2507
         </td>
         <td>
           Literal
@@ -425,15 +431,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
           9
         </td>
         <td>
-          2456
+          2457
           -
-          2488
+          2489
         </td>
         <td>
           Apply
@@ -446,15 +452,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          63
         </td>
         <td>
           12
         </td>
         <td>
-          2525
+          2526
           -
-          2560
+          2561
         </td>
         <td>
           TypeApply
@@ -467,15 +473,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           17
         </td>
         <td>
-          2609
+          2610
           -
-          2679
+          2680
         </td>
         <td>
           Apply
@@ -488,15 +494,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           14
         </td>
         <td>
-          2641
+          2642
           -
-          2645
+          2646
         </td>
         <td>
           Select
@@ -509,15 +515,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           13
         </td>
         <td>
-          2603
+          2604
           -
-          2607
+          2608
         </td>
         <td>
           Select
@@ -530,15 +536,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           16
         </td>
         <td>
-          2609
+          2610
           -
-          2609
+          2610
         </td>
         <td>
           Select
@@ -551,15 +557,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           18
         </td>
         <td>
-          2594
+          2595
           -
-          2680
+          2681
         </td>
         <td>
           Apply
@@ -572,15 +578,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           15
         </td>
         <td>
-          2647
+          2648
           -
-          2678
+          2679
         </td>
         <td>
           Select
@@ -593,15 +599,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          67
         </td>
         <td>
           19
         </td>
         <td>
-          2685
+          2686
           -
-          2710
+          2711
         </td>
         <td>
           Apply
@@ -614,15 +620,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           23
         </td>
         <td>
-          2765
+          2766
           -
-          2765
+          2766
         </td>
         <td>
           Select
@@ -635,15 +641,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           20
         </td>
         <td>
-          2759
+          2760
           -
-          2763
+          2764
         </td>
         <td>
           Select
@@ -656,15 +662,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           22
         </td>
         <td>
-          2803
+          2804
           -
-          2834
+          2835
         </td>
         <td>
           Select
@@ -677,15 +683,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           25
         </td>
         <td>
-          2748
+          2749
           -
-          2836
+          2837
         </td>
         <td>
           Apply
@@ -698,15 +704,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           21
         </td>
         <td>
-          2797
+          2798
           -
-          2801
+          2802
         </td>
         <td>
           Select
@@ -719,15 +725,15 @@
         </td>
       </tr><tr>
         <td>
-          70
+          71
         </td>
         <td>
           24
         </td>
         <td>
-          2765
+          2766
           -
-          2835
+          2836
         </td>
         <td>
           Apply
@@ -740,15 +746,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
           33
         </td>
         <td>
-          2842
+          2843
           -
-          2984
+          2985
         </td>
         <td>
           Apply
@@ -765,15 +771,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
           26
         </td>
         <td>
-          2897
+          2898
           -
-          2914
+          2915
         </td>
         <td>
           Literal
@@ -786,15 +792,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
           29
         </td>
         <td>
-          2895
+          2896
           -
-          2928
+          2929
         </td>
         <td>
           Apply
@@ -807,15 +813,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
           28
         </td>
         <td>
-          2915
+          2916
           -
-          2925
+          2926
         </td>
         <td>
           Select
@@ -828,15 +834,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
           27
         </td>
         <td>
-          2926
+          2927
           -
-          2928
+          2929
         </td>
         <td>
           Literal
@@ -849,15 +855,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
           30
         </td>
         <td>
-          2883
+          2884
           -
-          2929
+          2930
         </td>
         <td>
           Apply
@@ -870,15 +876,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          75
         </td>
         <td>
           31
         </td>
         <td>
-          2936
+          2937
           -
-          2958
+          2959
         </td>
         <td>
           Apply
@@ -891,15 +897,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          76
         </td>
         <td>
           32
         </td>
         <td>
-          2965
+          2966
           -
-          2984
+          2985
         </td>
         <td>
           Apply
@@ -912,15 +918,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
           34
         </td>
         <td>
-          3012
+          3013
           -
-          3019
+          3020
         </td>
         <td>
           Select
@@ -933,15 +939,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          86
         </td>
         <td>
           35
         </td>
         <td>
-          3096
+          3097
           -
-          3109
+          3110
         </td>
         <td>
           Select
@@ -954,15 +960,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          86
         </td>
         <td>
           65
         </td>
         <td>
-          3117
+          3118
           -
-          3117
+          3118
         </td>
         <td>
           Apply
@@ -975,15 +981,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          86
         </td>
         <td>
           66
         </td>
         <td>
-          3075
+          3076
           -
-          4121
+          4122
         </td>
         <td>
           Apply
@@ -1036,15 +1042,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           38
         </td>
         <td>
-          3212
+          3213
           -
-          3247
+          3248
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1057,15 +1063,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           37
         </td>
         <td>
-          3220
+          3221
           -
-          3220
+          3221
         </td>
         <td>
           Select
@@ -1078,15 +1084,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           36
         </td>
         <td>
-          3203
+          3204
           -
-          3210
+          3211
         </td>
         <td>
           Select
@@ -1099,15 +1105,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           39
         </td>
         <td>
-          3178
+          3179
           -
-          3248
+          3249
         </td>
         <td>
           Apply
@@ -1120,15 +1126,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
           40
         </td>
         <td>
-          3255
+          3256
           -
-          3290
+          3291
         </td>
         <td>
           Apply
@@ -1141,15 +1147,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          94
         </td>
         <td>
           41
         </td>
         <td>
-          3398
+          3399
           -
-          3411
+          3412
         </td>
         <td>
           Apply
@@ -1162,15 +1168,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          97
         </td>
         <td>
           43
         </td>
         <td>
-          3581
+          3582
           -
-          3618
+          3619
         </td>
         <td>
           Select
@@ -1183,15 +1189,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          97
         </td>
         <td>
           42
         </td>
         <td>
-          3581
+          3582
           -
-          3613
+          3614
         </td>
         <td>
           Apply
@@ -1204,15 +1210,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          98
         </td>
         <td>
           44
         </td>
         <td>
-          3633
+          3634
           -
-          3651
+          3652
         </td>
         <td>
           Apply
@@ -1225,15 +1231,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          98
         </td>
         <td>
           56
         </td>
         <td>
-          3629
+          3630
           -
-          3629
+          3630
         </td>
         <td>
           Block
@@ -1246,15 +1252,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          98
         </td>
         <td>
           55
         </td>
         <td>
-          3629
+          3630
           -
-          3629
+          3630
         </td>
         <td>
           Literal
@@ -1267,15 +1273,15 @@
         </td>
       </tr><tr>
         <td>
-          97
+          98
         </td>
         <td>
           54
         </td>
         <td>
-          3653
+          3654
           -
-          3824
+          3825
         </td>
         <td>
           Block
@@ -1291,15 +1297,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          99
         </td>
         <td>
           46
         </td>
         <td>
-          3667
+          3668
           -
-          3735
+          3736
         </td>
         <td>
           Apply
@@ -1312,15 +1318,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          99
         </td>
         <td>
           45
         </td>
         <td>
-          3677
+          3678
           -
-          3734
+          3735
         </td>
         <td>
           Apply
@@ -1333,15 +1339,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           50
         </td>
         <td>
-          3772
+          3773
           -
-          3811
+          3812
         </td>
         <td>
           Apply
@@ -1354,15 +1360,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           53
         </td>
         <td>
-          3748
+          3749
           -
-          3812
+          3813
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1375,15 +1381,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           47
         </td>
         <td>
-          3748
+          3749
           -
-          3752
+          3753
         </td>
         <td>
           Select
@@ -1396,15 +1402,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           49
         </td>
         <td>
-          3806
+          3807
           -
-          3810
+          3811
         </td>
         <td>
           Select
@@ -1417,15 +1423,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           52
         </td>
         <td>
-          3753
+          3754
           -
-          3753
+          3754
         </td>
         <td>
           Select
@@ -1438,15 +1444,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           48
         </td>
         <td>
-          3783
+          3784
           -
-          3804
+          3805
         </td>
         <td>
           Apply
@@ -1459,15 +1465,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          100
         </td>
         <td>
           51
         </td>
         <td>
-          3755
+          3756
           -
-          3812
+          3813
         </td>
         <td>
           Apply
@@ -1480,15 +1486,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          103
         </td>
         <td>
           57
         </td>
         <td>
-          3841
+          3842
           -
-          3843
+          3844
         </td>
         <td>
           Literal
@@ -1501,15 +1507,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          109
         </td>
         <td>
           58
         </td>
         <td>
-          3955
+          3956
           -
-          3969
+          3970
         </td>
         <td>
           Select
@@ -1522,15 +1528,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          110
         </td>
         <td>
           59
         </td>
         <td>
-          3991
+          3992
           -
-          4007
+          4008
         </td>
         <td>
           Select
@@ -1543,15 +1549,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          110
         </td>
         <td>
           60
         </td>
         <td>
-          3976
+          3977
           -
-          4008
+          4009
         </td>
         <td>
           Apply
@@ -1564,15 +1570,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
           62
         </td>
         <td>
-          4111
+          4112
           -
-          4111
+          4112
         </td>
         <td>
           Select
@@ -1585,15 +1591,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
           64
         </td>
         <td>
-          4052
+          4053
           -
-          4117
+          4118
         </td>
         <td>
           Apply
@@ -1606,15 +1612,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
           61
         </td>
         <td>
-          4071
+          4072
           -
-          4083
+          4084
         </td>
         <td>
           Select
@@ -1627,15 +1633,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          113
         </td>
         <td>
           63
         </td>
         <td>
-          4093
+          4094
           -
-          4116
+          4117
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1648,15 +1654,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          120
         </td>
         <td>
           71
         </td>
         <td>
-          4224
+          4225
           -
-          4379
+          4380
         </td>
         <td>
           Apply
@@ -1685,15 +1691,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          120
         </td>
         <td>
           67
         </td>
         <td>
-          4245
+          4246
           -
-          4258
+          4259
         </td>
         <td>
           Select
@@ -1706,15 +1712,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          120
         </td>
         <td>
           70
         </td>
         <td>
-          4266
+          4267
           -
-          4266
+          4267
         </td>
         <td>
           Apply
@@ -1727,15 +1733,15 @@
         </td>
       </tr><tr>
         <td>
-          121
+          122
         </td>
         <td>
           68
         </td>
         <td>
-          4337
+          4338
           -
-          4374
+          4375
         </td>
         <td>
           Apply
@@ -1748,15 +1754,15 @@
         </td>
       </tr><tr>
         <td>
-          121
+          122
         </td>
         <td>
           69
         </td>
         <td>
-          4327
+          4328
           -
-          4375
+          4376
         </td>
         <td>
           Apply
@@ -1769,15 +1775,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
           74
         </td>
         <td>
-          4433
+          4434
           -
-          4445
+          4446
         </td>
         <td>
           Select
@@ -1790,15 +1796,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
           73
         </td>
         <td>
-          4446
+          4447
           -
-          4455
+          4456
         </td>
         <td>
           Literal
@@ -1811,15 +1817,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
           76
         </td>
         <td>
-          4411
+          4412
           -
-          4456
+          4457
         </td>
         <td>
           Apply
@@ -1832,15 +1838,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
           72
         </td>
         <td>
-          4422
+          4423
           -
-          4432
+          4433
         </td>
         <td>
           Literal
@@ -1853,15 +1859,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
           75
         </td>
         <td>
-          4420
+          4421
           -
-          4455
+          4456
         </td>
         <td>
           Apply
@@ -1874,15 +1880,15 @@
         </td>
       </tr><tr>
         <td>
-          127
+          128
         </td>
         <td>
           77
         </td>
         <td>
-          4477
+          4478
           -
-          4494
+          4495
         </td>
         <td>
           Apply
@@ -1895,15 +1901,15 @@
         </td>
       </tr><tr>
         <td>
-          127
+          128
         </td>
         <td>
           78
         </td>
         <td>
-          4461
+          4462
           -
-          4495
+          4496
         </td>
         <td>
           Apply
@@ -1916,15 +1922,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          132
         </td>
         <td>
           79
         </td>
         <td>
-          4545
+          4546
           -
-          4571
+          4572
         </td>
         <td>
           Apply
@@ -1937,15 +1943,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          133
         </td>
         <td>
           83
         </td>
         <td>
-          4576
+          4577
           -
-          4601
+          4604
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1954,19 +1960,19 @@
           akka.actor.ScalaActorRef.!
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.kafkaProxy).!(com.webtrends.harness.app.HarnessActor.ConfigChange)(KafkaConsumerCoordinator.this.self)
+          akka.actor.`package`.actorRef2Scala(KafkaConsumerCoordinator.this.kafkaProxy).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(KafkaConsumerCoordinator.this.self)
         </td>
       </tr><tr>
         <td>
-          132
+          133
         </td>
         <td>
           80
         </td>
         <td>
-          4576
+          4577
           -
-          4586
+          4587
         </td>
         <td>
           Select
@@ -1979,15 +1985,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          133
         </td>
         <td>
           82
         </td>
         <td>
-          4587
+          4588
           -
-          4587
+          4588
         </td>
         <td>
           Select
@@ -2000,36 +2006,36 @@
         </td>
       </tr><tr>
         <td>
-          132
+          133
         </td>
         <td>
           81
         </td>
         <td>
-          4589
+          4590
           -
-          4601
+          4604
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.app.HarnessActor.ConfigChange
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.app.HarnessActor.ConfigChange
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply()
         </td>
       </tr><tr>
         <td>
-          133
+          134
         </td>
         <td>
           84
         </td>
         <td>
-          4606
+          4609
           -
-          4631
+          4634
         </td>
         <td>
           Apply
@@ -2042,15 +2048,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          139
         </td>
         <td>
           86
         </td>
         <td>
-          4814
+          4817
           -
-          4814
+          4817
         </td>
         <td>
           TypeApply
@@ -2063,15 +2069,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          139
         </td>
         <td>
           85
         </td>
         <td>
-          4815
+          4818
           -
-          4831
+          4834
         </td>
         <td>
           Select
@@ -2084,15 +2090,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          139
         </td>
         <td>
           87
         </td>
         <td>
-          4803
+          4806
           -
-          4832
+          4835
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2105,15 +2111,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          140
         </td>
         <td>
-          94
+          96
         </td>
         <td>
-          4837
+          4840
           -
-          4953
+          5036
         </td>
         <td>
           Apply
@@ -2122,43 +2128,25 @@
           scala.collection.IterableLike.foreach
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.workers.foreach[Unit](((worker: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; if (specs.contains[String](worker._1))
+          KafkaConsumerCoordinator.this.workers.foreach[Any](((worker: (String, KafkaConsumerCoordinator.this.WorkerRef)) =&gt; if (specs.contains[String](worker._1))
   worker._2.startWorker()
 else
-  worker._2.stopWorker()))
+  {
+    worker._2.stopWorker();
+    KafkaConsumerCoordinator.this.workerKafkaHealth.remove(worker._1)
+  }))
         </td>
       </tr><tr>
         <td>
-          140
-        </td>
-        <td>
-          92
-        </td>
-        <td>
-          4931
-          -
-          4953
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.stopWorker
-        </td>
-        <td style="background: #F0ADAD">
-          worker._2.stopWorker()
-        </td>
-      </tr><tr>
-        <td>
-          140
+          141
         </td>
         <td>
           89
         </td>
         <td>
-          4875
+          4878
           -
-          4900
+          4903
         </td>
         <td>
           Apply
@@ -2171,36 +2159,15 @@ else
         </td>
       </tr><tr>
         <td>
-          140
-        </td>
-        <td>
-          91
-        </td>
-        <td>
-          4902
-          -
-          4925
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
-        </td>
-        <td style="background: #F0ADAD">
-          worker._2.startWorker()
-        </td>
-      </tr><tr>
-        <td>
-          140
+          141
         </td>
         <td>
           88
         </td>
         <td>
-          4890
+          4893
           -
-          4899
+          4902
         </td>
         <td>
           Select
@@ -2213,15 +2180,36 @@ else
         </td>
       </tr><tr>
         <td>
-          140
+          142
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          4915
+          -
+          4938
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
+        </td>
+        <td style="background: #F0ADAD">
+          worker._2.startWorker()
+        </td>
+      </tr><tr>
+        <td>
+          142
         </td>
         <td>
           90
         </td>
         <td>
-          4902
+          4915
           -
-          4925
+          4938
         </td>
         <td>
           Apply
@@ -2234,18 +2222,42 @@ else
         </td>
       </tr><tr>
         <td>
-          140
+          143
         </td>
         <td>
-          93
+          95
         </td>
         <td>
-          4931
+          4952
           -
-          4953
+          5036
         </td>
         <td>
           Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  worker._2.stopWorker();
+  KafkaConsumerCoordinator.this.workerKafkaHealth.remove(worker._1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          4962
+          -
+          4984
+        </td>
+        <td>
+          Apply
         </td>
         <td>
           com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.stopWorker
@@ -2258,12 +2270,54 @@ else
           145
         </td>
         <td>
-          95
+          94
         </td>
         <td>
-          5038
+          4993
           -
-          5059
+          5028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.remove
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.workerKafkaHealth.remove(worker._1)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          5018
+          -
+          5027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          worker._1
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          5121
+          -
+          5142
         </td>
         <td>
           Select
@@ -2276,15 +2330,15 @@ else
         </td>
       </tr><tr>
         <td>
-          146
+          152
         </td>
         <td>
-          116
+          113
         </td>
         <td>
-          5064
+          5176
           -
-          5064
+          5449
         </td>
         <td>
           Block
@@ -2293,40 +2347,26 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          ()
+          {
+  KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition));
+  val ref: akka.actor.ActorRef = KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager).withDispatcher(&quot;worker-dispatcher&quot;), spec);
+  {
+    KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref));
+    ()
+  }
+}
         </td>
       </tr><tr>
         <td>
-          146
+          152
         </td>
         <td>
-          115
+          98
         </td>
         <td>
-          5064
+          5151
           -
-          5064
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          96
-        </td>
-        <td>
-          5068
-          -
-          5091
+          5174
         </td>
         <td>
           Select
@@ -2339,15 +2379,15 @@ else
         </td>
       </tr><tr>
         <td>
-          146
+          152
         </td>
         <td>
-          114
+          115
         </td>
         <td>
-          5093
+          5147
           -
-          5330
+          5147
         </td>
         <td>
           Block
@@ -2356,173 +2396,40 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          {
-  KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition));
-  val ref: akka.actor.ActorRef = KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager), spec);
-  {
-    KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref));
-    ()
-  }
-}
+          ()
         </td>
       </tr><tr>
         <td>
-          147
+          152
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          5147
+          -
+          5147
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          153
         </td>
         <td>
           101
         </td>
         <td>
-          5130
+          5242
           -
-          5141
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
-        </td>
-        <td style="background: #F0ADAD">
-          assign.host
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          104
-        </td>
-        <td>
-          5110
-          -
-          5180
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition)
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          98
-        </td>
-        <td>
-          5142
-          -
-          5145
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;, &quot;
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          100
-        </td>
-        <td>
-          5179
-          -
-          5180
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          103
-        </td>
-        <td>
-          5162
-          -
-          5178
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
-        </td>
-        <td style="background: #F0ADAD">
-          assign.partition
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          97
-        </td>
-        <td>
-          5112
-          -
-          5129
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Creating worker &quot;
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          105
-        </td>
-        <td>
-          5101
-          -
-          5181
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.info
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition))
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          99
-        </td>
-        <td>
-          5159
-          -
-          5161
+          5244
         </td>
         <td>
           Literal
@@ -2535,15 +2442,15 @@ else
         </td>
       </tr><tr>
         <td>
-          147
+          153
         </td>
         <td>
-          102
+          104
         </td>
         <td>
-          5146
+          5229
           -
-          5158
+          5241
         </td>
         <td>
           Select
@@ -2556,120 +2463,57 @@ else
         </td>
       </tr><tr>
         <td>
-          148
-        </td>
-        <td>
-          110
-        </td>
-        <td>
-          5198
-          -
-          5274
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.ActorRefFactory.actorOf
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager), spec)
-        </td>
-      </tr><tr>
-        <td>
-          148
+          153
         </td>
         <td>
           107
         </td>
         <td>
-          5233
+          5184
           -
-          5243
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.kafkaProxy
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.kafkaProxy
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          106
-        </td>
-        <td>
-          5220
-          -
-          5231
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.topicWorker
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.topicWorker
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          109
-        </td>
-        <td>
-          5214
-          -
-          5267
+          5264
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.actor.Props.apply
+          com.webtrends.harness.logging.Logger.info
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager)
+          KafkaConsumerCoordinator.this.log.info(scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition))
         </td>
       </tr><tr>
         <td>
-          148
+          153
         </td>
         <td>
-          108
+          106
         </td>
         <td>
-          5253
+          5193
           -
-          5266
+          5263
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.offsetManager
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.offsetManager
+          scala.StringContext.apply(&quot;Creating worker &quot;, &quot;, &quot;, &quot;_&quot;, &quot;&quot;).s(assign.host, assign.topic, assign.partition)
         </td>
       </tr><tr>
         <td>
-          149
+          153
         </td>
         <td>
-          113
+          100
         </td>
         <td>
-          5292
+          5225
           -
-          5292
+          5228
         </td>
         <td>
           Literal
@@ -2678,40 +2522,145 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          ()
+          &quot;, &quot;
         </td>
       </tr><tr>
         <td>
-          149
+          153
         </td>
         <td>
-          112
+          103
+        </td>
+        <td>
+          5213
+          -
+          5224
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
+        </td>
+        <td style="background: #F0ADAD">
+          assign.host
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          5245
+          -
+          5261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          assign.partition
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          5195
+          -
+          5212
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Creating worker &quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          5262
+          -
+          5263
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          109
         </td>
         <td>
           5281
           -
-          5324
+          5393
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.mutable.MapLike.put
+          akka.actor.ActorRefFactory.actorOf
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref))
+          KafkaConsumerCoordinator.this.context.actorOf(akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager).withDispatcher(&quot;worker-dispatcher&quot;), spec)
         </td>
       </tr><tr>
         <td>
-          149
+          154
         </td>
         <td>
-          111
+          108
         </td>
         <td>
-          5299
+          5297
           -
-          5323
+          5386
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.withDispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(KafkaConsumerCoordinator.this.topicWorker, KafkaConsumerCoordinator.this.kafkaProxy, assign, KafkaConsumerCoordinator.this.offsetManager).withDispatcher(&quot;worker-dispatcher&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          5418
+          -
+          5442
         </td>
         <td>
           Apply
@@ -2724,36 +2673,15 @@ else
         </td>
       </tr><tr>
         <td>
-          154
+          155
         </td>
         <td>
-          119
+          112
         </td>
         <td>
-          5432
+          5411
           -
-          5446
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.LinearSeqOptimized.length
-        </td>
-        <td style="background: #F0ADAD">
-          assigns.length
-        </td>
-      </tr><tr>
-        <td>
-          154
-        </td>
-        <td>
-          118
-        </td>
-        <td>
-          5447
-          -
-          5461
+          5411
         </td>
         <td>
           Literal
@@ -2762,40 +2690,40 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot; assignments.&quot;
+          ()
         </td>
       </tr><tr>
         <td>
-          154
+          155
         </td>
         <td>
-          121
+          111
         </td>
         <td>
-          5407
+          5400
           -
-          5462
+          5443
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.logging.Logger.debug
+          scala.collection.mutable.MapLike.put
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Processing &quot;, &quot; assignments.&quot;).s(assigns.length))
+          KafkaConsumerCoordinator.this.workers.put(spec, new KafkaConsumerCoordinator.this.WorkerRef(true, ref))
         </td>
       </tr><tr>
         <td>
-          154
+          160
         </td>
         <td>
-          120
+          119
         </td>
         <td>
-          5417
+          5536
           -
-          5461
+          5580
         </td>
         <td>
           Apply
@@ -2808,15 +2736,15 @@ else
         </td>
       </tr><tr>
         <td>
-          154
+          160
         </td>
         <td>
-          117
+          116
         </td>
         <td>
-          5419
+          5538
           -
-          5431
+          5550
         </td>
         <td>
           Literal
@@ -2829,15 +2757,78 @@ else
         </td>
       </tr><tr>
         <td>
-          155
+          160
         </td>
         <td>
-          122
+          118
         </td>
         <td>
-          5467
+          5551
           -
-          5495
+          5565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.length
+        </td>
+        <td style="background: #F0ADAD">
+          assigns.length
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          5526
+          -
+          5581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.log.debug(scala.StringContext.apply(&quot;Processing &quot;, &quot; assignments.&quot;).s(assigns.length))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          5566
+          -
+          5580
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; assignments.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          5586
+          -
+          5614
         </td>
         <td>
           Apply
@@ -2850,36 +2841,15 @@ else
         </td>
       </tr><tr>
         <td>
-          156
+          162
         </td>
         <td>
-          124
+          122
         </td>
         <td>
-          5500
+          5647
           -
-          5556
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.List.foreach
-        </td>
-        <td style="background: #F0ADAD">
-          assigns.foreach[Unit](((assign: com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment) =&gt; KafkaConsumerCoordinator.this.createWorkerIfNeeded(assign)))
-        </td>
-      </tr><tr>
-        <td>
-          156
-        </td>
-        <td>
-          123
-        </td>
-        <td>
-          5528
-          -
-          5556
+          5675
         </td>
         <td>
           Apply
@@ -2892,15 +2862,36 @@ else
         </td>
       </tr><tr>
         <td>
-          161
+          162
         </td>
         <td>
-          125
+          123
         </td>
         <td>
-          5727
+          5619
           -
-          5732
+          5675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          assigns.foreach[Unit](((assign: com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment) =&gt; KafkaConsumerCoordinator.this.createWorkerIfNeeded(assign)))
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          5846
+          -
+          5851
         </td>
         <td>
           Select
@@ -2913,15 +2904,15 @@ else
         </td>
       </tr><tr>
         <td>
-          162
+          168
         </td>
         <td>
-          126
+          125
         </td>
         <td>
-          5749
+          5868
           -
-          5752
+          5871
         </td>
         <td>
           Select
@@ -2934,15 +2925,15 @@ else
         </td>
       </tr><tr>
         <td>
-          163
+          169
         </td>
         <td>
-          131
+          130
         </td>
         <td>
-          5757
+          5876
           -
-          5757
+          5876
         </td>
         <td>
           Block
@@ -2955,15 +2946,36 @@ else
         </td>
       </tr><tr>
         <td>
-          163
+          169
         </td>
         <td>
-          127
+          129
         </td>
         <td>
-          5761
+          5876
           -
-          5768
+          5876
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          5880
+          -
+          5887
         </td>
         <td>
           Select
@@ -2976,57 +2988,15 @@ else
         </td>
       </tr><tr>
         <td>
-          163
-        </td>
-        <td>
-          130
-        </td>
-        <td>
-          5757
-          -
-          5757
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          164
+          170
         </td>
         <td>
           128
         </td>
         <td>
-          5778
+          5897
           -
-          5791
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
-        </td>
-        <td style="background: #F0ADAD">
-          WorkerRef.this.startWorker()
-        </td>
-      </tr><tr>
-        <td>
-          164
-        </td>
-        <td>
-          129
-        </td>
-        <td>
-          5778
-          -
-          5791
+          5910
         </td>
         <td>
           Block
@@ -3039,99 +3009,36 @@ else
         </td>
       </tr><tr>
         <td>
-          167
+          170
         </td>
         <td>
-          137
+          127
         </td>
         <td>
-          5827
+          5897
           -
-          5871
+          5910
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.StringContext.s
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.startWorker
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;WorkerRef(started=&quot;, &quot;, actor=&quot;, &quot;)&quot;).s(WorkerRef.this.started, WorkerRef.this.actor)
+          WorkerRef.this.startWorker()
         </td>
       </tr><tr>
         <td>
-          167
+          173
         </td>
         <td>
-          134
+          131
         </td>
         <td>
-          5869
+          5948
           -
-          5871
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;)&quot;
-        </td>
-      </tr><tr>
-        <td>
-          167
-        </td>
-        <td>
-          133
-        </td>
-        <td>
-          5855
-          -
-          5864
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;, actor=&quot;
-        </td>
-      </tr><tr>
-        <td>
-          167
-        </td>
-        <td>
-          136
-        </td>
-        <td>
-          5864
-          -
-          5869
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.actor
-        </td>
-        <td style="background: #F0ADAD">
-          WorkerRef.this.actor
-        </td>
-      </tr><tr>
-        <td>
-          167
-        </td>
-        <td>
-          132
-        </td>
-        <td>
-          5829
-          -
-          5848
+          5967
         </td>
         <td>
           Literal
@@ -3144,15 +3051,15 @@ else
         </td>
       </tr><tr>
         <td>
-          167
+          173
         </td>
         <td>
-          135
+          134
         </td>
         <td>
-          5848
+          5967
           -
-          5855
+          5974
         </td>
         <td>
           Select
@@ -3165,183 +3072,99 @@ else
         </td>
       </tr><tr>
         <td>
-          170
+          173
         </td>
         <td>
-          140
+          133
         </td>
         <td>
-          5906
+          5988
           -
-          5906
+          5990
         </td>
         <td>
-          Select
+          Literal
         </td>
         <td>
-          akka.actor.Actor.self
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.self
+          &quot;)&quot;
         </td>
       </tr><tr>
         <td>
-          170
+          173
         </td>
         <td>
-          139
+          136
         </td>
         <td>
-          5908
+          5946
           -
-          5936
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
-        </td>
-      </tr><tr>
-        <td>
-          170
-        </td>
-        <td>
-          138
-        </td>
-        <td>
-          5902
-          -
-          5905
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.ref
-        </td>
-        <td style="background: #F0ADAD">
-          WorkerRef.this.ref
-        </td>
-      </tr><tr>
-        <td>
-          170
-        </td>
-        <td>
-          141
-        </td>
-        <td>
-          5902
-          -
-          5936
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop)(KafkaConsumerCoordinator.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          171
-        </td>
-        <td>
-          142
-        </td>
-        <td>
-          5943
-          -
-          5958
+          5990
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started_=
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          WorkerRef.this.started_=(false)
+          scala.StringContext.apply(&quot;WorkerRef(started=&quot;, &quot;, actor=&quot;, &quot;)&quot;).s(WorkerRef.this.started, WorkerRef.this.actor)
         </td>
       </tr><tr>
         <td>
-          175
+          173
         </td>
         <td>
-          146
+          132
         </td>
         <td>
-          5996
+          5974
           -
-          6007
+          5983
         </td>
         <td>
-          ApplyToImplicitArgs
+          Literal
         </td>
         <td>
-          akka.actor.ScalaActorRef.!
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start)(KafkaConsumerCoordinator.this.self)
+          &quot;, actor=&quot;
         </td>
       </tr><tr>
         <td>
-          175
+          173
         </td>
         <td>
-          145
+          135
         </td>
         <td>
-          6000
+          5983
           -
-          6000
+          5988
         </td>
         <td>
           Select
         </td>
         <td>
-          akka.actor.Actor.self
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.actor
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerCoordinator.this.self
+          WorkerRef.this.actor
         </td>
       </tr><tr>
         <td>
-          175
+          176
         </td>
         <td>
-          144
+          137
         </td>
         <td>
-          6002
+          6021
           -
-          6007
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
-        </td>
-      </tr><tr>
-        <td>
-          175
-        </td>
-        <td>
-          143
-        </td>
-        <td>
-          5996
-          -
-          5999
+          6024
         </td>
         <td>
           Select
@@ -3357,12 +3180,180 @@ else
           176
         </td>
         <td>
-          147
+          140
         </td>
         <td>
-          6014
+          6021
           -
-          6028
+          6055
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop)(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          6025
+          -
+          6025
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          6027
+          -
+          6055
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Stop
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          6062
+          -
+          6077
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started_=
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.started_=(false)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          6115
+          -
+          6118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.ref
+        </td>
+        <td style="background: #F0ADAD">
+          WorkerRef.this.ref
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          6115
+          -
+          6126
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(WorkerRef.this.ref).!(com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start)(KafkaConsumerCoordinator.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          6119
+          -
+          6119
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerCoordinator.this.self
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          6121
+          -
+          6126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker.Start
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          6133
+          -
+          6147
         </td>
         <td>
           Apply

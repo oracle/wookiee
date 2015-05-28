@@ -79,7 +79,7 @@
 </span>54 <span style=''>  var scheduler: Option[Cancellable] = </span><span style='background: #F0ADAD'>None</span><span style=''>
 </span>55 <span style=''>  //log.debug(kafkaConfig.root().render())
 </span>56 <span style=''>  val refresh = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getInt("consumer.assignment-distributor.assignment-refresh-seconds")
-</span>57 <span style=''></span><span style='background: #F0ADAD'>                    } getOrElse(20)</span><span style=''>
+</span>57 <span style=''></span><span style='background: #F0ADAD'>                    } getOrElse 20</span><span style=''>
 </span>58 <span style=''>
 </span>59 <span style=''>  val nodeName = </span><span style='background: #F0ADAD'>self.path.name</span><span style=''>
 </span>60 <span style=''>
@@ -184,71 +184,78 @@
 </span>159 <span style=''>  import KafkaConsumerProxy._
 </span>160 <span style=''>  import context.dispatcher
 </span>161 <span style=''>
-</span>162 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(5 seconds)</span><span style=''>
+</span>162 <span style=''>  val configRoot = </span><span style='background: #F0ADAD'>"wookie-kafka.consumer.assignment-distributor"</span><span style=''>
 </span>163 <span style=''>
-</span>164 <span style=''>  val configRoot = </span><span style='background: #F0ADAD'>"wookie-kafka.consumer.assignment-distributor"</span><span style=''>
+</span>164 <span style=''>  val c = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
 </span>165 <span style=''>
-</span>166 <span style=''>  val c = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
-</span>167 <span style=''>
-</span>168 <span style=''>  //log.debug(s"Assignment ${c.root().render()}")
-</span>169 <span style=''>
-</span>170 <span style=''>  val fetchTimeout = </span><span style='background: #F0ADAD'>Try {c.getLong(s"${configRoot}.fetch-timeout-millis")
-</span>171 <span style=''></span><span style='background: #F0ADAD'>                         } getOrElse(500L)</span><span style=''>
-</span>172 <span style=''>
-</span>173 <span style=''>  </span><span style='background: #F0ADAD'>log.debug(s"Fetching with timeout $fetchTimeout")</span><span style=''>
-</span>174 <span style=''>
-</span>175 <span style=''>  var nodes: Option[List[String]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>176 <span style=''>  var topicPartitions: Option[TopicPartitionResp] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>177 <span style=''>
-</span>178 <span style=''>  val paths = </span><span style='background: #F0ADAD'>distributorPaths</span><span style=''>
-</span>179 <span style=''>
-</span>180 <span style=''>  </span><span style='background: #F0ADAD'>self ! Fetch</span><span style=''>
-</span>181 <span style=''>
-</span>182 <span style=''>  </span><span style='background: #F0ADAD'>context.system.scheduler.scheduleOnce(fetchTimeout milliseconds) {
-</span>183 <span style=''></span><span style='background: #F0ADAD'>    self ! FetchTimeout
-</span>184 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>185 <span style=''>
-</span>186 <span style=''>  def receive: Actor.Receive = {
-</span>187 <span style=''>    case Fetch => </span><span style='background: #F0ADAD'>fetch()</span><span style=''>
-</span>188 <span style=''>
-</span>189 <span style=''>    case cn: ConsumerNodes =>
-</span>190 <span style=''>      </span><span style='background: #F0ADAD'>nodes = Some(cn.nodes)</span><span style=''>
-</span>191 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
-</span>192 <span style=''>
-</span>193 <span style=''>    case tr: TopicPartitionResp =>
-</span>194 <span style=''>      </span><span style='background: #F0ADAD'>topicPartitions = Some(tr)</span><span style=''>
-</span>195 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
-</span>196 <span style=''>
-</span>197 <span style=''>    case FetchTimeout => </span><span style='background: #F0ADAD'>sendAndShutdown(FetchTimeout)</span><span style=''>
-</span>198 <span style=''>  }
-</span>199 <span style=''>
-</span>200 <span style=''>  def isDone = (nodes, topicPartitions) match {
-</span>201 <span style=''>    case (Some(n), Some(tp)) =>
-</span>202 <span style=''>      </span><span style='background: #F0ADAD'>log.debug(s"Got $nodes and $tp")</span><span style=''>
-</span>203 <span style=''>
-</span>204 <span style=''>      </span><span style='background: #F0ADAD'>sendAndShutdown(DistributeAssignments(n,tp))</span><span style=''>
-</span>205 <span style=''>    case _ </span><span style='background: #F0ADAD'>=></span><span style=''>
-</span>206 <span style=''>  }
-</span>207 <span style=''>
-</span>208 <span style=''>
-</span>209 <span style=''>  def sendAndShutdown(resp: Any): Unit = {
-</span>210 <span style=''>    </span><span style='background: #F0ADAD'>receiver ! resp</span><span style=''>
-</span>211 <span style=''>    </span><span style='background: #F0ADAD'>log.debug("Stopping Fetcher")</span><span style=''>
-</span>212 <span style=''>    </span><span style='background: #F0ADAD'>context.stop(self)</span><span style=''>
+</span>166 <span style=''>  implicit val zkTimeout = </span><span style='background: #F0ADAD'>Try { Timeout(c.getLong(s"$configRoot.zk-fetch-timeout-millis") milliseconds)}
+</span>167 <span style=''></span><span style='background: #F0ADAD'>    .getOrElse[Timeout](5 seconds)</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>  val fetchTimeout = </span><span style='background: #F0ADAD'>Try {c.getLong(s"$configRoot.fetch-timeout-millis")
+</span>170 <span style=''></span><span style='background: #F0ADAD'>                         } getOrElse 2000L</span><span style=''>
+</span>171 <span style=''>
+</span>172 <span style=''>  </span><span style='background: #F0ADAD'>log.debug(s"Fetching with timeout $fetchTimeout")</span><span style=''>
+</span>173 <span style=''>
+</span>174 <span style=''>  var nodes: Option[List[String]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>175 <span style=''>  var topicPartitions: Option[TopicPartitionResp] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>176 <span style=''>
+</span>177 <span style=''>  val paths = </span><span style='background: #F0ADAD'>distributorPaths</span><span style=''>
+</span>178 <span style=''>
+</span>179 <span style=''>  </span><span style='background: #F0ADAD'>self ! Fetch</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>  </span><span style='background: #F0ADAD'>context.system.scheduler.scheduleOnce(fetchTimeout milliseconds) {
+</span>182 <span style=''></span><span style='background: #F0ADAD'>    self ! FetchTimeout
+</span>183 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>184 <span style=''>
+</span>185 <span style=''>  def receive: Actor.Receive = {
+</span>186 <span style=''>    case Fetch => </span><span style='background: #F0ADAD'>fetch()</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>    case cn: ConsumerNodes =>
+</span>189 <span style=''>      </span><span style='background: #F0ADAD'>nodes = Some(cn.nodes)</span><span style=''>
+</span>190 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
+</span>191 <span style=''>
+</span>192 <span style=''>    case tr: TopicPartitionResp =>
+</span>193 <span style=''>      </span><span style='background: #F0ADAD'>topicPartitions = Some(tr)</span><span style=''>
+</span>194 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
+</span>195 <span style=''>
+</span>196 <span style=''>    case FetchTimeout =>
+</span>197 <span style=''>      if(</span><span style='background: #F0ADAD'>nodes.isEmpty</span><span style=''>) {
+</span>198 <span style=''>        </span><span style='background: #F0ADAD'>log.warn(s"Zookeeper node request has timed out")</span><span style=''>
+</span>199 <span style=''>      }
+</span>200 <span style=''>
+</span>201 <span style=''>      if(</span><span style='background: #F0ADAD'>topicPartitions.isEmpty</span><span style=''>) {
+</span>202 <span style=''>        </span><span style='background: #F0ADAD'>log.warn(s"Topic Partitions request has timed out")</span><span style=''>
+</span>203 <span style=''>      }
+</span>204 <span style=''>      </span><span style='background: #F0ADAD'>sendAndShutdown(FetchTimeout)</span><span style=''>
+</span>205 <span style=''>  }
+</span>206 <span style=''>
+</span>207 <span style=''>  def isDone = (nodes, topicPartitions) match {
+</span>208 <span style=''>    case (Some(n), Some(tp)) =>
+</span>209 <span style=''>      </span><span style='background: #F0ADAD'>log.debug(s"Got $nodes and $tp")</span><span style=''>
+</span>210 <span style=''>
+</span>211 <span style=''>      </span><span style='background: #F0ADAD'>sendAndShutdown(DistributeAssignments(n,tp))</span><span style=''>
+</span>212 <span style=''>    case _ </span><span style='background: #F0ADAD'>=></span><span style=''>
 </span>213 <span style=''>  }
 </span>214 <span style=''>
-</span>215 <span style=''>  def fetch() = {
-</span>216 <span style=''>    </span><span style='background: #F0ADAD'>getChildren(s"${paths.nodePath}", includeData = false).onComplete {
-</span>217 <span style=''></span><span style='background: #F0ADAD'>      case Success(nodes) =>
-</span>218 <span style=''></span><span style='background: #F0ADAD'>        self ! ConsumerNodes(nodes.map{node => node._1}.toList)
-</span>219 <span style=''></span><span style='background: #F0ADAD'>      case Failure(fail) =>
-</span>220 <span style=''></span><span style='background: #F0ADAD'>        log.error(s"Not requesting node data update because " +
-</span>221 <span style=''></span><span style='background: #F0ADAD'>          s"I am unable to get list of nodes at ${paths.nodePath}. ${fail.getMessage()}")
-</span>222 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>223 <span style=''>
-</span>224 <span style=''>    </span><span style='background: #F0ADAD'>sourceProxy ! TopicPartitionReq</span><span style=''>
-</span>225 <span style=''>  }
-</span>226 <span style=''>}
+</span>215 <span style=''>
+</span>216 <span style=''>  def sendAndShutdown(resp: Any): Unit = {
+</span>217 <span style=''>    </span><span style='background: #F0ADAD'>receiver ! resp</span><span style=''>
+</span>218 <span style=''>    </span><span style='background: #F0ADAD'>log.debug("Stopping Fetcher")</span><span style=''>
+</span>219 <span style=''>    </span><span style='background: #F0ADAD'>context.stop(self)</span><span style=''>
+</span>220 <span style=''>  }
+</span>221 <span style=''>
+</span>222 <span style=''>  def fetch() = {
+</span>223 <span style=''>    </span><span style='background: #F0ADAD'>getChildren(s"${paths.nodePath}", includeData = false).onComplete {
+</span>224 <span style=''></span><span style='background: #F0ADAD'>      case Success(nodes) =>
+</span>225 <span style=''></span><span style='background: #F0ADAD'>        self ! ConsumerNodes(nodes.map{node => node._1}.toList)
+</span>226 <span style=''></span><span style='background: #F0ADAD'>      case Failure(fail) =>
+</span>227 <span style=''></span><span style='background: #F0ADAD'>        log.error(s"Not requesting node data update because " +
+</span>228 <span style=''></span><span style='background: #F0ADAD'>          s"I am unable to get list of nodes at ${paths.nodePath}. ${fail.getMessage()}")
+</span>229 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>230 <span style=''>
+</span>231 <span style=''>    </span><span style='background: #F0ADAD'>sourceProxy ! TopicPartitionReq</span><span style=''>
+</span>232 <span style=''>  }
+</span>233 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -266,111 +273,6 @@
         </td>
         <td>
           523
-        </td>
-        <td>
-          832
-          -
-          834
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;-&quot;
-        </td>
-      </tr><tr>
-        <td>
-          20
-        </td>
-        <td>
-          525
-        </td>
-        <td>
-          850
-          -
-          851
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          20
-        </td>
-        <td>
-          528
-        </td>
-        <td>
-          841
-          -
-          850
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
-        </td>
-        <td style="background: #F0ADAD">
-          PartitionAssignment.this.partition
-        </td>
-      </tr><tr>
-        <td>
-          20
-        </td>
-        <td>
-          522
-        </td>
-        <td>
-          827
-          -
-          828
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          20
-        </td>
-        <td>
-          524
-        </td>
-        <td>
-          839
-          -
-          841
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;-&quot;
-        </td>
-      </tr><tr>
-        <td>
-          20
-        </td>
-        <td>
-          527
         </td>
         <td>
           834
@@ -391,7 +293,49 @@
           20
         </td>
         <td>
-          526
+          525
+        </td>
+        <td>
+          825
+          -
+          851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(PartitionAssignment.this.host, PartitionAssignment.this.topic, PartitionAssignment.this.partition)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          832
+          -
+          834
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          522
         </td>
         <td>
           828
@@ -412,49 +356,91 @@
           20
         </td>
         <td>
-          529
+          521
         </td>
         <td>
-          825
+          850
           -
           851
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          scala.StringContext.s
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(PartitionAssignment.this.host, PartitionAssignment.this.topic, PartitionAssignment.this.partition)
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          24
+          20
         </td>
         <td>
-          530
+          524
         </td>
         <td>
-          910
+          841
           -
-          921
+          850
         </td>
         <td>
           Select
         </td>
         <td>
-          net.liftweb.json.NoTypeHints
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
         </td>
         <td style="background: #F0ADAD">
-          net.liftweb.json.NoTypeHints
+          PartitionAssignment.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          827
+          -
+          828
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          839
+          -
+          841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
         </td>
       </tr><tr>
         <td>
           24
         </td>
         <td>
-          536
+          532
         </td>
         <td>
           888
@@ -475,7 +461,7 @@
           24
         </td>
         <td>
-          535
+          531
         </td>
         <td>
           923
@@ -493,10 +479,31 @@
         </td>
       </tr><tr>
         <td>
+          24
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          910
+          -
+          921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
           25
         </td>
         <td>
-          532
+          528
         </td>
         <td>
           986
@@ -517,7 +524,7 @@
           25
         </td>
         <td>
-          534
+          530
         </td>
         <td>
           971
@@ -538,7 +545,7 @@
           25
         </td>
         <td>
-          531
+          527
         </td>
         <td>
           986
@@ -559,7 +566,7 @@
           25
         </td>
         <td>
-          533
+          529
         </td>
         <td>
           1007
@@ -580,28 +587,28 @@
           26
         </td>
         <td>
-          540
+          534
         </td>
         <td>
-          1041
+          1049
           -
-          1076
+          1049
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          scala.Predef.manifest
+          scala.reflect.ManifestFactory.classType
         </td>
         <td style="background: #F0ADAD">
-          scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](reflect.this.ManifestFactory.classType[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](classOf[scala.collection.immutable.List], reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])))
+          reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])
         </td>
       </tr><tr>
         <td>
           26
         </td>
         <td>
-          537
+          533
         </td>
         <td>
           1049
@@ -622,7 +629,28 @@
           26
         </td>
         <td>
-          539
+          536
+        </td>
+        <td>
+          1041
+          -
+          1076
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Predef.manifest
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](reflect.this.ManifestFactory.classType[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](classOf[scala.collection.immutable.List], reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          535
         </td>
         <td>
           1049
@@ -640,31 +668,10 @@
         </td>
       </tr><tr>
         <td>
-          26
-        </td>
-        <td>
-          538
-        </td>
-        <td>
-          1049
-          -
-          1049
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.classType
-        </td>
-        <td style="background: #F0ADAD">
-          reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])
-        </td>
-      </tr><tr>
-        <td>
           35
         </td>
         <td>
-          541
+          537
         </td>
         <td>
           1316
@@ -685,7 +692,7 @@
           35
         </td>
         <td>
-          542
+          538
         </td>
         <td>
           1310
@@ -706,28 +713,7 @@
           51
         </td>
         <td>
-          543
-        </td>
-        <td>
-          1682
-          -
-          1684
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          10
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          545
+          541
         </td>
         <td>
           1674
@@ -748,7 +734,7 @@
           51
         </td>
         <td>
-          544
+          540
         </td>
         <td>
           1682
@@ -766,10 +752,31 @@
         </td>
       </tr><tr>
         <td>
+          51
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          1682
+          -
+          1684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          10
+        </td>
+      </tr><tr>
+        <td>
           53
         </td>
         <td>
-          546
+          542
         </td>
         <td>
           1709
@@ -790,7 +797,7 @@
           54
         </td>
         <td>
-          547
+          543
         </td>
         <td>
           1765
@@ -811,12 +818,12 @@
           57
         </td>
         <td>
-          548
+          544
         </td>
         <td>
           1829
           -
-          1951
+          1950
         </td>
         <td>
           Apply
@@ -832,12 +839,12 @@
           59
         </td>
         <td>
-          549
+          545
         </td>
         <td>
-          1970
+          1969
           -
-          1984
+          1983
         </td>
         <td>
           Select
@@ -853,12 +860,33 @@
           61
         </td>
         <td>
-          550
+          549
         </td>
         <td>
-          2013
+          2010
           -
-          2014
+          2030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-fetcher&quot;).s(AssignmentDistributorLeader.this.nodeName)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          2012
+          -
+          2013
         </td>
         <td>
           Literal
@@ -874,12 +902,12 @@
           61
         </td>
         <td>
-          552
+          548
         </td>
         <td>
-          2014
+          2013
           -
-          2022
+          2021
         </td>
         <td>
           Select
@@ -895,12 +923,12 @@
           61
         </td>
         <td>
-          551
+          547
         </td>
         <td>
-          2022
+          2021
           -
-          2031
+          2030
         </td>
         <td>
           Literal
@@ -913,36 +941,57 @@
         </td>
       </tr><tr>
         <td>
-          61
+          63
         </td>
         <td>
-          553
+          550
         </td>
         <td>
-          2011
+          2045
           -
-          2031
+          2046
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          scala.StringContext.s
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;-fetcher&quot;).s(AssignmentDistributorLeader.this.nodeName)
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
           63
         </td>
         <td>
-          559
+          552
         </td>
         <td>
-          2044
+          2114
           -
-          2123
+          2122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; sec(s)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          2043
+          -
+          2122
         </td>
         <td>
           Apply
@@ -958,33 +1007,12 @@
           63
         </td>
         <td>
-          558
+          551
         </td>
         <td>
-          2108
+          2054
           -
-          2115
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refresh
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.refresh
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          555
-        </td>
-        <td>
-          2055
-          -
-          2108
+          2107
         </td>
         <td>
           Literal
@@ -1000,12 +1028,33 @@
           63
         </td>
         <td>
-          557
+          554
         </td>
         <td>
-          2047
+          2107
           -
-          2055
+          2114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refresh
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.refresh
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          2046
+          -
+          2054
         </td>
         <td>
           Select
@@ -1021,12 +1070,12 @@
           63
         </td>
         <td>
-          560
+          556
         </td>
         <td>
-          2035
+          2034
           -
-          2124
+          2123
         </td>
         <td>
           Apply
@@ -1039,99 +1088,15 @@
         </td>
       </tr><tr>
         <td>
-          63
-        </td>
-        <td>
-          554
-        </td>
-        <td>
-          2046
-          -
-          2047
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          556
-        </td>
-        <td>
-          2115
-          -
-          2123
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; sec(s)&quot;
-        </td>
-      </tr><tr>
-        <td>
           66
         </td>
         <td>
-          561
+          559
         </td>
         <td>
-          2177
+          2199
           -
-          2200
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;AssignmentDistributor &quot;
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          564
-        </td>
-        <td>
-          2175
-          -
-          2218
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;AssignmentDistributor &quot;, &quot; stopping&quot;).s(AssignmentDistributorLeader.this.nodeName)
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          563
-        </td>
-        <td>
-          2200
-          -
-          2208
+          2207
         </td>
         <td>
           Select
@@ -1147,12 +1112,12 @@
           66
         </td>
         <td>
-          562
+          558
         </td>
         <td>
-          2208
+          2207
           -
-          2218
+          2217
         </td>
         <td>
           Literal
@@ -1168,12 +1133,12 @@
           66
         </td>
         <td>
-          565
+          561
         </td>
         <td>
-          2166
+          2165
           -
-          2219
+          2218
         </td>
         <td>
           Apply
@@ -1186,15 +1151,57 @@
         </td>
       </tr><tr>
         <td>
+          66
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          2176
+          -
+          2199
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;AssignmentDistributor &quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          2174
+          -
+          2217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;AssignmentDistributor &quot;, &quot; stopping&quot;).s(AssignmentDistributorLeader.this.nodeName)
+        </td>
+      </tr><tr>
+        <td>
           67
         </td>
         <td>
-          567
+          563
         </td>
         <td>
-          2224
+          2223
           -
-          2253
+          2252
         </td>
         <td>
           Apply
@@ -1210,12 +1217,12 @@
           67
         </td>
         <td>
-          566
+          562
         </td>
         <td>
-          2242
+          2241
           -
-          2252
+          2251
         </td>
         <td>
           Apply
@@ -1231,12 +1238,12 @@
           70
         </td>
         <td>
-          576
+          572
         </td>
         <td>
-          2293
+          2292
           -
-          2293
+          2292
         </td>
         <td>
           Apply
@@ -1252,12 +1259,12 @@
           71
         </td>
         <td>
-          568
+          564
         </td>
         <td>
-          2330
+          2329
           -
-          2354
+          2353
         </td>
         <td>
           Apply
@@ -1273,12 +1280,12 @@
           71
         </td>
         <td>
-          569
+          565
         </td>
         <td>
-          2352
+          2351
           -
-          2352
+          2351
         </td>
         <td>
           Literal
@@ -1294,12 +1301,12 @@
           73
         </td>
         <td>
-          570
+          566
         </td>
         <td>
-          2394
+          2393
           -
-          2419
+          2418
         </td>
         <td>
           Apply
@@ -1315,33 +1322,12 @@
           75
         </td>
         <td>
-          573
+          568
         </td>
         <td>
-          2461
-          -
           2475
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorPath.name
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.self.path.name
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          572
-        </td>
-        <td>
-          2476
           -
-          2492
+          2491
         </td>
         <td>
           Literal
@@ -1357,33 +1343,12 @@
           75
         </td>
         <td>
-          575
+          567
         </td>
         <td>
-          2447
+          2458
           -
-          2493
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.error
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot; Fetch timeout!&quot;).s(AssignmentDistributorLeader.this.self.path.name))
-        </td>
-      </tr><tr>
-        <td>
-          75
-        </td>
-        <td>
-          571
-        </td>
-        <td>
           2459
-          -
-          2460
         </td>
         <td>
           Literal
@@ -1399,12 +1364,12 @@
           75
         </td>
         <td>
-          574
+          570
         </td>
         <td>
-          2457
+          2456
           -
-          2492
+          2491
         </td>
         <td>
           Apply
@@ -1417,15 +1382,78 @@
         </td>
       </tr><tr>
         <td>
+          75
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          2460
+          -
+          2474
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          2446
+          -
+          2492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot; Fetch timeout!&quot;).s(AssignmentDistributorLeader.this.self.path.name))
+        </td>
+      </tr><tr>
+        <td>
           80
         </td>
         <td>
-          577
+          585
         </td>
         <td>
-          2542
+          2560
           -
-          2559
+          2728
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.scheduler_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.scheduler_=(scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          2541
+          -
+          2558
         </td>
         <td>
           Select
@@ -1441,12 +1469,12 @@
           80
         </td>
         <td>
-          588
+          584
         </td>
         <td>
-          2561
+          2560
           -
-          2729
+          2728
         </td>
         <td>
           Apply
@@ -1462,12 +1490,12 @@
           80
         </td>
         <td>
-          591
+          587
         </td>
         <td>
-          2539
+          2538
           -
-          2539
+          2538
         </td>
         <td>
           Block
@@ -1483,12 +1511,12 @@
           80
         </td>
         <td>
-          590
+          586
         </td>
         <td>
-          2539
+          2538
           -
-          2539
+          2538
         </td>
         <td>
           Literal
@@ -1501,36 +1529,36 @@
         </td>
       </tr><tr>
         <td>
-          80
+          81
         </td>
         <td>
-          589
+          582
         </td>
         <td>
-          2561
+          2583
           -
-          2729
+          2727
         </td>
         <td>
-          Block
+          ApplyToImplicitArgs
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.scheduler_=
+          akka.actor.Scheduler.schedule
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.scheduler_=(scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)))
+          AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)
         </td>
       </tr><tr>
         <td>
           81
         </td>
         <td>
-          585
+          581
         </td>
         <td>
-          2617
+          2616
           -
-          2617
+          2616
         </td>
         <td>
           Select
@@ -1546,12 +1574,12 @@
           81
         </td>
         <td>
-          579
+          575
         </td>
         <td>
-          2619
+          2618
           -
-          2634
+          2633
         </td>
         <td>
           Select
@@ -1567,12 +1595,12 @@
           81
         </td>
         <td>
-          584
+          580
         </td>
         <td>
-          2617
+          2616
           -
-          2617
+          2616
         </td>
         <td>
           Select
@@ -1588,33 +1616,12 @@
           81
         </td>
         <td>
-          587
+          574
         </td>
         <td>
-          2579
+          2618
           -
-          2729
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self))
-        </td>
-      </tr><tr>
-        <td>
-          81
-        </td>
-        <td>
-          578
-        </td>
-        <td>
-          2619
-          -
-          2626
+          2625
         </td>
         <td>
           Select
@@ -1630,54 +1637,33 @@
           81
         </td>
         <td>
-          586
+          583
         </td>
         <td>
-          2584
+          2578
           -
           2728
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          akka.actor.Scheduler.schedule
+          scala.Some.apply
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)
+          scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self))
         </td>
       </tr><tr>
         <td>
           82
         </td>
         <td>
-          582
+          577
         </td>
         <td>
-          2699
+          2681
           -
-          2703
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.self
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          581
-        </td>
-        <td>
-          2682
-          -
-          2697
+          2696
         </td>
         <td>
           Select
@@ -1693,12 +1679,12 @@
           82
         </td>
         <td>
-          580
+          576
         </td>
         <td>
-          2682
+          2681
           -
-          2689
+          2688
         </td>
         <td>
           Select
@@ -1714,12 +1700,12 @@
           82
         </td>
         <td>
-          583
+          579
         </td>
         <td>
-          2705
+          2704
           -
-          2727
+          2726
         </td>
         <td>
           Select
@@ -1732,57 +1718,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          82
         </td>
         <td>
-          593
+          578
         </td>
         <td>
-          2735
+          2698
           -
-          2766
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.ActorContext.child
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.child(AssignmentDistributorLeader.this.fetcherActorName)
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          592
-        </td>
-        <td>
-          2749
-          -
-          2765
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.fetcherActorName
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.fetcherActorName
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          594
-        </td>
-        <td>
-          2834
-          -
-          2838
+          2702
         </td>
         <td>
           Select
@@ -1795,15 +1739,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          84
         </td>
         <td>
-          597
+          588
         </td>
         <td>
-          2854
+          2748
           -
-          2870
+          2764
         </td>
         <td>
           Select
@@ -1816,36 +1760,57 @@
         </td>
       </tr><tr>
         <td>
-          85
+          84
         </td>
         <td>
-          596
+          589
         </td>
         <td>
-          2810
+          2734
           -
-          2852
+          2765
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.props
+          akka.actor.ActorContext.child
         </td>
         <td style="background: #F0ADAD">
-          AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy)
+          AssignmentDistributorLeader.this.context.child(AssignmentDistributorLeader.this.fetcherActorName)
         </td>
       </tr><tr>
         <td>
           85
         </td>
         <td>
-          595
+          594
         </td>
         <td>
-          2840
+          2793
           -
-          2851
+          2870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.actorOf(AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy), AssignmentDistributorLeader.this.fetcherActorName)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          2839
+          -
+          2850
         </td>
         <td>
           Select
@@ -1861,33 +1826,75 @@
           85
         </td>
         <td>
-          598
+          590
         </td>
         <td>
-          2794
+          2833
           -
-          2871
+          2837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          2853
+          -
+          2869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.fetcherActorName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.fetcherActorName
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          2809
+          -
+          2851
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.actor.ActorRefFactory.actorOf
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.props
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.actorOf(AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy), AssignmentDistributorLeader.this.fetcherActorName)
+          AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy)
         </td>
       </tr><tr>
         <td>
           87
         </td>
         <td>
-          600
+          596
         </td>
         <td>
-          2889
+          2888
           -
-          2945
+          2944
         </td>
         <td>
           Apply
@@ -1903,12 +1910,12 @@
           87
         </td>
         <td>
-          599
+          595
         </td>
         <td>
-          2898
+          2897
           -
-          2944
+          2943
         </td>
         <td>
           Apply
@@ -1924,12 +1931,12 @@
           92
         </td>
         <td>
-          601
+          597
         </td>
         <td>
-          3044
+          3043
           -
-          3064
+          3063
         </td>
         <td>
           Select
@@ -1945,12 +1952,12 @@
           93
         </td>
         <td>
-          603
+          599
         </td>
         <td>
-          3092
+          3091
           -
-          3147
+          3146
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1966,12 +1973,12 @@
           93
         </td>
         <td>
-          602
+          598
         </td>
         <td>
-          3135
+          3134
           -
-          3135
+          3134
         </td>
         <td>
           TypeApply
@@ -1987,12 +1994,12 @@
           95
         </td>
         <td>
-          604
+          600
         </td>
         <td>
-          3199
+          3198
           -
-          3199
+          3198
         </td>
         <td>
           TypeApply
@@ -2008,12 +2015,12 @@
           95
         </td>
         <td>
-          613
+          609
         </td>
         <td>
-          3190
+          3189
           -
-          3190
+          3189
         </td>
         <td>
           TypeApply
@@ -2029,12 +2036,12 @@
           97
         </td>
         <td>
-          612
+          608
         </td>
         <td>
-          3232
+          3231
           -
-          3374
+          3373
         </td>
         <td>
           Apply
@@ -2050,12 +2057,12 @@
           97
         </td>
         <td>
-          605
+          601
         </td>
         <td>
-          3232
+          3231
           -
-          3239
+          3238
         </td>
         <td>
           Select
@@ -2071,96 +2078,12 @@
           98
         </td>
         <td>
-          609
+          603
         </td>
         <td>
-          3368
+          3312
           -
-          3372
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td style="background: #F0ADAD">
-          x._1
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          606
-        </td>
-        <td>
-          3301
-          -
-          3308
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._2
-        </td>
-        <td style="background: #F0ADAD">
-          node._2
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          608
-        </td>
-        <td>
-          3287
-          -
-          3354
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.&amp;&amp;
-        </td>
-        <td style="background: #F0ADAD">
-          assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0))
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          611
-        </td>
-        <td>
-          3243
-          -
-          3374
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.SetLike.map
-        </td>
-        <td style="background: #F0ADAD">
-          assignsWithIndex.filter(((assign: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0)))).map[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](((x: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; x._1))(immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          607
-        </td>
-        <td>
-          3313
-          -
-          3354
+          3353
         </td>
         <td>
           Apply
@@ -2176,12 +2099,12 @@
           98
         </td>
         <td>
-          610
+          606
         </td>
         <td>
-          3361
+          3360
           -
-          3361
+          3360
         </td>
         <td>
           TypeApply
@@ -2194,15 +2117,99 @@
         </td>
       </tr><tr>
         <td>
+          98
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          3300
+          -
+          3307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #F0ADAD">
+          node._2
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          3367
+          -
+          3371
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          x._1
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          3286
+          -
+          3353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          3242
+          -
+          3373
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SetLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          assignsWithIndex.filter(((assign: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0)))).map[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](((x: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; x._1))(immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])
+        </td>
+      </tr><tr>
+        <td>
           99
         </td>
         <td>
-          615
+          611
         </td>
         <td>
-          3173
+          3172
           -
-          3387
+          3386
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2218,12 +2225,12 @@
           99
         </td>
         <td>
-          614
+          610
         </td>
         <td>
-          3382
+          3381
           -
-          3382
+          3381
         </td>
         <td>
           TypeApply
@@ -2239,75 +2246,12 @@
           101
         </td>
         <td>
-          618
+          612
         </td>
         <td>
-          3437
+          3404
           -
-          3461
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.MapLike.toString
-        </td>
-        <td style="background: #F0ADAD">
-          assignsByNode.toString()
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          617
-        </td>
-        <td>
-          3462
-          -
-          3463
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          620
-        </td>
-        <td>
-          3393
-          -
-          3464
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.log.debug(scala.StringContext.apply(&quot;Setting new node assignments: &quot;, &quot;&quot;).s(assignsByNode.toString()))
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          616
-        </td>
-        <td>
-          3405
-          -
-          3436
+          3435
         </td>
         <td>
           Literal
@@ -2323,12 +2267,12 @@
           101
         </td>
         <td>
-          619
+          615
         </td>
         <td>
-          3403
+          3402
           -
-          3463
+          3462
         </td>
         <td>
           Apply
@@ -2341,15 +2285,101 @@
         </td>
       </tr><tr>
         <td>
+          101
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          3436
+          -
+          3460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.toString
+        </td>
+        <td style="background: #F0ADAD">
+          assignsByNode.toString()
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          3461
+          -
+          3462
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          3392
+          -
+          3463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.debug(scala.StringContext.apply(&quot;Setting new node assignments: &quot;, &quot;&quot;).s(assignsByNode.toString()))
+        </td>
+      </tr><tr>
+        <td>
           102
         </td>
         <td>
-          624
+          621
         </td>
         <td>
-          3510
+          3491
           -
-          3510
+          3616
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          assignsByNode.map[(String, String), Map[String,String]](((x0$6: (String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])) =&gt; x0$6 match {
+  case (_1: String, _2: scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])((nodeId @ _), (partitionsByTopic @ _)) =&gt; scala.this.Predef.ArrowAssoc[String](nodeId).-&gt;[String](net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats))
+}))(immutable.this.Map.canBuildFrom[String, String])
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          3509
+          -
+          3509
         </td>
         <td>
           TypeApply
@@ -2365,12 +2395,12 @@
           102
         </td>
         <td>
-          626
+          622
         </td>
         <td>
-          3469
+          3468
           -
-          3618
+          3617
         </td>
         <td>
           Apply
@@ -2385,38 +2415,36 @@
         </td>
       </tr><tr>
         <td>
-          102
+          103
         </td>
         <td>
-          625
+          618
         </td>
         <td>
-          3492
+          3563
           -
-          3617
+          3610
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          scala.collection.TraversableLike.map
+          net.liftweb.json.Serialization.write
         </td>
         <td style="background: #F0ADAD">
-          assignsByNode.map[(String, String), Map[String,String]](((x0$6: (String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])) =&gt; x0$6 match {
-  case (_1: String, _2: scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])((nodeId @ _), (partitionsByTopic @ _)) =&gt; scala.this.Predef.ArrowAssoc[String](nodeId).-&gt;[String](net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats))
-}))(immutable.this.Map.canBuildFrom[String, String])
+          net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats)
         </td>
       </tr><tr>
         <td>
           103
         </td>
         <td>
-          621
+          617
         </td>
         <td>
-          3603
+          3602
           -
-          3610
+          3609
         </td>
         <td>
           Select
@@ -2432,12 +2460,12 @@
           103
         </td>
         <td>
-          623
+          619
         </td>
         <td>
-          3554
+          3553
           -
-          3611
+          3610
         </td>
         <td>
           Apply
@@ -2450,141 +2478,15 @@
         </td>
       </tr><tr>
         <td>
-          103
-        </td>
-        <td>
-          622
-        </td>
-        <td>
-          3564
-          -
-          3611
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.Serialization.write
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats)
-        </td>
-      </tr><tr>
-        <td>
           109
         </td>
         <td>
-          627
+          660
         </td>
         <td>
-          3774
+          3759
           -
-          3775
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          663
-        </td>
-        <td>
-          3831
-          -
-          3831
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          630
-        </td>
-        <td>
-          3772
-          -
-          3798
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath)
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          632
-        </td>
-        <td>
-          3771
-          -
-          3771
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.timeout
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          629
-        </td>
-        <td>
-          3776
-          -
-          3796
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.paths.assignmentPath
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          664
-        </td>
-        <td>
-          3760
-          -
-          4480
+          4479
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2626,12 +2528,12 @@
           109
         </td>
         <td>
-          631
+          627
         </td>
         <td>
-          3814
+          3813
           -
-          3818
+          3817
         </td>
         <td>
           Literal
@@ -2647,12 +2549,12 @@
           109
         </td>
         <td>
-          628
+          624
         </td>
         <td>
-          3797
+          3796
           -
-          3798
+          3797
         </td>
         <td>
           Literal
@@ -2665,36 +2567,120 @@
         </td>
       </tr><tr>
         <td>
-          112
+          109
         </td>
         <td>
-          633
+          623
         </td>
         <td>
-          4004
+          3773
           -
-          4026
+          3774
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          3830
+          -
+          3830
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Boolean.unary_!
+          akka.actor.ActorContext.dispatcher
         </td>
         <td style="background: #F0ADAD">
-          data.contains(nodeId).unary_!
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          3771
+          -
+          3797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          3775
+          -
+          3795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          3770
+          -
+          3770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.timeout
         </td>
       </tr><tr>
         <td>
           112
         </td>
         <td>
-          634
+          630
         </td>
         <td>
-          3952
+          3951
           -
-          4027
+          4026
         </td>
         <td>
           Apply
@@ -2709,36 +2695,36 @@
         </td>
       </tr><tr>
         <td>
-          114
+          112
         </td>
         <td>
-          642
+          629
         </td>
         <td>
-          4068
+          4003
           -
-          4068
+          4025
         </td>
         <td>
-          TypeApply
+          Select
         </td>
         <td>
-          scala.collection.Seq.canBuildFrom
+          scala.Boolean.unary_!
         </td>
         <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[String]
+          data.contains(nodeId).unary_!
         </td>
       </tr><tr>
         <td>
           114
         </td>
         <td>
-          643
+          639
         </td>
         <td>
-          4068
+          4067
           -
-          4068
+          4067
         </td>
         <td>
           Select
@@ -2751,120 +2737,36 @@
         </td>
       </tr><tr>
         <td>
+          114
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          4067
+          -
+          4067
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
           115
         </td>
         <td>
           636
         </td>
         <td>
-          4136
+          4109
           -
-          4138
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;/&quot;
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          639
-        </td>
-        <td>
-          4111
-          -
-          4145
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          641
-        </td>
-        <td>
-          4100
-          -
-          4146
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.deleteNode
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.deleteNode(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId))(AssignmentDistributorLeader.this.timeout)
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          635
-        </td>
-        <td>
-          4113
-          -
-          4114
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          638
-        </td>
-        <td>
-          4115
-          -
-          4135
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.paths.assignmentPath
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          640
-        </td>
-        <td>
-          4110
-          -
-          4110
+          4109
         </td>
         <td>
           Select
@@ -2880,12 +2782,12 @@
           115
         </td>
         <td>
-          637
+          633
         </td>
         <td>
-          4144
+          4143
           -
-          4145
+          4144
         </td>
         <td>
           Literal
@@ -2898,15 +2800,141 @@
         </td>
       </tr><tr>
         <td>
+          115
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          4135
+          -
+          4137
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          4110
+          -
+          4144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          4112
+          -
+          4113
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          4114
+          -
+          4134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          4099
+          -
+          4145
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.deleteNode
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.deleteNode(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId))(AssignmentDistributorLeader.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
           116
         </td>
         <td>
-          651
+          648
         </td>
         <td>
-          4167
+          4166
           -
-          4167
+          4166
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          4166
+          -
+          4166
         </td>
         <td>
           Apply
@@ -2922,12 +2950,12 @@
           116
         </td>
         <td>
-          653
+          649
         </td>
         <td>
-          4037
+          4036
           -
-          4280
+          4279
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2958,141 +2986,36 @@
         </td>
       </tr><tr>
         <td>
-          116
-        </td>
-        <td>
-          652
-        </td>
-        <td>
-          4167
-          -
-          4167
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
           117
         </td>
         <td>
           645
         </td>
         <td>
+          4199
+          -
           4264
-          -
-          4265
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          648
-        </td>
-        <td>
-          4240
-          -
-          4263
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableLike.map
-        </td>
-        <td style="background: #F0ADAD">
-          nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          650
-        </td>
-        <td>
-          4190
-          -
-          4270
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.logging.Logger.error
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])), ex)
+          scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String]))
         </td>
       </tr><tr>
         <td>
           117
         </td>
         <td>
-          644
-        </td>
-        <td>
-          4202
-          -
-          4239
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Unable to delete assignment nodes - &quot;
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          647
+          642
         </td>
         <td>
           4257
           -
-          4257
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[String]
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          646
-        </td>
-        <td>
-          4258
-          -
-          4262
+          4261
         </td>
         <td>
           Select
@@ -3108,33 +3031,12 @@
           117
         </td>
         <td>
-          649
+          641
         </td>
         <td>
-          4200
+          4263
           -
-          4265
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String]))
-        </td>
-      </tr><tr>
-        <td>
-          120
-        </td>
-        <td>
-          654
-        </td>
-        <td>
-          4329
-          -
-          4361
+          4264
         </td>
         <td>
           Literal
@@ -3143,19 +3045,40 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;Unable to get list of nodes at &quot;
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          120
+          117
         </td>
         <td>
-          662
+          644
         </td>
         <td>
-          4317
+          4239
           -
-          4474
+          4262
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          4189
+          -
+          4269
         </td>
         <td>
           Apply
@@ -3164,40 +3087,82 @@
           com.webtrends.harness.logging.Logger.error
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())))
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])), ex)
         </td>
       </tr><tr>
         <td>
-          120
+          117
         </td>
         <td>
-          656
+          640
         </td>
         <td>
-          4362
+          4201
           -
-          4382
+          4238
         </td>
         <td>
-          Select
+          Literal
         </td>
         <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.paths.assignmentPath
+          &quot;Unable to delete assignment nodes - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          4256
+          -
+          4256
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
         </td>
       </tr><tr>
         <td>
           120
         </td>
         <td>
-          655
+          657
         </td>
         <td>
-          4383
+          4326
           -
-          4385
+          4472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          4382
+          -
+          4384
         </td>
         <td>
           Literal
@@ -3213,10 +3178,31 @@
           120
         </td>
         <td>
-          661
+          650
         </td>
         <td>
-          4327
+          4328
+          -
+          4360
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unable to get list of nodes at &quot;
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          4316
           -
           4473
         </td>
@@ -3224,43 +3210,64 @@
           Apply
         </td>
         <td>
-          java.lang.String.+
+          com.webtrends.harness.logging.Logger.error
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage()))
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          4361
+          -
+          4381
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
         </td>
       </tr><tr>
         <td>
           121
         </td>
         <td>
-          660
+          654
         </td>
         <td>
-          4406
+          4471
           -
-          4473
+          4472
         </td>
         <td>
-          Apply
+          Literal
         </td>
         <td>
-          scala.StringContext.s
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
           121
         </td>
         <td>
-          657
+          653
         </td>
         <td>
-          4408
+          4407
           -
-          4453
+          4452
         </td>
         <td>
           Literal
@@ -3276,12 +3283,33 @@
           121
         </td>
         <td>
-          659
+          656
         </td>
         <td>
-          4454
+          4405
           -
-          4471
+          4472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          4453
+          -
+          4470
         </td>
         <td>
           Apply
@@ -3294,57 +3322,15 @@
         </td>
       </tr><tr>
         <td>
-          121
-        </td>
-        <td>
-          658
-        </td>
-        <td>
-          4472
-          -
-          4473
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
           124
         </td>
         <td>
-          677
+          672
         </td>
         <td>
-          4508
+          4507
           -
-          4508
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          124
-        </td>
-        <td>
-          676
-        </td>
-        <td>
-          4508
-          -
-          4508
+          4507
         </td>
         <td>
           TypeApply
@@ -3357,183 +3343,36 @@
         </td>
       </tr><tr>
         <td>
+          124
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          4507
+          -
+          4507
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
           125
         </td>
         <td>
           669
         </td>
         <td>
-          4551
+          4638
           -
-          4585
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          672
-        </td>
-        <td>
-          4621
-          -
-          4625
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          666
-        </td>
-        <td>
-          4576
-          -
-          4578
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;/&quot;
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          675
-        </td>
-        <td>
-          4543
-          -
-          4645
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.setData
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.setData(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId), nodeData.getBytes(AssignmentDistributorLeader.this.utf8), true, false)(AssignmentDistributorLeader.this.timeout)
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          668
-        </td>
-        <td>
-          4555
-          -
-          4575
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.paths.assignmentPath
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          671
-        </td>
-        <td>
-          4587
-          -
-          4610
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.getBytes
-        </td>
-        <td style="background: #F0ADAD">
-          nodeData.getBytes(AssignmentDistributorLeader.this.utf8)
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          665
-        </td>
-        <td>
-          4553
-          -
-          4554
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          674
-        </td>
-        <td>
-          4550
-          -
-          4550
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.timeout
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          673
-        </td>
-        <td>
-          4639
-          -
-          4644
+          4643
         </td>
         <td>
           Literal
@@ -3549,12 +3388,180 @@
           125
         </td>
         <td>
+          663
+        </td>
+        <td>
+          4583
+          -
+          4584
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          4604
+          -
+          4608
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          4620
+          -
+          4624
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          4542
+          -
+          4644
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.setData
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.setData(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId), nodeData.getBytes(AssignmentDistributorLeader.this.utf8), true, false)(AssignmentDistributorLeader.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          4575
+          -
+          4577
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          4550
+          -
+          4584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          4554
+          -
+          4574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
           667
         </td>
         <td>
-          4584
+          4586
           -
-          4585
+          4609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          nodeData.getBytes(AssignmentDistributorLeader.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          4552
+          -
+          4553
         </td>
         <td>
           Literal
@@ -3573,30 +3580,51 @@
           670
         </td>
         <td>
-          4605
+          4549
           -
-          4609
+          4549
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
         </td>
         <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.utf8
+          AssignmentDistributorLeader.this.timeout
         </td>
       </tr><tr>
         <td>
           126
         </td>
         <td>
-          686
+          681
         </td>
         <td>
-          4486
+          4662
           -
-          4843
+          4662
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          682
+        </td>
+        <td>
+          4485
+          -
+          4842
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3614,57 +3642,15 @@
         </td>
       </tr><tr>
         <td>
-          126
-        </td>
-        <td>
-          685
-        </td>
-        <td>
-          4663
-          -
-          4663
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
           128
         </td>
         <td>
-          678
+          675
         </td>
         <td>
-          4711
+          4700
           -
           4740
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Successfully set node data&quot;).s()
-        </td>
-      </tr><tr>
-        <td>
-          128
-        </td>
-        <td>
-          679
-        </td>
-        <td>
-          4701
-          -
-          4741
         </td>
         <td>
           Apply
@@ -3677,15 +3663,57 @@
         </td>
       </tr><tr>
         <td>
+          128
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          4710
+          -
+          4739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Successfully set node data&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
           130
         </td>
         <td>
-          681
+          678
         </td>
         <td>
-          4835
+          4816
           -
-          4836
+          4833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          fail.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          4834
+          -
+          4835
         </td>
         <td>
           Literal
@@ -3701,12 +3729,12 @@
           130
         </td>
         <td>
-          684
+          680
         </td>
         <td>
-          4778
+          4777
           -
-          4837
+          4836
         </td>
         <td>
           Apply
@@ -3722,33 +3750,12 @@
           130
         </td>
         <td>
-          683
+          676
         </td>
         <td>
-          4788
+          4789
           -
-          4836
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Unable to set node data. &quot;, &quot;&quot;).s(fail.getMessage())
-        </td>
-      </tr><tr>
-        <td>
-          130
-        </td>
-        <td>
-          680
-        </td>
-        <td>
-          4790
-          -
-          4816
+          4815
         </td>
         <td>
           Literal
@@ -3764,54 +3771,33 @@
           130
         </td>
         <td>
-          682
+          679
         </td>
         <td>
-          4817
+          4787
           -
-          4834
+          4835
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.Throwable.getMessage
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          fail.getMessage()
+          scala.StringContext.apply(&quot;Unable to set node data. &quot;, &quot;&quot;).s(fail.getMessage())
         </td>
       </tr><tr>
         <td>
           137
         </td>
         <td>
-          687
+          684
         </td>
         <td>
-          4945
+          4938
           -
           4989
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.&lt;init&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          new AssignmentFetcher(receiver, sourceProxy)
-        </td>
-      </tr><tr>
-        <td>
-          137
-        </td>
-        <td>
-          688
-        </td>
-        <td>
-          4939
-          -
-          4990
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3824,78 +3810,36 @@
         </td>
       </tr><tr>
         <td>
-          162
+          137
         </td>
         <td>
-          690
+          683
         </td>
         <td>
-          5563
+          4944
           -
-          5572
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.concurrent.duration.DurationConversions.seconds
-        </td>
-        <td style="background: #F0ADAD">
-          scala.concurrent.duration.`package`.DurationInt(5).seconds
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          689
-        </td>
-        <td>
-          5563
-          -
-          5564
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          5
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          691
-        </td>
-        <td>
-          5555
-          -
-          5573
+          4988
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.util.Timeout.apply
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.&lt;init&gt;
         </td>
         <td style="background: #F0ADAD">
-          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+          new AssignmentFetcher(receiver, sourceProxy)
         </td>
       </tr><tr>
         <td>
-          164
+          162
         </td>
         <td>
-          692
+          685
         </td>
         <td>
-          5594
+          5548
           -
-          5640
+          5594
         </td>
         <td>
           Literal
@@ -3908,15 +3852,15 @@
         </td>
       </tr><tr>
         <td>
-          166
+          164
         </td>
         <td>
-          693
+          686
         </td>
         <td>
-          5652
+          5606
           -
-          5682
+          5636
         </td>
         <td>
           Select
@@ -3929,36 +3873,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          166
         </td>
         <td>
-          694
+          687
         </td>
         <td>
-          5756
+          5691
           -
-          5852
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.util.Try.getOrElse
-        </td>
-        <td style="background: #F0ADAD">
-          scala.util.Try.apply[Long](AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).getOrElse[Long](500L)
-        </td>
-      </tr><tr>
-        <td>
-          173
-        </td>
-        <td>
-          696
-        </td>
-        <td>
-          5903
-          -
-          5904
+          5692
         </td>
         <td>
           Literal
@@ -3971,36 +3894,246 @@
         </td>
       </tr><tr>
         <td>
-          173
+          166
         </td>
         <td>
-          699
+          690
         </td>
         <td>
-          5856
+          5689
           -
-          5905
+          5727
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.logging.Logger.debug
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Fetching with timeout &quot;, &quot;&quot;).s(AssignmentFetcher.this.fetchTimeout))
+          scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot)
         </td>
       </tr><tr>
         <td>
-          173
+          166
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          5671
+          -
+          5742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          5679
+          -
+          5741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.milliseconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          5692
+          -
+          5702
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.configRoot
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.configRoot
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          5679
+          -
+          5728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getLong
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          5702
+          -
+          5727
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.zk-fetch-timeout-millis&quot;
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          5768
+          -
+          5777
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          167
         </td>
         <td>
           695
         </td>
         <td>
-          5868
+          5768
           -
-          5891
+          5777
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          5665
+          -
+          5778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[akka.util.Timeout](akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds)).getOrElse[akka.util.Timeout](util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(5).seconds))
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          5768
+          -
+          5769
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          5801
+          -
+          5895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Long](AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).getOrElse[Long](2000L)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          5911
+          -
+          5934
         </td>
         <td>
           Literal
@@ -4013,15 +4146,15 @@
         </td>
       </tr><tr>
         <td>
-          173
+          172
         </td>
         <td>
-          698
+          702
         </td>
         <td>
-          5866
+          5909
           -
-          5904
+          5947
         </td>
         <td>
           Apply
@@ -4034,15 +4167,15 @@
         </td>
       </tr><tr>
         <td>
-          173
+          172
         </td>
         <td>
-          697
+          701
         </td>
         <td>
-          5891
+          5934
           -
-          5903
+          5946
         </td>
         <td>
           Select
@@ -4055,17 +4188,59 @@
         </td>
       </tr><tr>
         <td>
-          175
+          172
         </td>
         <td>
           700
         </td>
         <td>
-          5943
+          5946
           -
           5947
         </td>
         <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          5899
+          -
+          5948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Fetching with timeout &quot;, &quot;&quot;).s(AssignmentFetcher.this.fetchTimeout))
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          5986
+          -
+          5990
+        </td>
+        <td>
           Select
         </td>
         <td>
@@ -4076,15 +4251,15 @@
         </td>
       </tr><tr>
         <td>
-          176
+          175
         </td>
         <td>
-          701
+          705
         </td>
         <td>
-          6000
+          6043
           -
-          6004
+          6047
         </td>
         <td>
           Select
@@ -4097,15 +4272,15 @@
         </td>
       </tr><tr>
         <td>
-          178
+          177
         </td>
         <td>
-          702
+          706
         </td>
         <td>
-          6020
+          6063
           -
-          6036
+          6079
         </td>
         <td>
           Select
@@ -4118,36 +4293,15 @@
         </td>
       </tr><tr>
         <td>
-          180
+          179
         </td>
         <td>
-          705
+          708
         </td>
         <td>
-          6045
+          6090
           -
-          6045
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.self
-        </td>
-      </tr><tr>
-        <td>
-          180
-        </td>
-        <td>
-          704
-        </td>
-        <td>
-          6047
-          -
-          6052
+          6095
         </td>
         <td>
           Select
@@ -4160,15 +4314,15 @@
         </td>
       </tr><tr>
         <td>
-          180
+          179
         </td>
         <td>
-          706
+          710
         </td>
         <td>
-          6040
+          6083
           -
-          6052
+          6095
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4181,15 +4335,15 @@
         </td>
       </tr><tr>
         <td>
-          180
+          179
         </td>
         <td>
-          703
+          707
         </td>
         <td>
-          6040
+          6083
           -
-          6044
+          6087
         </td>
         <td>
           Select
@@ -4202,15 +4356,78 @@
         </td>
       </tr><tr>
         <td>
-          182
+          179
         </td>
         <td>
-          714
+          709
         </td>
         <td>
-          6056
+          6088
           -
-          6150
+          6088
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          6164
+          -
+          6164
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          6137
+          -
+          6149
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.fetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.fetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          718
+        </td>
+        <td>
+          6099
+          -
+          6193
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4223,15 +4440,15 @@
         </td>
       </tr><tr>
         <td>
-          182
+          181
         </td>
         <td>
-          708
+          712
         </td>
         <td>
-          6094
+          6137
           -
-          6119
+          6162
         </td>
         <td>
           Select
@@ -4247,75 +4464,12 @@
           182
         </td>
         <td>
-          713
+          714
         </td>
         <td>
-          6121
+          6177
           -
-          6121
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          182
-        </td>
-        <td>
-          707
-        </td>
-        <td>
-          6094
-          -
-          6106
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.fetchTimeout
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.fetchTimeout
-        </td>
-      </tr><tr>
-        <td>
-          183
-        </td>
-        <td>
-          711
-        </td>
-        <td>
-          6132
-          -
-          6132
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.self
-        </td>
-      </tr><tr>
-        <td>
-          183
-        </td>
-        <td>
-          710
-        </td>
-        <td>
-          6134
-          -
-          6146
+          6189
         </td>
         <td>
           Select
@@ -4328,15 +4482,15 @@
         </td>
       </tr><tr>
         <td>
-          183
+          182
         </td>
         <td>
-          709
+          713
         </td>
         <td>
-          6127
+          6170
           -
-          6131
+          6174
         </td>
         <td>
           Select
@@ -4349,15 +4503,15 @@
         </td>
       </tr><tr>
         <td>
-          183
+          182
         </td>
         <td>
-          712
+          716
         </td>
         <td>
-          6127
+          6170
           -
-          6146
+          6189
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4370,15 +4524,36 @@
         </td>
       </tr><tr>
         <td>
-          186
+          182
         </td>
         <td>
-          725
+          715
         </td>
         <td>
-          6183
+          6175
           -
-          6183
+          6175
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          6226
+          -
+          6226
         </td>
         <td>
           Apply
@@ -4391,15 +4566,15 @@
         </td>
       </tr><tr>
         <td>
-          187
+          186
         </td>
         <td>
-          715
+          719
         </td>
         <td>
-          6203
+          6246
           -
-          6210
+          6253
         </td>
         <td>
           Apply
@@ -4412,15 +4587,57 @@
         </td>
       </tr><tr>
         <td>
-          190
+          189
         </td>
         <td>
-          717
+          720
         </td>
         <td>
-          6256
+          6304
           -
-          6270
+          6312
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.nodes
+        </td>
+        <td style="background: #F0ADAD">
+          cn.nodes
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          722
+        </td>
+        <td>
+          6291
+          -
+          6313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.nodes_=(scala.Some.apply[List[String]](cn.nodes))
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          6299
+          -
+          6313
         </td>
         <td>
           Apply
@@ -4436,54 +4653,12 @@
           190
         </td>
         <td>
-          716
+          723
         </td>
         <td>
-          6261
+          6320
           -
-          6269
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.nodes
-        </td>
-        <td style="background: #F0ADAD">
-          cn.nodes
-        </td>
-      </tr><tr>
-        <td>
-          190
-        </td>
-        <td>
-          718
-        </td>
-        <td>
-          6248
-          -
-          6270
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes_=
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.nodes_=(scala.Some.apply[List[String]](cn.nodes))
-        </td>
-      </tr><tr>
-        <td>
-          191
-        </td>
-        <td>
-          719
-        </td>
-        <td>
-          6277
-          -
-          6283
+          6326
         </td>
         <td>
           Select
@@ -4496,15 +4671,36 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
-          720
+          725
         </td>
         <td>
-          6344
+          6369
           -
-          6352
+          6395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.topicPartitions_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.topicPartitions_=(scala.Some.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp](tr))
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          6387
+          -
+          6395
         </td>
         <td>
           Apply
@@ -4520,33 +4716,12 @@
           194
         </td>
         <td>
-          721
+          726
         </td>
         <td>
-          6326
+          6402
           -
-          6352
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.topicPartitions_=
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.topicPartitions_=(scala.Some.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp](tr))
-        </td>
-      </tr><tr>
-        <td>
-          195
-        </td>
-        <td>
-          722
-        </td>
-        <td>
-          6359
-          -
-          6365
+          6408
         </td>
         <td>
           Select
@@ -4562,222 +4737,33 @@
           197
         </td>
         <td>
-          723
+          732
         </td>
         <td>
-          6408
+          6441
           -
-          6420
+          6441
         </td>
         <td>
-          Select
+          Block
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.FetchTimeout
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          AssignmentFetcher.FetchTimeout
+          ()
         </td>
       </tr><tr>
         <td>
           197
         </td>
         <td>
-          724
-        </td>
-        <td>
-          6392
-          -
-          6421
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.sendAndShutdown(AssignmentFetcher.FetchTimeout)
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          729
-        </td>
-        <td>
-          6530
-          -
-          6535
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.nodes
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          726
-        </td>
-        <td>
-          6525
-          -
-          6530
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Got &quot;
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          728
-        </td>
-        <td>
-          6543
-          -
-          6544
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
           731
         </td>
         <td>
-          6513
+          6441
           -
-          6545
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp))
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          727
-        </td>
-        <td>
-          6535
-          -
-          6541
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; and &quot;
-        </td>
-      </tr><tr>
-        <td>
-          202
-        </td>
-        <td>
-          730
-        </td>
-        <td>
-          6523
-          -
-          6544
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp)
-        </td>
-      </tr><tr>
-        <td>
-          204
-        </td>
-        <td>
-          732
-        </td>
-        <td>
-          6569
-          -
-          6596
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.DistributeAssignments.apply
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentDistributorLeader.DistributeAssignments.apply(n, tp)
-        </td>
-      </tr><tr>
-        <td>
-          204
-        </td>
-        <td>
-          733
-        </td>
-        <td>
-          6553
-          -
-          6597
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.sendAndShutdown(AssignmentDistributorLeader.DistributeAssignments.apply(n, tp))
-        </td>
-      </tr><tr>
-        <td>
-          205
-        </td>
-        <td>
-          734
-        </td>
-        <td>
-          6609
-          -
-          6611
+          6441
         </td>
         <td>
           Literal
@@ -4790,36 +4776,456 @@
         </td>
       </tr><tr>
         <td>
-          210
+          197
         </td>
         <td>
-          735
+          727
         </td>
         <td>
-          6665
+          6444
           -
-          6673
+          6457
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.receiver
+          scala.Option.isEmpty
         </td>
         <td style="background: #F0ADAD">
-          AssignmentFetcher.this.receiver
+          AssignmentFetcher.this.nodes.isEmpty
         </td>
       </tr><tr>
         <td>
-          210
+          198
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          6469
+          -
+          6518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          6478
+          -
+          6517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          6469
+          -
+          6518
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          6534
+          -
+          6534
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          201
         </td>
         <td>
           737
         </td>
         <td>
-          6665
+          6534
           -
-          6680
+          6534
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          6537
+          -
+          6560
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.topicPartitions.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          6572
+          -
+          6623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          6581
+          -
+          6622
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          6572
+          -
+          6623
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          6638
+          -
+          6667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sendAndShutdown(AssignmentFetcher.FetchTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          6654
+          -
+          6666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.FetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.FetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          747
+        </td>
+        <td>
+          6759
+          -
+          6791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp))
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          6789
+          -
+          6790
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          6781
+          -
+          6787
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; and &quot;
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          6769
+          -
+          6790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          6771
+          -
+          6776
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Got &quot;
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          6776
+          -
+          6781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.nodes
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          6799
+          -
+          6843
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sendAndShutdown(AssignmentDistributorLeader.DistributeAssignments.apply(n, tp))
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          6815
+          -
+          6842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.DistributeAssignments.apply
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.DistributeAssignments.apply(n, tp)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          6855
+          -
+          6857
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          6911
+          -
+          6926
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4832,15 +5238,15 @@
         </td>
       </tr><tr>
         <td>
-          210
+          217
         </td>
         <td>
-          736
+          752
         </td>
         <td>
-          6674
+          6920
           -
-          6674
+          6920
         </td>
         <td>
           Select
@@ -4853,15 +5259,36 @@
         </td>
       </tr><tr>
         <td>
-          211
+          217
         </td>
         <td>
-          738
+          751
         </td>
         <td>
-          6685
+          6911
           -
-          6714
+          6919
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.receiver
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.receiver
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          6931
+          -
+          6960
         </td>
         <td>
           Apply
@@ -4874,15 +5301,15 @@
         </td>
       </tr><tr>
         <td>
-          212
+          219
         </td>
         <td>
-          740
+          756
         </td>
         <td>
-          6719
+          6965
           -
-          6737
+          6983
         </td>
         <td>
           Apply
@@ -4895,15 +5322,15 @@
         </td>
       </tr><tr>
         <td>
-          212
+          219
         </td>
         <td>
-          739
+          755
         </td>
         <td>
-          6732
+          6978
           -
-          6736
+          6982
         </td>
         <td>
           Select
@@ -4916,57 +5343,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          223
         </td>
         <td>
-          741
+          759
         </td>
         <td>
-          6779
+          7027
           -
-          6780
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          744
-        </td>
-        <td>
-          6777
-          -
-          6797
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath)
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          743
-        </td>
-        <td>
-          6781
-          -
-          6795
+          7041
         </td>
         <td>
           Select
@@ -4979,102 +5364,36 @@
         </td>
       </tr><tr>
         <td>
-          216
+          223
         </td>
         <td>
-          764
+          762
         </td>
         <td>
-          6765
+          7022
           -
-          7113
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.concurrent.Future.onComplete
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.getChildren(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath), false)(AssignmentFetcher.this.timeout).onComplete[Unit](((x0$7: scala.util.Try[Seq[(String, Option[Array[Byte]])]]) =&gt; x0$7 match {
-  case (value: Seq[(String, Option[Array[Byte]])])scala.util.Success[Seq[(String, Option[Array[Byte]])]]((nodes @ _)) =&gt; akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
-  case (exception: Throwable)scala.util.Failure[Seq[(String, Option[Array[Byte]])]]((fail @ _)) =&gt; AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
-}))(AssignmentFetcher.this.context.dispatcher)
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          746
-        </td>
-        <td>
-          6776
-          -
-          6776
+          7022
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.timeout
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.zkTimeout
         </td>
         <td style="background: #F0ADAD">
-          AssignmentFetcher.this.timeout
+          AssignmentFetcher.this.zkTimeout
         </td>
       </tr><tr>
         <td>
-          216
+          223
         </td>
         <td>
-          742
+          779
         </td>
         <td>
-          6796
+          7077
           -
-          6797
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          745
-        </td>
-        <td>
-          6813
-          -
-          6818
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          216
-        </td>
-        <td>
-          763
-        </td>
-        <td>
-          6831
-          -
-          6831
+          7077
         </td>
         <td>
           Select
@@ -5087,204 +5406,15 @@
         </td>
       </tr><tr>
         <td>
-          218
-        </td>
-        <td>
-          747
-        </td>
-        <td>
-          6870
-          -
-          6874
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.self
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          750
-        </td>
-        <td>
-          6891
-          -
-          6924
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toList
-        </td>
-        <td style="background: #F0ADAD">
-          nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          753
-        </td>
-        <td>
-          6870
-          -
-          6925
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          752
-        </td>
-        <td>
-          6875
-          -
-          6875
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.self
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          749
-        </td>
-        <td>
-          6900
-          -
-          6900
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[String]
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          751
-        </td>
-        <td>
-          6877
-          -
-          6925
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.apply
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList)
-        </td>
-      </tr><tr>
-        <td>
-          218
-        </td>
-        <td>
-          748
-        </td>
-        <td>
-          6909
-          -
-          6916
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td style="background: #F0ADAD">
-          node._1
-        </td>
-      </tr><tr>
-        <td>
-          220
-        </td>
-        <td>
-          762
-        </td>
-        <td>
-          6962
-          -
-          7107
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.error
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
-        </td>
-      </tr><tr>
-        <td>
-          220
+          223
         </td>
         <td>
           761
         </td>
         <td>
-          6972
+          7059
           -
-          7106
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.+
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          220
-        </td>
-        <td>
-          754
-        </td>
-        <td>
-          6974
-          -
-          7015
+          7064
         </td>
         <td>
           Literal
@@ -5293,103 +5423,19 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;Not requesting node data update because &quot;
+          false
         </td>
       </tr><tr>
         <td>
-          221
-        </td>
-        <td>
-          756
-        </td>
-        <td>
-          7083
-          -
-          7086
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;. &quot;
-        </td>
-      </tr><tr>
-        <td>
-          221
-        </td>
-        <td>
-          759
-        </td>
-        <td>
-          7087
-          -
-          7104
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          fail.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          221
-        </td>
-        <td>
-          755
-        </td>
-        <td>
-          7030
-          -
-          7067
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;I am unable to get list of nodes at &quot;
-        </td>
-      </tr><tr>
-        <td>
-          221
+          223
         </td>
         <td>
           758
         </td>
         <td>
-          7068
+          7042
           -
-          7082
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.nodePath
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.paths.nodePath
-        </td>
-      </tr><tr>
-        <td>
-          221
-        </td>
-        <td>
-          757
-        </td>
-        <td>
-          7105
-          -
-          7106
+          7043
         </td>
         <td>
           Literal
@@ -5402,15 +5448,36 @@
         </td>
       </tr><tr>
         <td>
-          221
+          223
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          7025
+          -
+          7026
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          223
         </td>
         <td>
           760
         </td>
         <td>
-          7028
+          7023
           -
-          7106
+          7043
         </td>
         <td>
           Apply
@@ -5419,61 +5486,64 @@
           scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath)
         </td>
       </tr><tr>
         <td>
-          224
+          223
         </td>
         <td>
-          765
+          780
         </td>
         <td>
-          7119
+          7011
           -
-          7130
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sourceProxy
-        </td>
-        <td style="background: #F0ADAD">
-          AssignmentFetcher.this.sourceProxy
-        </td>
-      </tr><tr>
-        <td>
-          224
-        </td>
-        <td>
-          768
-        </td>
-        <td>
-          7119
-          -
-          7150
+          7359
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          akka.actor.ScalaActorRef.!
+          scala.concurrent.Future.onComplete
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.sourceProxy).!(KafkaConsumerProxy.TopicPartitionReq)(AssignmentFetcher.this.self)
+          AssignmentFetcher.this.getChildren(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath), false)(AssignmentFetcher.this.zkTimeout).onComplete[Unit](((x0$7: scala.util.Try[Seq[(String, Option[Array[Byte]])]]) =&gt; x0$7 match {
+  case (value: Seq[(String, Option[Array[Byte]])])scala.util.Success[Seq[(String, Option[Array[Byte]])]]((nodes @ _)) =&gt; akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
+  case (exception: Throwable)scala.util.Failure[Seq[(String, Option[Array[Byte]])]]((fail @ _)) =&gt; AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
+}))(AssignmentFetcher.this.context.dispatcher)
         </td>
       </tr><tr>
         <td>
-          224
+          225
         </td>
         <td>
-          767
+          765
         </td>
         <td>
-          7131
+          7146
           -
-          7131
+          7146
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          7121
+          -
+          7121
         </td>
         <td>
           Select
@@ -5486,15 +5556,330 @@
         </td>
       </tr><tr>
         <td>
-          224
+          225
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          7155
+          -
+          7162
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          node._1
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          7123
+          -
+          7171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.apply
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          225
         </td>
         <td>
           766
         </td>
         <td>
-          7133
+          7137
           -
-          7150
+          7170
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #F0ADAD">
+          nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          7116
+          -
+          7171
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          7116
+          -
+          7120
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          7218
+          -
+          7352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          7220
+          -
+          7261
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Not requesting node data update because &quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          7208
+          -
+          7353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          7314
+          -
+          7328
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.nodePath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.paths.nodePath
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          7276
+          -
+          7313
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;I am unable to get list of nodes at &quot;
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          7351
+          -
+          7352
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          7274
+          -
+          7352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          7333
+          -
+          7350
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          fail.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          7329
+          -
+          7332
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          7377
+          -
+          7377
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          7379
+          -
+          7396
         </td>
         <td>
           Select
@@ -5504,6 +5889,48 @@
         </td>
         <td style="background: #F0ADAD">
           KafkaConsumerProxy.TopicPartitionReq
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          7365
+          -
+          7396
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.sourceProxy).!(KafkaConsumerProxy.TopicPartitionReq)(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          7365
+          -
+          7376
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sourceProxy
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sourceProxy
         </td>
       </tr>
     </table>

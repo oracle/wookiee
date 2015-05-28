@@ -44,125 +44,105 @@
 </span>19 <span style=''>
 </span>20 <span style=''>package com.webtrends.harness.component.kafka
 </span>21 <span style=''>
-</span>22 <span style=''>import java.util.concurrent.TimeUnit
-</span>23 <span style=''>
-</span>24 <span style=''>import akka.actor.{Props, ActorRef}
-</span>25 <span style=''>import akka.util.Timeout
-</span>26 <span style=''>import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange, SystemReady}
-</span>27 <span style=''>import com.webtrends.harness.component.Component
-</span>28 <span style=''>import com.webtrends.harness.component.kafka.actor.{KafkaConsumerProxy, KafkaProducer}
-</span>29 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
-</span>30 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
-</span>31 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
-</span>32 <span style=''>import akka.pattern.ask
-</span>33 <span style=''>import scala.concurrent.{Await, Future}
-</span>34 <span style=''>import scala.util.{Failure, Success}
-</span>35 <span style=''>import scala.concurrent.ExecutionContext.Implicits.global
-</span>36 <span style=''>import scala.concurrent.duration._
-</span>37 <span style=''>
-</span>38 <span style=''>/**
-</span>39 <span style=''> * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
-</span>40 <span style=''> * and the KafkaWriter (if 'producer' is configured). One can retrieve either of these actors by
-</span>41 <span style=''> * making a call to GetCoordinator or GetWriters
-</span>42 <span style=''> */
-</span>43 <span style=''>object KafkaManager {
-</span>44 <span style=''>  // User this to retrieve the coordinator in charge of managing Workers
-</span>45 <span style=''>  case object GetCoordinator
-</span>46 <span style=''>  // This will return the kafka producer
-</span>47 <span style=''>  case object GetProducer
-</span>48 <span style=''>  //Will return the distributor
-</span>49 <span style=''>  case object GetDistributor
-</span>50 <span style=''>}
+</span>22 <span style=''>import akka.actor.{ActorRef, Props}
+</span>23 <span style=''>import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
+</span>24 <span style=''>import com.webtrends.harness.component.Component
+</span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.{KafkaConsumerProxy, KafkaProducer}
+</span>26 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
+</span>27 <span style=''>
+</span>28 <span style=''>/**
+</span>29 <span style=''> * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
+</span>30 <span style=''> * and the KafkaWriter (if 'producer' is configured). One can retrieve either of these actors by
+</span>31 <span style=''> * making a call to GetCoordinator or GetWriters
+</span>32 <span style=''> */
+</span>33 <span style=''>object KafkaManager {
+</span>34 <span style=''>  // User this to retrieve the coordinator in charge of managing Workers
+</span>35 <span style=''>  case object GetCoordinator
+</span>36 <span style=''>  //Will return the distributor
+</span>37 <span style=''>  case object GetDistributor
+</span>38 <span style=''>  // Kafka producer started up if 'producer' is configured
+</span>39 <span style=''>  var producer: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>40 <span style=''>}
+</span>41 <span style=''>
+</span>42 <span style=''>class KafkaManager(name: String) extends Component(name) with KafkaSettings {
+</span>43 <span style=''>  import KafkaManager._
+</span>44 <span style=''>
+</span>45 <span style=''>  // Consumer coordinator started up if 'consumer' is configured
+</span>46 <span style=''>  var coordinator: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  // Consumer proxy, started up if 'consumer' is configured. Used to retrieve topic
+</span>49 <span style=''>  // information and the data to consume
+</span>50 <span style=''>  var proxy: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
 </span>51 <span style=''>
-</span>52 <span style=''>class KafkaManager(name: String) extends Component(name) with KafkaSettings {
-</span>53 <span style=''>
-</span>54 <span style=''>  import KafkaManager._
-</span>55 <span style=''>  // Kafka producer started up if 'producer' is configured
-</span>56 <span style=''>  var producer: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>57 <span style=''>
-</span>58 <span style=''>  // Consumer coordinator started up if 'consumer' is configured
-</span>59 <span style=''>  var coordinator: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>60 <span style=''>
-</span>61 <span style=''>  // Consumer proxy, started up if 'consumer' is configured. Used to retrieve topic
-</span>62 <span style=''>  // information and the data to consume
-</span>63 <span style=''>  var proxy: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>64 <span style=''>
-</span>65 <span style=''>  //Distributor actor will start up if a 'consumer' is configured
-</span>66 <span style=''>  var distributor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>67 <span style=''>
-</span>68 <span style=''>
-</span>69 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse configReceive orElse {
-</span>70 <span style=''></span><span style='background: #F0ADAD'>    // Use this call to get the Kafka Consumer Coordinator, if configured
-</span>71 <span style=''></span><span style='background: #F0ADAD'>    case GetCoordinator =>
-</span>72 <span style=''></span><span style='background: #F0ADAD'>      sender ! coordinator
-</span>73 <span style=''></span><span style='background: #F0ADAD'>
-</span>74 <span style=''></span><span style='background: #F0ADAD'>    // Use this call to get the Kafka Producer, if configured
-</span>75 <span style=''></span><span style='background: #F0ADAD'>    case GetProducer =>
-</span>76 <span style=''></span><span style='background: #F0ADAD'>      if(producer.isEmpty)
-</span>77 <span style=''></span><span style='background: #F0ADAD'>        log.warn("Writers not started, be sure to set 'producer' config in wookie-kafka")
-</span>78 <span style=''></span><span style='background: #F0ADAD'>
-</span>79 <span style=''></span><span style='background: #F0ADAD'>      sender ! producer
-</span>80 <span style=''></span><span style='background: #F0ADAD'>
-</span>81 <span style=''></span><span style='background: #F0ADAD'>    case GetDistributor =>
-</span>82 <span style=''></span><span style='background: #F0ADAD'>      sender ! distributor
-</span>83 <span style=''></span><span style='background: #F0ADAD'>
-</span>84 <span style=''></span><span style='background: #F0ADAD'>    case SystemReady =>
-</span>85 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("producer")) {
-</span>86 <span style=''></span><span style='background: #F0ADAD'>        startProducer()
-</span>87 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>88 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("consumer")) {
-</span>89 <span style=''></span><span style='background: #F0ADAD'>        startCoordinator()
-</span>90 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>91 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
-</span>92 <span style=''></span><span style='background: #F0ADAD'>      coordinator.foreach(_ ! PrepareForShutdown)
-</span>93 <span style=''></span><span style='background: #F0ADAD'>
-</span>94 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>95 <span style=''>
-</span>96 <span style=''>  def startProducer() {
-</span>97 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Starting producer as wookie-kafka config contained 'producer' config")</span><span style=''>
-</span>98 <span style=''>    </span><span style='background: #F0ADAD'>producer = Some(context.actorOf(KafkaProducer.props(), "producer"))</span><span style=''>
+</span>52 <span style=''>  //Distributor actor will start up if a 'consumer' is configured
+</span>53 <span style=''>  var distributor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse configReceive orElse {
+</span>57 <span style=''></span><span style='background: #F0ADAD'>    // Use this call to get the Kafka Consumer Coordinator, if configured
+</span>58 <span style=''></span><span style='background: #F0ADAD'>    case GetCoordinator =>
+</span>59 <span style=''></span><span style='background: #F0ADAD'>      sender ! coordinator
+</span>60 <span style=''></span><span style='background: #F0ADAD'>
+</span>61 <span style=''></span><span style='background: #F0ADAD'>    case GetDistributor =>
+</span>62 <span style=''></span><span style='background: #F0ADAD'>      sender ! distributor
+</span>63 <span style=''></span><span style='background: #F0ADAD'>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>    case SystemReady =>
+</span>65 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("producer")) {
+</span>66 <span style=''></span><span style='background: #F0ADAD'>        startProducer()
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>68 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("consumer")) {
+</span>69 <span style=''></span><span style='background: #F0ADAD'>        startCoordinator()
+</span>70 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>71 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      coordinator.foreach(_ ! PrepareForShutdown)
+</span>73 <span style=''></span><span style='background: #F0ADAD'>      distributor.foreach(_ ! PrepareForShutdown)
+</span>74 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>75 <span style=''>
+</span>76 <span style=''>  def startProducer() {
+</span>77 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Starting producer as wookie-kafka config contained 'producer' config")</span><span style=''>
+</span>78 <span style=''>    </span><span style='background: #F0ADAD'>producer = Some(context.actorOf(KafkaProducer.props(), "producer"))</span><span style=''>
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  /**
+</span>82 <span style=''>   * Start up all necessary actors
+</span>83 <span style=''>   */
+</span>84 <span style=''>  def startCoordinator() {
+</span>85 <span style=''>    if(</span><span style='background: #F0ADAD'>coordinator.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>86 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Starting coordinator class")
+</span>87 <span style=''></span><span style='background: #F0ADAD'>      proxy = Some(context.actorOf(KafkaConsumerProxy.props(), "consumer-proxy"))
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      coordinator = Some(context.actorOf(Props(leader, proxy.get), "consumer-coordinator"))
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      distributor = Some(context.actorOf(KafkaConsumerDistributor.props(proxy.get), "consumer-distributor"))
+</span>90 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>91 <span style=''>  }
+</span>92 <span style=''>
+</span>93 <span style=''>  override def renewConfiguration() {
+</span>94 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Received config change message, checking hosts for changes...")</span><span style=''>
+</span>95 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>96 <span style=''>    if (</span><span style='background: #F0ADAD'>coordinator.isDefined</span><span style=''>) {
+</span>97 <span style=''>      </span><span style='background: #F0ADAD'>coordinator.get ! ConfigChange()</span><span style=''>
+</span>98 <span style=''>    }
 </span>99 <span style=''>  }
 </span>100 <span style=''>
-</span>101 <span style=''>  /**
-</span>102 <span style=''>   * Start up all necessary actors
-</span>103 <span style=''>   */
-</span>104 <span style=''>  def startCoordinator() {
-</span>105 <span style=''>    if(</span><span style='background: #F0ADAD'>coordinator.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>106 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Starting coordinator class")
-</span>107 <span style=''></span><span style='background: #F0ADAD'>      proxy = Some(context.actorOf(KafkaConsumerProxy.props(), "consumer-proxy"))
-</span>108 <span style=''></span><span style='background: #F0ADAD'>      coordinator = Some(context.actorOf(Props(leader, proxy.get), "consumer-coordinator"))
-</span>109 <span style=''></span><span style='background: #F0ADAD'>      distributor = Some(context.actorOf(KafkaConsumerDistributor.props(proxy.get), "consumer-distributor"))
-</span>110 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>111 <span style=''>  }
-</span>112 <span style=''>
-</span>113 <span style=''>  override def renewConfiguration() {
-</span>114 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Received config change message, checking hosts for changes...")</span><span style=''>
-</span>115 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
-</span>116 <span style=''>    if (</span><span style='background: #F0ADAD'>coordinator.isDefined</span><span style=''>) {
-</span>117 <span style=''>      </span><span style='background: #F0ADAD'>coordinator.get ! ConfigChange</span><span style=''>
-</span>118 <span style=''>    }
-</span>119 <span style=''>  }
-</span>120 <span style=''>
-</span>121 <span style=''>  override def postStop() {
-</span>122 <span style=''>    </span><span style='background: #F0ADAD'>stop</span><span style=''>
-</span>123 <span style=''>  }
-</span>124 <span style=''>
-</span>125 <span style=''>  // Stops the coordinator, unregistering this node from zookeeper
-</span>126 <span style=''>  override def stop {
-</span>127 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
-</span>128 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Stopping child [${child.path}]")
-</span>129 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
-</span>130 <span style=''>    }
-</span>131 <span style=''>    </span><span style='background: #F0ADAD'>coordinator = None</span><span style=''>
-</span>132 <span style=''>    </span><span style='background: #F0ADAD'>proxy = None</span><span style=''>
-</span>133 <span style=''>    </span><span style='background: #F0ADAD'>distributor = None</span><span style=''>
-</span>134 <span style=''>    </span><span style='background: #F0ADAD'>producer = None</span><span style=''>
-</span>135 <span style=''>  }
-</span>136 <span style=''>}
-</span>137 <span style=''>
-</span>138 <span style=''>object Kafka {
-</span>139 <span style=''>  val ComponentName = </span><span style='background: #F0ADAD'>"wookie-kafka"</span><span style=''>
-</span>140 <span style=''>}
+</span>101 <span style=''>  override def postStop() {
+</span>102 <span style=''>    </span><span style='background: #F0ADAD'>stop</span><span style=''>
+</span>103 <span style=''>  }
+</span>104 <span style=''>
+</span>105 <span style=''>  // Stops the coordinator, unregistering this node from zookeeper
+</span>106 <span style=''>  override def stop {
+</span>107 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
+</span>108 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Stopping child [${child.path}]")
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
+</span>110 <span style=''>    }
+</span>111 <span style=''>    </span><span style='background: #F0ADAD'>coordinator = None</span><span style=''>
+</span>112 <span style=''>    </span><span style='background: #F0ADAD'>proxy = None</span><span style=''>
+</span>113 <span style=''>    </span><span style='background: #F0ADAD'>distributor = None</span><span style=''>
+</span>114 <span style=''>    </span><span style='background: #F0ADAD'>producer = None</span><span style=''>
+</span>115 <span style=''>  }
+</span>116 <span style=''>}
+</span>117 <span style=''>
+</span>118 <span style=''>object Kafka {
+</span>119 <span style=''>  val ComponentName = </span><span style='background: #F0ADAD'>"wookie-kafka"</span><span style=''>
+</span>120 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -176,36 +156,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          56
-        </td>
-        <td>
-          427
-        </td>
-        <td>
-          2211
-          -
-          2215
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td style="background: #F0ADAD">
-          scala.None
-        </td>
-      </tr><tr>
-        <td>
-          59
+          39
         </td>
         <td>
           428
         </td>
         <td>
-          2320
+          1653
           -
-          2324
+          1657
         </td>
         <td>
           Select
@@ -218,15 +177,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          46
         </td>
         <td>
           429
         </td>
         <td>
-          2483
+          1867
           -
-          2487
+          1871
         </td>
         <td>
           Select
@@ -239,15 +198,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          50
         </td>
         <td>
           430
         </td>
         <td>
-          2593
+          2030
           -
-          2597
+          2034
         </td>
         <td>
           Select
@@ -260,36 +219,36 @@
         </td>
       </tr><tr>
         <td>
-          69
+          53
         </td>
         <td>
-          463
+          431
         </td>
         <td>
-          2667
+          2140
           -
-          2667
+          2144
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaManager.$anonfun.&lt;init&gt;
+          scala.None
         </td>
         <td style="background: #F0ADAD">
-          new $anonfun()
+          scala.None
         </td>
       </tr><tr>
         <td>
-          69
+          56
         </td>
         <td>
-          464
+          460
         </td>
         <td>
-          2625
+          2172
           -
-          3348
+          2715
         </td>
         <td>
           Apply
@@ -306,13 +265,6 @@
     };
     final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
       case KafkaManager.GetCoordinator =&gt; akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.coordinator)(KafkaManager.this.self)
-      case KafkaManager.GetProducer =&gt; {
-        if (KafkaManager.this.producer.isEmpty)
-          KafkaManager.this.log.warn(&quot;Writers not started, be sure to set \'producer\' config in wookie-kafka&quot;)
-        else
-          ();
-        akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.producer)(KafkaManager.this.self)
-      }
       case KafkaManager.GetDistributor =&gt; akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.distributor)(KafkaManager.this.self)
       case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; {
         if (KafkaManager.this.kafkaConfig.hasPath(&quot;producer&quot;))
@@ -324,12 +276,14 @@
         else
           ()
       }
-      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; KafkaManager.this.coordinator.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; {
+        KafkaManager.this.coordinator.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)));
+        KafkaManager.this.distributor.foreach[Unit](((x$2: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+      }
       case (defaultCase$ @ _) =&gt; default.apply(x1)
     };
     final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
       case KafkaManager.GetCoordinator =&gt; true
-      case KafkaManager.GetProducer =&gt; true
       case KafkaManager.GetDistributor =&gt; true
       case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; true
       case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; true
@@ -341,15 +295,36 @@
         </td>
       </tr><tr>
         <td>
-          69
+          56
         </td>
         <td>
-          431
+          459
         </td>
         <td>
-          2646
+          2214
           -
-          2659
+          2214
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          432
+        </td>
+        <td>
+          2193
+          -
+          2206
         </td>
         <td>
           Select
@@ -362,36 +337,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          59
         </td>
         <td>
           433
         </td>
         <td>
-          2785
+          2323
           -
-          2796
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaManager.coordinator
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.coordinator
-        </td>
-      </tr><tr>
-        <td>
-          72
-        </td>
-        <td>
-          432
-        </td>
-        <td>
-          2776
-          -
-          2782
+          2329
         </td>
         <td>
           Apply
@@ -404,15 +358,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          59
         </td>
         <td>
-          435
+          436
         </td>
         <td>
-          2776
+          2323
           -
-          2796
+          2343
         </td>
         <td>
           ApplyToImplicitArgs
@@ -425,288 +379,78 @@
         </td>
       </tr><tr>
         <td>
-          72
+          59
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          2330
+          -
+          2330
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          59
         </td>
         <td>
           434
         </td>
         <td>
-          2783
+          2332
           -
-          2783
+          2343
         </td>
         <td>
           Select
         </td>
         <td>
-          akka.actor.Actor.self
+          com.webtrends.harness.component.kafka.KafkaManager.coordinator
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.self
+          KafkaManager.this.coordinator
         </td>
       </tr><tr>
         <td>
-          76
-        </td>
-        <td>
-          436
-        </td>
-        <td>
-          2893
-          -
-          2909
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Option.isEmpty
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.producer.isEmpty
-        </td>
-      </tr><tr>
-        <td>
-          76
+          62
         </td>
         <td>
           439
         </td>
         <td>
-          2890
+          2385
           -
-          2890
+          2385
         </td>
         <td>
-          Literal
+          Select
         </td>
         <td>
-          &lt;nosymbol&gt;
+          akka.actor.Actor.self
         </td>
         <td style="background: #F0ADAD">
-          ()
+          KafkaManager.this.self
         </td>
       </tr><tr>
         <td>
-          76
-        </td>
-        <td>
-          440
-        </td>
-        <td>
-          2890
-          -
-          2890
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          77
+          62
         </td>
         <td>
           438
         </td>
         <td>
-          2919
+          2387
           -
-          3000
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.warn
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.log.warn(&quot;Writers not started, be sure to set \'producer\' config in wookie-kafka&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          437
-        </td>
-        <td>
-          2919
-          -
-          3000
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.warn
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.log.warn(&quot;Writers not started, be sure to set \'producer\' config in wookie-kafka&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          442
-        </td>
-        <td>
-          3017
-          -
-          3025
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaManager.producer
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.producer
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          441
-        </td>
-        <td>
-          3008
-          -
-          3014
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Actor.sender
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.sender()
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          444
-        </td>
-        <td>
-          3008
-          -
-          3025
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.producer)(KafkaManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          443
-        </td>
-        <td>
-          3015
-          -
-          3015
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.self
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          445
-        </td>
-        <td>
-          3060
-          -
-          3066
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Actor.sender
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.sender()
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          448
-        </td>
-        <td>
-          3060
-          -
-          3080
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.distributor)(KafkaManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          447
-        </td>
-        <td>
-          3067
-          -
-          3067
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.self
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          446
-        </td>
-        <td>
-          3069
-          -
-          3080
+          2398
         </td>
         <td>
           Select
@@ -719,15 +463,57 @@
         </td>
       </tr><tr>
         <td>
-          85
+          62
         </td>
         <td>
-          453
+          437
         </td>
         <td>
-          3112
+          2378
           -
-          3112
+          2384
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          2378
+          -
+          2398
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.distributor)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          2430
+          -
+          2430
         </td>
         <td>
           Block
@@ -740,36 +526,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          65
         </td>
         <td>
-          452
+          441
         </td>
         <td>
-          3112
+          2434
           -
-          3112
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          85
-        </td>
-        <td>
-          449
-        </td>
-        <td>
-          3116
-          -
-          3147
+          2465
         </td>
         <td>
           Apply
@@ -782,36 +547,36 @@
         </td>
       </tr><tr>
         <td>
-          86
+          65
         </td>
         <td>
-          451
+          444
         </td>
         <td>
-          3159
+          2430
           -
-          3174
+          2430
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaManager.startProducer
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.startProducer()
+          ()
         </td>
       </tr><tr>
         <td>
-          86
+          66
         </td>
         <td>
-          450
+          442
         </td>
         <td>
-          3159
+          2477
           -
-          3174
+          2492
         </td>
         <td>
           Apply
@@ -824,15 +589,57 @@
         </td>
       </tr><tr>
         <td>
-          88
+          66
         </td>
         <td>
-          454
+          443
         </td>
         <td>
-          3193
+          2477
           -
-          3224
+          2492
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.startProducer
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.startProducer()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          2507
+          -
+          2507
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          2511
+          -
+          2542
         </td>
         <td>
           Apply
@@ -845,15 +652,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          68
         </td>
         <td>
-          457
+          449
         </td>
         <td>
-          3189
+          2507
           -
-          3189
+          2507
         </td>
         <td>
           Literal
@@ -866,36 +673,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          69
         </td>
         <td>
-          458
+          448
         </td>
         <td>
-          3189
+          2554
           -
-          3189
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          456
-        </td>
-        <td>
-          3236
-          -
-          3254
+          2572
         </td>
         <td>
           Block
@@ -908,15 +694,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          69
         </td>
         <td>
-          455
+          447
         </td>
         <td>
-          3236
+          2554
           -
-          3254
+          2572
         </td>
         <td>
           Apply
@@ -929,36 +715,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          72
         </td>
         <td>
-          460
+          451
         </td>
         <td>
-          3322
+          2642
           -
-          3322
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.self
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          459
-        </td>
-        <td>
-          3324
-          -
-          3342
+          2660
         </td>
         <td>
           Select
@@ -971,15 +736,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          72
         </td>
         <td>
-          462
+          454
         </td>
         <td>
-          3300
+          2618
           -
-          3343
+          2661
         </td>
         <td>
           Apply
@@ -992,15 +757,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          72
         </td>
         <td>
-          461
+          453
         </td>
         <td>
-          3320
+          2638
           -
-          3342
+          2660
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1013,15 +778,120 @@
         </td>
       </tr><tr>
         <td>
-          97
+          72
         </td>
         <td>
-          465
+          452
         </td>
         <td>
-          3378
+          2640
           -
-          3458
+          2640
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          2688
+          -
+          2710
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          2690
+          -
+          2690
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          2692
+          -
+          2710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          2668
+          -
+          2711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor.foreach[Unit](((x$2: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          2745
+          -
+          2825
         </td>
         <td>
           Apply
@@ -1034,78 +904,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          78
         </td>
         <td>
-          469
+          463
         </td>
         <td>
-          3474
+          2885
           -
-          3530
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          468
-        </td>
-        <td>
-          3479
-          -
-          3529
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.ActorRefFactory.actorOf
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          470
-        </td>
-        <td>
-          3463
-          -
-          3530
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaManager.producer_=
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.producer_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)))
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          467
-        </td>
-        <td>
-          3518
-          -
-          3528
+          2895
         </td>
         <td>
           Literal
@@ -1118,15 +925,36 @@
         </td>
       </tr><tr>
         <td>
-          98
+          78
         </td>
         <td>
-          466
+          465
         </td>
         <td>
-          3495
+          2841
           -
-          3516
+          2897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          2862
+          -
+          2883
         </td>
         <td>
           Apply
@@ -1139,15 +967,99 @@
         </td>
       </tr><tr>
         <td>
-          105
+          78
         </td>
         <td>
-          492
+          464
         </td>
         <td>
-          3638
+          2846
           -
-          3974
+          2896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          2830
+          -
+          2897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.producer_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.producer_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          2981
+          -
+          2981
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          2981
+          -
+          2981
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          3005
+          -
+          3341
         </td>
         <td>
           Block
@@ -1165,15 +1077,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          85
         </td>
         <td>
-          471
+          467
         </td>
         <td>
-          3617
+          2984
           -
-          3636
+          3003
         </td>
         <td>
           Select
@@ -1186,78 +1098,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          86
         </td>
         <td>
-          494
+          469
         </td>
         <td>
-          3614
+          3013
           -
-          3614
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          105
-        </td>
-        <td>
-          493
-        </td>
-        <td>
-          3614
-          -
-          3614
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          472
-        </td>
-        <td>
-          3655
-          -
-          3684
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Starting coordinator class&quot;).s()
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          473
-        </td>
-        <td>
-          3646
-          -
-          3685
+          3052
         </td>
         <td>
           Apply
@@ -1270,78 +1119,36 @@
         </td>
       </tr><tr>
         <td>
-          107
+          86
         </td>
         <td>
-          478
+          468
         </td>
         <td>
-          3692
+          3022
           -
-          3767
+          3051
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaManager.proxy_=
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.proxy_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props(), &quot;consumer-proxy&quot;)))
+          scala.StringContext.apply(&quot;Starting coordinator class&quot;).s()
         </td>
       </tr><tr>
         <td>
-          107
+          87
         </td>
         <td>
-          474
+          472
         </td>
         <td>
-          3721
+          3072
           -
-          3747
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props()
-        </td>
-      </tr><tr>
-        <td>
-          107
-        </td>
-        <td>
-          477
-        </td>
-        <td>
-          3700
-          -
-          3767
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props(), &quot;consumer-proxy&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          107
-        </td>
-        <td>
-          476
-        </td>
-        <td>
-          3705
-          -
-          3766
+          3133
         </td>
         <td>
           Apply
@@ -1354,15 +1161,36 @@
         </td>
       </tr><tr>
         <td>
-          107
+          87
         </td>
         <td>
-          475
+          474
         </td>
         <td>
-          3749
+          3059
           -
-          3765
+          3134
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.proxy_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.proxy_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props(), &quot;consumer-proxy&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          3116
+          -
+          3132
         </td>
         <td>
           Literal
@@ -1375,99 +1203,57 @@
         </td>
       </tr><tr>
         <td>
-          108
+          87
         </td>
         <td>
-          481
+          470
         </td>
         <td>
-          3809
+          3088
           -
-          3833
+          3114
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.actor.Props.apply
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.proxy.get)
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props()
         </td>
       </tr><tr>
         <td>
-          108
+          87
         </td>
         <td>
-          480
+          473
         </td>
         <td>
-          3823
+          3067
           -
-          3832
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Option.get
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.proxy.get
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          483
-        </td>
-        <td>
-          3793
-          -
-          3858
+          3134
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.actor.ActorRefFactory.actorOf
+          scala.Some.apply
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.proxy.get), &quot;consumer-coordinator&quot;)
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.props(), &quot;consumer-proxy&quot;))
         </td>
       </tr><tr>
         <td>
-          108
+          88
         </td>
         <td>
-          479
+          478
         </td>
         <td>
-          3815
+          3202
           -
-          3821
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.leader
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.leader
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          482
-        </td>
-        <td>
-          3835
-          -
-          3857
+          3224
         </td>
         <td>
           Literal
@@ -1480,15 +1266,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          88
         </td>
         <td>
-          485
+          481
         </td>
         <td>
-          3774
+          3141
           -
-          3859
+          3226
         </td>
         <td>
           Apply
@@ -1501,15 +1287,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          88
         </td>
         <td>
-          484
+          480
         </td>
         <td>
-          3788
+          3155
           -
-          3859
+          3226
         </td>
         <td>
           Apply
@@ -1522,57 +1308,36 @@
         </td>
       </tr><tr>
         <td>
-          109
+          88
         </td>
         <td>
-          487
+          477
         </td>
         <td>
-          3901
+          3176
           -
-          3942
+          3200
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerDistributor.props
+          akka.actor.Props.apply
         </td>
         <td style="background: #F0ADAD">
-          KafkaConsumerDistributor.props(KafkaManager.this.proxy.get)
+          akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.proxy.get)
         </td>
       </tr><tr>
         <td>
-          109
+          88
         </td>
         <td>
-          490
+          479
         </td>
         <td>
-          3880
+          3160
           -
-          3968
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.proxy.get), &quot;consumer-distributor&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          489
-        </td>
-        <td>
-          3885
-          -
-          3967
+          3225
         </td>
         <td>
           Apply
@@ -1581,19 +1346,19 @@
           akka.actor.ActorRefFactory.actorOf
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.proxy.get), &quot;consumer-distributor&quot;)
+          KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.proxy.get), &quot;consumer-coordinator&quot;)
         </td>
       </tr><tr>
         <td>
-          109
+          88
         </td>
         <td>
-          486
+          476
         </td>
         <td>
-          3932
+          3190
           -
-          3941
+          3199
         </td>
         <td>
           Select
@@ -1606,36 +1371,36 @@
         </td>
       </tr><tr>
         <td>
-          109
+          88
         </td>
         <td>
-          488
+          475
         </td>
         <td>
-          3944
+          3182
           -
-          3966
+          3188
         </td>
         <td>
-          Literal
+          Select
         </td>
         <td>
-          &lt;nosymbol&gt;
+          com.webtrends.harness.component.kafka.util.KafkaSettings.leader
         </td>
         <td style="background: #F0ADAD">
-          &quot;consumer-distributor&quot;
+          KafkaManager.this.leader
         </td>
       </tr><tr>
         <td>
-          109
+          89
         </td>
         <td>
-          491
+          487
         </td>
         <td>
-          3866
+          3233
           -
-          3968
+          3335
         </td>
         <td>
           Apply
@@ -1648,15 +1413,120 @@
         </td>
       </tr><tr>
         <td>
-          114
+          89
         </td>
         <td>
-          495
+          483
         </td>
         <td>
-          4022
+          3268
           -
-          4095
+          3309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerDistributor.props
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerDistributor.props(KafkaManager.this.proxy.get)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3247
+          -
+          3335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.proxy.get), &quot;consumer-distributor&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          3299
+          -
+          3308
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.proxy.get
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          3252
+          -
+          3334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.proxy.get), &quot;consumer-distributor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          3311
+          -
+          3333
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;consumer-distributor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          3389
+          -
+          3462
         </td>
         <td>
           Apply
@@ -1669,15 +1539,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          95
         </td>
         <td>
-          496
+          492
         </td>
         <td>
-          4100
+          3467
           -
-          4126
+          3493
         </td>
         <td>
           Apply
@@ -1690,36 +1560,15 @@
         </td>
       </tr><tr>
         <td>
-          116
+          96
         </td>
         <td>
-          504
+          499
         </td>
         <td>
-          4131
+          3498
           -
-          4131
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          116
-        </td>
-        <td>
-          503
-        </td>
-        <td>
-          4131
-          -
-          4131
+          3498
         </td>
         <td>
           Literal
@@ -1732,15 +1581,36 @@
         </td>
       </tr><tr>
         <td>
-          116
+          96
         </td>
         <td>
-          497
+          500
         </td>
         <td>
-          4135
+          3498
           -
-          4156
+          3498
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          3502
+          -
+          3523
         </td>
         <td>
           Select
@@ -1753,78 +1623,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          97
         </td>
         <td>
-          499
+          496
         </td>
         <td>
-          4184
+          3549
           -
-          4196
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.app.HarnessActor.ConfigChange
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.app.HarnessActor.ConfigChange
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          498
-        </td>
-        <td>
-          4166
-          -
-          4181
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Option.get
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.coordinator.get
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          501
-        </td>
-        <td>
-          4166
-          -
-          4196
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange)(KafkaManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          500
-        </td>
-        <td>
-          4182
-          -
-          4182
+          3549
         </td>
         <td>
           Select
@@ -1837,15 +1644,15 @@
         </td>
       </tr><tr>
         <td>
-          117
+          97
         </td>
         <td>
-          502
+          498
         </td>
         <td>
-          4166
+          3533
           -
-          4196
+          3565
         </td>
         <td>
           Block
@@ -1854,19 +1661,82 @@
           akka.actor.ScalaActorRef.!
         </td>
         <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange)(KafkaManager.this.self)
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(KafkaManager.this.self)
         </td>
       </tr><tr>
         <td>
-          122
+          97
         </td>
         <td>
-          505
+          495
         </td>
         <td>
-          4240
+          3551
           -
-          4244
+          3565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          3533
+          -
+          3565
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          3533
+          -
+          3548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator.get
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          3609
+          -
+          3613
         </td>
         <td>
           Select
@@ -1879,15 +1749,15 @@
         </td>
       </tr><tr>
         <td>
-          127
+          107
         </td>
         <td>
-          512
+          508
         </td>
         <td>
-          4343
+          3712
           -
-          4453
+          3822
         </td>
         <td>
           Apply
@@ -1903,99 +1773,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          108
         </td>
         <td>
-          508
+          505
         </td>
         <td>
-          4413
+          3762
           -
-          4423
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorRef.path
-        </td>
-        <td style="background: #F0ADAD">
-          child.path
-        </td>
-      </tr><tr>
-        <td>
-          128
-        </td>
-        <td>
-          507
-        </td>
-        <td>
-          4424
-          -
-          4426
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;]&quot;
-        </td>
-      </tr><tr>
-        <td>
-          128
-        </td>
-        <td>
-          510
-        </td>
-        <td>
-          4384
-          -
-          4427
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.info
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaManager.this.log.info(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path))
-        </td>
-      </tr><tr>
-        <td>
-          128
-        </td>
-        <td>
-          506
-        </td>
-        <td>
-          4395
-          -
-          4412
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Stopping child [&quot;
-        </td>
-      </tr><tr>
-        <td>
-          128
-        </td>
-        <td>
-          509
-        </td>
-        <td>
-          4393
-          -
-          4426
+          3795
         </td>
         <td>
           Apply
@@ -2008,15 +1794,99 @@
         </td>
       </tr><tr>
         <td>
-          129
+          108
         </td>
         <td>
-          511
+          504
         </td>
         <td>
-          4434
+          3782
           -
-          4453
+          3792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          child.path
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          3793
+          -
+          3795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          3753
+          -
+          3796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.info(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          3764
+          -
+          3781
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Stopping child [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          3803
+          -
+          3822
         </td>
         <td>
           Apply
@@ -2029,15 +1899,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          111
         </td>
         <td>
-          514
+          510
         </td>
         <td>
-          4464
+          3833
           -
-          4482
+          3851
         </td>
         <td>
           Apply
@@ -2050,15 +1920,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          111
         </td>
         <td>
-          513
+          509
         </td>
         <td>
-          4478
+          3847
           -
-          4482
+          3851
         </td>
         <td>
           Select
@@ -2071,15 +1941,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          112
         </td>
         <td>
-          516
+          512
         </td>
         <td>
-          4487
+          3856
           -
-          4499
+          3868
         </td>
         <td>
           Apply
@@ -2092,15 +1962,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          112
         </td>
         <td>
-          515
+          511
         </td>
         <td>
-          4495
+          3864
           -
-          4499
+          3868
         </td>
         <td>
           Select
@@ -2113,36 +1983,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          113
         </td>
         <td>
-          517
+          514
         </td>
         <td>
-          4518
+          3873
           -
-          4522
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.None
-        </td>
-        <td style="background: #F0ADAD">
-          scala.None
-        </td>
-      </tr><tr>
-        <td>
-          133
-        </td>
-        <td>
-          518
-        </td>
-        <td>
-          4504
-          -
-          4522
+          3891
         </td>
         <td>
           Apply
@@ -2155,15 +2004,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          113
         </td>
         <td>
-          519
+          513
         </td>
         <td>
-          4538
+          3887
           -
-          4542
+          3891
         </td>
         <td>
           Select
@@ -2176,15 +2025,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          114
         </td>
         <td>
-          520
+          516
         </td>
         <td>
-          4527
+          3896
           -
-          4542
+          3911
         </td>
         <td>
           Apply
@@ -2193,19 +2042,40 @@
           com.webtrends.harness.component.kafka.KafkaManager.producer_=
         </td>
         <td style="background: #F0ADAD">
-          KafkaManager.this.producer_=(scala.None)
+          KafkaManager.producer_=(scala.None)
         </td>
       </tr><tr>
         <td>
-          139
+          114
         </td>
         <td>
-          521
+          515
         </td>
         <td>
-          4587
+          3907
           -
-          4601
+          3911
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          3956
+          -
+          3970
         </td>
         <td>
           Literal
