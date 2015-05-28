@@ -20,8 +20,7 @@
 package com.webtrends.harness.component.socko.route
 
 import java.io._
-import java.net.URLDecoder
-import java.nio.charset.{Charset, StandardCharsets}
+import java.nio.charset.Charset
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 
 import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
@@ -183,7 +182,7 @@ private[route] trait SockoRoutes extends ComponentHelper {
       getMethod(classOf[SockoDelete], "DELETE")
     ).flatten
   }
-  
+
   def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
     try {
       applyQSMap(bean)
@@ -332,6 +331,9 @@ trait SockoPost extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+        // Work around for Socko issue
+        // https://github.com/mashupbots/socko/issues/111
+        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
@@ -415,6 +417,9 @@ trait SockoPut extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+        // Work around for Socko issue
+        // https://github.com/mashupbots/socko/issues/111
+        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
