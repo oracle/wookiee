@@ -76,132 +76,133 @@
 </span>51 <span style=''>      if (</span><span style='background: #F0ADAD'>timeOut.isOverdue() && !componentManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
 </span>52 <span style=''></span><span style='background: #F0ADAD'>        componentManagerInitialized = true
 </span>53 <span style=''></span><span style='background: #F0ADAD'>        p failure ComponentException("Component Manager", "Failed to get component manager")
-</span>54 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>55 <span style=''>      </span><span style='background: #F0ADAD'>context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
-</span>56 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) =>
-</span>57 <span style=''></span><span style='background: #F0ADAD'>          componentManager = Some(s)
-</span>58 <span style=''></span><span style='background: #F0ADAD'>          componentManagerInitialized = true
-</span>59 <span style=''></span><span style='background: #F0ADAD'>          p success s
-</span>60 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) => awaitComponentManager(timeOut)
-</span>61 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>62 <span style=''>    }
-</span>63 <span style=''>
-</span>64 <span style=''>    </span><span style='background: #F0ADAD'>componentManager</span><span style=''> match {
-</span>65 <span style=''>      case Some(cm) => </span><span style='background: #F0ADAD'>p success cm</span><span style=''>
-</span>66 <span style=''>      case None =>
-</span>67 <span style=''>        if (</span><span style='background: #F0ADAD'>!componentManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>68 <span style=''></span><span style='background: #F0ADAD'>          val deadline = 5 seconds fromNow
-</span>69 <span style=''></span><span style='background: #F0ADAD'>          awaitComponentManager(deadline)
-</span>70 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''> else {
-</span>71 <span style=''>          </span><span style='background: #F0ADAD'>p failure ComponentException("Component Manager", "Component manager did not initialize")</span><span style=''>
-</span>72 <span style=''>        }
-</span>73 <span style=''>    }
-</span>74 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
-</span>75 <span style=''>  }
-</span>76 <span style=''>
-</span>77 <span style=''>  /**
-</span>78 <span style=''>   * Wrapper function around request that allows the developer to not have to deal with the
-</span>79 <span style=''>   * ComponentResponse return object, and just deal with the message that they care about
-</span>80 <span style=''>   *
-</span>81 <span style=''>   * @param name name of the component
-</span>82 <span style=''>   * @param msg msg to send to the component
-</span>83 <span style=''>   * @return
-</span>84 <span style=''>   */
-</span>85 <span style=''>  def unwrapRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[U] = {
-</span>86 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[U]()</span><span style=''>
-</span>87 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, msg).mapTo[ComponentResponse[U]] onComplete {
-</span>88 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => p success s.resp
-</span>89 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
-</span>90 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>91 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
-</span>92 <span style=''>  }
-</span>93 <span style=''>
-</span>94 <span style=''>  def request[T](name:String, msg:Any, childName:Option[String]=None) : Future[ComponentResponse[T]] =
-</span>95 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, ComponentRequest(msg, childName))</span><span style=''>
-</span>96 <span style=''>
-</span>97 <span style=''>  /**
-</span>98 <span style=''>   * Simplest way to make a request directly to a component, will return a Future holding whatever the component returns
-</span>99 <span style=''>   * @param name Name of the component
-</span>100 <span style=''>   * @param msg Message to send it
-</span>101 <span style=''>   */
-</span>102 <span style=''>  def unwrapSelfRequest[T](name:String, msg:AnyRef) : Future[T] = {
-</span>103 <span style=''>    </span><span style='background: #F0ADAD'>unwrapRequest[msg.type, T](name, ComponentRequest[msg.type](msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
-</span>104 <span style=''>  }
-</span>105 <span style=''>
-</span>106 <span style=''>  /**
-</span>107 <span style=''>   * Wrapper function that allows developer to make requests to components individually without having to know about the
-</span>108 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
-</span>109 <span style=''>   *
-</span>110 <span style=''>   * @param name name of the component
-</span>111 <span style=''>   * @param msg message you want to send to the component
-</span>112 <span style=''>   * @return
-</span>113 <span style=''>   */
-</span>114 <span style=''>  def componentRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[ComponentResponse[U]] = {
-</span>115 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ComponentResponse[U]]()</span><span style=''>
-</span>116 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
-</span>117 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
-</span>118 <span style=''></span><span style='background: #F0ADAD'>        (cm ? Request(name, msg))(msg.timeout).mapTo[ComponentResponse[U]] onComplete {
-</span>119 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => p success s
-</span>120 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
-</span>121 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>122 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
-</span>123 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>124 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
-</span>125 <span style=''>  }
-</span>126 <span style=''>
-</span>127 <span style=''>  def selfMessage(name:String, msg:Any) =
-</span>128 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
-</span>129 <span style=''>
-</span>130 <span style=''>  /**
-</span>131 <span style=''>   * Wrapper function that will allow you to send any message in and it will
-</span>132 <span style=''>   * wrap the msg within a ComponentMessage case class
-</span>133 <span style=''>   *
-</span>134 <span style=''>   * @param name       name of component
-</span>135 <span style=''>   * @param msg        message to send
-</span>136 <span style=''>   * @param childName  name of component's child, or 'self' if one wants to hit the component itself
-</span>137 <span style=''>   */
-</span>138 <span style=''>  def message(name:String, msg:Any, childName:Option[String]=None) =
-</span>139 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, childName))</span><span style=''>
-</span>140 <span style=''>
-</span>141 <span style=''>  /**
-</span>142 <span style=''>   * Wrapper function that allows the developer to message components individually without having to know about the
-</span>143 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
-</span>144 <span style=''>   *
-</span>145 <span style=''>   * @param name name of the component
-</span>146 <span style=''>   * @param msg message you want to send to the component
-</span>147 <span style=''>   */
-</span>148 <span style=''>  def componentMessage[T](name:String, msg:ComponentMessage[T]) = {
-</span>149 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
-</span>150 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
-</span>151 <span style=''></span><span style='background: #F0ADAD'>        cm ! Message(name, msg)
-</span>152 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => throw f
-</span>153 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>154 <span style=''>  }
-</span>155 <span style=''>
-</span>156 <span style=''>  /**
-</span>157 <span style=''>   * Wrapper function that allows developers to get the actor reference for a particular component
-</span>158 <span style=''>   *
-</span>159 <span style=''>   * @param name the name of the component
-</span>160 <span style=''>   * @param timeout implicit timeout value
-</span>161 <span style=''>   * @return
-</span>162 <span style=''>   */
-</span>163 <span style=''>  def getComponent(name:String)(implicit timeout:Timeout) : Future[ActorRef] = {
-</span>164 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ActorRef]()</span><span style=''>
-</span>165 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
-</span>166 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
-</span>167 <span style=''></span><span style='background: #F0ADAD'>        (cm ? GetComponent(name))(timeout).mapTo[Option[ActorRef]] onComplete {
-</span>168 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) =>
-</span>169 <span style=''></span><span style='background: #F0ADAD'>            s match {
-</span>170 <span style=''></span><span style='background: #F0ADAD'>              case Some(ref) => p success ref
-</span>171 <span style=''></span><span style='background: #F0ADAD'>              case None => p failure ComponentNotFoundException("Component Manager", s"component $name not found")
-</span>172 <span style=''></span><span style='background: #F0ADAD'>            }
-</span>173 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
-</span>174 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>175 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
-</span>176 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>177 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
-</span>178 <span style=''>  }
-</span>179 <span style=''>}
+</span>54 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''> else {
+</span>55 <span style=''>        </span><span style='background: #F0ADAD'>context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
+</span>56 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) =>
+</span>57 <span style=''></span><span style='background: #F0ADAD'>            componentManager = Some(s)
+</span>58 <span style=''></span><span style='background: #F0ADAD'>            componentManagerInitialized = true
+</span>59 <span style=''></span><span style='background: #F0ADAD'>            p success s
+</span>60 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => awaitComponentManager(timeOut)
+</span>61 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>62 <span style=''>      }
+</span>63 <span style=''>    }
+</span>64 <span style=''>
+</span>65 <span style=''>    </span><span style='background: #F0ADAD'>componentManager</span><span style=''> match {
+</span>66 <span style=''>      case Some(cm) => </span><span style='background: #F0ADAD'>p success cm</span><span style=''>
+</span>67 <span style=''>      case None =>
+</span>68 <span style=''>        if (</span><span style='background: #F0ADAD'>!componentManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>69 <span style=''></span><span style='background: #F0ADAD'>          val deadline = 5 seconds fromNow
+</span>70 <span style=''></span><span style='background: #F0ADAD'>          awaitComponentManager(deadline)
+</span>71 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''> else {
+</span>72 <span style=''>          </span><span style='background: #F0ADAD'>p failure ComponentException("Component Manager", "Component manager did not initialize")</span><span style=''>
+</span>73 <span style=''>        }
+</span>74 <span style=''>    }
+</span>75 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  /**
+</span>79 <span style=''>   * Wrapper function around request that allows the developer to not have to deal with the
+</span>80 <span style=''>   * ComponentResponse return object, and just deal with the message that they care about
+</span>81 <span style=''>   *
+</span>82 <span style=''>   * @param name name of the component
+</span>83 <span style=''>   * @param msg msg to send to the component
+</span>84 <span style=''>   * @return
+</span>85 <span style=''>   */
+</span>86 <span style=''>  def unwrapRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[U] = {
+</span>87 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[U]()</span><span style=''>
+</span>88 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, msg).mapTo[ComponentResponse[U]] onComplete {
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => p success s.resp
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>91 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>92 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>93 <span style=''>  }
+</span>94 <span style=''>
+</span>95 <span style=''>  def request[T](name:String, msg:Any, childName:Option[String]=None) : Future[ComponentResponse[T]] =
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest(name, ComponentRequest(msg, childName))</span><span style=''>
+</span>97 <span style=''>
+</span>98 <span style=''>  /**
+</span>99 <span style=''>   * Simplest way to make a request directly to a component, will return a Future holding whatever the component returns
+</span>100 <span style=''>   * @param name Name of the component
+</span>101 <span style=''>   * @param msg Message to send it
+</span>102 <span style=''>   */
+</span>103 <span style=''>  def unwrapSelfRequest[T](name:String, msg:AnyRef) : Future[T] = {
+</span>104 <span style=''>    </span><span style='background: #F0ADAD'>unwrapRequest[msg.type, T](name, ComponentRequest[msg.type](msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  /**
+</span>108 <span style=''>   * Wrapper function that allows developer to make requests to components individually without having to know about the
+</span>109 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
+</span>110 <span style=''>   *
+</span>111 <span style=''>   * @param name name of the component
+</span>112 <span style=''>   * @param msg message you want to send to the component
+</span>113 <span style=''>   * @return
+</span>114 <span style=''>   */
+</span>115 <span style=''>  def componentRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[ComponentResponse[U]] = {
+</span>116 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ComponentResponse[U]]()</span><span style=''>
+</span>117 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>118 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>119 <span style=''></span><span style='background: #F0ADAD'>        (cm ? Request(name, msg))(msg.timeout).mapTo[ComponentResponse[U]] onComplete {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => p success s
+</span>121 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
+</span>122 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>123 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>124 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>125 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>126 <span style=''>  }
+</span>127 <span style=''>
+</span>128 <span style=''>  def selfMessage(name:String, msg:Any) =
+</span>129 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, Some(ComponentManager.ComponentRef)))</span><span style=''>
+</span>130 <span style=''>
+</span>131 <span style=''>  /**
+</span>132 <span style=''>   * Wrapper function that will allow you to send any message in and it will
+</span>133 <span style=''>   * wrap the msg within a ComponentMessage case class
+</span>134 <span style=''>   *
+</span>135 <span style=''>   * @param name       name of component
+</span>136 <span style=''>   * @param msg        message to send
+</span>137 <span style=''>   * @param childName  name of component's child, or 'self' if one wants to hit the component itself
+</span>138 <span style=''>   */
+</span>139 <span style=''>  def message(name:String, msg:Any, childName:Option[String]=None) =
+</span>140 <span style=''>    </span><span style='background: #F0ADAD'>componentMessage(name, ComponentMessage(msg, childName))</span><span style=''>
+</span>141 <span style=''>
+</span>142 <span style=''>  /**
+</span>143 <span style=''>   * Wrapper function that allows the developer to message components individually without having to know about the
+</span>144 <span style=''>   * ComponentManager as the parent that routes the messages to the various components
+</span>145 <span style=''>   *
+</span>146 <span style=''>   * @param name name of the component
+</span>147 <span style=''>   * @param msg message you want to send to the component
+</span>148 <span style=''>   */
+</span>149 <span style=''>  def componentMessage[T](name:String, msg:ComponentMessage[T]) = {
+</span>150 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>151 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>152 <span style=''></span><span style='background: #F0ADAD'>        cm ! Message(name, msg)
+</span>153 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => throw f
+</span>154 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>155 <span style=''>  }
+</span>156 <span style=''>
+</span>157 <span style=''>  /**
+</span>158 <span style=''>   * Wrapper function that allows developers to get the actor reference for a particular component
+</span>159 <span style=''>   *
+</span>160 <span style=''>   * @param name the name of the component
+</span>161 <span style=''>   * @param timeout implicit timeout value
+</span>162 <span style=''>   * @return
+</span>163 <span style=''>   */
+</span>164 <span style=''>  def getComponent(name:String)(implicit timeout:Timeout) : Future[ActorRef] = {
+</span>165 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ActorRef]()</span><span style=''>
+</span>166 <span style=''>    </span><span style='background: #F0ADAD'>initComponentHelper onComplete {
+</span>167 <span style=''></span><span style='background: #F0ADAD'>      case Success(cm) =>
+</span>168 <span style=''></span><span style='background: #F0ADAD'>        (cm ? GetComponent(name))(timeout).mapTo[Option[ActorRef]] onComplete {
+</span>169 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) =>
+</span>170 <span style=''></span><span style='background: #F0ADAD'>            s match {
+</span>171 <span style=''></span><span style='background: #F0ADAD'>              case Some(ref) => p success ref
+</span>172 <span style=''></span><span style='background: #F0ADAD'>              case None => p failure ComponentNotFoundException("Component Manager", s"component $name not found")
+</span>173 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>174 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
+</span>175 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>176 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => p failure f
+</span>177 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>178 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>179 <span style=''>  }
+</span>180 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -281,30 +282,6 @@
           51
         </td>
         <td>
-          857
-        </td>
-        <td>
-          1731
-          -
-          1876
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          {
-  ComponentHelper.this.componentManagerInitialized_=(true);
-  p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Failed to get component manager&quot;))
-}
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
           853
         </td>
         <td>
@@ -326,12 +303,12 @@
           51
         </td>
         <td>
-          859
+          858
         </td>
         <td>
-          1674
+          1731
           -
-          1674
+          1876
         </td>
         <td>
           Block
@@ -340,28 +317,13 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          858
-        </td>
-        <td>
-          1674
-          -
-          1674
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
+          {
+  ComponentHelper.this.componentManagerInitialized_=(true);
+  {
+    p.failure(ComponentException.apply(&quot;Component Manager&quot;, &quot;Failed to get component manager&quot;));
+    ()
+  }
+}
         </td>
       </tr><tr>
         <td>
@@ -431,6 +393,27 @@
           53
         </td>
         <td>
+          857
+        </td>
+        <td>
+          1786
+          -
+          1786
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
           856
         </td>
         <td>
@@ -452,96 +435,12 @@
           55
         </td>
         <td>
-          863
-        </td>
-        <td>
-          1955
-          -
-          1963
-        </td>
-        <td>
-          ApplyImplicitView
-        </td>
-        <td>
-          akka.util.Timeout.durationToTimeout
-        </td>
-        <td style="background: #F0ADAD">
-          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
           860
         </td>
         <td>
-          1906
-          -
-          1940
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.HarnessConstants.ComponentFullName
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.HarnessConstants.ComponentFullName
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          869
-        </td>
-        <td>
-          1965
+          1964
           -
           1965
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          ComponentHelper.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          862
-        </td>
-        <td>
-          1955
-          -
-          1963
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.concurrent.duration.DurationConversions.second
-        </td>
-        <td style="background: #F0ADAD">
-          scala.concurrent.duration.`package`.DurationInt(1).second
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          861
-        </td>
-        <td>
-          1955
-          -
-          1956
         </td>
         <td>
           Literal
@@ -557,15 +456,127 @@
           55
         </td>
         <td>
-          870
+          869
         </td>
         <td>
-          1883
+          1892
           -
-          2174
+          2195
         </td>
         <td>
           ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ComponentFullName).resolveOne()(util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)).onComplete[Any](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; {
+    ComponentHelper.this.componentManager_=(scala.Some.apply[akka.actor.ActorRef](s));
+    ComponentHelper.this.componentManagerInitialized_=(true);
+    p.success(s)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; awaitComponentManager(timeOut)
+}))(ComponentHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          1964
+          -
+          1972
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          859
+        </td>
+        <td>
+          1915
+          -
+          1949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentFullName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ComponentFullName
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          1974
+          -
+          1974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          1964
+          -
+          1972
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.second
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(1).second
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          1892
+          -
+          2195
+        </td>
+        <td>
+          Block
         </td>
         <td>
           scala.concurrent.Future.onComplete
@@ -588,30 +599,9 @@
           864
         </td>
         <td>
-          2034
+          2028
           -
-          2041
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[akka.actor.ActorRef](s)
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          865
-        </td>
-        <td>
-          2015
-          -
-          2041
+          2054
         </td>
         <td>
           Apply
@@ -624,15 +614,36 @@
         </td>
       </tr><tr>
         <td>
+          57
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          2047
+          -
+          2054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](s)
+        </td>
+      </tr><tr>
+        <td>
           58
         </td>
         <td>
-          866
+          865
         </td>
         <td>
-          2052
+          2067
           -
-          2086
+          2101
         </td>
         <td>
           Apply
@@ -648,12 +659,12 @@
           59
         </td>
         <td>
-          867
+          866
         </td>
         <td>
-          2097
+          2114
           -
-          2108
+          2125
         </td>
         <td>
           Apply
@@ -669,12 +680,12 @@
           60
         </td>
         <td>
-          868
+          867
         </td>
         <td>
-          2136
+          2155
           -
-          2166
+          2185
         </td>
         <td>
           Apply
@@ -687,15 +698,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          65
         </td>
         <td>
           871
         </td>
         <td>
-          2186
+          2215
           -
-          2202
+          2231
         </td>
         <td>
           Select
@@ -708,15 +719,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          66
         </td>
         <td>
           872
         </td>
         <td>
-          2234
+          2263
           -
-          2246
+          2275
         </td>
         <td>
           Apply
@@ -729,15 +740,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          68
         </td>
         <td>
           873
         </td>
         <td>
-          2278
+          2307
           -
-          2306
+          2335
         </td>
         <td>
           Select
@@ -750,15 +761,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          68
         </td>
         <td>
           879
         </td>
         <td>
-          2308
+          2337
           -
-          2404
+          2433
         </td>
         <td>
           Block
@@ -774,15 +785,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
           875
         </td>
         <td>
-          2345
+          2374
           -
-          2352
+          2381
         </td>
         <td>
           Select
@@ -795,15 +806,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
           877
         </td>
         <td>
-          2335
+          2364
           -
-          2352
+          2381
         </td>
         <td>
           ApplyToImplicitArgs
@@ -816,15 +827,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
           874
         </td>
         <td>
-          2335
+          2364
           -
-          2336
+          2365
         </td>
         <td>
           Literal
@@ -837,15 +848,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          69
         </td>
         <td>
           876
         </td>
         <td>
-          2337
+          2366
           -
-          2337
+          2366
         </td>
         <td>
           Select
@@ -858,15 +869,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          70
         </td>
         <td>
           878
         </td>
         <td>
-          2363
+          2392
           -
-          2394
+          2423
         </td>
         <td>
           Apply
@@ -879,15 +890,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
           882
         </td>
         <td>
-          2422
+          2451
           -
-          2511
+          2540
         </td>
         <td>
           Block
@@ -900,15 +911,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
           881
         </td>
         <td>
-          2422
+          2451
           -
-          2511
+          2540
         </td>
         <td>
           Apply
@@ -921,15 +932,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          72
         </td>
         <td>
           880
         </td>
         <td>
-          2432
+          2461
           -
-          2511
+          2540
         </td>
         <td>
           Apply
@@ -942,15 +953,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          75
         </td>
         <td>
           883
         </td>
         <td>
-          2532
+          2561
           -
-          2540
+          2569
         </td>
         <td>
           Select
@@ -963,15 +974,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
           884
         </td>
         <td>
-          2934
+          2963
           -
-          2946
+          2975
         </td>
         <td>
           Apply
@@ -984,15 +995,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           889
         </td>
         <td>
-          2951
+          2980
           -
-          3104
+          3133
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1008,15 +1019,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
           888
         </td>
         <td>
-          3007
+          3036
           -
-          3007
+          3036
         </td>
         <td>
           Select
@@ -1029,15 +1040,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
           886
         </td>
         <td>
-          3045
+          3074
           -
-          3061
+          3090
         </td>
         <td>
           Apply
@@ -1050,15 +1061,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
           885
         </td>
         <td>
-          3055
+          3084
           -
-          3061
+          3090
         </td>
         <td>
           Select
@@ -1071,15 +1082,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          90
         </td>
         <td>
           887
         </td>
         <td>
-          3087
+          3116
           -
-          3098
+          3127
         </td>
         <td>
           Apply
@@ -1092,15 +1103,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          92
         </td>
         <td>
           890
         </td>
         <td>
-          3109
+          3138
           -
-          3117
+          3146
         </td>
         <td>
           Select
@@ -1113,15 +1124,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
           891
         </td>
         <td>
-          3253
+          3282
           -
-          3253
+          3282
         </td>
         <td>
           TypeApply
@@ -1134,15 +1145,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
           893
         </td>
         <td>
-          3230
+          3259
           -
-          3286
+          3315
         </td>
         <td>
           Apply
@@ -1155,15 +1166,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
           892
         </td>
         <td>
-          3253
+          3282
           -
-          3285
+          3314
         </td>
         <td>
           Apply
@@ -1176,15 +1187,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          104
         </td>
         <td>
           896
         </td>
         <td>
-          3616
+          3645
           -
-          3616
+          3645
         </td>
         <td>
           TypeApply
@@ -1197,15 +1208,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          104
         </td>
         <td>
           895
         </td>
         <td>
-          3632
+          3661
           -
-          3667
+          3696
         </td>
         <td>
           Apply
@@ -1218,15 +1229,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          104
         </td>
         <td>
           898
         </td>
         <td>
-          3567
+          3596
           -
-          3669
+          3698
         </td>
         <td>
           Apply
@@ -1239,15 +1250,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          104
         </td>
         <td>
           894
         </td>
         <td>
-          3637
-          -
           3666
+          -
+          3695
         </td>
         <td>
           Select
@@ -1260,15 +1271,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          104
         </td>
         <td>
           897
         </td>
         <td>
-          3600
+          3629
           -
-          3668
+          3697
         </td>
         <td>
           Apply
@@ -1281,15 +1292,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          116
         </td>
         <td>
           899
         </td>
         <td>
-          4124
+          4153
           -
-          4155
+          4184
         </td>
         <td>
           Apply
@@ -1302,15 +1313,15 @@
         </td>
       </tr><tr>
         <td>
-          116
+          117
         </td>
         <td>
           908
         </td>
         <td>
-          4160
+          4189
           -
-          4441
+          4470
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1329,15 +1340,15 @@
         </td>
       </tr><tr>
         <td>
-          116
+          117
         </td>
         <td>
           907
         </td>
         <td>
-          4180
+          4209
           -
-          4180
+          4209
         </td>
         <td>
           Select
@@ -1350,15 +1361,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
           905
         </td>
         <td>
-          4227
+          4256
           -
-          4398
+          4427
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1374,15 +1385,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
           904
         </td>
         <td>
-          4294
+          4323
           -
-          4294
+          4323
         </td>
         <td>
           Select
@@ -1395,15 +1406,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
           901
         </td>
         <td>
-          4253
+          4282
           -
-          4264
+          4293
         </td>
         <td>
           Select
@@ -1416,15 +1427,15 @@
         </td>
       </tr><tr>
         <td>
-          118
+          119
         </td>
         <td>
           900
         </td>
         <td>
-          4233
+          4262
           -
-          4251
+          4280
         </td>
         <td>
           Apply
@@ -1437,15 +1448,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          120
         </td>
         <td>
           902
         </td>
         <td>
-          4336
+          4365
           -
-          4347
+          4376
         </td>
         <td>
           Apply
@@ -1458,15 +1469,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          121
         </td>
         <td>
           903
         </td>
         <td>
-          4377
+          4406
           -
-          4388
+          4417
         </td>
         <td>
           Apply
@@ -1479,15 +1490,15 @@
         </td>
       </tr><tr>
         <td>
-          122
+          123
         </td>
         <td>
           906
         </td>
         <td>
-          4424
+          4453
           -
-          4435
+          4464
         </td>
         <td>
           Apply
@@ -1500,15 +1511,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
           909
         </td>
         <td>
-          4446
+          4475
           -
-          4454
+          4483
         </td>
         <td>
           Select
@@ -1521,15 +1532,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
           911
         </td>
         <td>
-          4551
+          4580
           -
-          4586
+          4615
         </td>
         <td>
           Apply
@@ -1542,15 +1553,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
           913
         </td>
         <td>
-          4506
+          4535
           -
-          4588
+          4617
         </td>
         <td>
           Apply
@@ -1563,15 +1574,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
           910
         </td>
         <td>
-          4556
-          -
           4585
+          -
+          4614
         </td>
         <td>
           Select
@@ -1584,15 +1595,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          129
         </td>
         <td>
           912
         </td>
         <td>
-          4529
+          4558
           -
-          4587
+          4616
         </td>
         <td>
           Apply
@@ -1605,15 +1616,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          140
         </td>
         <td>
           914
         </td>
         <td>
-          5016
+          5045
           -
-          5048
+          5077
         </td>
         <td>
           Apply
@@ -1626,15 +1637,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          140
         </td>
         <td>
           915
         </td>
         <td>
-          4993
+          5022
           -
-          5049
+          5078
         </td>
         <td>
           Apply
@@ -1647,15 +1658,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          150
         </td>
         <td>
           920
         </td>
         <td>
-          5460
+          5489
           -
-          5460
+          5489
         </td>
         <td>
           Select
@@ -1668,15 +1679,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          150
         </td>
         <td>
           921
         </td>
         <td>
-          5440
+          5469
           -
-          5569
+          5598
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1692,15 +1703,15 @@
         </td>
       </tr><tr>
         <td>
-          151
+          152
         </td>
         <td>
           917
         </td>
         <td>
-          5510
+          5539
           -
-          5510
+          5539
         </td>
         <td>
           Select
@@ -1713,15 +1724,15 @@
         </td>
       </tr><tr>
         <td>
-          151
+          152
         </td>
         <td>
           916
         </td>
         <td>
-          5512
+          5541
           -
-          5530
+          5559
         </td>
         <td>
           Apply
@@ -1734,15 +1745,15 @@
         </td>
       </tr><tr>
         <td>
-          151
+          152
         </td>
         <td>
           918
         </td>
         <td>
-          5507
+          5536
           -
-          5530
+          5559
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1755,15 +1766,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          153
         </td>
         <td>
           919
         </td>
         <td>
-          5556
+          5585
           -
-          5563
+          5592
         </td>
         <td>
           Throw
@@ -1776,15 +1787,15 @@
         </td>
       </tr><tr>
         <td>
-          164
+          165
         </td>
         <td>
           922
         </td>
         <td>
-          5883
+          5912
           -
-          5902
+          5931
         </td>
         <td>
           Apply
@@ -1797,15 +1808,15 @@
         </td>
       </tr><tr>
         <td>
-          165
+          166
         </td>
         <td>
           934
         </td>
         <td>
-          5907
+          5936
           -
-          6365
+          6394
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1827,15 +1838,15 @@
         </td>
       </tr><tr>
         <td>
-          165
+          166
         </td>
         <td>
           933
         </td>
         <td>
-          5927
+          5956
           -
-          5927
+          5956
         </td>
         <td>
           Select
@@ -1848,15 +1859,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          168
         </td>
         <td>
           923
         </td>
         <td>
-          5980
+          6009
           -
-          5998
+          6027
         </td>
         <td>
           Apply
@@ -1869,15 +1880,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          168
         </td>
         <td>
           931
         </td>
         <td>
-          5974
+          6003
           -
-          6322
+          6351
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1896,15 +1907,15 @@
         </td>
       </tr><tr>
         <td>
-          167
+          168
         </td>
         <td>
           930
         </td>
         <td>
-          6033
+          6062
           -
-          6033
+          6062
         </td>
         <td>
           Select
@@ -1917,15 +1928,15 @@
         </td>
       </tr><tr>
         <td>
-          170
+          171
         </td>
         <td>
           924
         </td>
         <td>
-          6129
+          6158
           -
-          6142
+          6171
         </td>
         <td>
           Apply
@@ -1938,15 +1949,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
           926
         </td>
         <td>
-          6228
+          6257
           -
-          6256
+          6285
         </td>
         <td>
           Apply
@@ -1959,15 +1970,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
           925
         </td>
         <td>
-          6207
+          6236
           -
-          6226
+          6255
         </td>
         <td>
           Literal
@@ -1980,15 +1991,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
           928
         </td>
         <td>
-          6170
+          6199
           -
-          6257
+          6286
         </td>
         <td>
           Apply
@@ -2001,15 +2012,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          172
         </td>
         <td>
           927
         </td>
         <td>
-          6180
+          6209
           -
-          6257
+          6286
         </td>
         <td>
           Apply
@@ -2022,15 +2033,15 @@
         </td>
       </tr><tr>
         <td>
-          173
+          174
         </td>
         <td>
           929
         </td>
         <td>
-          6301
+          6330
           -
-          6312
+          6341
         </td>
         <td>
           Apply
@@ -2043,15 +2054,15 @@
         </td>
       </tr><tr>
         <td>
-          175
+          176
         </td>
         <td>
           932
         </td>
         <td>
-          6348
+          6377
           -
-          6359
+          6388
         </td>
         <td>
           Apply
@@ -2064,15 +2075,15 @@
         </td>
       </tr><tr>
         <td>
-          177
+          178
         </td>
         <td>
           935
         </td>
         <td>
-          6370
+          6399
           -
-          6378
+          6407
         </td>
         <td>
           Select
