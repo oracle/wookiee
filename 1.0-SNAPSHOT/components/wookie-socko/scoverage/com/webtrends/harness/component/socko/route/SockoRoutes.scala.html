@@ -45,412 +45,417 @@
 </span>20 <span style=''>package com.webtrends.harness.component.socko.route
 </span>21 <span style=''>
 </span>22 <span style=''>import java.io._
-</span>23 <span style=''>import java.net.URLDecoder
-</span>24 <span style=''>import java.nio.charset.{Charset, StandardCharsets}
-</span>25 <span style=''>import java.util.zip.{GZIPInputStream, InflaterInputStream}
-</span>26 <span style=''>
-</span>27 <span style=''>import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
-</span>28 <span style=''>import com.webtrends.harness.component.socko.AddSockoHandler
-</span>29 <span style=''>import com.webtrends.harness.component.socko.utils.{SockoCommandBean, SockoCommandException, SockoUtils}
-</span>30 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentManager, ComponentMessage}
-</span>31 <span style=''>import io.netty.handler.codec.http.QueryStringDecoder
-</span>32 <span style=''>import net.liftweb.json.Extraction._
-</span>33 <span style=''>import net.liftweb.json.JsonAST.{JField, JObject, JString}
-</span>34 <span style=''>import net.liftweb.json.JsonParser.ParseException
-</span>35 <span style=''>import net.liftweb.json._
-</span>36 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
-</span>37 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus, ImmutableHttpHeaders}
-</span>38 <span style=''>import org.mashupbots.socko.infrastructure.CharsetUtil
-</span>39 <span style=''>
-</span>40 <span style=''>import scala.collection.JavaConversions._
-</span>41 <span style=''>import scala.collection.mutable
-</span>42 <span style=''>import scala.io.Source
-</span>43 <span style=''>import scala.util.{Failure, Success}
-</span>44 <span style=''>
-</span>45 <span style=''>class AutoSockoHandler(matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit) extends SockoRouteHandler {
-</span>46 <span style=''>  /**
-</span>47 <span style=''>   * Attempts to handle the Socko route
-</span>48 <span style=''>   *
-</span>49 <span style=''>   * @param bean The http request
-</span>50 <span style=''>   * @return true if route was handled, false otherwise
-</span>51 <span style=''>   */
-</span>52 <span style=''>  override def handleSockoRoute(event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) = </span><span style='background: #AEF1AE'>handler(event, bean)</span><span style=''>
-</span>53 <span style=''>
-</span>54 <span style=''>  /**
-</span>55 <span style=''>   * Checks if this handler matches the route in the event, returned map will be used to handle request
-</span>56 <span style=''>   * or pass None back if this is not the right path
-</span>57 <span style=''>   *
-</span>58 <span style=''>   * @param event Event receive by Socko
-</span>59 <span style=''>   * @return None- path does not match, Some(map)- path matches, extract variables
-</span>60 <span style=''>   */
-</span>61 <span style=''>  override def matchSockoRoute(event: HttpRequestEvent): Option[mutable.HashMap[String, AnyRef]] = </span><span style='background: #AEF1AE'>matcher(event)</span><span style=''>
-</span>62 <span style=''>}
-</span>63 <span style=''>
-</span>64 <span style=''>/**
-</span>65 <span style=''> * Wrapper case class to make Socko headers easier to deal with
-</span>66 <span style=''> *
-</span>67 <span style=''> * @param headerName the name of the header
-</span>68 <span style=''> * @param headerValue the value of the header
-</span>69 <span style=''> */
-</span>70 <span style=''>case class SockoHeader(headerName:String, headerValue:String)
-</span>71 <span style=''>
-</span>72 <span style=''>/**
-</span>73 <span style=''> * SockoRoutes enable developers to simply add traits to their commands and gain instant http capabilities
-</span>74 <span style=''> * For SockoRoutes a handler actor is created for each Command and each trait that is applied to the command.
-</span>75 <span style=''> * The socko handlers are registered in the Socko Manager.
-</span>76 <span style=''> */
-</span>77 <span style=''>private[route] trait SockoRoutes extends ComponentHelper {
-</span>78 <span style=''>  this:Command =>
-</span>79 <span style=''>
-</span>80 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>Serialization.formats(NoTypeHints) ++ JodaTimeSerializers.all</span><span style=''>
-</span>81 <span style=''>
-</span>82 <span style=''>  import context.dispatcher
-</span>83 <span style=''>
-</span>84 <span style=''>  def applyQSMap(bean:SockoCommandBean) {
-</span>85 <span style=''>    // this fixedMap basically takes the queryStringMap and removes the List of elements if there is
-</span>86 <span style=''>    // only a single element in the list.
-</span>87 <span style=''>    val fixedMap = </span><span style='background: #AEF1AE'>bean.event.endPoint.queryStringMap map { e => </span><span style='background: #F0ADAD'>e._1 -> e._2.last</span><span style=''> }
-</span>88 <span style=''>    </span><span style='background: #AEF1AE'>bean.appendMap(fixedMap)</span><span style=''>
-</span>89 <span style=''>  }
-</span>90 <span style=''>
-</span>91 <span style=''>  def marshallObject(obj: Any, respType: String = "json"): Array[Byte] = {
-</span>92 <span style=''>    val realRespType = </span><span style='background: #AEF1AE'>SockoUtils.normalizeContentType(respType)</span><span style=''>
-</span>93 <span style=''>    if (</span><span style='background: #AEF1AE'>realRespType == "application/json"</span><span style=''>) {
-</span>94 <span style=''>      </span><span style='background: #AEF1AE'>obj match {
-</span>95 <span style=''></span><span style='background: #AEF1AE'>        case s: String => s.getBytes
-</span>96 <span style=''></span><span style='background: #AEF1AE'>        case _ => </span><span style='background: #F0ADAD'>compactRender(decompose(obj)).getBytes</span><span style='background: #AEF1AE'>
-</span>97 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>98 <span style=''>    } else </span><span style='background: #AEF1AE'>obj match {
-</span>99 <span style=''></span><span style='background: #AEF1AE'>      case bytes: Array[Byte] =>
-</span>100 <span style=''></span><span style='background: #AEF1AE'>        bytes
-</span>101 <span style=''></span><span style='background: #AEF1AE'>      case _ =>
-</span>102 <span style=''></span><span style='background: #AEF1AE'>        obj.toString.getBytes
-</span>103 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>104 <span style=''>  }
-</span>105 <span style=''>
-</span>106 <span style=''>  /**
-</span>107 <span style=''>   * Sets the response code for the command using the trait
-</span>108 <span style=''>   * So if you are creating an item and wanted to send back the CREATED status
-</span>109 <span style=''>   * then you just override this in your command
-</span>110 <span style=''>   *
-</span>111 <span style=''>   * @return
-</span>112 <span style=''>   */
-</span>113 <span style=''>  def responseStatusCode = </span><span style='background: #AEF1AE'>HttpResponseStatus.OK</span><span style=''>
-</span>114 <span style=''>
-</span>115 <span style=''>  /**
-</span>116 <span style=''>   * Function that allows you to override the headers for a response. The Map allows you to specifically
-</span>117 <span style=''>   * set headers for specific HTTPMethods, if None set for HttpMethod, then the header will apply to all
-</span>118 <span style=''>   * methods. This is done so that if you have multiple traits like SprayPut, SprayPost, SprayOptions, SprayGet, etc.
-</span>119 <span style=''>   * you can apply different headers depending on what you are doing.
-</span>120 <span style=''>   *
-</span>121 <span style=''>   * @return
-</span>122 <span style=''>   */
-</span>123 <span style=''>  def getResponseHeaders(headers: ImmutableHttpHeaders) : Map[String, List[SockoHeader]] = {
-</span>124 <span style=''>    </span><span style='background: #AEF1AE'>Map[String, List[SockoHeader]]().empty</span><span style=''>
-</span>125 <span style=''>  }
-</span>126 <span style=''>
-</span>127 <span style=''>  def defaultPathMatcher(event: HttpRequestEvent, paths : Map[String, String]): Option[mutable.HashMap[String, AnyRef]] = {
-</span>128 <span style=''>    </span><span style='background: #AEF1AE'>paths foreach { p =>
-</span>129 <span style=''></span><span style='background: #AEF1AE'>      Command.matchPath(p._2, event.endPoint.path) match {
-</span>130 <span style=''></span><span style='background: #AEF1AE'>        case Some(b) =>
-</span>131 <span style=''></span><span style='background: #AEF1AE'>          b.addValue(CommandBean.KeyPath, p._1)
-</span>132 <span style=''></span><span style='background: #AEF1AE'>          val bean = new SockoCommandBean(event)
-</span>133 <span style=''></span><span style='background: #AEF1AE'>          bean.appendMap(b.toMap)
-</span>134 <span style=''></span><span style='background: #AEF1AE'>          return Some(bean)
-</span>135 <span style=''></span><span style='background: #AEF1AE'>        case None => // ignore and continue in the stream
-</span>136 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>137 <span style=''>    }
-</span>138 <span style=''>    </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>139 <span style=''>  }
-</span>140 <span style=''>
-</span>141 <span style=''>  protected def getRejectionHandler(event:HttpRequestEvent, e:Throwable) = {
-</span>142 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(e.getMessage, e)</span><span style=''>
-</span>143 <span style=''>    e match {
-</span>144 <span style=''>      case ce: ParseException =>
-</span>145 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Invalid JSON - ${ce.getMessage}")</span><span style=''>
-</span>146 <span style=''>      case ce: SockoCommandException =>
-</span>147 <span style=''>        </span><span style='background: #F0ADAD'>ce.msg == null || ce.msg == ""</span><span style=''> match {
-</span>148 <span style=''>          case true => </span><span style='background: #F0ADAD'>event.response.write(ce.code)</span><span style=''>
-</span>149 <span style=''>          case false => </span><span style='background: #F0ADAD'>event.response.write(ce.code, ce.msg)</span><span style=''>
-</span>150 <span style=''>        }
-</span>151 <span style=''>      case ce:CommandException =>
-</span>152 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")</span><span style=''>
-</span>153 <span style=''>      case arg:IllegalArgumentException =>
-</span>154 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Illegal Arguments - ${arg.getMessage}\n\t${arg.toString}")</span><span style=''>
-</span>155 <span style=''>      case me:MappingException =>
-</span>156 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Mapping Exception - ${me.getMessage}\n\t${me.toString}")</span><span style=''>
-</span>157 <span style=''>      case ex:Exception =>
-</span>158 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Server Error - ${ex.getMessage}\n\t${ex.toString}")</span><span style=''>
-</span>159 <span style=''>    }
-</span>160 <span style=''>  }
-</span>161 <span style=''>
-</span>162 <span style=''>  /**
-</span>163 <span style=''>   * Function will return all the allowed headers for the command. Basically if you mixin a trait like
-</span>164 <span style=''>   * SprayGet, it will add the Get method to the allow header. This method should be overridden if you
-</span>165 <span style=''>   * are using the SprayCustom trait as then you would be defining your own routes and methods.
-</span>166 <span style=''>   *
-</span>167 <span style=''>   * @return
-</span>168 <span style=''>   */
-</span>169 <span style=''>  protected def getMethods = {
-</span>170 <span style=''>    def getMethod[I<:SockoRoutes](klass:Class[I], method:String) : Option[String] = {
-</span>171 <span style=''>      </span><span style='background: #AEF1AE'>klass.isAssignableFrom(this.getClass)</span><span style=''> match {
-</span>172 <span style=''>        case true => </span><span style='background: #AEF1AE'>Some(method)</span><span style=''>
-</span>173 <span style=''>        case false => </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>174 <span style=''>      }
-</span>175 <span style=''>    }
-</span>176 <span style=''>
-</span>177 <span style=''>    </span><span style='background: #AEF1AE'>Seq[Option[String]] (
-</span>178 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoGet], "GET"),
-</span>179 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoHead], "HEAD"),
-</span>180 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPut], "PUT"),
-</span>181 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPost], "POST"),
-</span>182 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoOptions], "OPTIONS"),
-</span>183 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoDelete], "DELETE")
-</span>184 <span style=''></span><span style='background: #AEF1AE'>    ).flatten</span><span style=''>
-</span>185 <span style=''>  }
-</span>186 <span style=''>  
-</span>187 <span style=''>  def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
-</span>188 <span style=''>    try {
-</span>189 <span style=''>      </span><span style='background: #AEF1AE'>applyQSMap(bean)
-</span>190 <span style=''></span><span style='background: #AEF1AE'>      execute(Some(bean)).mapTo[CommandResponse[T]] onComplete {
-</span>191 <span style=''></span><span style='background: #AEF1AE'>        case Success(resp) =>
-</span>192 <span style=''></span><span style='background: #AEF1AE'>          resp.data match {
-</span>193 <span style=''></span><span style='background: #AEF1AE'>            case Some(value) =>
-</span>194 <span style=''></span><span style='background: #AEF1AE'>              val content = if (bean.event.endPoint.method.equalsIgnoreCase("head")) Array[Byte]() else marshallObject(value, resp.responseType)
-</span>195 <span style=''></span><span style='background: #AEF1AE'>              bean.event.response.write(
-</span>196 <span style=''></span><span style='background: #AEF1AE'>                responseStatusCode,
-</span>197 <span style=''></span><span style='background: #AEF1AE'>                // just double check the end point method, and if it is head then simply remove any content from the response
-</span>198 <span style=''></span><span style='background: #AEF1AE'>                content,
-</span>199 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.normalizeContentType(resp.responseType),
-</span>200 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod.name(), getResponseHeaders(bean.event.request.headers), content.length)
-</span>201 <span style=''></span><span style='background: #AEF1AE'>              )
-</span>202 <span style=''></span><span style='background: #AEF1AE'>            case None => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.NO_CONTENT)</span><span style='background: #AEF1AE'>
-</span>203 <span style=''></span><span style='background: #AEF1AE'>          }
-</span>204 <span style=''></span><span style='background: #AEF1AE'>        case Failure(f) => f match {
-</span>205 <span style=''></span><span style='background: #AEF1AE'>          case ce: SockoCommandException => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, ce)</span><span style='background: #AEF1AE'>
-</span>206 <span style=''></span><span style='background: #AEF1AE'>          case _ => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage)</span><span style='background: #AEF1AE'>
-</span>207 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>208 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
-</span>209 <span style=''>    } catch {
-</span>210 <span style=''>      case e:Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, e)</span><span style=''>
-</span>211 <span style=''>    }
-</span>212 <span style=''>  }
-</span>213 <span style=''>
-</span>214 <span style=''>  private[route] def addAutoHandler(handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit, matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], method: String) = {
-</span>215 <span style=''>    val msg = </span><span style='background: #AEF1AE'>ComponentMessage(
-</span>216 <span style=''></span><span style='background: #AEF1AE'>      AddSockoHandler(s"$commandName",
-</span>217 <span style=''></span><span style='background: #AEF1AE'>                      new AutoSockoHandler(matcher, handler), method),
-</span>218 <span style=''></span><span style='background: #AEF1AE'>      Some(ComponentManager.ComponentRef)
-</span>219 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
-</span>220 <span style=''>    </span><span style='background: #AEF1AE'>componentMessage("wookie-socko", msg)</span><span style=''>
-</span>221 <span style=''>  }
-</span>222 <span style=''>}
-</span>223 <span style=''>
-</span>224 <span style=''>trait SockoCustom extends SockoRoutes {
-</span>225 <span style=''>  this:Command =>
-</span>226 <span style=''>
-</span>227 <span style=''>  </span><span style='background: #F0ADAD'>List("GET", "HEAD", "PUT", "POST", "OPTIONS", "DELETE") foreach { method =>
-</span>228 <span style=''></span><span style='background: #F0ADAD'>    addAutoHandler(
-</span>229 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>230 <span style=''></span><span style='background: #F0ADAD'>        customHandler(event, bean)
-</span>231 <span style=''></span><span style='background: #F0ADAD'>      },
-</span>232 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent) => {
-</span>233 <span style=''></span><span style='background: #F0ADAD'>        customMatcher(event)
-</span>234 <span style=''></span><span style='background: #F0ADAD'>      },
-</span>235 <span style=''></span><span style='background: #F0ADAD'>      method
-</span>236 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
-</span>237 <span style=''>  }
-</span>238 <span style=''>
-</span>239 <span style=''>  def customHandler(event: HttpRequestEvent, bean: mutable.HashMap[String, AnyRef])
-</span>240 <span style=''>
-</span>241 <span style=''>  def customMatcher(event: HttpRequestEvent) : Option[mutable.HashMap[String, AnyRef]]
-</span>242 <span style=''>}
-</span>243 <span style=''>
-</span>244 <span style=''>trait SockoGet extends SockoRoutes {
-</span>245 <span style=''>  this:Command =>
-</span>246 <span style=''>
-</span>247 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>248 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>249 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
-</span>250 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>251 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>252 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>253 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>254 <span style=''></span><span style='background: #AEF1AE'>    "GET"
-</span>255 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>256 <span style=''>}
-</span>257 <span style=''>
-</span>258 <span style=''>trait EntityRoutes extends SockoRoutes {
-</span>259 <span style=''>  this:Command =>
-</span>260 <span style=''>
-</span>261 <span style=''>  private[route] def addEntityToBean[T<:AnyRef:Manifest](bean:SockoCommandBean, obj:Array[Byte]) = {
-</span>262 <span style=''>    val conType = </span><span style='background: #AEF1AE'>bean.headers.get("Content-Type")</span><span style=''> match {
-</span>263 <span style=''>      case null => </span><span style='background: #AEF1AE'>"application/x-www-form-urlencoded"</span><span style=''>
-</span>264 <span style=''>      case x: String => x
-</span>265 <span style=''>    }
-</span>266 <span style=''>
-</span>267 <span style=''>    var content = obj
-</span>268 <span style=''>    val contentEncoding =  </span><span style='background: #AEF1AE'>bean.headers.get("Content-Encoding")</span><span style=''>
-</span>269 <span style=''>    contentEncoding match {
-</span>270 <span style=''>      case "gzip" =>
-</span>271 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new GZIPInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
-</span>272 <span style=''>      case "deflate" =>
-</span>273 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new InflaterInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
-</span>274 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
-</span>275 <span style=''>    }
-</span>276 <span style=''>
-</span>277 <span style=''>    </span><span style='background: #AEF1AE'>bean.put(SockoCommandBean.Content, content)</span><span style=''>
-</span>278 <span style=''>    </span><span style='background: #AEF1AE'>unmarshall(content, conType)</span><span style=''> match {
-</span>279 <span style=''>      case Some(v) => </span><span style='background: #AEF1AE'>bean.appendMap(Map(CommandBean.KeyEntity -> v))</span><span style=''>
-</span>280 <span style=''>      case None </span><span style='background: #AEF1AE'>=></span><span style=''> //ignore
-</span>281 <span style=''>    }
-</span>282 <span style=''>  }
-</span>283 <span style=''>
-</span>284 <span style=''>  def unmarshall[T<:AnyRef:Manifest](data: Array[Byte], contentTypeValue: String = "application/json"): Option[T] = {
-</span>285 <span style=''>    if (</span><span style='background: #AEF1AE'>data == null || data.length == 0</span><span style=''>) {
-</span>286 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>287 <span style=''>    } else </span><span style='background: #AEF1AE'>{
-</span>288 <span style=''></span><span style='background: #AEF1AE'>
-</span>289 <span style=''></span><span style='background: #AEF1AE'>      val (contentType, charset) = parseContentType(contentTypeValue)
-</span>290 <span style=''></span><span style='background: #AEF1AE'>
-</span>291 <span style=''></span><span style='background: #AEF1AE'>      contentType match {
-</span>292 <span style=''></span><span style='background: #AEF1AE'>
-</span>293 <span style=''></span><span style='background: #AEF1AE'>        case "application/x-www-form-urlencoded" | "multipart/form-data" =>
-</span>294 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset).dropWhile( _ == "?")
-</span>295 <span style=''></span><span style='background: #AEF1AE'>          val jObj = JObject(new QueryStringDecoder("?" + dataString, charset).parameters.map { kvp =>
-</span>296 <span style=''></span><span style='background: #AEF1AE'>            JField(kvp._1, if (kvp._2 != null) new JString(kvp._2.last) else </span><span style='background: #F0ADAD'>JNull</span><span style='background: #AEF1AE'>)
-</span>297 <span style=''></span><span style='background: #AEF1AE'>            }.toList)
-</span>298 <span style=''></span><span style='background: #AEF1AE'>          Some(jObj.extract[T])
-</span>299 <span style=''></span><span style='background: #AEF1AE'>
-</span>300 <span style=''></span><span style='background: #AEF1AE'>        case "application/json" =>
-</span>301 <span style=''></span><span style='background: #AEF1AE'>          Some(JsonParser.parse(new String(data, "utf-8")).extract[T])
-</span>302 <span style=''></span><span style='background: #AEF1AE'>
-</span>303 <span style=''></span><span style='background: #AEF1AE'>        case _ =>
-</span>304 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset)
-</span>305 <span style=''></span><span style='background: #AEF1AE'>          Some(JObject(List(JField("content", new JString(dataString)))).extract[T])
-</span>306 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>307 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>308 <span style=''>  }
-</span>309 <span style=''>
-</span>310 <span style=''>  def parseContentType(ct: String): (String, Charset) = {
-</span>311 <span style=''>
-</span>312 <span style=''>    val parts = </span><span style='background: #AEF1AE'>ct.split(";").toList.map{part => part.toLowerCase.trim}</span><span style=''>
-</span>313 <span style=''>
-</span>314 <span style=''>    val contentType = if (</span><span style='background: #AEF1AE'>parts.length > 0 && !parts(0).isEmpty</span><span style=''>) </span><span style='background: #AEF1AE'>parts(0)</span><span style=''> else </span><span style='background: #F0ADAD'>"text/plain"</span><span style=''>
-</span>315 <span style=''>
-</span>316 <span style=''>    val charSet = if (</span><span style='background: #AEF1AE'>parts.length >= 2 && parts(1).startsWith("charset=")</span><span style=''>) {
-</span>317 <span style=''>      </span><span style='background: #AEF1AE'>Charset.forName(parts(1).split("=")(1))</span><span style=''>
-</span>318 <span style=''>    }
-</span>319 <span style=''>    else {
-</span>320 <span style=''>      </span><span style='background: #AEF1AE'>CharsetUtil.UTF_8</span><span style=''>
-</span>321 <span style=''>    }
-</span>322 <span style=''>
-</span>323 <span style=''>    </span><span style='background: #AEF1AE'>(contentType, charSet)</span><span style=''>
-</span>324 <span style=''>  }
-</span>325 <span style=''>}
-</span>326 <span style=''>
-</span>327 <span style=''>trait SockoPost extends EntityRoutes {
-</span>328 <span style=''>  this:Command =>
-</span>329 <span style=''>
-</span>330 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>331 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>332 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>333 <span style=''></span><span style='background: #AEF1AE'>      try {
-</span>334 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-</span>335 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
-</span>336 <span style=''></span><span style='background: #AEF1AE'>      } catch {
-</span>337 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
-</span>338 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>339 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>340 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>341 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>342 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>343 <span style=''></span><span style='background: #AEF1AE'>    "POST"
-</span>344 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>345 <span style=''>}
-</span>346 <span style=''>
-</span>347 <span style=''>trait SockoDelete extends SockoRoutes {
-</span>348 <span style=''>  this:Command =>
-</span>349 <span style=''>
-</span>350 <span style=''>  </span><span style='background: #F0ADAD'>addAutoHandler(
-</span>351 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>352 <span style=''></span><span style='background: #F0ADAD'>      innerExecute(SockoCommandBean(bean.toMap, event))
-</span>353 <span style=''></span><span style='background: #F0ADAD'>    },
-</span>354 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent) => {
-</span>355 <span style=''></span><span style='background: #F0ADAD'>      defaultPathMatcher(event, paths)
-</span>356 <span style=''></span><span style='background: #F0ADAD'>    },
-</span>357 <span style=''></span><span style='background: #F0ADAD'>    "DELETE"
-</span>358 <span style=''></span><span style='background: #F0ADAD'>  )</span><span style=''>
-</span>359 <span style=''>}
-</span>360 <span style=''>
-</span>361 <span style=''>trait SockoOptions extends SockoRoutes {
-</span>362 <span style=''>  this:Command =>
-</span>363 <span style=''>
-</span>364 <span style=''>  /**
-</span>365 <span style=''>   * Override this function to give the options specific information about the command
-</span>366 <span style=''>   *
-</span>367 <span style=''>   * @return
-</span>368 <span style=''>   */
-</span>369 <span style=''>  def sockoOptionsResponse : Any =  </span><span style='background: #AEF1AE'>""</span><span style=''>
-</span>370 <span style=''>  def sockoOptionResponseType : String = </span><span style='background: #AEF1AE'>"text"</span><span style=''>
-</span>371 <span style=''>
-</span>372 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>373 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>374 <span style=''></span><span style='background: #AEF1AE'>      // build the Allow and Access-Control-Allow-Methods headers
-</span>375 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>376 <span style=''></span><span style='background: #AEF1AE'>      val methods = getMethods.mkString(", ")
-</span>377 <span style=''></span><span style='background: #AEF1AE'>      val optionsHeaders = Map[String, String](
-</span>378 <span style=''></span><span style='background: #AEF1AE'>        "Allow" -> methods,
-</span>379 <span style=''></span><span style='background: #AEF1AE'>        "Access-Control-Allow-Methods" -> methods
-</span>380 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>381 <span style=''></span><span style='background: #AEF1AE'>      val cType = SockoUtils.normalizeContentType(sockoOptionResponseType)
-</span>382 <span style=''></span><span style='background: #AEF1AE'>      val content = marshallObject(sockoOptionsResponse, cType)
-</span>383 <span style=''></span><span style='background: #AEF1AE'>      sBean.event.response.write(
-</span>384 <span style=''></span><span style='background: #AEF1AE'>        HttpResponseStatus.OK,
-</span>385 <span style=''></span><span style='background: #AEF1AE'>        content,
-</span>386 <span style=''></span><span style='background: #AEF1AE'>        cType,
-</span>387 <span style=''></span><span style='background: #AEF1AE'>        SockoUtils.toSockoHeaderFormat("OPTIONS", getResponseHeaders(sBean.event.request.headers)) ++ optionsHeaders
-</span>388 <span style=''></span><span style='background: #AEF1AE'>      )
-</span>389 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>390 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>391 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>392 <span style=''></span><span style='background: #AEF1AE'>    }, "OPTIONS"
-</span>393 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>394 <span style=''>}
-</span>395 <span style=''>
-</span>396 <span style=''>trait SockoHead extends SockoRoutes {
-</span>397 <span style=''>  this:Command =>
-</span>398 <span style=''>
-</span>399 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>400 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>401 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
-</span>402 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>403 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>404 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>405 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>406 <span style=''></span><span style='background: #AEF1AE'>    "HEAD"
-</span>407 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>408 <span style=''>}
-</span>409 <span style=''>
-</span>410 <span style=''>trait SockoPut extends EntityRoutes {
-</span>411 <span style=''>  this:Command =>
-</span>412 <span style=''>
-</span>413 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
-</span>414 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
-</span>415 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
-</span>416 <span style=''></span><span style='background: #AEF1AE'>      try {
-</span>417 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-</span>418 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
-</span>419 <span style=''></span><span style='background: #AEF1AE'>      } catch {
-</span>420 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
-</span>421 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>422 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>423 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
-</span>424 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
-</span>425 <span style=''></span><span style='background: #AEF1AE'>    },
-</span>426 <span style=''></span><span style='background: #AEF1AE'>    "PUT"
-</span>427 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
-</span>428 <span style=''>}
+</span>23 <span style=''>import java.nio.charset.Charset
+</span>24 <span style=''>import java.util.zip.{GZIPInputStream, InflaterInputStream}
+</span>25 <span style=''>
+</span>26 <span style=''>import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
+</span>27 <span style=''>import com.webtrends.harness.component.socko.AddSockoHandler
+</span>28 <span style=''>import com.webtrends.harness.component.socko.utils.{SockoCommandBean, SockoCommandException, SockoUtils}
+</span>29 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentManager, ComponentMessage}
+</span>30 <span style=''>import io.netty.handler.codec.http.QueryStringDecoder
+</span>31 <span style=''>import net.liftweb.json.Extraction._
+</span>32 <span style=''>import net.liftweb.json.JsonAST.{JField, JObject, JString}
+</span>33 <span style=''>import net.liftweb.json.JsonParser.ParseException
+</span>34 <span style=''>import net.liftweb.json._
+</span>35 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
+</span>36 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus, ImmutableHttpHeaders}
+</span>37 <span style=''>import org.mashupbots.socko.infrastructure.CharsetUtil
+</span>38 <span style=''>
+</span>39 <span style=''>import scala.collection.JavaConversions._
+</span>40 <span style=''>import scala.collection.mutable
+</span>41 <span style=''>import scala.io.Source
+</span>42 <span style=''>import scala.util.{Failure, Success}
+</span>43 <span style=''>
+</span>44 <span style=''>class AutoSockoHandler(matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit) extends SockoRouteHandler {
+</span>45 <span style=''>  /**
+</span>46 <span style=''>   * Attempts to handle the Socko route
+</span>47 <span style=''>   *
+</span>48 <span style=''>   * @param bean The http request
+</span>49 <span style=''>   * @return true if route was handled, false otherwise
+</span>50 <span style=''>   */
+</span>51 <span style=''>  override def handleSockoRoute(event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) = </span><span style='background: #AEF1AE'>handler(event, bean)</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  /**
+</span>54 <span style=''>   * Checks if this handler matches the route in the event, returned map will be used to handle request
+</span>55 <span style=''>   * or pass None back if this is not the right path
+</span>56 <span style=''>   *
+</span>57 <span style=''>   * @param event Event receive by Socko
+</span>58 <span style=''>   * @return None- path does not match, Some(map)- path matches, extract variables
+</span>59 <span style=''>   */
+</span>60 <span style=''>  override def matchSockoRoute(event: HttpRequestEvent): Option[mutable.HashMap[String, AnyRef]] = </span><span style='background: #AEF1AE'>matcher(event)</span><span style=''>
+</span>61 <span style=''>}
+</span>62 <span style=''>
+</span>63 <span style=''>/**
+</span>64 <span style=''> * Wrapper case class to make Socko headers easier to deal with
+</span>65 <span style=''> *
+</span>66 <span style=''> * @param headerName the name of the header
+</span>67 <span style=''> * @param headerValue the value of the header
+</span>68 <span style=''> */
+</span>69 <span style=''>case class SockoHeader(headerName:String, headerValue:String)
+</span>70 <span style=''>
+</span>71 <span style=''>/**
+</span>72 <span style=''> * SockoRoutes enable developers to simply add traits to their commands and gain instant http capabilities
+</span>73 <span style=''> * For SockoRoutes a handler actor is created for each Command and each trait that is applied to the command.
+</span>74 <span style=''> * The socko handlers are registered in the Socko Manager.
+</span>75 <span style=''> */
+</span>76 <span style=''>private[route] trait SockoRoutes extends ComponentHelper {
+</span>77 <span style=''>  this:Command =>
+</span>78 <span style=''>
+</span>79 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>Serialization.formats(NoTypeHints) ++ JodaTimeSerializers.all</span><span style=''>
+</span>80 <span style=''>
+</span>81 <span style=''>  import context.dispatcher
+</span>82 <span style=''>
+</span>83 <span style=''>  def applyQSMap(bean:SockoCommandBean) {
+</span>84 <span style=''>    // this fixedMap basically takes the queryStringMap and removes the List of elements if there is
+</span>85 <span style=''>    // only a single element in the list.
+</span>86 <span style=''>    val fixedMap = </span><span style='background: #AEF1AE'>bean.event.endPoint.queryStringMap map { e => </span><span style='background: #F0ADAD'>e._1 -> e._2.last</span><span style=''> }
+</span>87 <span style=''>    </span><span style='background: #AEF1AE'>bean.appendMap(fixedMap)</span><span style=''>
+</span>88 <span style=''>  }
+</span>89 <span style=''>
+</span>90 <span style=''>  def marshallObject(obj: Any, respType: String = "json"): Array[Byte] = {
+</span>91 <span style=''>    val realRespType = </span><span style='background: #AEF1AE'>SockoUtils.normalizeContentType(respType)</span><span style=''>
+</span>92 <span style=''>    if (</span><span style='background: #AEF1AE'>realRespType == "application/json"</span><span style=''>) {
+</span>93 <span style=''>      </span><span style='background: #AEF1AE'>obj match {
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        case s: String => s.getBytes
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        case _ => </span><span style='background: #F0ADAD'>compactRender(decompose(obj)).getBytes</span><span style='background: #AEF1AE'>
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>97 <span style=''>    } else </span><span style='background: #AEF1AE'>obj match {
+</span>98 <span style=''></span><span style='background: #AEF1AE'>      case bytes: Array[Byte] =>
+</span>99 <span style=''></span><span style='background: #AEF1AE'>        bytes
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      case _ =>
+</span>101 <span style=''></span><span style='background: #AEF1AE'>        obj.toString.getBytes
+</span>102 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>103 <span style=''>  }
+</span>104 <span style=''>
+</span>105 <span style=''>  /**
+</span>106 <span style=''>   * Sets the response code for the command using the trait
+</span>107 <span style=''>   * So if you are creating an item and wanted to send back the CREATED status
+</span>108 <span style=''>   * then you just override this in your command
+</span>109 <span style=''>   *
+</span>110 <span style=''>   * @return
+</span>111 <span style=''>   */
+</span>112 <span style=''>  def responseStatusCode = </span><span style='background: #AEF1AE'>HttpResponseStatus.OK</span><span style=''>
+</span>113 <span style=''>
+</span>114 <span style=''>  /**
+</span>115 <span style=''>   * Function that allows you to override the headers for a response. The Map allows you to specifically
+</span>116 <span style=''>   * set headers for specific HTTPMethods, if None set for HttpMethod, then the header will apply to all
+</span>117 <span style=''>   * methods. This is done so that if you have multiple traits like SprayPut, SprayPost, SprayOptions, SprayGet, etc.
+</span>118 <span style=''>   * you can apply different headers depending on what you are doing.
+</span>119 <span style=''>   *
+</span>120 <span style=''>   * @return
+</span>121 <span style=''>   */
+</span>122 <span style=''>  def getResponseHeaders(headers: ImmutableHttpHeaders) : Map[String, List[SockoHeader]] = {
+</span>123 <span style=''>    </span><span style='background: #AEF1AE'>Map[String, List[SockoHeader]]().empty</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>  def defaultPathMatcher(event: HttpRequestEvent, paths : Map[String, String]): Option[mutable.HashMap[String, AnyRef]] = {
+</span>127 <span style=''>    </span><span style='background: #AEF1AE'>paths foreach { p =>
+</span>128 <span style=''></span><span style='background: #AEF1AE'>      Command.matchPath(p._2, event.endPoint.path) match {
+</span>129 <span style=''></span><span style='background: #AEF1AE'>        case Some(b) =>
+</span>130 <span style=''></span><span style='background: #AEF1AE'>          b.addValue(CommandBean.KeyPath, p._1)
+</span>131 <span style=''></span><span style='background: #AEF1AE'>          val bean = new SockoCommandBean(event)
+</span>132 <span style=''></span><span style='background: #AEF1AE'>          bean.appendMap(b.toMap)
+</span>133 <span style=''></span><span style='background: #AEF1AE'>          return Some(bean)
+</span>134 <span style=''></span><span style='background: #AEF1AE'>        case None => // ignore and continue in the stream
+</span>135 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>136 <span style=''>    }
+</span>137 <span style=''>    </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>138 <span style=''>  }
+</span>139 <span style=''>
+</span>140 <span style=''>  protected def getRejectionHandler(event:HttpRequestEvent, e:Throwable) = {
+</span>141 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(e.getMessage, e)</span><span style=''>
+</span>142 <span style=''>    e match {
+</span>143 <span style=''>      case ce: ParseException =>
+</span>144 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Invalid JSON - ${ce.getMessage}")</span><span style=''>
+</span>145 <span style=''>      case ce: SockoCommandException =>
+</span>146 <span style=''>        </span><span style='background: #F0ADAD'>ce.msg == null || ce.msg == ""</span><span style=''> match {
+</span>147 <span style=''>          case true => </span><span style='background: #F0ADAD'>event.response.write(ce.code)</span><span style=''>
+</span>148 <span style=''>          case false => </span><span style='background: #F0ADAD'>event.response.write(ce.code, ce.msg)</span><span style=''>
+</span>149 <span style=''>        }
+</span>150 <span style=''>      case ce:CommandException =>
+</span>151 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")</span><span style=''>
+</span>152 <span style=''>      case arg:IllegalArgumentException =>
+</span>153 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Illegal Arguments - ${arg.getMessage}\n\t${arg.toString}")</span><span style=''>
+</span>154 <span style=''>      case me:MappingException =>
+</span>155 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.BAD_REQUEST, s"Mapping Exception - ${me.getMessage}\n\t${me.toString}")</span><span style=''>
+</span>156 <span style=''>      case ex:Exception =>
+</span>157 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Server Error - ${ex.getMessage}\n\t${ex.toString}")</span><span style=''>
+</span>158 <span style=''>    }
+</span>159 <span style=''>  }
+</span>160 <span style=''>
+</span>161 <span style=''>  /**
+</span>162 <span style=''>   * Function will return all the allowed headers for the command. Basically if you mixin a trait like
+</span>163 <span style=''>   * SprayGet, it will add the Get method to the allow header. This method should be overridden if you
+</span>164 <span style=''>   * are using the SprayCustom trait as then you would be defining your own routes and methods.
+</span>165 <span style=''>   *
+</span>166 <span style=''>   * @return
+</span>167 <span style=''>   */
+</span>168 <span style=''>  protected def getMethods = {
+</span>169 <span style=''>    def getMethod[I<:SockoRoutes](klass:Class[I], method:String) : Option[String] = {
+</span>170 <span style=''>      </span><span style='background: #AEF1AE'>klass.isAssignableFrom(this.getClass)</span><span style=''> match {
+</span>171 <span style=''>        case true => </span><span style='background: #AEF1AE'>Some(method)</span><span style=''>
+</span>172 <span style=''>        case false => </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>173 <span style=''>      }
+</span>174 <span style=''>    }
+</span>175 <span style=''>
+</span>176 <span style=''>    </span><span style='background: #AEF1AE'>Seq[Option[String]] (
+</span>177 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoGet], "GET"),
+</span>178 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoHead], "HEAD"),
+</span>179 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPut], "PUT"),
+</span>180 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoPost], "POST"),
+</span>181 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoOptions], "OPTIONS"),
+</span>182 <span style=''></span><span style='background: #AEF1AE'>      getMethod(classOf[SockoDelete], "DELETE")
+</span>183 <span style=''></span><span style='background: #AEF1AE'>    ).flatten</span><span style=''>
+</span>184 <span style=''>  }
+</span>185 <span style=''>
+</span>186 <span style=''>  def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
+</span>187 <span style=''>    try {
+</span>188 <span style=''>      </span><span style='background: #AEF1AE'>applyQSMap(bean)
+</span>189 <span style=''></span><span style='background: #AEF1AE'>      execute(Some(bean)).mapTo[CommandResponse[T]] onComplete {
+</span>190 <span style=''></span><span style='background: #AEF1AE'>        case Success(resp) =>
+</span>191 <span style=''></span><span style='background: #AEF1AE'>          resp.data match {
+</span>192 <span style=''></span><span style='background: #AEF1AE'>            case Some(value) =>
+</span>193 <span style=''></span><span style='background: #AEF1AE'>              val content = if (bean.event.endPoint.method.equalsIgnoreCase("head")) Array[Byte]() else marshallObject(value, resp.responseType)
+</span>194 <span style=''></span><span style='background: #AEF1AE'>              bean.event.response.write(
+</span>195 <span style=''></span><span style='background: #AEF1AE'>                responseStatusCode,
+</span>196 <span style=''></span><span style='background: #AEF1AE'>                // just double check the end point method, and if it is head then simply remove any content from the response
+</span>197 <span style=''></span><span style='background: #AEF1AE'>                content,
+</span>198 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.normalizeContentType(resp.responseType),
+</span>199 <span style=''></span><span style='background: #AEF1AE'>                SockoUtils.toSockoHeaderFormat(bean.event.nettyHttpRequest.getMethod.name(), getResponseHeaders(bean.event.request.headers), content.length)
+</span>200 <span style=''></span><span style='background: #AEF1AE'>              )
+</span>201 <span style=''></span><span style='background: #AEF1AE'>            case None => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.NO_CONTENT)</span><span style='background: #AEF1AE'>
+</span>202 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>203 <span style=''></span><span style='background: #AEF1AE'>        case Failure(f) => f match {
+</span>204 <span style=''></span><span style='background: #AEF1AE'>          case ce: SockoCommandException => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, ce)</span><span style='background: #AEF1AE'>
+</span>205 <span style=''></span><span style='background: #AEF1AE'>          case _ => </span><span style='background: #F0ADAD'>bean.event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, f.getMessage)</span><span style='background: #AEF1AE'>
+</span>206 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>207 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>208 <span style=''>    } catch {
+</span>209 <span style=''>      case e:Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(bean.event, e)</span><span style=''>
+</span>210 <span style=''>    }
+</span>211 <span style=''>  }
+</span>212 <span style=''>
+</span>213 <span style=''>  private[route] def addAutoHandler(handler:(HttpRequestEvent, mutable.HashMap[String, AnyRef]) => Unit, matcher:(HttpRequestEvent) => Option[mutable.HashMap[String, AnyRef]], method: String) = {
+</span>214 <span style=''>    val msg = </span><span style='background: #AEF1AE'>ComponentMessage(
+</span>215 <span style=''></span><span style='background: #AEF1AE'>      AddSockoHandler(s"$commandName",
+</span>216 <span style=''></span><span style='background: #AEF1AE'>                      new AutoSockoHandler(matcher, handler), method),
+</span>217 <span style=''></span><span style='background: #AEF1AE'>      Some(ComponentManager.ComponentRef)
+</span>218 <span style=''></span><span style='background: #AEF1AE'>    )</span><span style=''>
+</span>219 <span style=''>    </span><span style='background: #AEF1AE'>componentMessage("wookie-socko", msg)</span><span style=''>
+</span>220 <span style=''>  }
+</span>221 <span style=''>}
+</span>222 <span style=''>
+</span>223 <span style=''>trait SockoCustom extends SockoRoutes {
+</span>224 <span style=''>  this:Command =>
+</span>225 <span style=''>
+</span>226 <span style=''>  </span><span style='background: #F0ADAD'>List("GET", "HEAD", "PUT", "POST", "OPTIONS", "DELETE") foreach { method =>
+</span>227 <span style=''></span><span style='background: #F0ADAD'>    addAutoHandler(
+</span>228 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>229 <span style=''></span><span style='background: #F0ADAD'>        customHandler(event, bean)
+</span>230 <span style=''></span><span style='background: #F0ADAD'>      },
+</span>231 <span style=''></span><span style='background: #F0ADAD'>      (event:HttpRequestEvent) => {
+</span>232 <span style=''></span><span style='background: #F0ADAD'>        customMatcher(event)
+</span>233 <span style=''></span><span style='background: #F0ADAD'>      },
+</span>234 <span style=''></span><span style='background: #F0ADAD'>      method
+</span>235 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>236 <span style=''>  }
+</span>237 <span style=''>
+</span>238 <span style=''>  def customHandler(event: HttpRequestEvent, bean: mutable.HashMap[String, AnyRef])
+</span>239 <span style=''>
+</span>240 <span style=''>  def customMatcher(event: HttpRequestEvent) : Option[mutable.HashMap[String, AnyRef]]
+</span>241 <span style=''>}
+</span>242 <span style=''>
+</span>243 <span style=''>trait SockoGet extends SockoRoutes {
+</span>244 <span style=''>  this:Command =>
+</span>245 <span style=''>
+</span>246 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>247 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>248 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>249 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>250 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>251 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>252 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>253 <span style=''></span><span style='background: #AEF1AE'>    "GET"
+</span>254 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>255 <span style=''>}
+</span>256 <span style=''>
+</span>257 <span style=''>trait EntityRoutes extends SockoRoutes {
+</span>258 <span style=''>  this:Command =>
+</span>259 <span style=''>
+</span>260 <span style=''>  private[route] def addEntityToBean[T<:AnyRef:Manifest](bean:SockoCommandBean, obj:Array[Byte]) = {
+</span>261 <span style=''>    val conType = </span><span style='background: #AEF1AE'>bean.headers.get("Content-Type")</span><span style=''> match {
+</span>262 <span style=''>      case null => </span><span style='background: #AEF1AE'>"application/x-www-form-urlencoded"</span><span style=''>
+</span>263 <span style=''>      case x: String => x
+</span>264 <span style=''>    }
+</span>265 <span style=''>
+</span>266 <span style=''>    var content = obj
+</span>267 <span style=''>    val contentEncoding =  </span><span style='background: #AEF1AE'>bean.headers.get("Content-Encoding")</span><span style=''>
+</span>268 <span style=''>    contentEncoding match {
+</span>269 <span style=''>      case "gzip" =>
+</span>270 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new GZIPInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
+</span>271 <span style=''>      case "deflate" =>
+</span>272 <span style=''>        content = </span><span style='background: #F0ADAD'>Source.fromInputStream(new InflaterInputStream(new ByteArrayInputStream(content))).mkString.getBytes</span><span style=''>
+</span>273 <span style=''>      case _ </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>274 <span style=''>    }
+</span>275 <span style=''>
+</span>276 <span style=''>    </span><span style='background: #AEF1AE'>bean.put(SockoCommandBean.Content, content)</span><span style=''>
+</span>277 <span style=''>    </span><span style='background: #AEF1AE'>unmarshall(content, conType)</span><span style=''> match {
+</span>278 <span style=''>      case Some(v) => </span><span style='background: #AEF1AE'>bean.appendMap(Map(CommandBean.KeyEntity -> v))</span><span style=''>
+</span>279 <span style=''>      case None </span><span style='background: #AEF1AE'>=></span><span style=''> //ignore
+</span>280 <span style=''>    }
+</span>281 <span style=''>  }
+</span>282 <span style=''>
+</span>283 <span style=''>  def unmarshall[T<:AnyRef:Manifest](data: Array[Byte], contentTypeValue: String = "application/json"): Option[T] = {
+</span>284 <span style=''>    if (</span><span style='background: #AEF1AE'>data == null || data.length == 0</span><span style=''>) {
+</span>285 <span style=''>      </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>286 <span style=''>    } else </span><span style='background: #AEF1AE'>{
+</span>287 <span style=''></span><span style='background: #AEF1AE'>
+</span>288 <span style=''></span><span style='background: #AEF1AE'>      val (contentType, charset) = parseContentType(contentTypeValue)
+</span>289 <span style=''></span><span style='background: #AEF1AE'>
+</span>290 <span style=''></span><span style='background: #AEF1AE'>      contentType match {
+</span>291 <span style=''></span><span style='background: #AEF1AE'>
+</span>292 <span style=''></span><span style='background: #AEF1AE'>        case "application/x-www-form-urlencoded" | "multipart/form-data" =>
+</span>293 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset).dropWhile( _ == "?")
+</span>294 <span style=''></span><span style='background: #AEF1AE'>          val jObj = JObject(new QueryStringDecoder("?" + dataString, charset).parameters.map { kvp =>
+</span>295 <span style=''></span><span style='background: #AEF1AE'>            JField(kvp._1, if (kvp._2 != null) new JString(kvp._2.last) else </span><span style='background: #F0ADAD'>JNull</span><span style='background: #AEF1AE'>)
+</span>296 <span style=''></span><span style='background: #AEF1AE'>            }.toList)
+</span>297 <span style=''></span><span style='background: #AEF1AE'>          Some(jObj.extract[T])
+</span>298 <span style=''></span><span style='background: #AEF1AE'>
+</span>299 <span style=''></span><span style='background: #AEF1AE'>        case "application/json" =>
+</span>300 <span style=''></span><span style='background: #AEF1AE'>          Some(JsonParser.parse(new String(data, "utf-8")).extract[T])
+</span>301 <span style=''></span><span style='background: #AEF1AE'>
+</span>302 <span style=''></span><span style='background: #AEF1AE'>        case _ =>
+</span>303 <span style=''></span><span style='background: #AEF1AE'>          val dataString = new String(data, charset)
+</span>304 <span style=''></span><span style='background: #AEF1AE'>          Some(JObject(List(JField("content", new JString(dataString)))).extract[T])
+</span>305 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>306 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>307 <span style=''>  }
+</span>308 <span style=''>
+</span>309 <span style=''>  def parseContentType(ct: String): (String, Charset) = {
+</span>310 <span style=''>
+</span>311 <span style=''>    val parts = </span><span style='background: #AEF1AE'>ct.split(";").toList.map{part => part.toLowerCase.trim}</span><span style=''>
+</span>312 <span style=''>
+</span>313 <span style=''>    val contentType = if (</span><span style='background: #AEF1AE'>parts.length > 0 && !parts(0).isEmpty</span><span style=''>) </span><span style='background: #AEF1AE'>parts(0)</span><span style=''> else </span><span style='background: #F0ADAD'>"text/plain"</span><span style=''>
+</span>314 <span style=''>
+</span>315 <span style=''>    val charSet = if (</span><span style='background: #AEF1AE'>parts.length >= 2 && parts(1).startsWith("charset=")</span><span style=''>) {
+</span>316 <span style=''>      </span><span style='background: #AEF1AE'>Charset.forName(parts(1).split("=")(1))</span><span style=''>
+</span>317 <span style=''>    }
+</span>318 <span style=''>    else {
+</span>319 <span style=''>      </span><span style='background: #AEF1AE'>CharsetUtil.UTF_8</span><span style=''>
+</span>320 <span style=''>    }
+</span>321 <span style=''>
+</span>322 <span style=''>    </span><span style='background: #AEF1AE'>(contentType, charSet)</span><span style=''>
+</span>323 <span style=''>  }
+</span>324 <span style=''>}
+</span>325 <span style=''>
+</span>326 <span style=''>trait SockoPost extends EntityRoutes {
+</span>327 <span style=''>  this:Command =>
+</span>328 <span style=''>
+</span>329 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>330 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>331 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>332 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>333 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>334 <span style=''></span><span style='background: #AEF1AE'>        // Work around for Socko issue
+</span>335 <span style=''></span><span style='background: #AEF1AE'>        // https://github.com/mashupbots/socko/issues/111
+</span>336 <span style=''></span><span style='background: #AEF1AE'>        event.request.content.toByteBuf.release(1)
+</span>337 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>338 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>339 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>340 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>341 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>342 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>343 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>344 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>345 <span style=''></span><span style='background: #AEF1AE'>    "POST"
+</span>346 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>347 <span style=''>}
+</span>348 <span style=''>
+</span>349 <span style=''>trait SockoDelete extends SockoRoutes {
+</span>350 <span style=''>  this:Command =>
+</span>351 <span style=''>
+</span>352 <span style=''>  </span><span style='background: #F0ADAD'>addAutoHandler(
+</span>353 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>354 <span style=''></span><span style='background: #F0ADAD'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>355 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>356 <span style=''></span><span style='background: #F0ADAD'>    (event:HttpRequestEvent) => {
+</span>357 <span style=''></span><span style='background: #F0ADAD'>      defaultPathMatcher(event, paths)
+</span>358 <span style=''></span><span style='background: #F0ADAD'>    },
+</span>359 <span style=''></span><span style='background: #F0ADAD'>    "DELETE"
+</span>360 <span style=''></span><span style='background: #F0ADAD'>  )</span><span style=''>
+</span>361 <span style=''>}
+</span>362 <span style=''>
+</span>363 <span style=''>trait SockoOptions extends SockoRoutes {
+</span>364 <span style=''>  this:Command =>
+</span>365 <span style=''>
+</span>366 <span style=''>  /**
+</span>367 <span style=''>   * Override this function to give the options specific information about the command
+</span>368 <span style=''>   *
+</span>369 <span style=''>   * @return
+</span>370 <span style=''>   */
+</span>371 <span style=''>  def sockoOptionsResponse : Any =  </span><span style='background: #AEF1AE'>""</span><span style=''>
+</span>372 <span style=''>  def sockoOptionResponseType : String = </span><span style='background: #AEF1AE'>"text"</span><span style=''>
+</span>373 <span style=''>
+</span>374 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>375 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>376 <span style=''></span><span style='background: #AEF1AE'>      // build the Allow and Access-Control-Allow-Methods headers
+</span>377 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>378 <span style=''></span><span style='background: #AEF1AE'>      val methods = getMethods.mkString(", ")
+</span>379 <span style=''></span><span style='background: #AEF1AE'>      val optionsHeaders = Map[String, String](
+</span>380 <span style=''></span><span style='background: #AEF1AE'>        "Allow" -> methods,
+</span>381 <span style=''></span><span style='background: #AEF1AE'>        "Access-Control-Allow-Methods" -> methods
+</span>382 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>383 <span style=''></span><span style='background: #AEF1AE'>      val cType = SockoUtils.normalizeContentType(sockoOptionResponseType)
+</span>384 <span style=''></span><span style='background: #AEF1AE'>      val content = marshallObject(sockoOptionsResponse, cType)
+</span>385 <span style=''></span><span style='background: #AEF1AE'>      sBean.event.response.write(
+</span>386 <span style=''></span><span style='background: #AEF1AE'>        HttpResponseStatus.OK,
+</span>387 <span style=''></span><span style='background: #AEF1AE'>        content,
+</span>388 <span style=''></span><span style='background: #AEF1AE'>        cType,
+</span>389 <span style=''></span><span style='background: #AEF1AE'>        SockoUtils.toSockoHeaderFormat("OPTIONS", getResponseHeaders(sBean.event.request.headers)) ++ optionsHeaders
+</span>390 <span style=''></span><span style='background: #AEF1AE'>      )
+</span>391 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>392 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>393 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>394 <span style=''></span><span style='background: #AEF1AE'>    }, "OPTIONS"
+</span>395 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>396 <span style=''>}
+</span>397 <span style=''>
+</span>398 <span style=''>trait SockoHead extends SockoRoutes {
+</span>399 <span style=''>  this:Command =>
+</span>400 <span style=''>
+</span>401 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>402 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>403 <span style=''></span><span style='background: #AEF1AE'>      innerExecute(SockoCommandBean(bean.toMap, event))
+</span>404 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>405 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>406 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>407 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>408 <span style=''></span><span style='background: #AEF1AE'>    "HEAD"
+</span>409 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>410 <span style=''>}
+</span>411 <span style=''>
+</span>412 <span style=''>trait SockoPut extends EntityRoutes {
+</span>413 <span style=''>  this:Command =>
+</span>414 <span style=''>
+</span>415 <span style=''>  </span><span style='background: #AEF1AE'>addAutoHandler(
+</span>416 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent, bean:mutable.HashMap[String, AnyRef]) => {
+</span>417 <span style=''></span><span style='background: #AEF1AE'>      val sBean = SockoCommandBean(bean.toMap, event)
+</span>418 <span style=''></span><span style='background: #AEF1AE'>      try {
+</span>419 <span style=''></span><span style='background: #AEF1AE'>        addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
+</span>420 <span style=''></span><span style='background: #AEF1AE'>        // Work around for Socko issue
+</span>421 <span style=''></span><span style='background: #AEF1AE'>        // https://github.com/mashupbots/socko/issues/111
+</span>422 <span style=''></span><span style='background: #AEF1AE'>        event.request.content.toByteBuf.release(1)
+</span>423 <span style=''></span><span style='background: #AEF1AE'>        innerExecute(sBean)
+</span>424 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>425 <span style=''></span><span style='background: #AEF1AE'>        case ex: Throwable => </span><span style='background: #F0ADAD'>getRejectionHandler(sBean.event, ex)</span><span style='background: #AEF1AE'>
+</span>426 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>427 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>428 <span style=''></span><span style='background: #AEF1AE'>    (event:HttpRequestEvent) => {
+</span>429 <span style=''></span><span style='background: #AEF1AE'>      defaultPathMatcher(event, paths)
+</span>430 <span style=''></span><span style='background: #AEF1AE'>    },
+</span>431 <span style=''></span><span style='background: #AEF1AE'>    "PUT"
+</span>432 <span style=''></span><span style='background: #AEF1AE'>  )</span><span style=''>
+</span>433 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -464,15 +469,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          52
+          51
         </td>
         <td>
           820
         </td>
         <td>
-          2299
+          2252
           -
-          2319
+          2272
         </td>
         <td>
           Apply
@@ -485,15 +490,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          60
         </td>
         <td>
           821
         </td>
         <td>
-          2718
+          2671
           -
-          2732
+          2685
         </td>
         <td>
           Apply
@@ -506,15 +511,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          79
         </td>
         <td>
           822
         </td>
         <td>
-          3373
+          3326
           -
-          3384
+          3337
         </td>
         <td>
           Select
@@ -527,15 +532,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          79
         </td>
         <td>
           824
         </td>
         <td>
-          3351
+          3304
           -
-          3412
+          3365
         </td>
         <td>
           Apply
@@ -548,15 +553,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          79
         </td>
         <td>
           823
         </td>
         <td>
-          3389
+          3342
           -
-          3412
+          3365
         </td>
         <td>
           Select
@@ -569,15 +574,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          86
         </td>
         <td>
           828
         </td>
         <td>
-          3682
+          3635
           -
-          3682
+          3635
         </td>
         <td>
           TypeApply
@@ -590,15 +595,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          86
         </td>
         <td>
           827
         </td>
         <td>
-          3693
+          3646
           -
-          3710
+          3663
         </td>
         <td>
           Apply
@@ -611,15 +616,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          86
         </td>
         <td>
           826
         </td>
         <td>
-          3701
+          3654
           -
-          3710
+          3663
         </td>
         <td>
           Select
@@ -632,15 +637,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          86
         </td>
         <td>
           829
         </td>
         <td>
-          3647
+          3600
           -
-          3710
+          3663
         </td>
         <td>
           ApplyToImplicitArgs
@@ -653,15 +658,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          86
         </td>
         <td>
           825
         </td>
         <td>
-          3693
+          3646
           -
-          3697
+          3650
         </td>
         <td>
           Select
@@ -674,15 +679,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          87
         </td>
         <td>
           830
         </td>
         <td>
-          3717
+          3670
           -
-          3741
+          3694
         </td>
         <td>
           Apply
@@ -695,15 +700,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          91
         </td>
         <td>
           831
         </td>
         <td>
-          3845
+          3798
           -
-          3886
+          3839
         </td>
         <td>
           Apply
@@ -716,15 +721,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          92
         </td>
         <td>
           832
         </td>
         <td>
-          3895
+          3848
           -
-          3929
+          3882
         </td>
         <td>
           Apply
@@ -737,15 +742,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          93
         </td>
         <td>
           835
         </td>
         <td>
-          3939
+          3892
           -
-          4052
+          4005
         </td>
         <td>
           Match
@@ -761,15 +766,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          94
         </td>
         <td>
           833
         </td>
         <td>
-          3977
+          3930
           -
-          3987
+          3940
         </td>
         <td>
           Apply
@@ -782,15 +787,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
           834
         </td>
         <td>
-          4006
+          3959
           -
-          4044
+          3997
         </td>
         <td>
           Apply
@@ -803,15 +808,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          97
         </td>
         <td>
           837
         </td>
         <td>
-          4064
+          4017
           -
-          4174
+          4127
         </td>
         <td>
           Match
@@ -827,15 +832,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          101
         </td>
         <td>
           836
         </td>
         <td>
-          4147
+          4100
           -
-          4168
+          4121
         </td>
         <td>
           Apply
@@ -848,15 +853,15 @@
         </td>
       </tr><tr>
         <td>
-          113
+          112
         </td>
         <td>
           838
         </td>
         <td>
-          4425
+          4378
           -
-          4446
+          4399
         </td>
         <td>
           Select
@@ -869,15 +874,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          123
         </td>
         <td>
           839
         </td>
         <td>
-          4973
+          4926
           -
-          5011
+          4964
         </td>
         <td>
           Select
@@ -890,15 +895,15 @@
         </td>
       </tr><tr>
         <td>
-          128
+          127
         </td>
         <td>
           852
         </td>
         <td>
-          5145
+          5098
           -
-          5473
+          5426
         </td>
         <td>
           Apply
@@ -919,15 +924,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          128
         </td>
         <td>
           842
         </td>
         <td>
-          5172
+          5125
           -
-          5216
+          5169
         </td>
         <td>
           Apply
@@ -940,15 +945,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          128
         </td>
         <td>
           841
         </td>
         <td>
-          5196
+          5149
           -
-          5215
+          5168
         </td>
         <td>
           Select
@@ -961,15 +966,15 @@
         </td>
       </tr><tr>
         <td>
-          129
+          128
         </td>
         <td>
           840
         </td>
         <td>
-          5190
+          5143
           -
-          5194
+          5147
         </td>
         <td>
           Select
@@ -982,15 +987,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          130
         </td>
         <td>
           845
         </td>
         <td>
-          5259
+          5212
           -
-          5296
+          5249
         </td>
         <td>
           Apply
@@ -1003,15 +1008,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          130
         </td>
         <td>
           844
         </td>
         <td>
-          5291
+          5244
           -
-          5295
+          5248
         </td>
         <td>
           Select
@@ -1024,15 +1029,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          130
         </td>
         <td>
           843
         </td>
         <td>
-          5270
+          5223
           -
-          5289
+          5242
         </td>
         <td>
           Select
@@ -1045,15 +1050,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          131
         </td>
         <td>
           846
         </td>
         <td>
-          5318
+          5271
           -
-          5345
+          5298
         </td>
         <td>
           Apply
@@ -1066,15 +1071,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          132
         </td>
         <td>
           848
         </td>
         <td>
-          5371
+          5324
           -
-          5378
+          5331
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1087,15 +1092,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          132
         </td>
         <td>
           847
         </td>
         <td>
-          5373
+          5326
           -
-          5373
+          5326
         </td>
         <td>
           TypeApply
@@ -1108,15 +1113,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          132
         </td>
         <td>
           849
         </td>
         <td>
-          5356
+          5309
           -
-          5379
+          5332
         </td>
         <td>
           Apply
@@ -1129,15 +1134,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          133
         </td>
         <td>
           850
         </td>
         <td>
-          5397
+          5350
           -
-          5407
+          5360
         </td>
         <td>
           Apply
@@ -1150,15 +1155,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          134
         </td>
         <td>
           851
         </td>
         <td>
-          5426
+          5379
           -
-          5428
+          5381
         </td>
         <td>
           Literal
@@ -1171,15 +1176,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          137
         </td>
         <td>
           853
         </td>
         <td>
-          5484
+          5437
           -
-          5488
+          5441
         </td>
         <td>
           Select
@@ -1192,15 +1197,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          141
         </td>
         <td>
           855
         </td>
         <td>
-          5575
+          5528
           -
-          5601
+          5554
         </td>
         <td>
           Apply
@@ -1213,15 +1218,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          141
         </td>
         <td>
           854
         </td>
         <td>
-          5585
+          5538
           -
-          5597
+          5550
         </td>
         <td>
           Apply
@@ -1234,15 +1239,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           857
         </td>
         <td>
-          5712
+          5665
           -
-          5728
+          5681
         </td>
         <td>
           Literal
@@ -1255,15 +1260,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           860
         </td>
         <td>
-          5710
+          5663
           -
-          5744
+          5697
         </td>
         <td>
           Apply
@@ -1276,15 +1281,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           856
         </td>
         <td>
-          5678
+          5631
           -
-          5708
+          5661
         </td>
         <td>
           Select
@@ -1297,15 +1302,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           859
         </td>
         <td>
-          5729
+          5682
           -
-          5742
+          5695
         </td>
         <td>
           Apply
@@ -1318,15 +1323,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           858
         </td>
         <td>
-          5743
+          5696
           -
-          5744
+          5697
         </td>
         <td>
           Literal
@@ -1339,15 +1344,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
           861
         </td>
         <td>
-          5657
+          5610
           -
-          5745
+          5698
         </td>
         <td>
           Apply
@@ -1360,15 +1365,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          146
         </td>
         <td>
           864
         </td>
         <td>
-          5794
+          5747
           -
-          5824
+          5777
         </td>
         <td>
           Apply
@@ -1381,15 +1386,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          146
         </td>
         <td>
           863
         </td>
         <td>
-          5812
+          5765
           -
-          5824
+          5777
         </td>
         <td>
           Apply
@@ -1402,15 +1407,15 @@
         </td>
       </tr><tr>
         <td>
-          147
+          146
         </td>
         <td>
           862
         </td>
         <td>
-          5804
+          5757
           -
-          5808
+          5761
         </td>
         <td>
           Literal
@@ -1423,15 +1428,15 @@
         </td>
       </tr><tr>
         <td>
-          148
+          147
         </td>
         <td>
           866
         </td>
         <td>
-          5856
+          5809
           -
-          5885
+          5838
         </td>
         <td>
           Apply
@@ -1444,15 +1449,15 @@
         </td>
       </tr><tr>
         <td>
-          148
+          147
         </td>
         <td>
           865
         </td>
         <td>
-          5877
+          5830
           -
-          5884
+          5837
         </td>
         <td>
           Select
@@ -1465,15 +1470,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          148
         </td>
         <td>
           869
         </td>
         <td>
-          5910
+          5863
           -
-          5947
+          5900
         </td>
         <td>
           Apply
@@ -1486,15 +1491,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          148
         </td>
         <td>
           868
         </td>
         <td>
-          5940
+          5893
           -
-          5946
+          5899
         </td>
         <td>
           Select
@@ -1507,15 +1512,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          148
         </td>
         <td>
           867
         </td>
         <td>
-          5931
+          5884
           -
-          5938
+          5891
         </td>
         <td>
           Select
@@ -1528,15 +1533,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           873
         </td>
         <td>
-          6109
+          6062
           -
-          6110
+          6063
         </td>
         <td>
           Literal
@@ -1549,15 +1554,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           872
         </td>
         <td>
-          6091
+          6044
           -
-          6096
+          6049
         </td>
         <td>
           Literal
@@ -1570,15 +1575,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           875
         </td>
         <td>
-          6097
+          6050
           -
-          6108
+          6061
         </td>
         <td>
           Apply
@@ -1591,15 +1596,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           877
         </td>
         <td>
-          6000
+          5953
           -
-          6111
+          6064
         </td>
         <td>
           Apply
@@ -1612,15 +1617,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           871
         </td>
         <td>
-          6055
+          6008
           -
-          6076
+          6029
         </td>
         <td>
           Literal
@@ -1633,15 +1638,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           874
         </td>
         <td>
-          6077
+          6030
           -
-          6090
+          6043
         </td>
         <td>
           Apply
@@ -1654,15 +1659,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           876
         </td>
         <td>
-          6053
+          6006
           -
-          6110
+          6063
         </td>
         <td>
           Apply
@@ -1675,15 +1680,15 @@
         </td>
       </tr><tr>
         <td>
-          152
+          151
         </td>
         <td>
           870
         </td>
         <td>
-          6021
+          5974
           -
-          6051
+          6004
         </td>
         <td>
           Select
@@ -1696,15 +1701,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           882
         </td>
         <td>
-          6240
+          6193
           -
-          6254
+          6207
         </td>
         <td>
           Apply
@@ -1717,15 +1722,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           881
         </td>
         <td>
-          6274
+          6227
           -
-          6275
+          6228
         </td>
         <td>
           Literal
@@ -1738,15 +1743,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           884
         </td>
         <td>
-          6216
+          6169
           -
-          6275
+          6228
         </td>
         <td>
           Apply
@@ -1759,15 +1764,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           878
         </td>
         <td>
-          6184
+          6137
           -
-          6214
+          6167
         </td>
         <td>
           Select
@@ -1780,15 +1785,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           880
         </td>
         <td>
-          6255
+          6208
           -
-          6260
+          6213
         </td>
         <td>
           Literal
@@ -1801,15 +1806,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           883
         </td>
         <td>
-          6261
+          6214
           -
-          6273
+          6226
         </td>
         <td>
           Apply
@@ -1822,15 +1827,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           885
         </td>
         <td>
-          6163
+          6116
           -
-          6276
+          6229
         </td>
         <td>
           Apply
@@ -1843,15 +1848,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          153
         </td>
         <td>
           879
         </td>
         <td>
-          6218
+          6171
           -
-          6239
+          6192
         </td>
         <td>
           Literal
@@ -1864,15 +1869,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           891
         </td>
         <td>
-          6416
+          6369
           -
-          6427
+          6380
         </td>
         <td>
           Apply
@@ -1885,15 +1890,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           890
         </td>
         <td>
-          6396
+          6349
           -
-          6409
+          6362
         </td>
         <td>
           Apply
@@ -1906,15 +1911,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           893
         </td>
         <td>
-          6319
+          6272
           -
-          6430
+          6383
         </td>
         <td>
           Apply
@@ -1927,15 +1932,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           887
         </td>
         <td>
-          6374
+          6327
           -
-          6395
+          6348
         </td>
         <td>
           Literal
@@ -1948,15 +1953,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           886
         </td>
         <td>
-          6340
+          6293
           -
-          6370
+          6323
         </td>
         <td>
           Select
@@ -1969,15 +1974,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           889
         </td>
         <td>
-          6428
+          6381
           -
-          6429
+          6382
         </td>
         <td>
           Literal
@@ -1990,15 +1995,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           892
         </td>
         <td>
-          6372
+          6325
           -
-          6429
+          6382
         </td>
         <td>
           Apply
@@ -2011,15 +2016,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          155
         </td>
         <td>
           888
         </td>
         <td>
-          6410
+          6363
           -
-          6415
+          6368
         </td>
         <td>
           Literal
@@ -2032,15 +2037,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           899
         </td>
         <td>
-          6568
+          6521
           -
-          6579
+          6532
         </td>
         <td>
           Apply
@@ -2053,15 +2058,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           896
         </td>
         <td>
-          6562
+          6515
           -
-          6567
+          6520
         </td>
         <td>
           Literal
@@ -2074,15 +2079,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           895
         </td>
         <td>
-          6531
+          6484
           -
-          6547
+          6500
         </td>
         <td>
           Literal
@@ -2095,15 +2100,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           898
         </td>
         <td>
-          6548
+          6501
           -
-          6561
+          6514
         </td>
         <td>
           Apply
@@ -2116,15 +2121,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           901
         </td>
         <td>
-          6466
+          6419
           -
-          6582
+          6535
         </td>
         <td>
           Apply
@@ -2137,15 +2142,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           900
         </td>
         <td>
-          6529
+          6482
           -
-          6581
+          6534
         </td>
         <td>
           Apply
@@ -2158,15 +2163,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           894
         </td>
         <td>
-          6487
+          6440
           -
-          6527
+          6480
         </td>
         <td>
           Select
@@ -2179,15 +2184,15 @@
         </td>
       </tr><tr>
         <td>
-          158
+          157
         </td>
         <td>
           897
         </td>
         <td>
-          6580
+          6533
           -
-          6581
+          6534
         </td>
         <td>
           Literal
@@ -2200,15 +2205,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          170
         </td>
         <td>
           902
         </td>
         <td>
-          7072
+          7025
           -
-          7085
+          7038
         </td>
         <td>
           Apply
@@ -2221,15 +2226,15 @@
         </td>
       </tr><tr>
         <td>
-          171
+          170
         </td>
         <td>
           903
         </td>
         <td>
-          7049
+          7002
           -
-          7086
+          7039
         </td>
         <td>
           Apply
@@ -2242,15 +2247,15 @@
         </td>
       </tr><tr>
         <td>
-          172
+          171
         </td>
         <td>
           904
         </td>
         <td>
-          7116
+          7069
           -
-          7128
+          7081
         </td>
         <td>
           Apply
@@ -2263,15 +2268,15 @@
         </td>
       </tr><tr>
         <td>
-          173
+          172
         </td>
         <td>
           905
         </td>
         <td>
-          7151
+          7104
           -
-          7155
+          7108
         </td>
         <td>
           Select
@@ -2284,15 +2289,15 @@
         </td>
       </tr><tr>
         <td>
-          178
+          177
         </td>
         <td>
           906
         </td>
         <td>
-          7203
+          7156
           -
-          7238
+          7191
         </td>
         <td>
           Apply
@@ -2305,15 +2310,15 @@
         </td>
       </tr><tr>
         <td>
-          179
+          178
         </td>
         <td>
           907
         </td>
         <td>
-          7246
+          7199
           -
-          7283
+          7236
         </td>
         <td>
           Apply
@@ -2326,15 +2331,15 @@
         </td>
       </tr><tr>
         <td>
-          180
+          179
         </td>
         <td>
           908
         </td>
         <td>
-          7291
+          7244
           -
-          7326
+          7279
         </td>
         <td>
           Apply
@@ -2347,15 +2352,15 @@
         </td>
       </tr><tr>
         <td>
-          181
+          180
         </td>
         <td>
           909
         </td>
         <td>
-          7334
+          7287
           -
-          7371
+          7324
         </td>
         <td>
           Apply
@@ -2368,15 +2373,15 @@
         </td>
       </tr><tr>
         <td>
-          182
+          181
         </td>
         <td>
           910
         </td>
         <td>
-          7379
+          7332
           -
-          7422
+          7375
         </td>
         <td>
           Apply
@@ -2389,15 +2394,15 @@
         </td>
       </tr><tr>
         <td>
-          183
+          182
         </td>
         <td>
           911
         </td>
         <td>
-          7430
+          7383
           -
-          7471
+          7424
         </td>
         <td>
           Apply
@@ -2410,15 +2415,15 @@
         </td>
       </tr><tr>
         <td>
-          184
+          183
         </td>
         <td>
           913
         </td>
         <td>
-          7175
+          7128
           -
-          7485
+          7438
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2433,15 +2438,15 @@
         </td>
       </tr><tr>
         <td>
-          184
+          183
         </td>
         <td>
           912
         </td>
         <td>
-          7478
+          7431
           -
-          7478
+          7431
         </td>
         <td>
           Apply
@@ -2454,15 +2459,15 @@
         </td>
       </tr><tr>
         <td>
-          188
+          187
         </td>
         <td>
           940
         </td>
         <td>
-          7575
+          7526
           -
-          8691
+          8642
         </td>
         <td>
           Block
@@ -2493,15 +2498,15 @@
         </td>
       </tr><tr>
         <td>
-          189
+          188
         </td>
         <td>
           914
         </td>
         <td>
-          7575
+          7526
           -
-          7591
+          7542
         </td>
         <td>
           Apply
@@ -2514,15 +2519,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          189
         </td>
         <td>
           938
         </td>
         <td>
-          7644
+          7595
           -
-          7644
+          7595
         </td>
         <td>
           Select
@@ -2535,15 +2540,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          189
         </td>
         <td>
           939
         </td>
         <td>
-          7598
+          7549
           -
-          8691
+          8642
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2571,15 +2576,15 @@
         </td>
       </tr><tr>
         <td>
-          190
+          189
         </td>
         <td>
           915
         </td>
         <td>
-          7606
+          7557
           -
-          7616
+          7567
         </td>
         <td>
           Apply
@@ -2592,15 +2597,15 @@
         </td>
       </tr><tr>
         <td>
-          192
+          191
         </td>
         <td>
           916
         </td>
         <td>
-          7697
+          7648
           -
-          7706
+          7657
         </td>
         <td>
           Select
@@ -2613,15 +2618,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           917
         </td>
         <td>
-          7779
+          7730
           -
-          7830
+          7781
         </td>
         <td>
           Apply
@@ -2634,15 +2639,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           920
         </td>
         <td>
-          7873
+          7824
           -
-          7890
+          7841
         </td>
         <td>
           Select
@@ -2655,15 +2660,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           922
         </td>
         <td>
-          7851
+          7802
           -
-          7891
+          7842
         </td>
         <td>
           Block
@@ -2676,15 +2681,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           919
         </td>
         <td>
-          7832
+          7783
           -
-          7845
+          7796
         </td>
         <td>
           Block
@@ -2697,15 +2702,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           918
         </td>
         <td>
-          7832
+          7783
           -
-          7845
+          7796
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2718,15 +2723,15 @@
         </td>
       </tr><tr>
         <td>
-          194
+          193
         </td>
         <td>
           921
         </td>
         <td>
-          7851
+          7802
           -
-          7891
+          7842
         </td>
         <td>
           Apply
@@ -2739,15 +2744,15 @@
         </td>
       </tr><tr>
         <td>
-          195
+          194
         </td>
         <td>
           930
         </td>
         <td>
-          7906
+          7857
           -
-          8360
+          8311
         </td>
         <td>
           Apply
@@ -2760,15 +2765,15 @@
         </td>
       </tr><tr>
         <td>
-          196
+          195
         </td>
         <td>
           923
         </td>
         <td>
-          7949
+          7900
           -
-          7967
+          7918
         </td>
         <td>
           Select
@@ -2781,15 +2786,15 @@
         </td>
       </tr><tr>
         <td>
-          199
+          198
         </td>
         <td>
           925
         </td>
         <td>
-          8136
+          8087
           -
-          8186
+          8137
         </td>
         <td>
           Apply
@@ -2802,15 +2807,15 @@
         </td>
       </tr><tr>
         <td>
-          199
+          198
         </td>
         <td>
           924
         </td>
         <td>
-          8168
+          8119
           -
-          8185
+          8136
         </td>
         <td>
           Select
@@ -2823,15 +2828,15 @@
         </td>
       </tr><tr>
         <td>
-          200
+          199
         </td>
         <td>
           926
         </td>
         <td>
-          8235
+          8186
           -
-          8279
+          8230
         </td>
         <td>
           Apply
@@ -2844,15 +2849,15 @@
         </td>
       </tr><tr>
         <td>
-          200
+          199
         </td>
         <td>
           929
         </td>
         <td>
-          8204
+          8155
           -
-          8344
+          8295
         </td>
         <td>
           Apply
@@ -2865,15 +2870,15 @@
         </td>
       </tr><tr>
         <td>
-          200
+          199
         </td>
         <td>
           928
         </td>
         <td>
-          8329
+          8280
           -
-          8343
+          8294
         </td>
         <td>
           Select
@@ -2886,15 +2891,15 @@
         </td>
       </tr><tr>
         <td>
-          200
+          199
         </td>
         <td>
           927
         </td>
         <td>
-          8281
+          8232
           -
-          8327
+          8278
         </td>
         <td>
           Apply
@@ -2907,15 +2912,15 @@
         </td>
       </tr><tr>
         <td>
-          202
+          201
         </td>
         <td>
           932
         </td>
         <td>
-          8386
+          8337
           -
-          8442
+          8393
         </td>
         <td>
           Apply
@@ -2928,15 +2933,15 @@
         </td>
       </tr><tr>
         <td>
-          202
+          201
         </td>
         <td>
           931
         </td>
         <td>
-          8412
+          8363
           -
-          8441
+          8392
         </td>
         <td>
           Select
@@ -2949,15 +2954,15 @@
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
           934
         </td>
         <td>
-          8536
+          8487
           -
-          8571
+          8522
         </td>
         <td>
           Apply
@@ -2970,15 +2975,15 @@
         </td>
       </tr><tr>
         <td>
-          205
+          204
         </td>
         <td>
           933
         </td>
         <td>
-          8556
+          8507
           -
-          8566
+          8517
         </td>
         <td>
           Select
@@ -2991,15 +2996,15 @@
         </td>
       </tr><tr>
         <td>
-          206
+          205
         </td>
         <td>
           935
         </td>
         <td>
-          8618
+          8569
           -
-          8658
+          8609
         </td>
         <td>
           Select
@@ -3012,15 +3017,15 @@
         </td>
       </tr><tr>
         <td>
-          206
+          205
         </td>
         <td>
           937
         </td>
         <td>
-          8592
+          8543
           -
-          8673
+          8624
         </td>
         <td>
           Apply
@@ -3033,15 +3038,15 @@
         </td>
       </tr><tr>
         <td>
-          206
+          205
         </td>
         <td>
           936
         </td>
         <td>
-          8660
+          8611
           -
-          8672
+          8623
         </td>
         <td>
           Apply
@@ -3054,15 +3059,15 @@
         </td>
       </tr><tr>
         <td>
-          210
+          209
         </td>
         <td>
           941
         </td>
         <td>
-          8752
+          8703
           -
-          8762
+          8713
         </td>
         <td>
           Select
@@ -3075,15 +3080,15 @@
         </td>
       </tr><tr>
         <td>
-          210
+          209
         </td>
         <td>
           942
         </td>
         <td>
-          8732
+          8683
           -
-          8766
+          8717
         </td>
         <td>
           Apply
@@ -3096,15 +3101,15 @@
         </td>
       </tr><tr>
         <td>
-          215
+          214
         </td>
         <td>
           951
         </td>
         <td>
-          8988
+          8939
           -
-          9163
+          9114
         </td>
         <td>
           Apply
@@ -3117,15 +3122,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          215
         </td>
         <td>
           944
         </td>
         <td>
-          9042
+          8993
           -
-          9043
+          8994
         </td>
         <td>
           Literal
@@ -3138,15 +3143,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          215
         </td>
         <td>
           946
         </td>
         <td>
-          9028
+          8979
           -
-          9043
+          8994
         </td>
         <td>
           Apply
@@ -3159,15 +3164,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          215
         </td>
         <td>
           943
         </td>
         <td>
-          9030
+          8981
           -
-          9031
+          8982
         </td>
         <td>
           Literal
@@ -3180,15 +3185,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          215
         </td>
         <td>
           945
         </td>
         <td>
-          9031
+          8982
           -
-          9042
+          8993
         </td>
         <td>
           Select
@@ -3201,15 +3206,15 @@
         </td>
       </tr><tr>
         <td>
-          216
+          215
         </td>
         <td>
           948
         </td>
         <td>
-          9012
+          8963
           -
-          9114
+          9065
         </td>
         <td>
           Apply
@@ -3222,15 +3227,15 @@
         </td>
       </tr><tr>
         <td>
-          217
+          216
         </td>
         <td>
           947
         </td>
         <td>
-          9067
+          9018
           -
-          9105
+          9056
         </td>
         <td>
           Apply
@@ -3243,15 +3248,15 @@
         </td>
       </tr><tr>
         <td>
-          218
+          217
         </td>
         <td>
           950
         </td>
         <td>
-          9122
+          9073
           -
-          9157
+          9108
         </td>
         <td>
           Apply
@@ -3264,15 +3269,15 @@
         </td>
       </tr><tr>
         <td>
-          218
+          217
         </td>
         <td>
           949
         </td>
         <td>
-          9127
+          9078
           -
-          9156
+          9107
         </td>
         <td>
           Select
@@ -3285,15 +3290,15 @@
         </td>
       </tr><tr>
         <td>
-          220
+          219
         </td>
         <td>
           952
         </td>
         <td>
-          9168
+          9119
           -
-          9205
+          9156
         </td>
         <td>
           Apply
@@ -3306,15 +3311,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           953
         </td>
         <td>
-          9279
+          9230
           -
-          9284
+          9235
         </td>
         <td>
           Literal
@@ -3327,15 +3332,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           962
         </td>
         <td>
-          9274
+          9225
           -
-          9580
+          9531
         </td>
         <td>
           Apply
@@ -3348,15 +3353,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           956
         </td>
         <td>
-          9301
+          9252
           -
-          9307
+          9258
         </td>
         <td>
           Literal
@@ -3369,15 +3374,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           955
         </td>
         <td>
-          9294
+          9245
           -
-          9299
+          9250
         </td>
         <td>
           Literal
@@ -3390,15 +3395,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           958
         </td>
         <td>
-          9320
+          9271
           -
-          9328
+          9279
         </td>
         <td>
           Literal
@@ -3411,15 +3416,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           954
         </td>
         <td>
-          9286
+          9237
           -
-          9292
+          9243
         </td>
         <td>
           Literal
@@ -3432,15 +3437,15 @@
         </td>
       </tr><tr>
         <td>
-          227
+          226
         </td>
         <td>
           957
         </td>
         <td>
-          9309
+          9260
           -
-          9318
+          9269
         </td>
         <td>
           Literal
@@ -3453,15 +3458,15 @@
         </td>
       </tr><tr>
         <td>
-          228
+          227
         </td>
         <td>
           961
         </td>
         <td>
-          9354
+          9305
           -
-          9580
+          9531
         </td>
         <td>
           Apply
@@ -3474,15 +3479,15 @@
         </td>
       </tr><tr>
         <td>
-          230
+          229
         </td>
         <td>
           959
         </td>
         <td>
-          9452
+          9403
           -
-          9478
+          9429
         </td>
         <td>
           Apply
@@ -3495,15 +3500,15 @@
         </td>
       </tr><tr>
         <td>
-          233
+          232
         </td>
         <td>
           960
         </td>
         <td>
-          9532
+          9483
           -
-          9552
+          9503
         </td>
         <td>
           Apply
@@ -3516,15 +3521,15 @@
         </td>
       </tr><tr>
         <td>
-          247
+          246
         </td>
         <td>
           971
         </td>
         <td>
-          9819
+          9770
           -
-          10063
+          10014
         </td>
         <td>
           Apply
@@ -3537,15 +3542,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
           965
         </td>
         <td>
-          9926
+          9877
           -
-          9961
+          9912
         </td>
         <td>
           Apply
@@ -3558,15 +3563,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
           964
         </td>
         <td>
-          9943
+          9894
           -
-          9953
+          9904
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3579,15 +3584,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
           967
         </td>
         <td>
-          9913
+          9864
           -
-          9962
+          9913
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3600,15 +3605,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
           963
         </td>
         <td>
-          9948
+          9899
           -
-          9948
+          9899
         </td>
         <td>
           TypeApply
@@ -3621,15 +3626,15 @@
         </td>
       </tr><tr>
         <td>
-          249
+          248
         </td>
         <td>
           966
         </td>
         <td>
-          9925
+          9876
           -
-          9925
+          9876
         </td>
         <td>
           Select
@@ -3642,15 +3647,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          251
         </td>
         <td>
           968
         </td>
         <td>
-          10036
+          9987
           -
-          10041
+          9992
         </td>
         <td>
           Select
@@ -3663,15 +3668,15 @@
         </td>
       </tr><tr>
         <td>
-          252
+          251
         </td>
         <td>
           969
         </td>
         <td>
-          10010
+          9961
           -
-          10042
+          9993
         </td>
         <td>
           Apply
@@ -3684,15 +3689,15 @@
         </td>
       </tr><tr>
         <td>
-          254
+          253
         </td>
         <td>
           970
         </td>
         <td>
-          10054
+          10005
           -
-          10059
+          10010
         </td>
         <td>
           Literal
@@ -3705,15 +3710,15 @@
         </td>
       </tr><tr>
         <td>
-          262
+          261
         </td>
         <td>
           972
         </td>
         <td>
-          10246
+          10197
           -
-          10278
+          10229
         </td>
         <td>
           Apply
@@ -3726,15 +3731,15 @@
         </td>
       </tr><tr>
         <td>
-          263
+          262
         </td>
         <td>
           973
         </td>
         <td>
-          10306
+          10257
           -
-          10341
+          10292
         </td>
         <td>
           Literal
@@ -3747,15 +3752,15 @@
         </td>
       </tr><tr>
         <td>
-          268
+          267
         </td>
         <td>
           974
         </td>
         <td>
-          10424
+          10375
           -
-          10460
+          10411
         </td>
         <td>
           Apply
@@ -3768,15 +3773,15 @@
         </td>
       </tr><tr>
         <td>
-          271
+          270
         </td>
         <td>
           975
         </td>
         <td>
-          10528
+          10479
           -
-          10624
+          10575
         </td>
         <td>
           Apply
@@ -3789,15 +3794,15 @@
         </td>
       </tr><tr>
         <td>
-          273
+          272
         </td>
         <td>
           976
         </td>
         <td>
-          10667
+          10618
           -
-          10767
+          10718
         </td>
         <td>
           Apply
@@ -3810,15 +3815,15 @@
         </td>
       </tr><tr>
         <td>
-          274
+          273
         </td>
         <td>
           977
         </td>
         <td>
-          10781
+          10732
           -
-          10783
+          10734
         </td>
         <td>
           Literal
@@ -3831,15 +3836,15 @@
         </td>
       </tr><tr>
         <td>
-          277
+          276
         </td>
         <td>
           979
         </td>
         <td>
-          10795
+          10746
           -
-          10838
+          10789
         </td>
         <td>
           Apply
@@ -3852,15 +3857,15 @@
         </td>
       </tr><tr>
         <td>
-          277
+          276
         </td>
         <td>
           978
         </td>
         <td>
-          10804
+          10755
           -
-          10828
+          10779
         </td>
         <td>
           Select
@@ -3873,15 +3878,15 @@
         </td>
       </tr><tr>
         <td>
-          278
+          277
         </td>
         <td>
           980
         </td>
         <td>
-          10843
+          10794
           -
-          10871
+          10822
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3894,15 +3899,15 @@
         </td>
       </tr><tr>
         <td>
-          279
+          278
         </td>
         <td>
           983
         </td>
         <td>
-          10902
+          10853
           -
-          10949
+          10900
         </td>
         <td>
           Apply
@@ -3915,15 +3920,15 @@
         </td>
       </tr><tr>
         <td>
-          279
+          278
         </td>
         <td>
           982
         </td>
         <td>
-          10917
+          10868
           -
-          10948
+          10899
         </td>
         <td>
           Apply
@@ -3936,15 +3941,15 @@
         </td>
       </tr><tr>
         <td>
-          279
+          278
         </td>
         <td>
           981
         </td>
         <td>
-          10921
+          10872
           -
-          10947
+          10898
         </td>
         <td>
           Apply
@@ -3957,15 +3962,15 @@
         </td>
       </tr><tr>
         <td>
-          280
+          279
         </td>
         <td>
           984
         </td>
         <td>
-          10966
+          10917
           -
-          10968
+          10919
         </td>
         <td>
           Literal
@@ -3978,15 +3983,15 @@
         </td>
       </tr><tr>
         <td>
-          285
+          284
         </td>
         <td>
           986
         </td>
         <td>
-          11131
+          11082
           -
-          11147
+          11098
         </td>
         <td>
           Apply
@@ -3999,15 +4004,15 @@
         </td>
       </tr><tr>
         <td>
-          285
+          284
         </td>
         <td>
           985
         </td>
         <td>
-          11123
+          11074
           -
-          11127
+          11078
         </td>
         <td>
           Literal
@@ -4020,15 +4025,15 @@
         </td>
       </tr><tr>
         <td>
-          285
+          284
         </td>
         <td>
           987
         </td>
         <td>
-          11115
+          11066
           -
-          11147
+          11098
         </td>
         <td>
           Apply
@@ -4041,15 +4046,15 @@
         </td>
       </tr><tr>
         <td>
-          286
+          285
         </td>
         <td>
           989
         </td>
         <td>
-          11157
+          11108
           -
-          11161
+          11112
         </td>
         <td>
           Block
@@ -4062,15 +4067,15 @@
         </td>
       </tr><tr>
         <td>
-          286
+          285
         </td>
         <td>
           988
         </td>
         <td>
-          11157
+          11108
           -
-          11161
+          11112
         </td>
         <td>
           Select
@@ -4083,15 +4088,15 @@
         </td>
       </tr><tr>
         <td>
-          287
+          286
         </td>
         <td>
           1023
         </td>
         <td>
-          11173
+          11124
           -
-          11942
+          11893
         </td>
         <td>
           Block
@@ -4125,15 +4130,15 @@ else
         </td>
       </tr><tr>
         <td>
-          289
+          288
         </td>
         <td>
           991
         </td>
         <td>
-          11200
+          11151
           -
-          11200
+          11151
         </td>
         <td>
           Select
@@ -4146,15 +4151,15 @@ else
         </td>
       </tr><tr>
         <td>
-          289
+          288
         </td>
         <td>
           990
         </td>
         <td>
-          11187
+          11138
           -
-          11187
+          11138
         </td>
         <td>
           Select
@@ -4167,15 +4172,15 @@ else
         </td>
       </tr><tr>
         <td>
-          294
+          293
         </td>
         <td>
           992
         </td>
         <td>
-          11377
+          11328
           -
-          11402
+          11353
         </td>
         <td>
           Apply
@@ -4188,15 +4193,15 @@ else
         </td>
       </tr><tr>
         <td>
-          294
+          293
         </td>
         <td>
           994
         </td>
         <td>
-          11377
+          11328
           -
-          11423
+          11374
         </td>
         <td>
           Apply
@@ -4209,15 +4214,15 @@ else
         </td>
       </tr><tr>
         <td>
-          294
+          293
         </td>
         <td>
           993
         </td>
         <td>
-          11414
+          11365
           -
-          11422
+          11373
         </td>
         <td>
           Apply
@@ -4230,15 +4235,15 @@ else
         </td>
       </tr><tr>
         <td>
-          295
+          294
         </td>
         <td>
           995
         </td>
         <td>
-          11453
+          11404
           -
-          11513
+          11464
         </td>
         <td>
           Apply
@@ -4251,15 +4256,15 @@ else
         </td>
       </tr><tr>
         <td>
-          295
+          294
         </td>
         <td>
           1007
         </td>
         <td>
-          11445
+          11396
           -
-          11632
+          11583
         </td>
         <td>
           Apply
@@ -4275,15 +4280,15 @@ else
         </td>
       </tr><tr>
         <td>
-          295
+          294
         </td>
         <td>
           1005
         </td>
         <td>
-          11518
+          11469
           -
-          11518
+          11469
         </td>
         <td>
           TypeApply
@@ -4296,15 +4301,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           1001
         </td>
         <td>
-          11574
+          11525
           -
-          11598
+          11549
         </td>
         <td>
           Block
@@ -4317,15 +4322,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           1004
         </td>
         <td>
-          11539
+          11490
           -
-          11610
+          11561
         </td>
         <td>
           Apply
@@ -4341,15 +4346,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           998
         </td>
         <td>
-          11586
+          11537
           -
-          11592
+          11543
         </td>
         <td>
           Select
@@ -4362,15 +4367,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           997
         </td>
         <td>
-          11558
+          11509
           -
-          11572
+          11523
         </td>
         <td>
           Apply
@@ -4383,15 +4388,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           1000
         </td>
         <td>
-          11574
+          11525
           -
-          11598
+          11549
         </td>
         <td>
           Apply
@@ -4404,15 +4409,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           1003
         </td>
         <td>
-          11604
+          11555
           -
-          11609
+          11560
         </td>
         <td>
           Block
@@ -4425,15 +4430,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           996
         </td>
         <td>
-          11546
+          11497
           -
-          11552
+          11503
         </td>
         <td>
           Select
@@ -4446,15 +4451,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           999
         </td>
         <td>
-          11586
+          11537
           -
-          11597
+          11548
         </td>
         <td>
           Select
@@ -4467,15 +4472,15 @@ else
         </td>
       </tr><tr>
         <td>
-          296
+          295
         </td>
         <td>
           1002
         </td>
         <td>
-          11604
+          11555
           -
-          11609
+          11560
         </td>
         <td>
           Select
@@ -4488,15 +4493,15 @@ else
         </td>
       </tr><tr>
         <td>
-          297
+          296
         </td>
         <td>
           1006
         </td>
         <td>
-          11453
+          11404
           -
-          11631
+          11582
         </td>
         <td>
           Select
@@ -4512,15 +4517,15 @@ else
         </td>
       </tr><tr>
         <td>
-          298
+          297
         </td>
         <td>
           1010
         </td>
         <td>
-          11643
+          11594
           -
-          11664
+          11615
         </td>
         <td>
           Apply
@@ -4533,15 +4538,15 @@ else
         </td>
       </tr><tr>
         <td>
-          298
+          297
         </td>
         <td>
           1009
         </td>
         <td>
-          11648
+          11599
           -
-          11663
+          11614
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4554,15 +4559,15 @@ else
         </td>
       </tr><tr>
         <td>
-          298
+          297
         </td>
         <td>
           1008
         </td>
         <td>
-          11660
+          11611
           -
-          11660
+          11611
         </td>
         <td>
           Select
@@ -4575,15 +4580,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          300
         </td>
         <td>
           1013
         </td>
         <td>
-          11716
+          11667
           -
-          11770
+          11721
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4596,15 +4601,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          300
         </td>
         <td>
           1012
         </td>
         <td>
-          11767
+          11718
           -
-          11767
+          11718
         </td>
         <td>
           Select
@@ -4617,15 +4622,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          300
         </td>
         <td>
           1014
         </td>
         <td>
-          11711
+          11662
           -
-          11771
+          11722
         </td>
         <td>
           Apply
@@ -4638,15 +4643,15 @@ else
         </td>
       </tr><tr>
         <td>
-          301
+          300
         </td>
         <td>
           1011
         </td>
         <td>
-          11733
+          11684
           -
-          11758
+          11709
         </td>
         <td>
           Apply
@@ -4659,15 +4664,15 @@ else
         </td>
       </tr><tr>
         <td>
-          304
+          303
         </td>
         <td>
           1015
         </td>
         <td>
-          11818
+          11769
           -
-          11843
+          11794
         </td>
         <td>
           Apply
@@ -4680,15 +4685,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1019
         </td>
         <td>
-          11867
+          11818
           -
-          11915
+          11866
         </td>
         <td>
           Apply
@@ -4701,15 +4706,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1022
         </td>
         <td>
-          11854
+          11805
           -
-          11928
+          11879
         </td>
         <td>
           Apply
@@ -4722,15 +4727,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1016
         </td>
         <td>
-          11879
+          11830
           -
-          11888
+          11839
         </td>
         <td>
           Literal
@@ -4743,15 +4748,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1018
         </td>
         <td>
-          11872
+          11823
           -
-          11914
+          11865
         </td>
         <td>
           Apply
@@ -4764,15 +4769,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1021
         </td>
         <td>
-          11859
+          11810
           -
-          11927
+          11878
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4785,15 +4790,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1020
         </td>
         <td>
-          11924
+          11875
           -
-          11924
+          11875
         </td>
         <td>
           Select
@@ -4806,15 +4811,15 @@ else
         </td>
       </tr><tr>
         <td>
-          305
+          304
         </td>
         <td>
           1017
         </td>
         <td>
-          11890
+          11841
           -
-          11913
+          11864
         </td>
         <td>
           Apply
@@ -4827,15 +4832,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          311
         </td>
         <td>
           1025
         </td>
         <td>
-          12056
+          12007
           -
-          12077
+          12028
         </td>
         <td>
           Apply
@@ -4848,15 +4853,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          311
         </td>
         <td>
           1024
         </td>
         <td>
-          12023
+          11974
           -
-          12036
+          11987
         </td>
         <td>
           Apply
@@ -4869,15 +4874,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          311
         </td>
         <td>
           1027
         </td>
         <td>
-          12023
+          11974
           -
-          12078
+          12029
         </td>
         <td>
           ApplyToImplicitArgs
@@ -4890,15 +4895,15 @@ else
         </td>
       </tr><tr>
         <td>
-          312
+          311
         </td>
         <td>
           1026
         </td>
         <td>
-          12047
+          11998
           -
-          12047
+          11998
         </td>
         <td>
           TypeApply
@@ -4911,15 +4916,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1028
         </td>
         <td>
-          12121
+          12072
           -
-          12122
+          12073
         </td>
         <td>
           Literal
@@ -4932,15 +4937,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1031
         </td>
         <td>
-          12106
+          12057
           -
-          12143
+          12094
         </td>
         <td>
           Apply
@@ -4953,15 +4958,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1034
         </td>
         <td>
-          12159
+          12110
           -
-          12171
+          12122
         </td>
         <td>
           Literal
@@ -4974,15 +4979,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1033
         </td>
         <td>
-          12145
+          12096
           -
-          12153
+          12104
         </td>
         <td>
           Block
@@ -4995,15 +5000,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1030
         </td>
         <td>
-          12126
+          12077
           -
-          12143
+          12094
         </td>
         <td>
           Select
@@ -5016,15 +5021,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1029
         </td>
         <td>
-          12133
+          12084
           -
-          12134
+          12085
         </td>
         <td>
           Literal
@@ -5037,15 +5042,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1032
         </td>
         <td>
-          12145
+          12096
           -
-          12153
+          12104
         </td>
         <td>
           Apply
@@ -5058,15 +5063,15 @@ else
         </td>
       </tr><tr>
         <td>
-          314
+          313
         </td>
         <td>
           1035
         </td>
         <td>
-          12159
+          12110
           -
-          12171
+          12122
         </td>
         <td>
           Block
@@ -5079,15 +5084,15 @@ else
         </td>
       </tr><tr>
         <td>
-          316
+          315
         </td>
         <td>
           1037
         </td>
         <td>
-          12216
+          12167
           -
-          12247
+          12198
         </td>
         <td>
           Apply
@@ -5100,15 +5105,15 @@ else
         </td>
       </tr><tr>
         <td>
-          316
+          315
         </td>
         <td>
           1036
         </td>
         <td>
-          12211
+          12162
           -
-          12212
+          12163
         </td>
         <td>
           Literal
@@ -5121,15 +5126,15 @@ else
         </td>
       </tr><tr>
         <td>
-          316
+          315
         </td>
         <td>
           1038
         </td>
         <td>
-          12195
+          12146
           -
-          12247
+          12198
         </td>
         <td>
           Apply
@@ -5142,15 +5147,15 @@ else
         </td>
       </tr><tr>
         <td>
-          317
+          316
         </td>
         <td>
           1040
         </td>
         <td>
-          12257
+          12208
           -
-          12296
+          12247
         </td>
         <td>
           Apply
@@ -5163,15 +5168,15 @@ else
         </td>
       </tr><tr>
         <td>
-          317
+          316
         </td>
         <td>
           1039
         </td>
         <td>
-          12273
+          12224
           -
-          12295
+          12246
         </td>
         <td>
           Apply
@@ -5184,15 +5189,15 @@ else
         </td>
       </tr><tr>
         <td>
-          317
+          316
         </td>
         <td>
           1041
         </td>
         <td>
-          12257
+          12208
           -
-          12296
+          12247
         </td>
         <td>
           Block
@@ -5205,15 +5210,15 @@ else
         </td>
       </tr><tr>
         <td>
-          320
+          319
         </td>
         <td>
           1043
         </td>
         <td>
-          12320
+          12271
           -
-          12337
+          12288
         </td>
         <td>
           Block
@@ -5226,15 +5231,15 @@ else
         </td>
       </tr><tr>
         <td>
-          320
+          319
         </td>
         <td>
           1042
         </td>
         <td>
-          12320
+          12271
           -
-          12337
+          12288
         </td>
         <td>
           Select
@@ -5247,15 +5252,15 @@ else
         </td>
       </tr><tr>
         <td>
-          323
+          322
         </td>
         <td>
           1044
         </td>
         <td>
-          12349
+          12300
           -
-          12371
+          12322
         </td>
         <td>
           Apply
@@ -5268,15 +5273,15 @@ else
         </td>
       </tr><tr>
         <td>
-          330
+          329
         </td>
         <td>
-          1059
+          1060
         </td>
         <td>
-          12439
+          12390
           -
-          12890
+          12989
         </td>
         <td>
           Apply
@@ -5289,6 +5294,7 @@ else
   val sBean: com.webtrends.harness.component.socko.utils.SockoCommandBean = com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event);
   try {
     SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+    event.request.content.toByteBuf.release(1);
     SockoPost.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
   } catch {
     case (ex @ (_: Throwable)) =&gt; SockoPost.this.getRejectionHandler(sBean.event, ex)
@@ -5297,15 +5303,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          331
         </td>
         <td>
           1046
         </td>
         <td>
-          12562
+          12513
           -
-          12572
+          12523
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5318,15 +5324,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          331
         </td>
         <td>
           1045
         </td>
         <td>
-          12567
+          12518
           -
-          12567
+          12518
         </td>
         <td>
           TypeApply
@@ -5339,15 +5345,15 @@ else
         </td>
       </tr><tr>
         <td>
-          332
+          331
         </td>
         <td>
           1047
         </td>
         <td>
-          12545
+          12496
           -
-          12580
+          12531
         </td>
         <td>
           Apply
@@ -5360,15 +5366,15 @@ else
         </td>
       </tr><tr>
         <td>
-          333
+          332
         </td>
         <td>
-          1053
+          1054
         </td>
         <td>
-          12601
+          12552
           -
-          12697
+          12796
         </td>
         <td>
           Block
@@ -5379,20 +5385,21 @@ else
         <td style="background: #AEF1AE">
           {
   SockoPost.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+  event.request.content.toByteBuf.release(1);
   SockoPost.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
 }
         </td>
       </tr><tr>
         <td>
-          334
+          333
         </td>
         <td>
           1049
         </td>
         <td>
-          12625
+          12576
           -
-          12625
+          12576
         </td>
         <td>
           Apply
@@ -5405,15 +5412,15 @@ else
         </td>
       </tr><tr>
         <td>
-          334
+          333
         </td>
         <td>
           1048
         </td>
         <td>
-          12633
+          12584
           -
-          12668
+          12619
         </td>
         <td>
           Select
@@ -5426,15 +5433,15 @@ else
         </td>
       </tr><tr>
         <td>
-          334
+          333
         </td>
         <td>
           1050
         </td>
         <td>
-          12601
+          12552
           -
-          12669
+          12620
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5447,15 +5454,57 @@ else
         </td>
       </tr><tr>
         <td>
-          335
+          336
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          12726
+          -
+          12768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.util.ReferenceCounted.release
+        </td>
+        <td style="background: #AEF1AE">
+          event.request.content.toByteBuf.release(1)
+        </td>
+      </tr><tr>
+        <td>
+          337
         </td>
         <td>
           1052
         </td>
         <td>
-          12678
+          12789
           -
-          12697
+          12789
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.Nothing
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.Nothing
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          12777
+          -
+          12796
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5468,57 +5517,15 @@ else
         </td>
       </tr><tr>
         <td>
-          335
-        </td>
-        <td>
-          1051
-        </td>
-        <td>
-          12690
-          -
-          12690
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.Nothing
-        </td>
-        <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.Nothing
-        </td>
-      </tr><tr>
-        <td>
-          337
+          339
         </td>
         <td>
           1055
         </td>
         <td>
-          12744
+          12863
           -
-          12780
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
-        </td>
-        <td style="background: #F0ADAD">
-          SockoPost.this.getRejectionHandler(sBean.event, ex)
-        </td>
-      </tr><tr>
-        <td>
-          337
-        </td>
-        <td>
-          1054
-        </td>
-        <td>
-          12764
-          -
-          12775
+          12874
         </td>
         <td>
           Select
@@ -5531,15 +5538,36 @@ else
         </td>
       </tr><tr>
         <td>
-          341
+          339
         </td>
         <td>
-          1057
+          1056
         </td>
         <td>
-          12836
+          12843
           -
-          12868
+          12879
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoPost.this.getRejectionHandler(sBean.event, ex)
+        </td>
+      </tr><tr>
+        <td>
+          343
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          12935
+          -
+          12967
         </td>
         <td>
           Apply
@@ -5552,15 +5580,15 @@ else
         </td>
       </tr><tr>
         <td>
-          341
+          343
         </td>
         <td>
-          1056
+          1057
         </td>
         <td>
-          12862
+          12961
           -
-          12867
+          12966
         </td>
         <td>
           Select
@@ -5573,15 +5601,15 @@ else
         </td>
       </tr><tr>
         <td>
-          343
+          345
         </td>
         <td>
-          1058
+          1059
         </td>
         <td>
-          12880
+          12979
           -
-          12886
+          12985
         </td>
         <td>
           Literal
@@ -5594,15 +5622,15 @@ else
         </td>
       </tr><tr>
         <td>
-          350
+          352
         </td>
         <td>
-          1068
+          1069
         </td>
         <td>
-          12955
+          13054
           -
-          13202
+          13301
         </td>
         <td>
           Apply
@@ -5615,57 +5643,15 @@ else
         </td>
       </tr><tr>
         <td>
-          352
+          354
         </td>
         <td>
           1061
         </td>
         <td>
-          13079
+          13183
           -
-          13089
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toMap
-        </td>
-        <td style="background: #F0ADAD">
-          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
-        </td>
-      </tr><tr>
-        <td>
-          352
-        </td>
-        <td>
-          1064
-        </td>
-        <td>
-          13049
-          -
-          13098
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
-        </td>
-        <td style="background: #F0ADAD">
-          SockoDelete.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
-        </td>
-      </tr><tr>
-        <td>
-          352
-        </td>
-        <td>
-          1060
-        </td>
-        <td>
-          13084
-          -
-          13084
+          13183
         </td>
         <td>
           TypeApply
@@ -5678,15 +5664,15 @@ else
         </td>
       </tr><tr>
         <td>
-          352
+          354
         </td>
         <td>
-          1063
+          1064
         </td>
         <td>
-          13061
+          13160
           -
-          13061
+          13160
         </td>
         <td>
           Select
@@ -5699,15 +5685,15 @@ else
         </td>
       </tr><tr>
         <td>
-          352
+          354
         </td>
         <td>
-          1062
+          1063
         </td>
         <td>
-          13062
+          13161
           -
-          13097
+          13196
         </td>
         <td>
           Apply
@@ -5720,15 +5706,57 @@ else
         </td>
       </tr><tr>
         <td>
-          355
+          354
         </td>
         <td>
-          1066
+          1065
         </td>
         <td>
-          13146
+          13148
           -
+          13197
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #F0ADAD">
+          SockoDelete.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          354
+        </td>
+        <td>
+          1062
+        </td>
+        <td>
           13178
+          -
+          13188
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)])
+        </td>
+      </tr><tr>
+        <td>
+          357
+        </td>
+        <td>
+          1067
+        </td>
+        <td>
+          13245
+          -
+          13277
         </td>
         <td>
           Apply
@@ -5741,15 +5769,15 @@ else
         </td>
       </tr><tr>
         <td>
-          355
+          357
         </td>
         <td>
-          1065
+          1066
         </td>
         <td>
-          13172
+          13271
           -
-          13177
+          13276
         </td>
         <td>
           Select
@@ -5762,15 +5790,15 @@ else
         </td>
       </tr><tr>
         <td>
-          357
+          359
         </td>
         <td>
-          1067
+          1068
         </td>
         <td>
-          13190
+          13289
           -
-          13198
+          13297
         </td>
         <td>
           Literal
@@ -5783,15 +5811,15 @@ else
         </td>
       </tr><tr>
         <td>
-          369
+          371
         </td>
         <td>
-          1069
+          1070
         </td>
         <td>
-          13419
+          13518
           -
-          13421
+          13520
         </td>
         <td>
           Literal
@@ -5804,15 +5832,15 @@ else
         </td>
       </tr><tr>
         <td>
-          370
+          372
         </td>
         <td>
-          1070
+          1071
         </td>
         <td>
-          13463
+          13562
           -
-          13469
+          13568
         </td>
         <td>
           Literal
@@ -5825,15 +5853,15 @@ else
         </td>
       </tr><tr>
         <td>
-          372
+          374
         </td>
         <td>
-          1088
+          1089
         </td>
         <td>
-          13473
+          13572
           -
-          14322
+          14421
         </td>
         <td>
           Apply
@@ -5853,36 +5881,15 @@ else
         </td>
       </tr><tr>
         <td>
-          375
+          377
         </td>
         <td>
           1073
         </td>
         <td>
-          13645
+          13761
           -
-          13680
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
-        </td>
-      </tr><tr>
-        <td>
-          375
-        </td>
-        <td>
-          1072
-        </td>
-        <td>
-          13662
-          -
-          13672
+          13771
         </td>
         <td>
           ApplyToImplicitArgs
@@ -5895,15 +5902,15 @@ else
         </td>
       </tr><tr>
         <td>
-          375
+          377
         </td>
         <td>
-          1071
+          1072
         </td>
         <td>
-          13667
+          13766
           -
-          13667
+          13766
         </td>
         <td>
           TypeApply
@@ -5916,15 +5923,36 @@ else
         </td>
       </tr><tr>
         <td>
-          376
+          377
         </td>
         <td>
           1074
         </td>
         <td>
-          13701
+          13744
           -
-          13726
+          13779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          378
+        </td>
+        <td>
+          1075
+        </td>
+        <td>
+          13800
+          -
+          13825
         </td>
         <td>
           Apply
@@ -5937,15 +5965,15 @@ else
         </td>
       </tr><tr>
         <td>
-          377
+          379
         </td>
         <td>
-          1077
+          1078
         </td>
         <td>
-          13754
+          13853
           -
-          13860
+          13959
         </td>
         <td>
           Apply
@@ -5958,15 +5986,15 @@ else
         </td>
       </tr><tr>
         <td>
-          378
+          380
         </td>
         <td>
-          1075
+          1076
         </td>
         <td>
-          13783
+          13882
           -
-          13801
+          13900
         </td>
         <td>
           Apply
@@ -5979,15 +6007,15 @@ else
         </td>
       </tr><tr>
         <td>
-          379
+          381
         </td>
         <td>
-          1076
+          1077
         </td>
         <td>
-          13811
+          13910
           -
-          13852
+          13951
         </td>
         <td>
           Apply
@@ -6000,36 +6028,15 @@ else
         </td>
       </tr><tr>
         <td>
-          381
+          383
         </td>
         <td>
           1079
         </td>
         <td>
-          13879
+          14010
           -
-          13935
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(SockoOptions.this.sockoOptionResponseType)
-        </td>
-      </tr><tr>
-        <td>
-          381
-        </td>
-        <td>
-          1078
-        </td>
-        <td>
-          13911
-          -
-          13934
+          14033
         </td>
         <td>
           Select
@@ -6042,15 +6049,36 @@ else
         </td>
       </tr><tr>
         <td>
-          382
+          383
         </td>
         <td>
-          1081
+          1080
         </td>
         <td>
-          13956
+          13978
           -
-          13999
+          14034
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoUtils.normalizeContentType(SockoOptions.this.sockoOptionResponseType)
+        </td>
+      </tr><tr>
+        <td>
+          384
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          14055
+          -
+          14098
         </td>
         <td>
           Apply
@@ -6063,15 +6091,15 @@ else
         </td>
       </tr><tr>
         <td>
-          382
+          384
         </td>
         <td>
-          1080
+          1081
         </td>
         <td>
-          13971
+          14070
           -
-          13991
+          14090
         </td>
         <td>
           Select
@@ -6084,15 +6112,15 @@ else
         </td>
       </tr><tr>
         <td>
-          383
+          385
         </td>
         <td>
-          1084
+          1085
         </td>
         <td>
-          14006
+          14105
           -
-          14221
+          14320
         </td>
         <td>
           Apply
@@ -6105,15 +6133,15 @@ else
         </td>
       </tr><tr>
         <td>
-          384
+          386
         </td>
         <td>
-          1082
+          1083
         </td>
         <td>
-          14042
+          14141
           -
-          14063
+          14162
         </td>
         <td>
           Select
@@ -6126,15 +6154,15 @@ else
         </td>
       </tr><tr>
         <td>
-          387
+          389
         </td>
         <td>
-          1083
+          1084
         </td>
         <td>
-          14105
+          14204
           -
-          14213
+          14312
         </td>
         <td>
           Apply
@@ -6147,36 +6175,15 @@ else
         </td>
       </tr><tr>
         <td>
-          391
+          393
         </td>
         <td>
-          1085
+          1087
         </td>
         <td>
-          14295
+          14368
           -
-          14300
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.command.Command.paths
-        </td>
-        <td style="background: #AEF1AE">
-          SockoOptions.this.paths
-        </td>
-      </tr><tr>
-        <td>
-          391
-        </td>
-        <td>
-          1086
-        </td>
-        <td>
-          14269
-          -
-          14301
+          14400
         </td>
         <td>
           Apply
@@ -6189,15 +6196,36 @@ else
         </td>
       </tr><tr>
         <td>
-          392
+          393
         </td>
         <td>
-          1087
+          1086
         </td>
         <td>
-          14309
+          14394
           -
-          14318
+          14399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoOptions.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          394
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          14408
+          -
+          14417
         </td>
         <td>
           Literal
@@ -6210,15 +6238,15 @@ else
         </td>
       </tr><tr>
         <td>
-          399
+          401
         </td>
         <td>
-          1097
+          1098
         </td>
         <td>
-          14385
+          14484
           -
-          14630
+          14729
         </td>
         <td>
           Apply
@@ -6231,57 +6259,15 @@ else
         </td>
       </tr><tr>
         <td>
-          401
+          403
         </td>
         <td>
           1091
         </td>
         <td>
-          14492
+          14608
           -
-          14527
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
-        </td>
-      </tr><tr>
-        <td>
-          401
-        </td>
-        <td>
-          1093
-        </td>
-        <td>
-          14479
-          -
-          14528
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
-        </td>
-        <td style="background: #AEF1AE">
-          SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
-        </td>
-      </tr><tr>
-        <td>
-          401
-        </td>
-        <td>
-          1090
-        </td>
-        <td>
-          14509
-          -
-          14519
+          14618
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6294,36 +6280,36 @@ else
         </td>
       </tr><tr>
         <td>
-          401
+          403
         </td>
         <td>
-          1089
+          1094
         </td>
         <td>
-          14514
+          14578
           -
-          14514
+          14627
         </td>
         <td>
-          TypeApply
+          ApplyToImplicitArgs
         </td>
         <td>
-          scala.Predef.$conforms
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
         </td>
         <td style="background: #AEF1AE">
-          scala.this.Predef.$conforms[(String, AnyRef)]
+          SockoHead.this.innerExecute[Nothing](com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event))(reflect.this.ManifestFactory.Nothing)
         </td>
       </tr><tr>
         <td>
-          401
+          403
         </td>
         <td>
-          1092
+          1093
         </td>
         <td>
-          14491
+          14590
           -
-          14491
+          14590
         </td>
         <td>
           Select
@@ -6336,36 +6322,57 @@ else
         </td>
       </tr><tr>
         <td>
-          404
+          403
         </td>
         <td>
-          1094
+          1090
         </td>
         <td>
-          14602
+          14613
           -
-          14607
+          14613
         </td>
         <td>
-          Select
+          TypeApply
         </td>
         <td>
-          com.webtrends.harness.command.Command.paths
+          scala.Predef.$conforms
         </td>
         <td style="background: #AEF1AE">
-          SockoHead.this.paths
+          scala.this.Predef.$conforms[(String, AnyRef)]
         </td>
       </tr><tr>
         <td>
-          404
+          403
         </td>
         <td>
-          1095
+          1092
         </td>
         <td>
-          14576
+          14591
           -
-          14608
+          14626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          406
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          14675
+          -
+          14707
         </td>
         <td>
           Apply
@@ -6381,12 +6388,33 @@ else
           406
         </td>
         <td>
-          1096
+          1095
         </td>
         <td>
-          14620
+          14701
           -
-          14626
+          14706
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #AEF1AE">
+          SockoHead.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          408
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          14719
+          -
+          14725
         </td>
         <td>
           Literal
@@ -6399,15 +6427,15 @@ else
         </td>
       </tr><tr>
         <td>
-          413
+          415
         </td>
         <td>
-          1112
+          1114
         </td>
         <td>
-          14693
+          14792
           -
-          15143
+          15390
         </td>
         <td>
           Apply
@@ -6420,6 +6448,7 @@ else
   val sBean: com.webtrends.harness.component.socko.utils.SockoCommandBean = com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event);
   try {
     SockoPut.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+    event.request.content.toByteBuf.release(1);
     SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
   } catch {
     case (ex @ (_: Throwable)) =&gt; SockoPut.this.getRejectionHandler(sBean.event, ex)
@@ -6428,36 +6457,15 @@ else
         </td>
       </tr><tr>
         <td>
-          415
+          417
         </td>
         <td>
           1100
         </td>
         <td>
-          14799
+          14915
           -
-          14834
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
-        </td>
-        <td style="background: #AEF1AE">
-          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
-        </td>
-      </tr><tr>
-        <td>
-          415
-        </td>
-        <td>
-          1099
-        </td>
-        <td>
-          14816
-          -
-          14826
+          14925
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6470,15 +6478,15 @@ else
         </td>
       </tr><tr>
         <td>
-          415
+          417
         </td>
         <td>
-          1098
+          1099
         </td>
         <td>
-          14821
+          14920
           -
-          14821
+          14920
         </td>
         <td>
           TypeApply
@@ -6491,15 +6499,36 @@ else
         </td>
       </tr><tr>
         <td>
-          416
+          417
         </td>
         <td>
-          1106
+          1101
         </td>
         <td>
-          14855
+          14898
           -
-          14951
+          14933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.socko.utils.SockoCommandBean.apply(bean.toMap[String, AnyRef](scala.this.Predef.$conforms[(String, AnyRef)]), event)
+        </td>
+      </tr><tr>
+        <td>
+          418
+        </td>
+        <td>
+          1108
+        </td>
+        <td>
+          14954
+          -
+          15198
         </td>
         <td>
           Block
@@ -6510,41 +6539,21 @@ else
         <td style="background: #AEF1AE">
           {
   SockoPut.this.addEntityToBean[net.liftweb.json.JsonAST.JObject](sBean, sBean.event.request.content.toBytes)(reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject]));
+  event.request.content.toByteBuf.release(1);
   SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
 }
         </td>
       </tr><tr>
         <td>
-          417
+          419
         </td>
         <td>
           1102
         </td>
         <td>
-          14879
+          14986
           -
-          14879
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.classType
-        </td>
-        <td style="background: #AEF1AE">
-          reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
-        </td>
-      </tr><tr>
-        <td>
-          417
-        </td>
-        <td>
-          1101
-        </td>
-        <td>
-          14887
-          -
-          14922
+          15021
         </td>
         <td>
           Select
@@ -6557,15 +6566,15 @@ else
         </td>
       </tr><tr>
         <td>
-          417
+          419
         </td>
         <td>
-          1103
+          1104
         </td>
         <td>
-          14855
+          14954
           -
-          14923
+          15022
         </td>
         <td>
           ApplyToImplicitArgs
@@ -6578,36 +6587,57 @@ else
         </td>
       </tr><tr>
         <td>
-          418
+          419
+        </td>
+        <td>
+          1103
+        </td>
+        <td>
+          14978
+          -
+          14978
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #AEF1AE">
+          reflect.this.ManifestFactory.classType[net.liftweb.json.JsonAST.JObject](classOf[net.liftweb.json.JsonAST$$JObject])
+        </td>
+      </tr><tr>
+        <td>
+          422
         </td>
         <td>
           1105
         </td>
         <td>
-          14932
+          15128
           -
-          14951
+          15170
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+          io.netty.util.ReferenceCounted.release
         </td>
         <td style="background: #AEF1AE">
-          SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+          event.request.content.toByteBuf.release(1)
         </td>
       </tr><tr>
         <td>
-          418
+          423
         </td>
         <td>
-          1104
+          1106
         </td>
         <td>
-          14944
+          15191
           -
-          14944
+          15191
         </td>
         <td>
           Select
@@ -6620,36 +6650,36 @@ else
         </td>
       </tr><tr>
         <td>
-          420
-        </td>
-        <td>
-          1108
-        </td>
-        <td>
-          14998
-          -
-          15034
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
-        </td>
-        <td style="background: #F0ADAD">
-          SockoPut.this.getRejectionHandler(sBean.event, ex)
-        </td>
-      </tr><tr>
-        <td>
-          420
+          423
         </td>
         <td>
           1107
         </td>
         <td>
-          15018
+          15179
           -
-          15029
+          15198
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.innerExecute
+        </td>
+        <td style="background: #AEF1AE">
+          SockoPut.this.innerExecute[Nothing](sBean)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          425
+        </td>
+        <td>
+          1109
+        </td>
+        <td>
+          15265
+          -
+          15276
         </td>
         <td>
           Select
@@ -6662,15 +6692,36 @@ else
         </td>
       </tr><tr>
         <td>
-          424
+          425
         </td>
         <td>
-          1109
+          1110
         </td>
         <td>
-          15116
+          15245
           -
-          15121
+          15281
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRoutes.getRejectionHandler
+        </td>
+        <td style="background: #F0ADAD">
+          SockoPut.this.getRejectionHandler(sBean.event, ex)
+        </td>
+      </tr><tr>
+        <td>
+          429
+        </td>
+        <td>
+          1111
+        </td>
+        <td>
+          15363
+          -
+          15368
         </td>
         <td>
           Select
@@ -6683,15 +6734,15 @@ else
         </td>
       </tr><tr>
         <td>
-          424
+          429
         </td>
         <td>
-          1110
+          1112
         </td>
         <td>
-          15090
+          15337
           -
-          15122
+          15369
         </td>
         <td>
           Apply
@@ -6704,15 +6755,15 @@ else
         </td>
       </tr><tr>
         <td>
-          426
+          431
         </td>
         <td>
-          1111
+          1113
         </td>
         <td>
-          15134
+          15381
           -
-          15139
+          15386
         </td>
         <td>
           Literal
