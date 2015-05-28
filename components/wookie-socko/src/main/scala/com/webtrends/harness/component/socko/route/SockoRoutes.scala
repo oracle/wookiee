@@ -331,12 +331,16 @@ trait SockoPost extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-        // Work around for Socko issue
-        // https://github.com/mashupbots/socko/issues/111
-        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
+      } finally {
+        // Work around for Socko issue https://github.com/mashupbots/socko/issues/111
+        try {
+          event.request.content.toByteBuf.release(1)
+        } catch {
+          case _ => // Silently Ignore. If this fails, we don't have anything to release anyways.
+        }
       }
     },
     (event:HttpRequestEvent) => {
@@ -417,12 +421,16 @@ trait SockoPut extends EntityRoutes {
       val sBean = SockoCommandBean(bean.toMap, event)
       try {
         addEntityToBean[JObject](sBean, sBean.event.request.content.toBytes)
-        // Work around for Socko issue
-        // https://github.com/mashupbots/socko/issues/111
-        event.request.content.toByteBuf.release(1)
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
+      } finally {
+        // Work around for Socko issue https://github.com/mashupbots/socko/issues/111
+        try {
+          event.request.content.toByteBuf.release(1)
+        } catch {
+          case _ => // Silently Ignore. If this fails, we don't have anything to release anyways.
+        }
       }
     },
     (event:HttpRequestEvent) => {

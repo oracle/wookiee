@@ -293,7 +293,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         log.debug(s"$name: Released lock")
       case _ => // No lock
     }
-    context.parent ! KafkaHealthState(name, healthy = true, null, null)
+    context.parent ! KafkaHealthState(name, healthy = true, "", "")
   }
 
   def acquireLock(): Option[Acquired] = {
