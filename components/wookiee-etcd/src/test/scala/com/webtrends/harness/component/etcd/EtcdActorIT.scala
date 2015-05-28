@@ -1,5 +1,7 @@
 package com.webtrends.harness.component.etcd
 
+import akka.testkit.{TestProbe, TestActorRef}
+
 class EtcdActorIT extends EtcdTestBase {
 
   val probe = new TestProbe(actorSystem)
