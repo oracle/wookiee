@@ -31,7 +31,7 @@ trait CORSSupportDirectives extends EntityRoutes with Command {
     headers.get("Origin") match {
       case None => super.getResponseHeaders(headers)
       case Some(s) =>
-        Map("all" -> List(SockoHeader("Access-Control-Allow-Origin", s"1.1://$s"), SockoHeader("Access-Control-Allow-Credentials", "true")))
+        Map("all" -> List(SockoHeader("Access-Control-Allow-Origin", if (s == "null") "*" else s"1.1://$s"), SockoHeader("Access-Control-Allow-Credentials", "true")))
     }
   }
 }

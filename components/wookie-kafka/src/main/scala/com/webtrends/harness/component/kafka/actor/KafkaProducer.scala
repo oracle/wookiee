@@ -19,7 +19,6 @@
 
 package com.webtrends.harness.component.kafka.actor
 
-import java.nio.charset.StandardCharsets
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
@@ -54,7 +53,7 @@ object KafkaProducer {
 }
 
 class KafkaProducer extends Actor
-  with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter with KafkaSettings {
+with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter with KafkaSettings {
   import KafkaProducer._
   implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
@@ -90,19 +89,12 @@ class KafkaProducer extends Actor
   }
 
 
-  /**
-   * 
-   * @param topic
-   * @param ackId
-   * @param eventMessages
-   * @return
-   */
   def sendData(topic: String, eventMessages: Seq[Array[Byte]], ackId: String = ""): Either[String, Throwable] ={
     Try {
       ensureProducer()
-      
+
       val keyedMessages = eventMessages.withFilter(_.length > 0)
-                                       .map(keyedMessage(topic, _))
+        .map(keyedMessage(topic, _))
 
       //Only Send if we have 1 valid messages
       if(keyedMessages.nonEmpty) {
@@ -132,9 +124,7 @@ class KafkaProducer extends Actor
     keyedMessage
   }
 
-  /**
-   *
-   */
+
   def ensureProducer() = {
     if (dataProducer.isEmpty) {
       resetProducer()
@@ -142,13 +132,12 @@ class KafkaProducer extends Actor
   }
 
 
-
   def resetProducer() = {
     if (dataProducer.isDefined) {
       dataProducer.get.close()
       dataProducer = None
     }
-    dataProducer = Some(new Producer(new ProducerConfig(configToProps(context.system.settings.config.getConfig("wookie-kafka.producer")))))
+    dataProducer = Some(new Producer(new ProducerConfig(configToProps(context.system.settings.config.getConfig("harness-kafka.producer")))))
     log.info("Kafka Producer Started")
   }
 
@@ -195,7 +184,7 @@ class KafkaProducer extends Actor
         // Ignore other types
       }
     }
-    val brokerList = getKafkaNodes(context.system.settings.config.getConfig("wookie-kafka.producer"))
+    val brokerList = getKafkaNodes(context.system.settings.config.getConfig("harness-kafka.producer"))
     props.put("key.serializer.class","kafka.serializer.StringEncoder")
     props.put("metadata.broker.list", brokerList)
     props

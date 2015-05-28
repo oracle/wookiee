@@ -20,8 +20,7 @@
 package com.webtrends.harness.component.socko.route
 
 import java.io._
-import java.net.URLDecoder
-import java.nio.charset.{Charset, StandardCharsets}
+import java.nio.charset.Charset
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 
 import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
@@ -183,7 +182,7 @@ private[route] trait SockoRoutes extends ComponentHelper {
       getMethod(classOf[SockoDelete], "DELETE")
     ).flatten
   }
-  
+
   def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
     try {
       applyQSMap(bean)
