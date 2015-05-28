@@ -4,7 +4,6 @@ import akka.testkit.{TestActorRef, TestProbe}
 import org.junit.runner.RunWith
 import org.specs2.runner.JUnitRunner
 
-@RunWith(classOf[JUnitRunner])
 class EtcdActorIT extends EtcdTestBase {
 
   val probe = new TestProbe(actorSystem)
