@@ -22,11 +22,9 @@ package com.webtrends.harness.component.etcd
 import akka.testkit.TestProbe
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
-import org.junit.runner.RunWith
-import org.specs2.runner.JUnitRunner
 
-@RunWith(classOf[JUnitRunner])
-class EtcdManagerSpec extends EtcdTestBase {
+
+class EtcdManagerIT extends EtcdTestBase {
 
   // Run these tests sequentially so that the probe does not bump into the same events
   sequential
