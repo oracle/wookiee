@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigValueType}
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.BrokerSpec
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.BrokerSpec
 import com.webtrends.harness.component.kafka.health.KafkaProducerHealthCheck
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
