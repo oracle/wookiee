@@ -22,8 +22,14 @@ package com.webtrends.harness.component.kafka
 import akka.actor.{ActorRef, Props}
 import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.Component
-import com.webtrends.harness.component.kafka.actor.{KafkaConsumerProxy, KafkaProducer}
+import com.webtrends.harness.component.kafka.actor.{KafkaConsumerManager, KafkaProducer}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
+import com.webtrends.harness.health.{ComponentState, HealthComponent}
+import com.webtrends.harness.service.messages.CheckHealth
+import akka.pattern._
+
+import scala.concurrent.{Promise, Future}
+import scala.util.{Failure, Success}
 
 /**
  * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
@@ -42,16 +48,18 @@ object KafkaManager {
 class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   import KafkaManager._
 
+  import context.dispatcher
   // Consumer coordinator started up if 'consumer' is configured
   var coordinator: Option[ActorRef] = None
 
   // Consumer proxy, started up if 'consumer' is configured. Used to retrieve topic
   // information and the data to consume
-  var proxy: Option[ActorRef] = None
+  var consumerManager: Option[ActorRef] = None
 
   //Distributor actor will start up if a 'consumer' is configured
   var distributor: Option[ActorRef] = None
 
+  var consumerManagerHealth: Option[HealthComponent] = None
 
   override def receive = super.receive orElse configReceive orElse {
     // Use this call to get the Kafka Consumer Coordinator, if configured
@@ -71,11 +79,48 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     case PrepareForShutdown =>
       coordinator.foreach(_ ! PrepareForShutdown)
       distributor.foreach(_ ! PrepareForShutdown)
+
+    case h: HealthComponent =>
+      consumerManagerHealth = Some(h)
   }
 
   def startProducer() {
     log.info("Starting producer as wookie-kafka config contained 'producer' config")
     producer = Some(context.actorOf(KafkaProducer.props(), "producer"))
+  }
+
+  override def checkHealth: Future[HealthComponent] = {
+    val p = Promise[HealthComponent]()
+    val children = Seq(distributor, coordinator, producer)
+
+    getHealth.onComplete {
+      case Success(s) =>
+        val healthFutures = children.flatten map { ref =>
+          (ref ? CheckHealth).mapTo[HealthComponent] recover {
+            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+          }
+        }
+
+        Future.sequence(healthFutures) onComplete {
+          case Failure(f) =>
+            log.debug(f, "Failed to retrieve health of children objects")
+            p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+          case Success(healths) =>
+            healths foreach { it => s.addComponent(it) }
+            p success s
+        }
+      case Failure(f) =>
+        log.debug(f, "Failed to get health from component")
+        p success HealthComponent(self.path.toString, ComponentState.CRITICAL, f.getMessage)
+    }
+
+    p.future
+  }
+
+  override protected def getHealth: Future[HealthComponent] = {
+    val h = HealthComponent(self.path.toString, ComponentState.NORMAL, "Healthy")
+    consumerManagerHealth.foreach(h.addComponent)
+    Future.successful(h)
   }
 
   /**
@@ -84,9 +129,9 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   def startCoordinator() {
     if(coordinator.isEmpty) {
       log.info(s"Starting coordinator class")
-      proxy = Some(context.actorOf(KafkaConsumerProxy.props(), "consumer-proxy"))
-      coordinator = Some(context.actorOf(Props(leader, proxy.get), "consumer-coordinator"))
-      distributor = Some(context.actorOf(KafkaConsumerDistributor.props(proxy.get), "consumer-distributor"))
+      consumerManager = Some(context.actorOf(KafkaConsumerManager.props(), "consumer-manager"))
+      coordinator = Some(context.actorOf(Props(leader, consumerManager.get), "consumer-coordinator"))
+      distributor = Some(context.actorOf(KafkaConsumerDistributor.props(consumerManager.get), "consumer-distributor"))
     }
   }
 
@@ -109,12 +154,12 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
       context.stop(child)
     }
     coordinator = None
-    proxy = None
+    consumerManager = None
     distributor = None
     producer = None
   }
 }
 
 object Kafka {
-  val ComponentName = "wookie-kafka"
+  val ComponentName = "harness-kafka"
 }
