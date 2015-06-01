@@ -19,15 +19,15 @@
 
 package com.webtrends.harness.component.kafka.actor
 
-import java.nio.charset.StandardCharsets
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigValueType}
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.BrokerSpec
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.BrokerSpec
 import com.webtrends.harness.component.kafka.health.KafkaProducerHealthCheck
+import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
 import com.webtrends.harness.health.ComponentState
 import com.webtrends.harness.logging.ActorLoggingAdapter
@@ -52,13 +52,17 @@ object KafkaProducer {
   def props(): Props = Props[KafkaProducer]
 }
 
-class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHealthCheck with ZookeeperAdapter {
+class KafkaProducer extends Actor
+with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter with KafkaSettings {
   import KafkaProducer._
   implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
   var dataProducer: Option[Producer[String, Array[Byte]]] = None
   val formats = Serialization.formats(NoTypeHints)
-  val utf8 = StandardCharsets.UTF_8
+
+  var partitionKey = 0L
+
+  val evenPartitionDistribution = Try { kafkaConfig.getBoolean("even-partition-distribution")} getOrElse true
 
   override def preStart() = {
     resetProducer()
@@ -85,19 +89,12 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
   }
 
 
-  /**
-   * 
-   * @param topic
-   * @param ackId
-   * @param eventMessages
-   * @return
-   */
   def sendData(topic: String, eventMessages: Seq[Array[Byte]], ackId: String = ""): Either[String, Throwable] ={
     Try {
       ensureProducer()
-      
+
       val keyedMessages = eventMessages.withFilter(_.length > 0)
-                                       .map(new KeyedMessage[String, Array[Byte]](topic, _))
+        .map(keyedMessage(topic, _))
 
       //Only Send if we have 1 valid messages
       if(keyedMessages.nonEmpty) {
@@ -115,9 +112,19 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
     } get
   }
 
-  /**
-   *
-   */
+  private def keyedMessage(topic: String, value: Array[Byte]): KeyedMessage[String, Array[Byte]] = {
+    val keyedMessage =
+      if(evenPartitionDistribution)
+        new KeyedMessage[String, Array[Byte]](topic, partitionKey.toString, value)
+      else
+        new KeyedMessage[String, Array[Byte]](topic, value)
+
+    partitionKey += 1
+
+    keyedMessage
+  }
+
+
   def ensureProducer() = {
     if (dataProducer.isEmpty) {
       resetProducer()
@@ -125,13 +132,12 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
   }
 
 
-
   def resetProducer() = {
     if (dataProducer.isDefined) {
       dataProducer.get.close()
       dataProducer = None
     }
-    dataProducer = Some(new Producer(new ProducerConfig(configToProps(context.system.settings.config.getConfig("wookie-kafka.producer")))))
+    dataProducer = Some(new Producer(new ProducerConfig(configToProps(context.system.settings.config.getConfig("harness-kafka.producer")))))
     log.info("Kafka Producer Started")
   }
 
@@ -178,7 +184,8 @@ class KafkaProducer extends Actor with ActorLoggingAdapter with KafkaProducerHea
         // Ignore other types
       }
     }
-    val brokerList = getKafkaNodes(context.system.settings.config.getConfig("wookie-kafka.producer"))
+    val brokerList = getKafkaNodes(context.system.settings.config.getConfig("harness-kafka.producer"))
+    props.put("key.serializer.class","kafka.serializer.StringEncoder")
     props.put("metadata.broker.list", brokerList)
     props
   }

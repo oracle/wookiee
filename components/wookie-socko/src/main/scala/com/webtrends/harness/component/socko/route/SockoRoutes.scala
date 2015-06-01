@@ -20,8 +20,7 @@
 package com.webtrends.harness.component.socko.route
 
 import java.io._
-import java.net.URLDecoder
-import java.nio.charset.{Charset, StandardCharsets}
+import java.nio.charset.Charset
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 
 import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
@@ -183,7 +182,7 @@ private[route] trait SockoRoutes extends ComponentHelper {
       getMethod(classOf[SockoDelete], "DELETE")
     ).flatten
   }
-  
+
   def innerExecute[T<:AnyRef:Manifest](bean:SockoCommandBean) = {
     try {
       applyQSMap(bean)
@@ -335,6 +334,13 @@ trait SockoPost extends EntityRoutes {
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
+      } finally {
+        // Work around for Socko issue https://github.com/mashupbots/socko/issues/111
+        try {
+          event.request.content.toByteBuf.release(1)
+        } catch {
+          case _ => // Silently Ignore. If this fails, we don't have anything to release anyways.
+        }
       }
     },
     (event:HttpRequestEvent) => {
@@ -418,6 +424,13 @@ trait SockoPut extends EntityRoutes {
         innerExecute(sBean)
       } catch {
         case ex: Throwable => getRejectionHandler(sBean.event, ex)
+      } finally {
+        // Work around for Socko issue https://github.com/mashupbots/socko/issues/111
+        try {
+          event.request.content.toByteBuf.release(1)
+        } catch {
+          case _ => // Silently Ignore. If this fails, we don't have anything to release anyways.
+        }
       }
     },
     (event:HttpRequestEvent) => {

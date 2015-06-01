@@ -56,17 +56,17 @@ class MemoryManager(name:String) extends Cache(name) {
   private[this] val scheduler = context.system.scheduler
   private[this] var taskRunning: Boolean = false
 
-  private[this] def scheduleTimer : Unit = synchronized {
+  private[this] def scheduleTimer() : Unit = synchronized {
     require(!taskRunning)
     taskRunning = true
-    scheduler.scheduleOnce(ttl)(() => timeout)
+    scheduler.scheduleOnce(ttl)(() => timeout())
   }
 
   private[this] def timeout() = {
     synchronized {
-      removeExpiredItems
+      removeExpiredItems()
       taskRunning = false
-      if (!caches.isEmpty) scheduleTimer
+      if (caches.nonEmpty) scheduleTimer()
     }
   }
 
@@ -78,7 +78,7 @@ class MemoryManager(name:String) extends Cache(name) {
     }
   }
 
-  private[this] def removeExpiredItems = synchronized {
+  private[this] def removeExpiredItems() = synchronized {
     val cache = caches
     val expired:mutable.Map[String, List[String]] = cache map {
       nc =>
@@ -120,7 +120,7 @@ class MemoryManager(name:String) extends Cache(name) {
   override protected def clear(namespace: String): Future[Boolean] = {
     caches.get(namespace) match {
       case Some(c) =>
-        c.clear
+        c.clear()
         Future { true }
       case None => Future { false }
     }
@@ -144,12 +144,12 @@ class MemoryManager(name:String) extends Cache(name) {
 
   override protected def contains(namespace: String, key: String): Future[Boolean] = {
     caches.get(namespace) match {
-      case Some(c) => future { c.contains(key) }
-      case None => future { false }
+      case Some(c) => Future { c.contains(key) }
+      case None => Future { false }
     }
   }
 
-  override protected def getHealth(): Future[HealthComponent] =
+  override protected def getHealth: Future[HealthComponent] =
     Future { HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size)) }
 
   /**
@@ -172,7 +172,7 @@ class MemoryManager(name:String) extends Cache(name) {
   /**
    * Deletes the cache from the in memory map
    *
-   * @param namespace
+   * @param namespace namespace for the cache you are deleting
    * @return
    */
   override protected def deleteCache(namespace:String): Boolean = {
@@ -188,9 +188,9 @@ class MemoryManager(name:String) extends Cache(name) {
     caches.get(namespace) match {
       case Some(c) =>
         c.put(key, TimedChannelBuffer(compat.Platform.currentTime, value))
-        if (!c.isEmpty && !taskRunning) scheduleTimer
+        if (c.nonEmpty && !taskRunning) scheduleTimer()
         Future { true }
-      case None => future { false }
+      case None => Future { false }
     }
   }
 }
