@@ -30,10 +30,9 @@ import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec
 import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
 import com.webtrends.harness.config.ConfigHelper
 import com.webtrends.harness.utils.ConfigUtil
-import scala.concurrent.duration._
 
 import scala.collection.JavaConversions._
-import scala.collection.mutable
+import scala.concurrent.duration._
 import scala.util.Try
 
 trait KafkaSettings extends ConfigHelper { this: Actor =>
