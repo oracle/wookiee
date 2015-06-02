@@ -51,75 +51,85 @@
 </span>26 <span style=''>import com.typesafe.config.Config
 </span>27 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
 </span>28 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-</span>29 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
-</span>30 <span style=''>import com.webtrends.harness.config.ConfigHelper
-</span>31 <span style=''>import com.webtrends.harness.utils.ConfigUtil
-</span>32 <span style=''>
-</span>33 <span style=''>import scala.collection.JavaConversions._
-</span>34 <span style=''>
-</span>35 <span style=''>trait KafkaSettings extends ConfigHelper { this: Actor =>
-</span>36 <span style=''>  @volatile
-</span>37 <span style=''>  var kafkaConfig: Config = </span><span style='background: #F0ADAD'>ConfigUtil.prepareSubConfig(renewableConfig, "wookiee-kafka")</span><span style=''>
-</span>38 <span style=''>  val hostname = </span><span style='background: #F0ADAD'>InetAddress.getLocalHost.getHostName</span><span style=''>
-</span>39 <span style=''>  val clientId = </span><span style='background: #F0ADAD'>s"kk_$hostname"</span><span style=''>
-</span>40 <span style=''>
-</span>41 <span style=''>  // Used for ZK paths
-</span>42 <span style=''>  def pod = </span><span style='background: #F0ADAD'>zkConf.get.dataCenter+"_"+zkConf.get.pod</span><span style=''>
-</span>43 <span style=''>  def appRootPath = </span><span style='background: #F0ADAD'>s"/$appName/$pod"</span><span style=''>
+</span>29 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec
+</span>30 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
+</span>31 <span style=''>import com.webtrends.harness.config.ConfigHelper
+</span>32 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>33 <span style=''>
+</span>34 <span style=''>import scala.collection.JavaConversions._
+</span>35 <span style=''>import scala.concurrent.duration._
+</span>36 <span style=''>import scala.util.Try
+</span>37 <span style=''>
+</span>38 <span style=''>trait KafkaSettings extends ConfigHelper { this: Actor =>
+</span>39 <span style=''>  @volatile
+</span>40 <span style=''>  var kafkaConfig: Config = </span><span style='background: #F0ADAD'>ConfigUtil.prepareSubConfig(renewableConfig, "wookiee-kafka")</span><span style=''>
+</span>41 <span style=''>  val hostname = </span><span style='background: #F0ADAD'>InetAddress.getLocalHost.getHostName</span><span style=''>
+</span>42 <span style=''>  val clientId = </span><span style='background: #F0ADAD'>s"kk_$hostname"</span><span style=''>
+</span>43 <span style=''>  val bufferSize = </span><span style='background: #F0ADAD'>1024*1024</span><span style=''>
 </span>44 <span style=''>
-</span>45 <span style=''>  def distributionRootPath = </span><span style='background: #F0ADAD'>s"$appRootPath/kafkaConsumerDistribution"</span><span style=''>
-</span>46 <span style=''>
-</span>47 <span style=''>  val utf8 = </span><span style='background: #F0ADAD'>StandardCharsets.UTF_8</span><span style=''>
+</span>45 <span style=''>  // Used for ZK paths
+</span>46 <span style=''>  def pod = </span><span style='background: #F0ADAD'>zkConf.get.dataCenter+"_"+zkConf.get.pod</span><span style=''>
+</span>47 <span style=''>  def appRootPath = </span><span style='background: #F0ADAD'>s"/$appName/$pod"</span><span style=''>
 </span>48 <span style=''>
-</span>49 <span style=''>  def distributorPaths = </span><span style='background: #F0ADAD'>DistributorPaths(s"$distributionRootPath/nodes",
-</span>50 <span style=''></span><span style='background: #F0ADAD'>                                          s"$distributionRootPath/assignments",
-</span>51 <span style=''></span><span style='background: #F0ADAD'>                                          s"$distributionRootPath/leader")</span><span style=''>
+</span>49 <span style=''>  def distributionRootPath = </span><span style='background: #F0ADAD'>s"$appRootPath/kafkaConsumerDistribution"</span><span style=''>
+</span>50 <span style=''>
+</span>51 <span style=''>  val utf8 = </span><span style='background: #F0ADAD'>StandardCharsets.UTF_8</span><span style=''>
 </span>52 <span style=''>
-</span>53 <span style=''>  def zkConf = </span><span style='background: #F0ADAD'>renewableConfig.hasPath("wookiee-zookeeper.quorum")</span><span style=''> match {
-</span>54 <span style=''>    case true => </span><span style='background: #F0ADAD'>Some(ZookeeperSettings(renewableConfig.getConfig("wookiee-zookeeper")))</span><span style=''>
-</span>55 <span style=''>    case false => </span><span style='background: #F0ADAD'>None</span><span style=''>
-</span>56 <span style=''>  }
-</span>57 <span style=''>  def topicWorker = </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("worker-class"))</span><span style=''>
-</span>58 <span style=''>  def leader = {
-</span>59 <span style=''>    if (</span><span style='background: #F0ADAD'>kafkaConfig.hasPath("leader-class")</span><span style=''>) {
-</span>60 <span style=''>      </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("leader-class"))</span><span style=''>
-</span>61 <span style=''>    } else {
-</span>62 <span style=''>      </span><span style='background: #F0ADAD'>classOf[KafkaConsumerCoordinator]</span><span style=''>
-</span>63 <span style=''>    }
-</span>64 <span style=''>  }
-</span>65 <span style=''>  def appName = </span><span style='background: #F0ADAD'>kafkaConfig.getString("app-name")</span><span style=''>
-</span>66 <span style=''>
-</span>67 <span style=''>  def init: KafkaSettings = {
-</span>68 <span style=''>    this
+</span>53 <span style=''>  def distributorPaths = </span><span style='background: #F0ADAD'>DistributorPaths(s"$distributionRootPath/nodes",
+</span>54 <span style=''></span><span style='background: #F0ADAD'>    s"$distributionRootPath/assignments",
+</span>55 <span style=''></span><span style='background: #F0ADAD'>    s"$distributionRootPath/leader")</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>  def offsetGetExpiration = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getInt("offset-timeout-seconds") } getOrElse 10 seconds</span><span style=''>
+</span>58 <span style=''>  def zkConf = </span><span style='background: #F0ADAD'>renewableConfig.hasPath("wookiee-zookeeper.quorum")</span><span style=''> match {
+</span>59 <span style=''>    case true => </span><span style='background: #F0ADAD'>Some(ZookeeperSettings(renewableConfig.getConfig("wookiee-zookeeper")))</span><span style=''>
+</span>60 <span style=''>    case false => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>  def topicWorker = </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("worker-class"))</span><span style=''>
+</span>63 <span style=''>  def leader = {
+</span>64 <span style=''>    if (</span><span style='background: #F0ADAD'>kafkaConfig.hasPath("leader-class")</span><span style=''>) {
+</span>65 <span style=''>      </span><span style='background: #F0ADAD'>this.getClass.getClassLoader.loadClass(kafkaConfig.getString("leader-class"))</span><span style=''>
+</span>66 <span style=''>    } else {
+</span>67 <span style=''>      </span><span style='background: #F0ADAD'>classOf[KafkaConsumerCoordinator]</span><span style=''>
+</span>68 <span style=''>    }
 </span>69 <span style=''>  }
-</span>70 <span style=''>
-</span>71 <span style=''>  def topicMap: Map[String, Config] = </span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.topics").toList.map{top =>
-</span>72 <span style=''></span><span style='background: #F0ADAD'>    top.getString("name") -> top
-</span>73 <span style=''></span><span style='background: #F0ADAD'>  }.toMap</span><span style=''>
-</span>74 <span style=''>  
-</span>75 <span style=''>  def kafkaSources: Map[String, List[String]] = </span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.kafka-hosts").toList.map { clusters =>
-</span>76 <span style=''></span><span style='background: #F0ADAD'>    clusters.getString("id") -> clusters.getStringList("brokers").toList
-</span>77 <span style=''></span><span style='background: #F0ADAD'>  }.toMap</span><span style=''>
-</span>78 <span style=''>
-</span>79 <span style=''>  def assignmentName(spec:PartitionAssignment): String = {
-</span>80 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.host}-${spec.topic}-${spec.partition}"</span><span style=''>
-</span>81 <span style=''>  }
-</span>82 <span style=''>
-</span>83 <span style=''>  def partitionName(spec:PartitionAssignment): String = {
-</span>84 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.cluster}-${spec.topic}-${spec.partition}"</span><span style=''>
-</span>85 <span style=''>  }
-</span>86 <span style=''>
-</span>87 <span style=''>  override def renewConfiguration() = {
-</span>88 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
-</span>89 <span style=''>    </span><span style='background: #F0ADAD'>kafkaConfig = ConfigUtil.prepareSubConfig(renewableConfig, "wookiee-kafka")</span><span style=''>
-</span>90 <span style=''>  }
-</span>91 <span style=''>}
+</span>70 <span style=''>  def appName = </span><span style='background: #F0ADAD'>kafkaConfig.getString("app-name")</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>  def init: KafkaSettings = {
+</span>73 <span style=''>    this
+</span>74 <span style=''>  }
+</span>75 <span style=''>
+</span>76 <span style=''>  def topicMap: Map[String, Config] = (</span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.topics") map { top =>
+</span>77 <span style=''></span><span style='background: #F0ADAD'>    top.getString("name") -> top
+</span>78 <span style=''></span><span style='background: #F0ADAD'>  }).toMap</span><span style=''>
+</span>79 <span style=''>
+</span>80 <span style=''>  def kafkaSources: Map[String, BrokerSpec] = (</span><span style='background: #F0ADAD'>kafkaConfig.getConfigList("consumer.kafka-hosts") flatMap { clusters =>
+</span>81 <span style=''></span><span style='background: #F0ADAD'>    clusters.getStringList("brokers") map { broker =>
+</span>82 <span style=''></span><span style='background: #F0ADAD'>      val hostPort: Array[String] = broker.split(":")
+</span>83 <span style=''></span><span style='background: #F0ADAD'>      val host: String = hostPort(0)
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      val port: Int = if (hostPort.length == 2) hostPort(1).toInt else 9092
+</span>85 <span style=''></span><span style='background: #F0ADAD'>      host -> BrokerSpec(host, port, clusters.getString("id"))
+</span>86 <span style=''></span><span style='background: #F0ADAD'>    }
+</span>87 <span style=''></span><span style='background: #F0ADAD'>  }).toMap</span><span style=''>
+</span>88 <span style=''>
+</span>89 <span style=''>  def assignmentName(spec:PartitionAssignment): String = {
+</span>90 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.host}-${spec.topic}-${spec.partition}"</span><span style=''>
+</span>91 <span style=''>  }
 </span>92 <span style=''>
-</span>93 <span style=''>
-</span>94 <span style=''>//Simple container for Paths
-</span>95 <span style=''>case class DistributorPaths(nodePath: String, //Root path for node registration
-</span>96 <span style=''>                            assignmentPath: String,//Root path for assignments per node
-</span>97 <span style=''>                            leaderPath: String) //Leader election directory
+</span>93 <span style=''>  def partitionName(spec:PartitionAssignment): String = {
+</span>94 <span style=''>    </span><span style='background: #F0ADAD'>s"${spec.cluster}-${spec.topic}-${spec.partition}"</span><span style=''>
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  override def renewConfiguration() = {
+</span>98 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>99 <span style=''>    </span><span style='background: #F0ADAD'>kafkaConfig = ConfigUtil.prepareSubConfig(renewableConfig, "wookiee-kafka")</span><span style=''>
+</span>100 <span style=''>  }
+</span>101 <span style=''>}
+</span>102 <span style=''>
+</span>103 <span style=''>
+</span>104 <span style=''>//Simple container for Paths
+</span>105 <span style=''>case class DistributorPaths(nodePath: String, //Root path for node registration
+</span>106 <span style=''>                            assignmentPath: String,//Root path for assignments per node
+</span>107 <span style=''>                            leaderPath: String) //Leader election directory
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -133,57 +143,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          37
+          40
         </td>
         <td>
-          1880
+          1815
         </td>
         <td>
-          1400
+          1565
           -
-          1461
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookiee-kafka&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          1879
-        </td>
-        <td>
-          1445
-          -
-          1460
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;wookiee-kafka&quot;
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          1878
-        </td>
-        <td>
-          1428
-          -
-          1443
+          1580
         </td>
         <td>
           Select
@@ -196,15 +164,57 @@
         </td>
       </tr><tr>
         <td>
-          38
+          40
         </td>
         <td>
-          1881
+          1817
         </td>
         <td>
-          1479
+          1537
           -
-          1515
+          1598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookiee-kafka&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1816
+        </td>
+        <td>
+          1582
+          -
+          1597
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-kafka&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          1616
+          -
+          1652
         </td>
         <td>
           Apply
@@ -217,15 +227,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          42
         </td>
         <td>
-          1883
+          1820
         </td>
         <td>
-          1547
+          1684
           -
-          1548
+          1685
         </td>
         <td>
           Literal
@@ -238,36 +248,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          42
         </td>
         <td>
-          1882
+          1822
         </td>
         <td>
-          1535
+          1670
           -
-          1539
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;kk_&quot;
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          1885
-        </td>
-        <td>
-          1533
-          -
-          1548
+          1685
         </td>
         <td>
           Apply
@@ -280,15 +269,36 @@
         </td>
       </tr><tr>
         <td>
-          39
+          42
         </td>
         <td>
-          1884
+          1819
         </td>
         <td>
-          1539
+          1672
           -
-          1547
+          1676
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;kk_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1821
+        </td>
+        <td>
+          1676
+          -
+          1684
         </td>
         <td>
           Select
@@ -301,15 +311,36 @@
         </td>
       </tr><tr>
         <td>
-          42
+          43
         </td>
         <td>
-          1886
+          1823
         </td>
         <td>
-          1607
+          1705
           -
-          1610
+          1714
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1048576
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1824
+        </td>
+        <td>
+          1773
+          -
+          1776
         </td>
         <td>
           Literal
@@ -322,15 +353,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          46
         </td>
         <td>
-          1888
+          1826
         </td>
         <td>
-          1585
+          1751
           -
-          1625
+          1791
         </td>
         <td>
           Apply
@@ -343,15 +374,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          46
         </td>
         <td>
-          1887
+          1825
         </td>
         <td>
-          1611
+          1777
           -
-          1625
+          1791
         </td>
         <td>
           Select
@@ -364,78 +395,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          47
         </td>
         <td>
-          1892
+          1832
         </td>
         <td>
-          1650
+          1812
           -
-          1657
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.appName
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaSettings.this.appName
-        </td>
-      </tr><tr>
-        <td>
-          43
-        </td>
-        <td>
-          1889
-        </td>
-        <td>
-          1648
-          -
-          1650
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;/&quot;
-        </td>
-      </tr><tr>
-        <td>
-          43
-        </td>
-        <td>
-          1891
-        </td>
-        <td>
-          1662
-          -
-          1663
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          43
-        </td>
-        <td>
-          1894
-        </td>
-        <td>
-          1646
-          -
-          1663
+          1829
         </td>
         <td>
           Apply
@@ -448,15 +416,15 @@
         </td>
       </tr><tr>
         <td>
-          43
+          47
         </td>
         <td>
-          1890
+          1829
         </td>
         <td>
-          1657
+          1828
           -
-          1659
+          1829
         </td>
         <td>
           Literal
@@ -465,19 +433,19 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;/&quot;
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          43
+          47
         </td>
         <td>
-          1893
+          1831
         </td>
         <td>
-          1659
+          1825
           -
-          1662
+          1828
         </td>
         <td>
           Select
@@ -490,15 +458,78 @@
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
-          1895
+          1828
         </td>
         <td>
-          1696
+          1823
           -
-          1697
+          1825
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1827
+        </td>
+        <td>
+          1814
+          -
+          1816
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          1816
+          -
+          1823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.appName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.appName
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          1862
+          -
+          1863
         </td>
         <td>
           Literal
@@ -511,36 +542,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          49
         </td>
         <td>
-          1898
+          1835
         </td>
         <td>
-          1694
+          1863
           -
-          1735
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;/kafkaConsumerDistribution&quot;).s(KafkaSettings.this.appRootPath)
-        </td>
-      </tr><tr>
-        <td>
-          45
-        </td>
-        <td>
-          1897
-        </td>
-        <td>
-          1697
-          -
-          1708
+          1874
         </td>
         <td>
           Select
@@ -553,15 +563,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          49
         </td>
         <td>
-          1896
+          1834
         </td>
         <td>
-          1708
+          1874
           -
-          1735
+          1901
         </td>
         <td>
           Literal
@@ -574,15 +584,36 @@
         </td>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          1899
+          1836
         </td>
         <td>
-          1750
+          1860
           -
-          1772
+          1901
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/kafkaConsumerDistribution&quot;).s(KafkaSettings.this.appRootPath)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1837
+        </td>
+        <td>
+          1916
+          -
+          1938
         </td>
         <td>
           Select
@@ -595,78 +626,15 @@
         </td>
       </tr><tr>
         <td>
-          49
+          53
         </td>
         <td>
-          1901
+          1841
         </td>
         <td>
-          1839
+          1982
           -
-          1846
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;/nodes&quot;
-        </td>
-      </tr><tr>
-        <td>
-          49
-        </td>
-        <td>
-          1900
-        </td>
-        <td>
-          1818
-          -
-          1819
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          49
-        </td>
-        <td>
-          1912
-        </td>
-        <td>
-          1799
-          -
-          2002
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.DistributorPaths.apply
-        </td>
-        <td style="background: #F0ADAD">
-          DistributorPaths.apply(scala.StringContext.apply(&quot;&quot;, &quot;/nodes&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/leader&quot;).s(KafkaSettings.this.distributionRootPath))
-        </td>
-      </tr><tr>
-        <td>
-          49
-        </td>
-        <td>
-          1903
-        </td>
-        <td>
-          1816
-          -
-          1846
+          2012
         </td>
         <td>
           Apply
@@ -679,36 +647,36 @@
         </td>
       </tr><tr>
         <td>
-          49
+          53
         </td>
         <td>
-          1902
+          1850
         </td>
         <td>
-          1819
+          1965
           -
-          1839
+          2092
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+          com.webtrends.harness.component.kafka.util.DistributorPaths.apply
         </td>
         <td style="background: #F0ADAD">
-          KafkaSettings.this.distributionRootPath
+          DistributorPaths.apply(scala.StringContext.apply(&quot;&quot;, &quot;/nodes&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath), scala.StringContext.apply(&quot;&quot;, &quot;/leader&quot;).s(KafkaSettings.this.distributionRootPath))
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
-          1904
+          1838
         </td>
         <td>
-          1892
+          1984
           -
-          1893
+          1985
         </td>
         <td>
           Literal
@@ -721,36 +689,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
-          1907
+          1840
         </td>
         <td>
-          1890
+          1985
           -
-          1926
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath)
-        </td>
-      </tr><tr>
-        <td>
-          50
-        </td>
-        <td>
-          1906
-        </td>
-        <td>
-          1893
-          -
-          1913
+          2005
         </td>
         <td>
           Select
@@ -763,15 +710,78 @@
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
-          1905
+          1839
         </td>
         <td>
-          1913
+          2005
           -
-          1926
+          2012
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/nodes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1842
+        </td>
+        <td>
+          2020
+          -
+          2021
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1844
+        </td>
+        <td>
+          2021
+          -
+          2041
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.distributionRootPath
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1843
+        </td>
+        <td>
+          2041
+          -
+          2054
         </td>
         <td>
           Literal
@@ -784,36 +794,36 @@
         </td>
       </tr><tr>
         <td>
-          51
+          54
         </td>
         <td>
-          1910
+          1845
         </td>
         <td>
-          1973
+          2018
           -
-          1993
+          2054
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          KafkaSettings.this.distributionRootPath
+          scala.StringContext.apply(&quot;&quot;, &quot;/assignments&quot;).s(KafkaSettings.this.distributionRootPath)
         </td>
       </tr><tr>
         <td>
-          51
+          55
         </td>
         <td>
-          1909
+          1847
         </td>
         <td>
-          1993
+          2083
           -
-          2001
+          2091
         </td>
         <td>
           Literal
@@ -826,15 +836,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          55
         </td>
         <td>
-          1908
+          1846
         </td>
         <td>
-          1972
+          2062
           -
-          1973
+          2063
         </td>
         <td>
           Literal
@@ -847,15 +857,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          55
         </td>
         <td>
-          1911
+          1849
         </td>
         <td>
-          1970
+          2060
           -
-          2001
+          2091
         </td>
         <td>
           Apply
@@ -868,15 +878,78 @@
         </td>
       </tr><tr>
         <td>
-          53
+          55
         </td>
         <td>
-          1913
+          1848
         </td>
         <td>
-          2019
+          2063
           -
-          2070
+          2083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributionRootPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.distributionRootPath
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1851
+        </td>
+        <td>
+          2122
+          -
+          2187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Int](KafkaSettings.this.kafkaConfig.getInt(&quot;offset-timeout-seconds&quot;)).getOrElse[Int](10)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1852
+        </td>
+        <td>
+          2122
+          -
+          2195
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(scala.util.Try.apply[Int](KafkaSettings.this.kafkaConfig.getInt(&quot;offset-timeout-seconds&quot;)).getOrElse[Int](10)).seconds
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1853
+        </td>
+        <td>
+          2211
+          -
+          2262
         </td>
         <td>
           Apply
@@ -889,15 +962,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          59
         </td>
         <td>
-          1916
+          1856
         </td>
         <td>
-          2096
+          2288
           -
-          2167
+          2359
         </td>
         <td>
           Apply
@@ -910,15 +983,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          59
         </td>
         <td>
-          1915
+          1855
         </td>
         <td>
-          2101
+          2293
           -
-          2166
+          2358
         </td>
         <td>
           Apply
@@ -931,15 +1004,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          59
         </td>
         <td>
-          1914
+          1854
         </td>
         <td>
-          2119
+          2311
           -
-          2165
+          2357
         </td>
         <td>
           Apply
@@ -952,15 +1025,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          60
         </td>
         <td>
-          1917
+          1857
         </td>
         <td>
-          2186
+          2378
           -
-          2190
+          2382
         </td>
         <td>
           Select
@@ -973,15 +1046,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          62
         </td>
         <td>
-          1919
+          1859
         </td>
         <td>
-          2215
+          2407
           -
-          2292
+          2484
         </td>
         <td>
           Apply
@@ -994,15 +1067,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          62
         </td>
         <td>
-          1918
+          1858
         </td>
         <td>
-          2254
+          2446
           -
-          2291
+          2483
         </td>
         <td>
           Apply
@@ -1015,15 +1088,15 @@
         </td>
       </tr><tr>
         <td>
-          59
+          64
         </td>
         <td>
-          1920
+          1860
         </td>
         <td>
-          2318
+          2510
           -
-          2353
+          2545
         </td>
         <td>
           Apply
@@ -1036,15 +1109,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          65
         </td>
         <td>
-          1922
+          1862
         </td>
         <td>
-          2363
+          2555
           -
-          2440
+          2632
         </td>
         <td>
           Apply
@@ -1057,15 +1130,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          65
         </td>
         <td>
-          1921
+          1861
         </td>
         <td>
-          2402
+          2594
           -
-          2439
+          2631
         </td>
         <td>
           Apply
@@ -1078,15 +1151,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          65
         </td>
         <td>
-          1923
+          1863
         </td>
         <td>
-          2363
+          2555
           -
-          2440
+          2632
         </td>
         <td>
           Block
@@ -1099,15 +1172,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          67
         </td>
         <td>
-          1925
+          1865
         </td>
         <td>
-          2460
+          2652
           -
-          2493
+          2685
         </td>
         <td>
           Block
@@ -1120,15 +1193,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          67
         </td>
         <td>
-          1924
+          1864
         </td>
         <td>
-          2460
+          2652
           -
-          2493
+          2685
         </td>
         <td>
           Literal
@@ -1141,15 +1214,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          70
         </td>
         <td>
-          1926
+          1866
         </td>
         <td>
-          2520
+          2712
           -
-          2553
+          2745
         </td>
         <td>
           Apply
@@ -1162,15 +1235,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          76
         </td>
         <td>
-          1927
+          1867
         </td>
         <td>
-          2637
+          2830
           -
-          2681
+          2874
         </td>
         <td>
           Apply
@@ -1183,36 +1256,36 @@
         </td>
       </tr><tr>
         <td>
-          71
+          76
         </td>
         <td>
-          1929
+          1869
         </td>
         <td>
-          2692
+          2875
           -
-          2692
+          2875
         </td>
         <td>
           TypeApply
         </td>
         <td>
-          scala.collection.immutable.List.canBuildFrom
+          scala.collection.mutable.Buffer.canBuildFrom
         </td>
         <td style="background: #F0ADAD">
-          immutable.this.List.canBuildFrom[(String, ?0)]
+          mutable.this.Buffer.canBuildFrom[(String, ?0)]
         </td>
       </tr><tr>
         <td>
-          72
+          77
         </td>
         <td>
-          1928
+          1868
         </td>
         <td>
-          2704
+          2892
           -
-          2732
+          2920
         </td>
         <td>
           Apply
@@ -1225,15 +1298,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          78
         </td>
         <td>
-          1931
+          1871
         </td>
         <td>
-          2637
+          2830
           -
-          2742
+          2931
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1242,19 +1315,19 @@
           scala.collection.TraversableOnce.toMap
         </td>
         <td style="background: #F0ADAD">
-          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.topics&quot;)).toList.map[(String, ?0), List[(String, ?0)]](((top: ?0) =&gt; scala.this.Predef.ArrowAssoc[String](top.getString(&quot;name&quot;)).-&gt;[?0](top)))(immutable.this.List.canBuildFrom[(String, ?0)]).toMap[String, com.typesafe.config.Config](scala.this.Predef.$conforms[(String, ?0)])
+          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.topics&quot;)).map[(String, ?0), scala.collection.mutable.Buffer[(String, ?0)]](((top: ?0) =&gt; scala.this.Predef.ArrowAssoc[String](top.getString(&quot;name&quot;)).-&gt;[?0](top)))(mutable.this.Buffer.canBuildFrom[(String, ?0)]).toMap[String, com.typesafe.config.Config](scala.this.Predef.$conforms[(String, ?0)])
         </td>
       </tr><tr>
         <td>
-          73
+          78
         </td>
         <td>
-          1930
+          1870
         </td>
         <td>
-          2737
+          2926
           -
-          2737
+          2926
         </td>
         <td>
           TypeApply
@@ -1267,36 +1340,36 @@
         </td>
       </tr><tr>
         <td>
-          75
+          80
         </td>
         <td>
-          1937
+          1887
         </td>
         <td>
-          2855
+          3030
           -
-          2855
+          3030
         </td>
         <td>
           TypeApply
         </td>
         <td>
-          scala.collection.immutable.List.canBuildFrom
+          scala.collection.mutable.Buffer.canBuildFrom
         </td>
         <td style="background: #F0ADAD">
-          immutable.this.List.canBuildFrom[(String, List[String])]
+          mutable.this.Buffer.canBuildFrom[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]
         </td>
       </tr><tr>
         <td>
-          75
+          80
         </td>
         <td>
-          1932
+          1872
         </td>
         <td>
-          2794
+          2980
           -
-          2843
+          3029
         </td>
         <td>
           Apply
@@ -1309,15 +1382,44 @@
         </td>
       </tr><tr>
         <td>
-          76
+          81
         </td>
         <td>
-          1934
+          1886
         </td>
         <td>
-          2901
+          3056
           -
-          2934
+          3335
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).map[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec), scala.collection.mutable.Buffer[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]](((broker: String) =&gt; {
+  val hostPort: Array[String] = broker.split(&quot;:&quot;);
+  val host: String = hostPort.apply(0);
+  val port: Int = if (hostPort.length.==(2))
+    scala.this.Predef.augmentString(hostPort.apply(1)).toInt
+  else
+    9092;
+  scala.this.Predef.ArrowAssoc[String](host).-&gt;[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec](com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.apply(host, port, clusters.getString(&quot;id&quot;)))
+}))(mutable.this.Buffer.canBuildFrom[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)])
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1873
+        </td>
+        <td>
+          3056
+          -
+          3089
         </td>
         <td>
           Apply
@@ -1330,15 +1432,225 @@
         </td>
       </tr><tr>
         <td>
-          76
+          81
         </td>
         <td>
-          1933
+          1885
         </td>
         <td>
-          2873
+          3090
           -
-          2897
+          3090
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Buffer.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Buffer.canBuildFrom[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1874
+        </td>
+        <td>
+          3142
+          -
+          3159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          broker.split(&quot;:&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          3185
+          -
+          3196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          hostPort.apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1877
+        </td>
+        <td>
+          3245
+          -
+          3256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          hostPort.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          3268
+          -
+          3272
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          9092
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1876
+        </td>
+        <td>
+          3223
+          -
+          3243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          hostPort.length.==(2)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          3245
+          -
+          3262
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toInt
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(hostPort.apply(1)).toInt
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          3245
+          -
+          3262
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.toInt
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(hostPort.apply(1)).toInt
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          3268
+          -
+          3272
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          9092
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          3287
+          -
+          3335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.apply(host, port, clusters.getString(&quot;id&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          3310
+          -
+          3334
         </td>
         <td>
           Apply
@@ -1351,15 +1663,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          85
         </td>
         <td>
-          1936
+          1884
         </td>
         <td>
-          2873
+          3279
           -
-          2941
+          3335
         </td>
         <td>
           Apply
@@ -1368,40 +1680,19 @@
           scala.Predef.ArrowAssoc.-&gt;
         </td>
         <td style="background: #F0ADAD">
-          scala.this.Predef.ArrowAssoc[String](clusters.getString(&quot;id&quot;)).-&gt;[List[String]](scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList)
+          scala.this.Predef.ArrowAssoc[String](host).-&gt;[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec](com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.apply(host, port, clusters.getString(&quot;id&quot;)))
         </td>
       </tr><tr>
         <td>
-          76
+          87
         </td>
         <td>
-          1935
+          1889
         </td>
         <td>
-          2901
+          2980
           -
-          2941
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toList
-        </td>
-        <td style="background: #F0ADAD">
-          scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          1939
-        </td>
-        <td>
-          2794
-          -
-          2951
+          3352
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1410,19 +1701,27 @@
           scala.collection.TraversableOnce.toMap
         </td>
         <td style="background: #F0ADAD">
-          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.kafka-hosts&quot;)).toList.map[(String, List[String]), List[(String, List[String])]](((clusters: ?0) =&gt; scala.this.Predef.ArrowAssoc[String](clusters.getString(&quot;id&quot;)).-&gt;[List[String]](scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).toList)))(immutable.this.List.canBuildFrom[(String, List[String])]).toMap[String, List[String]](scala.this.Predef.$conforms[(String, List[String])])
+          scala.collection.JavaConversions.asScalaBuffer[?0](KafkaSettings.this.kafkaConfig.getConfigList(&quot;consumer.kafka-hosts&quot;)).flatMap[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec), scala.collection.mutable.Buffer[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]](((clusters: ?0) =&gt; scala.collection.JavaConversions.asScalaBuffer[String](clusters.getStringList(&quot;brokers&quot;)).map[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec), scala.collection.mutable.Buffer[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]](((broker: String) =&gt; {
+  val hostPort: Array[String] = broker.split(&quot;:&quot;);
+  val host: String = hostPort.apply(0);
+  val port: Int = if (hostPort.length.==(2))
+    scala.this.Predef.augmentString(hostPort.apply(1)).toInt
+  else
+    9092;
+  scala.this.Predef.ArrowAssoc[String](host).-&gt;[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec](com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.apply(host, port, clusters.getString(&quot;id&quot;)))
+}))(mutable.this.Buffer.canBuildFrom[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)])))(mutable.this.Buffer.canBuildFrom[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]).toMap[String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec](scala.this.Predef.$conforms[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)])
         </td>
       </tr><tr>
         <td>
-          77
+          87
         </td>
         <td>
-          1938
+          1888
         </td>
         <td>
-          2946
+          3347
           -
-          2946
+          3347
         </td>
         <td>
           TypeApply
@@ -1431,82 +1730,19 @@
           scala.Predef.$conforms
         </td>
         <td style="background: #F0ADAD">
-          scala.this.Predef.$conforms[(String, List[String])]
+          scala.this.Predef.$conforms[(String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)]
         </td>
       </tr><tr>
         <td>
-          80
+          90
         </td>
         <td>
-          1943
+          1892
         </td>
         <td>
-          3062
+          3445
           -
-          3063
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          1946
-        </td>
-        <td>
-          3047
-          -
-          3061
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
-        </td>
-        <td style="background: #F0ADAD">
-          spec.partition
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          1940
-        </td>
-        <td>
-          3018
-          -
-          3019
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          80
-        </td>
-        <td>
-          1942
-        </td>
-        <td>
-          3044
-          -
-          3046
+          3447
         </td>
         <td>
           Literal
@@ -1519,15 +1755,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          90
         </td>
         <td>
-          1945
+          1895
         </td>
         <td>
-          3033
+          3434
           -
-          3043
+          3444
         </td>
         <td>
           Select
@@ -1540,15 +1776,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          90
         </td>
         <td>
-          1947
+          1897
         </td>
         <td>
-          3016
+          3417
           -
-          3063
+          3464
         </td>
         <td>
           Apply
@@ -1561,15 +1797,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          90
         </td>
         <td>
-          1941
+          1891
         </td>
         <td>
-          3030
+          3431
           -
-          3032
+          3433
         </td>
         <td>
           Literal
@@ -1582,15 +1818,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          90
         </td>
         <td>
-          1944
+          1894
         </td>
         <td>
-          3020
+          3421
           -
-          3029
+          3430
         </td>
         <td>
           Select
@@ -1603,99 +1839,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          90
         </td>
         <td>
-          1952
+          1896
         </td>
         <td>
-          3135
+          3448
           -
-          3147
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.cluster
-        </td>
-        <td style="background: #F0ADAD">
-          spec.cluster
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          1955
-        </td>
-        <td>
-          3131
-          -
-          3181
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(spec.cluster, spec.topic, spec.partition)
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          1949
-        </td>
-        <td>
-          3148
-          -
-          3150
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;-&quot;
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          1951
-        </td>
-        <td>
-          3180
-          -
-          3181
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          1954
-        </td>
-        <td>
-          3165
-          -
-          3179
+          3462
         </td>
         <td>
           Select
@@ -1708,15 +1860,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          90
         </td>
         <td>
-          1948
+          1890
         </td>
         <td>
-          3133
+          3419
           -
-          3134
+          3420
         </td>
         <td>
           Literal
@@ -1729,15 +1881,99 @@
         </td>
       </tr><tr>
         <td>
-          84
+          90
         </td>
         <td>
-          1950
+          1893
         </td>
         <td>
-          3162
+          3463
           -
-          3164
+          3464
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          3581
+          -
+          3582
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1904
+        </td>
+        <td>
+          3566
+          -
+          3580
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          spec.partition
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          3534
+          -
+          3535
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1900
+        </td>
+        <td>
+          3563
+          -
+          3565
         </td>
         <td>
           Literal
@@ -1750,15 +1986,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          94
         </td>
         <td>
-          1953
+          1903
         </td>
         <td>
-          3151
+          3552
           -
-          3161
+          3562
         </td>
         <td>
           Select
@@ -1771,15 +2007,78 @@
         </td>
       </tr><tr>
         <td>
-          88
+          94
         </td>
         <td>
-          1956
+          1905
         </td>
         <td>
-          3231
+          3532
           -
-          3257
+          3582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(spec.cluster, spec.topic, spec.partition)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1899
+        </td>
+        <td>
+          3549
+          -
+          3551
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          3536
+          -
+          3548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          spec.cluster
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          3632
+          -
+          3658
         </td>
         <td>
           Apply
@@ -1792,57 +2091,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          99
         </td>
         <td>
-          1958
+          1910
         </td>
         <td>
-          3321
+          3663
           -
-          3336
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;wookiee-kafka&quot;
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          1957
-        </td>
-        <td>
-          3304
-          -
-          3319
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.config.ConfigHelper.renewableConfig
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaSettings.this.renewableConfig
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          1960
-        </td>
-        <td>
-          3262
-          -
-          3337
+          3738
         </td>
         <td>
           Apply
@@ -1855,15 +2112,36 @@
         </td>
       </tr><tr>
         <td>
-          89
+          99
         </td>
         <td>
-          1959
+          1907
         </td>
         <td>
-          3276
+          3705
           -
-          3337
+          3720
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.renewableConfig
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaSettings.this.renewableConfig
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1909
+        </td>
+        <td>
+          3677
+          -
+          3738
         </td>
         <td>
           Apply
@@ -1873,6 +2151,27 @@
         </td>
         <td style="background: #F0ADAD">
           com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(KafkaSettings.this.renewableConfig, &quot;wookiee-kafka&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1908
+        </td>
+        <td>
+          3722
+          -
+          3737
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-kafka&quot;
         </td>
       </tr>
     </table>
