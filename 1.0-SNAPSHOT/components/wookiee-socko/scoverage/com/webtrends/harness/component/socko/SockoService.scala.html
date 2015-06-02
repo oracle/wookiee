@@ -1,0 +1,792 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/socko/SockoService.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.socko
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor.{Props, ActorRef}
+</span>23 <span style=''>import com.webtrends.harness.command.{CommandManager, Command}
+</span>24 <span style=''>import com.webtrends.harness.component.socko.route.{SockoRouteManager, SockoRouteHandler}
+</span>25 <span style=''>import com.webtrends.harness.service.Service
+</span>26 <span style=''>import com.webtrends.harness.service.messages.GetMetaDetails
+</span>27 <span style=''>import com.webtrends.harness.service.meta.ServiceMetaDetails
+</span>28 <span style=''>
+</span>29 <span style=''>import scala.collection.mutable
+</span>30 <span style=''>import scala.concurrent.{Promise, Future}
+</span>31 <span style=''>import scala.util.{Failure, Success}
+</span>32 <span style=''>
+</span>33 <span style=''>/**
+</span>34 <span style=''> * @author Michael Cuthbert on 1/26/15.
+</span>35 <span style=''> */
+</span>36 <span style=''>trait SockoService extends Service {
+</span>37 <span style=''>
+</span>38 <span style=''>  // list of currently held Socko Route handlers
+</span>39 <span style=''>  protected val handlers = </span><span style='background: #F0ADAD'>mutable.Map[String, SockoRouteHandler]()</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>  def addHandler[T<:SockoRouteHandler](handlerName:String, handler:SockoRouteHandler, methods:Seq[String]) : Future[SockoRouteHandler] = {
+</span>42 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[SockoRouteHandler]</span><span style=''>
+</span>43 <span style=''>    if (</span><span style='background: #F0ADAD'>classOf[Command].isAssignableFrom(handler.getClass)</span><span style=''>) {
+</span>44 <span style=''>      </span><span style='background: #F0ADAD'>CommandManager.getCommand(handlerName) match {
+</span>45 <span style=''></span><span style='background: #F0ADAD'>        case Some(ref) => p success handler
+</span>46 <span style=''></span><span style='background: #F0ADAD'>        case None =>
+</span>47 <span style=''></span><span style='background: #F0ADAD'>          addCommand(handlerName, handler.getClass.asInstanceOf[Class[Command]]) onComplete {
+</span>48 <span style=''></span><span style='background: #F0ADAD'>            case Success(ref) =>
+</span>49 <span style=''></span><span style='background: #F0ADAD'>              handlers += handlerName -> handler
+</span>50 <span style=''></span><span style='background: #F0ADAD'>              SockoRouteManager.addHandlers(handlerName, handler, methods)
+</span>51 <span style=''></span><span style='background: #F0ADAD'>              p success handler
+</span>52 <span style=''></span><span style='background: #F0ADAD'>            case Failure(f) => p failure f
+</span>53 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>54 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>55 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>56 <span style=''></span><span style='background: #F0ADAD'>      handlers += handlerName -> handler
+</span>57 <span style=''></span><span style='background: #F0ADAD'>      SockoRouteManager.addHandlers(handlerName, handler, methods)
+</span>58 <span style=''></span><span style='background: #F0ADAD'>      p success handler
+</span>59 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>60 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  // To be defined in service actor
+</span>64 <span style=''>  override def serviceReceive = {
+</span>65 <span style=''>    // This is called by the harness itself in order to get internal details of the service
+</span>66 <span style=''>    case GetMetaDetails =>
+</span>67 <span style=''>      // Get the services meta data
+</span>68 <span style=''>      </span><span style='background: #F0ADAD'>sender() ! getMetaDetails</span><span style=''>
+</span>69 <span style=''>  }: Receive
+</span>70 <span style=''>
+</span>71 <span style=''>  /**
+</span>72 <span style=''>   * The actor has been asked to respond with some additional meta information.
+</span>73 <span style=''>   * @return An instance of ServiceMetaDetails
+</span>74 <span style=''>   */
+</span>75 <span style=''>  protected def getMetaDetails: ServiceMetaDetails = {
+</span>76 <span style=''>    </span><span style='background: #F0ADAD'>ServiceMetaDetails(handlers.size>0)</span><span style=''>
+</span>77 <span style=''>  }
+</span>78 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          1418
+          -
+          1458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, com.webtrends.harness.component.socko.route.SockoRouteHandler]()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          1611
+          -
+          1637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.component.socko.route.SockoRouteHandler]()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          1646
+          -
+          1662
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.command.Command]
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          1646
+          -
+          1697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.isAssignableFrom
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[com.webtrends.harness.command.Command].isAssignableFrom(handler.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          1680
+          -
+          1696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          handler.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          1707
+          -
+          1745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.getCommand
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.command.CommandManager.getCommand(handlerName)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          1707
+          -
+          2164
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.command.CommandManager.getCommand(handlerName) match {
+  case (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((ref @ _)) =&gt; p.success(handler)
+  case scala.None =&gt; SockoService.this.addCommand[com.webtrends.harness.command.Command](handlerName, handler.getClass().asInstanceOf[Class[com.webtrends.harness.command.Command]]).onComplete[scala.concurrent.Promise[com.webtrends.harness.component.socko.route.SockoRouteHandler]](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+    case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((ref @ _)) =&gt; {
+      SockoService.this.handlers.+=(scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler));
+      com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers(handlerName, handler, methods)(SockoService.this.context);
+      p.success(handler)
+    }
+    case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; p.failure(f)
+  }))(SockoService.this.executor)
+}
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          1780
+          -
+          1797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(handler)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          1900
+          -
+          1900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.Service.executor
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.executor
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          1853
+          -
+          1898
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          handler.getClass().asInstanceOf[Class[com.webtrends.harness.command.Command]]
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          1829
+          -
+          2156
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.addCommand[com.webtrends.harness.command.Command](handlerName, handler.getClass().asInstanceOf[Class[com.webtrends.harness.command.Command]]).onComplete[scala.concurrent.Promise[com.webtrends.harness.component.socko.route.SockoRouteHandler]](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((ref @ _)) =&gt; {
+    SockoService.this.handlers.+=(scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler));
+    com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers(handlerName, handler, methods)(SockoService.this.context);
+    p.success(handler)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; p.failure(f)
+}))(SockoService.this.executor)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          1972
+          -
+          1994
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          1960
+          -
+          1994
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.handlers.+=(scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          2009
+          -
+          2069
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers(handlerName, handler, methods)(SockoService.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          2038
+          -
+          2038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.context
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          2084
+          -
+          2101
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(handler)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          2133
+          -
+          2144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          2176
+          -
+          2315
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  SockoService.this.handlers.+=(scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler));
+  com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers(handlerName, handler, methods)(SockoService.this.context);
+  p.success(handler)
+}
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          2196
+          -
+          2218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          2184
+          -
+          2218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.handlers.+=(scala.this.Predef.ArrowAssoc[String](handlerName).-&gt;[com.webtrends.harness.component.socko.route.SockoRouteHandler](handler))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          2225
+          -
+          2285
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.socko.route.SockoRouteManager.addHandlers(handlerName, handler, methods)(SockoService.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          2254
+          -
+          2254
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.context
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          2292
+          -
+          2309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(handler)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          2320
+          -
+          2328
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          2402
+          -
+          2402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoService.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.self
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          2576
+          -
+          2590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoService.getMetaDetails
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.getMetaDetails
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          2565
+          -
+          2573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          2565
+          -
+          2590
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(SockoService.this.sender()).!(SockoService.this.getMetaDetails)(SockoService.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          2822
+          -
+          2837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          SockoService.this.handlers.size.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          2803
+          -
+          2838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.meta.ServiceMetaDetails.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.meta.ServiceMetaDetails.apply(SockoService.this.handlers.size.&gt;(0))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
