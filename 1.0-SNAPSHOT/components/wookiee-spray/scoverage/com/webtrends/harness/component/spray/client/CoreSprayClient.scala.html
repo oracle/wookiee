@@ -44,134 +44,139 @@
 </span>19 <span style=''>package com.webtrends.harness.component.spray.client
 </span>20 <span style=''>
 </span>21 <span style=''>import com.webtrends.harness.app.HActor
-</span>22 <span style=''>import spray.can.server.UHttp
-</span>23 <span style=''>import spray.http._
-</span>24 <span style=''>import akka.util.Timeout
-</span>25 <span style=''>import scala.concurrent.duration._
-</span>26 <span style=''>import akka.actor.{ActorSystem, Props, Status}
-</span>27 <span style=''>import scala.concurrent.{Promise, Await, Future}
-</span>28 <span style=''>import spray.client.pipelining._
-</span>29 <span style=''>import spray.httpx.encoding.Gzip
-</span>30 <span style=''>import spray.http.HttpMethods._
-</span>31 <span style=''>import akka.pattern._
-</span>32 <span style=''>import scala.util.control.NonFatal
-</span>33 <span style=''>import net.liftweb.json._
-</span>34 <span style=''>import net.liftweb.json.Extraction.decompose
-</span>35 <span style=''>import akka.io.IO
-</span>36 <span style=''>import spray.can.Http
-</span>37 <span style=''>import spray.httpx.marshalling.Marshaller
-</span>38 <span style=''>import scala.util.Failure
-</span>39 <span style=''>import spray.http.HttpResponse
-</span>40 <span style=''>import scala.util.Success
-</span>41 <span style=''>import spray.http.HttpRequest
-</span>42 <span style=''>
-</span>43 <span style=''>/**
-</span>44 <span style=''> * This is a spray implementation of the HttpClient, Spray will handle pooling and connection management.
-</span>45 <span style=''> */
-</span>46 <span style=''>object CoreSprayClient {
-</span>47 <span style=''>  def props: Props = </span><span style='background: #AEF1AE'>Props[CoreSprayClient]</span><span style=''>
-</span>48 <span style=''>}
-</span>49 <span style=''>
-</span>50 <span style=''>class CoreSprayClient extends HActor with HttpLiftSupport {
-</span>51 <span style=''>  import context.dispatcher
-</span>52 <span style=''>  implicit val system:ActorSystem = </span><span style='background: #AEF1AE'>context.system</span><span style=''>
-</span>53 <span style=''>
-</span>54 <span style=''>  val pipeline:HttpRequest => Future[HttpResponse] = (
-</span>55 <span style=''>    </span><span style='background: #AEF1AE'>encode(Gzip)
-</span>56 <span style=''></span><span style='background: #AEF1AE'>      ~> sendReceive(IO(UHttp))
-</span>57 <span style=''></span><span style='background: #AEF1AE'>      ~> decode(Gzip)</span><span style=''>
-</span>58 <span style=''>    )
-</span>59 <span style=''>
-</span>60 <span style=''>  /**
-</span>61 <span style=''>   * Will route messages to correct behavior, mainly will go to service
-</span>62 <span style=''>   */
-</span>63 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>super.receive orElse {
-</span>64 <span style=''></span><span style='background: #AEF1AE'>    case HttpGet(config, path, headers) => </span><span style='background: #F0ADAD'>service(config, GET, path, None, headers)</span><span style='background: #AEF1AE'>
-</span>65 <span style=''></span><span style='background: #AEF1AE'>    case HttpPost(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, POST, path, Some(body), headers)</span><span style='background: #AEF1AE'>
-</span>66 <span style=''></span><span style='background: #AEF1AE'>    case HttpPut(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, PUT, path, Some(body), headers)</span><span style='background: #AEF1AE'>
-</span>67 <span style=''></span><span style='background: #AEF1AE'>    case HttpDelete(config, path, headers) => </span><span style='background: #F0ADAD'>service(config, DELETE, path, None, headers)</span><span style='background: #AEF1AE'>
-</span>68 <span style=''></span><span style='background: #AEF1AE'>    case HttpOptions(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, OPTIONS, path, Some(body), headers)</span><span style='background: #AEF1AE'>
-</span>69 <span style=''></span><span style='background: #AEF1AE'>    case HttpPatch(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, PATCH, path, Some(body), headers)</span><span style='background: #AEF1AE'>
-</span>70 <span style=''></span><span style='background: #AEF1AE'>    case HttpPing(config, timeout, path) => </span><span style='background: #F0ADAD'>pipe(ping(config, timeout, path)) to sender</span><span style='background: #AEF1AE'>
-</span>71 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>72 <span style=''>
-</span>73 <span style=''>  /**
-</span>74 <span style=''>   * Will service the request by routing
-</span>75 <span style=''>   *
-</span>76 <span style=''>   * @param config
-</span>77 <span style=''>   * @param method
-</span>78 <span style=''>   * @param path
-</span>79 <span style=''>   * @param body
-</span>80 <span style=''>   * @param headers
-</span>81 <span style=''>   * @tparam T
-</span>82 <span style=''>   */
-</span>83 <span style=''>  // add marshallers based on the content-type in the headers
-</span>84 <span style=''>  def service[T:Manifest](config:HttpConfig, method:HttpMethod, path:String, body:Option[T], headers:List[HttpHeader]) = {
-</span>85 <span style=''>    implicit val HttpJsonMarshaller =
-</span>86 <span style=''>      </span><span style='background: #F0ADAD'>Marshaller.of[T](ContentTypes.`application/json`) { (value, contentType, ctx) =>
-</span>87 <span style=''></span><span style='background: #F0ADAD'>        ctx.marshalTo(HttpEntity(contentType, compactRender(decompose(value))))
-</span>88 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>89 <span style=''>    try {
-</span>90 <span style=''>      </span><span style='background: #F0ADAD'>val fullPath = config.fullPath(path)
-</span>91 <span style=''></span><span style='background: #F0ADAD'>      val responseFuture = pipeline {
-</span>92 <span style=''></span><span style='background: #F0ADAD'>        method match {
-</span>93 <span style=''></span><span style='background: #F0ADAD'>          case GET =>
-</span>94 <span style=''></span><span style='background: #F0ADAD'>            Get(fullPath).withHeaders(headers)
-</span>95 <span style=''></span><span style='background: #F0ADAD'>          case POST =>
-</span>96 <span style=''></span><span style='background: #F0ADAD'>            Post(fullPath, body).withHeaders(headers)
-</span>97 <span style=''></span><span style='background: #F0ADAD'>          case PUT =>
-</span>98 <span style=''></span><span style='background: #F0ADAD'>            Put(fullPath, body).withHeaders(headers)
-</span>99 <span style=''></span><span style='background: #F0ADAD'>          case DELETE =>
-</span>100 <span style=''></span><span style='background: #F0ADAD'>            Delete(fullPath).withHeaders(headers)
-</span>101 <span style=''></span><span style='background: #F0ADAD'>          case OPTIONS =>
-</span>102 <span style=''></span><span style='background: #F0ADAD'>            Options(fullPath, body).withHeaders(headers)
-</span>103 <span style=''></span><span style='background: #F0ADAD'>          case PATCH =>
-</span>104 <span style=''></span><span style='background: #F0ADAD'>            Patch(fullPath, body).withHeaders(headers)
-</span>105 <span style=''></span><span style='background: #F0ADAD'>          case HEAD =>
-</span>106 <span style=''></span><span style='background: #F0ADAD'>            Head(fullPath).withHeaders(headers)
-</span>107 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>108 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>109 <span style=''></span><span style='background: #F0ADAD'>
-</span>110 <span style=''></span><span style='background: #F0ADAD'>      val caller = sender
-</span>111 <span style=''></span><span style='background: #F0ADAD'>      responseFuture onComplete {
-</span>112 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) => caller ! HttpResp(s.entity, s.headers, s.status)
-</span>113 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
-</span>114 <span style=''></span><span style='background: #F0ADAD'>          caller ! Status.Failure(HttpClientException("URL[%s] : %s".format(fullPath, f.getMessage), f))
-</span>115 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>116 <span style=''>    } catch {
-</span>117 <span style=''>      case NonFatal(e) =>
-</span>118 <span style=''>        </span><span style='background: #F0ADAD'>sender ! Status.Failure(HttpClientException(e.getMessage, e))</span><span style=''>
-</span>119 <span style=''>        </span><span style='background: #F0ADAD'>throw HttpClientException(e.getMessage, e)</span><span style=''>
-</span>120 <span style=''>    }
-</span>121 <span style=''>  }
-</span>122 <span style=''>
-</span>123 <span style=''>  def shutdown = {
-</span>124 <span style=''>    val f = </span><span style='background: #F0ADAD'>IO(UHttp).ask(Http.CloseAll)(2 seconds)</span><span style=''>
-</span>125 <span style=''>    </span><span style='background: #F0ADAD'>Await.ready(f, 2 seconds)</span><span style=''>
+</span>22 <span style=''>import com.webtrends.harness.component.spray.SprayManager
+</span>23 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>24 <span style=''>import spray.can.server.UHttp
+</span>25 <span style=''>import spray.http._
+</span>26 <span style=''>import akka.util.Timeout
+</span>27 <span style=''>import scala.concurrent.duration._
+</span>28 <span style=''>import akka.actor.{ActorSystem, Props, Status}
+</span>29 <span style=''>import scala.concurrent.{Promise, Await, Future}
+</span>30 <span style=''>import spray.client.pipelining._
+</span>31 <span style=''>import spray.httpx.encoding.Gzip
+</span>32 <span style=''>import spray.http.HttpMethods._
+</span>33 <span style=''>import akka.pattern._
+</span>34 <span style=''>import scala.util.control.NonFatal
+</span>35 <span style=''>import net.liftweb.json._
+</span>36 <span style=''>import net.liftweb.json.Extraction.decompose
+</span>37 <span style=''>import akka.io.IO
+</span>38 <span style=''>import spray.can.Http
+</span>39 <span style=''>import spray.httpx.marshalling.Marshaller
+</span>40 <span style=''>import scala.util.Failure
+</span>41 <span style=''>import spray.http.HttpResponse
+</span>42 <span style=''>import scala.util.Success
+</span>43 <span style=''>import spray.http.HttpRequest
+</span>44 <span style=''>
+</span>45 <span style=''>/**
+</span>46 <span style=''> * This is a spray implementation of the HttpClient, Spray will handle pooling and connection management.
+</span>47 <span style=''> */
+</span>48 <span style=''>object CoreSprayClient {
+</span>49 <span style=''>  def props: Props = </span><span style='background: #AEF1AE'>Props[CoreSprayClient]</span><span style=''>
+</span>50 <span style=''>}
+</span>51 <span style=''>
+</span>52 <span style=''>class CoreSprayClient extends HActor with HttpLiftSupport {
+</span>53 <span style=''>  import context.dispatcher
+</span>54 <span style=''>  implicit val system:ActorSystem = </span><span style='background: #AEF1AE'>context.system</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  // 60 seconds is the default that spray uses, so if the config value is not set we won't change the default
+</span>57 <span style=''>  implicit val futureTimeout = </span><span style='background: #AEF1AE'>ConfigUtil.getDefaultTimeout(context.system.settings.config, SprayManager.KeyHttpClientTimeout, 60 seconds)</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  val pipeline:HttpRequest => Future[HttpResponse] = (
+</span>60 <span style=''>    </span><span style='background: #AEF1AE'>encode(Gzip)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      ~> sendReceive(IO(UHttp))
+</span>62 <span style=''></span><span style='background: #AEF1AE'>      ~> decode(Gzip)</span><span style=''>
+</span>63 <span style=''>    )
+</span>64 <span style=''>
+</span>65 <span style=''>  /**
+</span>66 <span style=''>   * Will route messages to correct behavior, mainly will go to service
+</span>67 <span style=''>   */
+</span>68 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>super.receive orElse {
+</span>69 <span style=''></span><span style='background: #AEF1AE'>    case HttpGet(config, path, headers) => </span><span style='background: #F0ADAD'>service(config, GET, path, None, headers)</span><span style='background: #AEF1AE'>
+</span>70 <span style=''></span><span style='background: #AEF1AE'>    case HttpPost(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, POST, path, Some(body), headers)</span><span style='background: #AEF1AE'>
+</span>71 <span style=''></span><span style='background: #AEF1AE'>    case HttpPut(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, PUT, path, Some(body), headers)</span><span style='background: #AEF1AE'>
+</span>72 <span style=''></span><span style='background: #AEF1AE'>    case HttpDelete(config, path, headers) => </span><span style='background: #F0ADAD'>service(config, DELETE, path, None, headers)</span><span style='background: #AEF1AE'>
+</span>73 <span style=''></span><span style='background: #AEF1AE'>    case HttpOptions(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, OPTIONS, path, Some(body), headers)</span><span style='background: #AEF1AE'>
+</span>74 <span style=''></span><span style='background: #AEF1AE'>    case HttpPatch(config, path, body, headers) => </span><span style='background: #F0ADAD'>service(config, PATCH, path, Some(body), headers)</span><span style='background: #AEF1AE'>
+</span>75 <span style=''></span><span style='background: #AEF1AE'>    case HttpPing(config, timeout, path) => </span><span style='background: #F0ADAD'>pipe(ping(config, timeout, path)) to sender</span><span style='background: #AEF1AE'>
+</span>76 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>77 <span style=''>
+</span>78 <span style=''>  /**
+</span>79 <span style=''>   * Will service the request by routing
+</span>80 <span style=''>   *
+</span>81 <span style=''>   * @param config
+</span>82 <span style=''>   * @param method
+</span>83 <span style=''>   * @param path
+</span>84 <span style=''>   * @param body
+</span>85 <span style=''>   * @param headers
+</span>86 <span style=''>   * @tparam T
+</span>87 <span style=''>   */
+</span>88 <span style=''>  // add marshallers based on the content-type in the headers
+</span>89 <span style=''>  def service[T:Manifest](config:HttpConfig, method:HttpMethod, path:String, body:Option[T], headers:List[HttpHeader]) = {
+</span>90 <span style=''>    implicit val HttpJsonMarshaller =
+</span>91 <span style=''>      </span><span style='background: #F0ADAD'>Marshaller.of[T](ContentTypes.`application/json`) { (value, contentType, ctx) =>
+</span>92 <span style=''></span><span style='background: #F0ADAD'>        ctx.marshalTo(HttpEntity(contentType, compactRender(decompose(value))))
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>94 <span style=''>    try {
+</span>95 <span style=''>      </span><span style='background: #F0ADAD'>val fullPath = config.fullPath(path)
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      val responseFuture = pipeline {
+</span>97 <span style=''></span><span style='background: #F0ADAD'>        method match {
+</span>98 <span style=''></span><span style='background: #F0ADAD'>          case GET =>
+</span>99 <span style=''></span><span style='background: #F0ADAD'>            Get(fullPath).withHeaders(headers)
+</span>100 <span style=''></span><span style='background: #F0ADAD'>          case POST =>
+</span>101 <span style=''></span><span style='background: #F0ADAD'>            Post(fullPath, body).withHeaders(headers)
+</span>102 <span style=''></span><span style='background: #F0ADAD'>          case PUT =>
+</span>103 <span style=''></span><span style='background: #F0ADAD'>            Put(fullPath, body).withHeaders(headers)
+</span>104 <span style=''></span><span style='background: #F0ADAD'>          case DELETE =>
+</span>105 <span style=''></span><span style='background: #F0ADAD'>            Delete(fullPath).withHeaders(headers)
+</span>106 <span style=''></span><span style='background: #F0ADAD'>          case OPTIONS =>
+</span>107 <span style=''></span><span style='background: #F0ADAD'>            Options(fullPath, body).withHeaders(headers)
+</span>108 <span style=''></span><span style='background: #F0ADAD'>          case PATCH =>
+</span>109 <span style=''></span><span style='background: #F0ADAD'>            Patch(fullPath, body).withHeaders(headers)
+</span>110 <span style=''></span><span style='background: #F0ADAD'>          case HEAD =>
+</span>111 <span style=''></span><span style='background: #F0ADAD'>            Head(fullPath).withHeaders(headers)
+</span>112 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>113 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>114 <span style=''></span><span style='background: #F0ADAD'>
+</span>115 <span style=''></span><span style='background: #F0ADAD'>      val caller = sender
+</span>116 <span style=''></span><span style='background: #F0ADAD'>      responseFuture onComplete {
+</span>117 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) => caller ! HttpResp(s.entity, s.headers, s.status)
+</span>118 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>119 <span style=''></span><span style='background: #F0ADAD'>          caller ! Status.Failure(HttpClientException("URL[%s] : %s".format(fullPath, f.getMessage), f))
+</span>120 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>121 <span style=''>    } catch {
+</span>122 <span style=''>      case NonFatal(e) =>
+</span>123 <span style=''>        </span><span style='background: #F0ADAD'>sender ! Status.Failure(HttpClientException(e.getMessage, e))</span><span style=''>
+</span>124 <span style=''>        </span><span style='background: #F0ADAD'>throw HttpClientException(e.getMessage, e)</span><span style=''>
+</span>125 <span style=''>    }
 </span>126 <span style=''>  }
 </span>127 <span style=''>
-</span>128 <span style=''>  def ping(config:HttpConfig, timeoutValue:Int=1, pingPath:String="ping") : Future[ConnectionStatus] = {
-</span>129 <span style=''>    implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(Duration(timeoutValue, "seconds"))</span><span style=''>
-</span>130 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ConnectionStatus]()</span><span style=''>
-</span>131 <span style=''>    try {
-</span>132 <span style=''>      </span><span style='background: #F0ADAD'>val f = (self ? HttpGet(config, pingPath))(timeout)
-</span>133 <span style=''></span><span style='background: #F0ADAD'>      f onComplete {
-</span>134 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
-</span>135 <span style=''></span><span style='background: #F0ADAD'>          p success ConnectionStatus(false, "Could not connect to " + config.fullPath("ping") + " responded with exception " + f.getMessage)
-</span>136 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) =>
-</span>137 <span style=''></span><span style='background: #F0ADAD'>          s.asInstanceOf[HttpResp].statusCode match {
-</span>138 <span style=''></span><span style='background: #F0ADAD'>            case s:StatusCodes.Success => p success ConnectionStatus(true, "Connected successfully to " + config.fullPath(pingPath))
-</span>139 <span style=''></span><span style='background: #F0ADAD'>            case _ => p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath))
-</span>140 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>141 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>142 <span style=''>    } catch {
-</span>143 <span style=''>      case e:Throwable =>
-</span>144 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
-</span>145 <span style=''>        </span><span style='background: #F0ADAD'>p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
-</span>146 <span style=''>    }
-</span>147 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
-</span>148 <span style=''>  }
-</span>149 <span style=''>}
+</span>128 <span style=''>  def shutdown = {
+</span>129 <span style=''>    val f = </span><span style='background: #F0ADAD'>IO(UHttp).ask(Http.CloseAll)(2 seconds)</span><span style=''>
+</span>130 <span style=''>    </span><span style='background: #F0ADAD'>Await.ready(f, 2 seconds)</span><span style=''>
+</span>131 <span style=''>  }
+</span>132 <span style=''>
+</span>133 <span style=''>  def ping(config:HttpConfig, timeoutValue:Int=1, pingPath:String="ping") : Future[ConnectionStatus] = {
+</span>134 <span style=''>    implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(Duration(timeoutValue, "seconds"))</span><span style=''>
+</span>135 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ConnectionStatus]()</span><span style=''>
+</span>136 <span style=''>    try {
+</span>137 <span style=''>      </span><span style='background: #F0ADAD'>val f = (self ? HttpGet(config, pingPath))(timeout)
+</span>138 <span style=''></span><span style='background: #F0ADAD'>      f onComplete {
+</span>139 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>140 <span style=''></span><span style='background: #F0ADAD'>          p success ConnectionStatus(false, "Could not connect to " + config.fullPath("ping") + " responded with exception " + f.getMessage)
+</span>141 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) =>
+</span>142 <span style=''></span><span style='background: #F0ADAD'>          s.asInstanceOf[HttpResp].statusCode match {
+</span>143 <span style=''></span><span style='background: #F0ADAD'>            case s:StatusCodes.Success => p success ConnectionStatus(true, "Connected successfully to " + config.fullPath(pingPath))
+</span>144 <span style=''></span><span style='background: #F0ADAD'>            case _ => p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath))
+</span>145 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>146 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>147 <span style=''>    } catch {
+</span>148 <span style=''>      case e:Throwable =>
+</span>149 <span style=''>        </span><span style='background: #F0ADAD'>log.debug("Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
+</span>150 <span style=''>        </span><span style='background: #F0ADAD'>p success ConnectionStatus(false, "Could not connect to " + config.fullPath(pingPath) + " responded with error " + e.getMessage)</span><span style=''>
+</span>151 <span style=''>    }
+</span>152 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>153 <span style=''>  }
+</span>154 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -185,15 +190,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          47
+          49
         </td>
         <td>
-          634
+          644
         </td>
         <td>
-          1621
+          1725
           -
-          1643
+          1747
         </td>
         <td>
           ApplyToImplicitArgs
@@ -206,15 +211,15 @@
         </td>
       </tr><tr>
         <td>
-          52
+          54
         </td>
         <td>
-          635
+          645
         </td>
         <td>
-          1771
+          1875
           -
-          1785
+          1889
         </td>
         <td>
           Select
@@ -227,36 +232,162 @@
         </td>
       </tr><tr>
         <td>
-          55
+          57
         </td>
         <td>
-          636
+          648
         </td>
         <td>
-          1853
+          2128
           -
-          1857
+          2130
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          60
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          2043
+          -
+          2043
         </td>
         <td>
           Select
         </td>
         <td>
-          spray.httpx.encoding.Gzip
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
         </td>
         <td style="background: #AEF1AE">
-          spray.httpx.encoding.Gzip
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
         </td>
       </tr><tr>
         <td>
-          55
+          57
         </td>
         <td>
-          637
+          650
         </td>
         <td>
-          1846
+          2128
           -
-          1858
+          2138
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(60).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          2093
+          -
+          2126
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.SprayManager.KeyHttpClientTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.spray.SprayManager.KeyHttpClientTimeout
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          2061
+          -
+          2091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayClient.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          2128
+          -
+          2138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(60).seconds
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          2032
+          -
+          2139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout(CoreSprayClient.this.context.system.settings.config, com.webtrends.harness.component.spray.SprayManager.KeyHttpClientTimeout, util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(60).seconds), com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          2200
+          -
+          2212
         </td>
         <td>
           Apply
@@ -269,120 +400,57 @@
         </td>
       </tr><tr>
         <td>
-          56
+          60
         </td>
         <td>
-          639
+          653
         </td>
         <td>
-          1882
+          2207
           -
-          1882
+          2211
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.spray.client.CoreSprayClient.system
+          spray.httpx.encoding.Gzip
         </td>
         <td style="background: #AEF1AE">
-          CoreSprayClient.this.system
+          spray.httpx.encoding.Gzip
         </td>
       </tr><tr>
         <td>
-          56
+          61
         </td>
         <td>
-          642
+          660
         </td>
         <td>
-          1879
+          2222
           -
-          1879
+          2244
         </td>
         <td>
-          Select
+          ApplyToImplicitArgs
         </td>
         <td>
-          com.webtrends.harness.health.ActorHealth.checkTimeout
+          spray.client.pipelining.sendReceive
         </td>
         <td style="background: #AEF1AE">
-          CoreSprayClient.this.checkTimeout
+          spray.client.pipelining.sendReceive(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system))(CoreSprayClient.this.context.dispatcher, CoreSprayClient.this.futureTimeout)
         </td>
       </tr><tr>
         <td>
-          56
+          61
         </td>
         <td>
-          641
+          657
         </td>
         <td>
-          1879
+          2234
           -
-          1879
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #AEF1AE">
-          CoreSprayClient.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          56
-        </td>
-        <td>
-          644
-        </td>
-        <td>
-          1865
-          -
-          1865
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          spray.httpx.TransformerAux.aux1
-        </td>
-        <td style="background: #AEF1AE">
-          httpx.this.TransformerAux.aux1[spray.http.HttpRequest, spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse]]
-        </td>
-      </tr><tr>
-        <td>
-          56
-        </td>
-        <td>
-          638
-        </td>
-        <td>
-          1883
-          -
-          1888
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.can.server.UHttp
-        </td>
-        <td style="background: #AEF1AE">
-          spray.can.server.UHttp
-        </td>
-      </tr><tr>
-        <td>
-          56
-        </td>
-        <td>
-          640
-        </td>
-        <td>
-          1880
-          -
-          1889
+          2243
         </td>
         <td>
           ApplyToImplicitArgs
@@ -395,78 +463,78 @@
         </td>
       </tr><tr>
         <td>
-          56
+          61
         </td>
         <td>
-          643
+          659
         </td>
         <td>
-          1868
+          2233
           -
-          1890
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          spray.client.pipelining.sendReceive
-        </td>
-        <td style="background: #AEF1AE">
-          spray.client.pipelining.sendReceive(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system))(CoreSprayClient.this.context.dispatcher, CoreSprayClient.this.checkTimeout)
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          645
-        </td>
-        <td>
-          1907
-          -
-          1911
+          2233
         </td>
         <td>
           Select
         </td>
         <td>
-          spray.httpx.encoding.Gzip
+          com.webtrends.harness.component.spray.client.CoreSprayClient.futureTimeout
         </td>
         <td style="background: #AEF1AE">
-          spray.httpx.encoding.Gzip
+          CoreSprayClient.this.futureTimeout
         </td>
       </tr><tr>
         <td>
-          57
+          61
         </td>
         <td>
-          648
+          656
         </td>
         <td>
-          1897
+          2236
           -
-          1897
+          2236
         </td>
         <td>
-          ApplyToImplicitArgs
+          Select
         </td>
         <td>
-          spray.httpx.TransformerAux.aux2
+          com.webtrends.harness.component.spray.client.CoreSprayClient.system
         </td>
         <td style="background: #AEF1AE">
-          httpx.this.TransformerAux.aux2[spray.http.HttpRequest, spray.http.HttpResponse, spray.http.HttpResponse](CoreSprayClient.this.context.dispatcher)
+          CoreSprayClient.this.system
         </td>
       </tr><tr>
         <td>
-          57
+          61
         </td>
         <td>
-          647
+          655
         </td>
         <td>
-          1897
+          2237
           -
-          1897
+          2242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.server.UHttp
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.server.UHttp
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          2233
+          -
+          2233
         </td>
         <td>
           Select
@@ -479,15 +547,36 @@
         </td>
       </tr><tr>
         <td>
-          57
+          61
         </td>
         <td>
-          646
+          661
         </td>
         <td>
-          1900
+          2219
           -
-          1912
+          2219
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          spray.httpx.TransformerAux.aux1
+        </td>
+        <td style="background: #AEF1AE">
+          httpx.this.TransformerAux.aux1[spray.http.HttpRequest, spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse]]
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          2254
+          -
+          2266
         </td>
         <td>
           Apply
@@ -500,15 +589,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          62
         </td>
         <td>
-          649
+          666
         </td>
         <td>
-          1846
+          2200
           -
-          1912
+          2266
         </td>
         <td>
           ApplyToImplicitArgs
@@ -517,19 +606,103 @@
           spray.httpx.TransformerPipelineSupport.WithTransformerConcatenation.~&gt;
         </td>
         <td style="background: #AEF1AE">
-          spray.client.pipelining.WithTransformerConcatenation[spray.http.HttpRequest, spray.http.HttpRequest](spray.client.pipelining.encode(spray.httpx.encoding.Gzip)).~&gt;[spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse], scala.concurrent.Future[spray.http.HttpResponse]](spray.client.pipelining.sendReceive(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system))(CoreSprayClient.this.context.dispatcher, CoreSprayClient.this.checkTimeout))(httpx.this.TransformerAux.aux1[spray.http.HttpRequest, spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse]]).~&gt;[spray.http.HttpResponse, spray.http.HttpResponse, scala.concurrent.Future[spray.http.HttpResponse]](spray.client.pipelining.decode(spray.httpx.encoding.Gzip))(httpx.this.TransformerAux.aux2[spray.http.HttpRequest, spray.http.HttpResponse, spray.http.HttpResponse](CoreSprayClient.this.context.dispatcher))
+          spray.client.pipelining.WithTransformerConcatenation[spray.http.HttpRequest, spray.http.HttpRequest](spray.client.pipelining.encode(spray.httpx.encoding.Gzip)).~&gt;[spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse], scala.concurrent.Future[spray.http.HttpResponse]](spray.client.pipelining.sendReceive(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system))(CoreSprayClient.this.context.dispatcher, CoreSprayClient.this.futureTimeout))(httpx.this.TransformerAux.aux1[spray.http.HttpRequest, spray.http.HttpRequest, scala.concurrent.Future[spray.http.HttpResponse]]).~&gt;[spray.http.HttpResponse, spray.http.HttpResponse, scala.concurrent.Future[spray.http.HttpResponse]](spray.client.pipelining.decode(spray.httpx.encoding.Gzip))(httpx.this.TransformerAux.aux2[spray.http.HttpRequest, spray.http.HttpResponse, spray.http.HttpResponse](CoreSprayClient.this.context.dispatcher))
         </td>
       </tr><tr>
         <td>
-          63
+          62
         </td>
         <td>
-          680
+          662
         </td>
         <td>
-          2029
+          2261
           -
-          2721
+          2265
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.httpx.encoding.Gzip
+        </td>
+        <td style="background: #AEF1AE">
+          spray.httpx.encoding.Gzip
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          2251
+          -
+          2251
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.httpx.TransformerAux.aux2
+        </td>
+        <td style="background: #AEF1AE">
+          httpx.this.TransformerAux.aux2[spray.http.HttpRequest, spray.http.HttpResponse, spray.http.HttpResponse](CoreSprayClient.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          2251
+          -
+          2251
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayClient.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          2404
+          -
+          2404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.CoreSprayClient.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          2383
+          -
+          3075
         </td>
         <td>
           Apply
@@ -573,36 +746,36 @@
         </td>
       </tr><tr>
         <td>
-          63
+          69
         </td>
         <td>
-          679
+          669
         </td>
         <td>
-          2050
+          2456
           -
-          2050
+          2456
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.spray.client.CoreSprayClient.$anonfun.&lt;init&gt;
+          scala.reflect.ManifestFactory.Nothing
         </td>
-        <td style="background: #AEF1AE">
-          new $anonfun()
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.Nothing
         </td>
       </tr><tr>
         <td>
-          64
+          69
         </td>
         <td>
-          651
+          668
         </td>
         <td>
-          2122
+          2476
           -
-          2126
+          2480
         </td>
         <td>
           Select
@@ -615,15 +788,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          69
         </td>
         <td>
-          650
+          667
         </td>
         <td>
-          2111
+          2465
           -
-          2114
+          2468
         </td>
         <td>
           Select
@@ -636,15 +809,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          69
         </td>
         <td>
-          653
+          670
         </td>
         <td>
-          2095
+          2449
           -
-          2136
+          2490
         </td>
         <td>
           ApplyToImplicitArgs
@@ -657,36 +830,36 @@
         </td>
       </tr><tr>
         <td>
-          64
+          70
         </td>
         <td>
-          652
+          672
         </td>
         <td>
-          2102
+          2569
           -
-          2102
+          2579
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          scala.reflect.ManifestFactory.Nothing
+          scala.Some.apply
         </td>
         <td style="background: #F0ADAD">
-          reflect.this.ManifestFactory.Nothing
+          scala.Some.apply[Any](body)
         </td>
       </tr><tr>
         <td>
-          65
+          70
         </td>
         <td>
-          654
+          671
         </td>
         <td>
-          2203
+          2557
           -
-          2207
+          2561
         </td>
         <td>
           Select
@@ -699,15 +872,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          70
         </td>
         <td>
-          657
+          674
         </td>
         <td>
-          2187
+          2541
           -
-          2235
+          2589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -720,15 +893,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          70
         </td>
         <td>
-          656
+          673
         </td>
         <td>
-          2194
+          2548
           -
-          2194
+          2548
         </td>
         <td>
           Select
@@ -741,99 +914,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          71
         </td>
         <td>
-          655
+          678
         </td>
         <td>
-          2215
+          2639
           -
-          2225
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[Any](body)
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          660
-        </td>
-        <td>
-          2292
-          -
-          2292
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.reflect.ManifestFactory.Any
-        </td>
-        <td style="background: #F0ADAD">
-          reflect.this.ManifestFactory.Any
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          659
-        </td>
-        <td>
-          2312
-          -
-          2322
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[Any](body)
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          658
-        </td>
-        <td>
-          2301
-          -
-          2304
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.http.HttpMethods.PUT
-        </td>
-        <td style="background: #F0ADAD">
-          spray.http.HttpMethods.PUT
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          661
-        </td>
-        <td>
-          2285
-          -
-          2332
+          2686
         </td>
         <td>
           ApplyToImplicitArgs
@@ -846,78 +935,78 @@
         </td>
       </tr><tr>
         <td>
-          67
+          71
         </td>
         <td>
-          663
+          675
         </td>
         <td>
-          2409
+          2655
           -
-          2413
+          2658
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.None
+          spray.http.HttpMethods.PUT
         </td>
         <td style="background: #F0ADAD">
-          scala.None
+          spray.http.HttpMethods.PUT
         </td>
       </tr><tr>
         <td>
-          67
+          71
         </td>
         <td>
-          662
+          677
         </td>
         <td>
-          2395
+          2646
           -
-          2401
+          2646
         </td>
         <td>
           Select
         </td>
         <td>
-          spray.http.HttpMethods.DELETE
+          scala.reflect.ManifestFactory.Any
         </td>
         <td style="background: #F0ADAD">
-          spray.http.HttpMethods.DELETE
+          reflect.this.ManifestFactory.Any
         </td>
       </tr><tr>
         <td>
-          67
+          71
         </td>
         <td>
-          665
+          676
         </td>
         <td>
-          2379
+          2666
           -
-          2423
+          2676
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.spray.client.CoreSprayClient.service
+          scala.Some.apply
         </td>
         <td style="background: #F0ADAD">
-          CoreSprayClient.this.service[Nothing](config, spray.http.HttpMethods.DELETE, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+          scala.Some.apply[Any](body)
         </td>
       </tr><tr>
         <td>
-          67
+          72
         </td>
         <td>
-          664
+          681
         </td>
         <td>
-          2386
+          2740
           -
-          2386
+          2740
         </td>
         <td>
           Select
@@ -930,15 +1019,120 @@
         </td>
       </tr><tr>
         <td>
-          68
+          72
         </td>
         <td>
-          669
+          680
         </td>
         <td>
-          2477
+          2763
           -
-          2528
+          2767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          682
+        </td>
+        <td>
+          2733
+          -
+          2777
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.CoreSprayClient.service
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.service[Nothing](config, spray.http.HttpMethods.DELETE, path, scala.None, headers)(reflect.this.ManifestFactory.Nothing)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          2749
+          -
+          2755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.DELETE
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.DELETE
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          2862
+          -
+          2872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Any](body)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          2847
+          -
+          2854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.HttpMethods.OPTIONS
+        </td>
+        <td style="background: #F0ADAD">
+          spray.http.HttpMethods.OPTIONS
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          2831
+          -
+          2882
         </td>
         <td>
           ApplyToImplicitArgs
@@ -951,36 +1145,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          73
         </td>
         <td>
-          666
+          685
         </td>
         <td>
-          2493
+          2838
           -
-          2500
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.http.HttpMethods.OPTIONS
-        </td>
-        <td style="background: #F0ADAD">
-          spray.http.HttpMethods.OPTIONS
-        </td>
-      </tr><tr>
-        <td>
-          68
-        </td>
-        <td>
-          668
-        </td>
-        <td>
-          2484
-          -
-          2484
+          2838
         </td>
         <td>
           Select
@@ -993,78 +1166,36 @@
         </td>
       </tr><tr>
         <td>
-          68
+          74
         </td>
         <td>
-          667
+          687
         </td>
         <td>
-          2508
+          2950
           -
-          2518
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[Any](body)
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          672
-        </td>
-        <td>
-          2587
-          -
-          2587
+          2955
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.reflect.ManifestFactory.Any
+          spray.http.HttpMethods.PATCH
         </td>
         <td style="background: #F0ADAD">
-          reflect.this.ManifestFactory.Any
+          spray.http.HttpMethods.PATCH
         </td>
       </tr><tr>
         <td>
-          69
+          74
         </td>
         <td>
-          671
+          690
         </td>
         <td>
-          2609
+          2934
           -
-          2619
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Some.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.Some.apply[Any](body)
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          673
-        </td>
-        <td>
-          2580
-          -
-          2629
+          2983
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1077,120 +1208,57 @@
         </td>
       </tr><tr>
         <td>
-          69
+          74
         </td>
         <td>
-          670
+          689
         </td>
         <td>
-          2596
+          2941
           -
-          2601
+          2941
         </td>
         <td>
           Select
         </td>
         <td>
-          spray.http.HttpMethods.PATCH
+          scala.reflect.ManifestFactory.Any
         </td>
         <td style="background: #F0ADAD">
-          spray.http.HttpMethods.PATCH
+          reflect.this.ManifestFactory.Any
         </td>
       </tr><tr>
         <td>
-          70
+          74
         </td>
         <td>
-          678
+          688
         </td>
         <td>
-          2708
+          2963
           -
-          2708
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          675
-        </td>
-        <td>
-          2678
-          -
-          2678
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          677
-        </td>
-        <td>
-          2674
-          -
-          2717
+          2973
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.pattern.PipeToSupport.PipeableFuture.to
+          scala.Some.apply
         </td>
         <td style="background: #F0ADAD">
-          akka.pattern.`package`.pipe[com.webtrends.harness.component.spray.client.ConnectionStatus](CoreSprayClient.this.ping(config, timeout, path))(CoreSprayClient.this.context.dispatcher).to(CoreSprayClient.this.sender())
+          scala.Some.apply[Any](body)
         </td>
       </tr><tr>
         <td>
-          70
+          75
         </td>
         <td>
-          674
+          693
         </td>
         <td>
-          2679
+          3065
           -
-          2706
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.CoreSprayClient.ping
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.ping(config, timeout, path)
-        </td>
-      </tr><tr>
-        <td>
-          70
-        </td>
-        <td>
-          676
-        </td>
-        <td>
-          2711
-          -
-          2717
+          3071
         </td>
         <td>
           Apply
@@ -1203,15 +1271,99 @@
         </td>
       </tr><tr>
         <td>
-          86
+          75
         </td>
         <td>
-          687
+          692
         </td>
         <td>
-          3117
+          3032
           -
-          3285
+          3032
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          3062
+          -
+          3062
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          3033
+          -
+          3060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.CoreSprayClient.ping
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.ping(config, timeout, path)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          3028
+          -
+          3071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[com.webtrends.harness.component.spray.client.ConnectionStatus](CoreSprayClient.this.ping(config, timeout, path))(CoreSprayClient.this.context.dispatcher).to(CoreSprayClient.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          3471
+          -
+          3639
         </td>
         <td>
           Apply
@@ -1224,15 +1376,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          91
         </td>
         <td>
-          681
+          698
         </td>
         <td>
-          3134
+          3488
           -
-          3165
+          3519
         </td>
         <td>
           Select
@@ -1245,78 +1397,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          92
         </td>
         <td>
-          684
+          699
         </td>
         <td>
-          3244
+          3621
           -
-          3275
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          net.liftweb.json.compactRender
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats))
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          683
-        </td>
-        <td>
-          3258
-          -
-          3274
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          net.liftweb.json.Extraction.decompose
-        </td>
-        <td style="background: #F0ADAD">
-          net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats)
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          686
-        </td>
-        <td>
-          3206
-          -
-          3277
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          spray.httpx.marshalling.MarshallingContext.marshalTo
-        </td>
-        <td style="background: #F0ADAD">
-          ctx.marshalTo(spray.http.HttpEntity.apply(contentType, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats))))
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          682
-        </td>
-        <td>
-          3267
-          -
-          3267
+          3621
         </td>
         <td>
           Select
@@ -1329,15 +1418,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          92
         </td>
         <td>
-          685
+          702
         </td>
         <td>
-          3220
+          3574
           -
-          3276
+          3630
         </td>
         <td>
           Apply
@@ -1350,15 +1439,78 @@
         </td>
       </tr><tr>
         <td>
-          89
+          92
         </td>
         <td>
-          713
+          701
         </td>
         <td>
-          3302
+          3598
           -
-          4223
+          3629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.compactRender
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          700
+        </td>
+        <td>
+          3612
+          -
+          3628
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Extraction.decompose
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          3560
+          -
+          3631
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.httpx.marshalling.MarshallingContext.marshalTo
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.marshalTo(spray.http.HttpEntity.apply(contentType, net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(value)(CoreSprayClient.this.httpFormats))))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          3656
+          -
+          4577
         </td>
         <td>
           Block
@@ -1387,15 +1539,15 @@
         </td>
       </tr><tr>
         <td>
-          90
+          95
         </td>
         <td>
-          688
+          705
         </td>
         <td>
-          3317
+          3671
           -
-          3338
+          3692
         </td>
         <td>
           Apply
@@ -1408,15 +1560,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          96
         </td>
         <td>
-          696
+          713
         </td>
         <td>
-          3366
+          3720
           -
-          3946
+          4300
         </td>
         <td>
           Apply
@@ -1437,15 +1589,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          99
         </td>
         <td>
-          689
+          706
         </td>
         <td>
-          3434
+          3788
           -
-          3468
+          3822
         </td>
         <td>
           Apply
@@ -1458,15 +1610,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          101
         </td>
         <td>
-          690
+          707
         </td>
         <td>
-          3504
+          3858
           -
-          3545
+          3899
         </td>
         <td>
           Apply
@@ -1479,15 +1631,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          103
         </td>
         <td>
-          691
+          708
         </td>
         <td>
-          3580
+          3934
           -
-          3620
+          3974
         </td>
         <td>
           Apply
@@ -1500,15 +1652,15 @@
         </td>
       </tr><tr>
         <td>
-          100
+          105
         </td>
         <td>
-          692
+          709
         </td>
         <td>
-          3658
+          4012
           -
-          3695
+          4049
         </td>
         <td>
           Apply
@@ -1521,15 +1673,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          107
         </td>
         <td>
-          693
+          710
         </td>
         <td>
-          3734
+          4088
           -
-          3778
+          4132
         </td>
         <td>
           Apply
@@ -1542,15 +1694,15 @@
         </td>
       </tr><tr>
         <td>
-          104
+          109
         </td>
         <td>
-          694
+          711
         </td>
         <td>
-          3815
+          4169
           -
-          3857
+          4211
         </td>
         <td>
           Apply
@@ -1563,15 +1715,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          111
         </td>
         <td>
-          695
+          712
         </td>
         <td>
-          3893
+          4247
           -
-          3928
+          4282
         </td>
         <td>
           Apply
@@ -1584,15 +1736,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          115
         </td>
         <td>
-          697
+          714
         </td>
         <td>
-          3967
+          4321
           -
-          3973
+          4327
         </td>
         <td>
           Apply
@@ -1605,36 +1757,15 @@
         </td>
       </tr><tr>
         <td>
-          111
+          116
         </td>
         <td>
-          711
+          729
         </td>
         <td>
-          3995
+          4334
           -
-          3995
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          111
-        </td>
-        <td>
-          712
-        </td>
-        <td>
-          3980
-          -
-          4223
+          4577
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1650,120 +1781,36 @@
         </td>
       </tr><tr>
         <td>
-          112
+          116
         </td>
         <td>
-          699
+          728
         </td>
         <td>
-          4063
+          4349
           -
-          4072
+          4349
         </td>
         <td>
           Select
         </td>
         <td>
-          spray.http.HttpResponse.headers
+          akka.actor.ActorContext.dispatcher
         </td>
         <td style="background: #F0ADAD">
-          s.headers
+          CoreSprayClient.this.context.dispatcher
         </td>
       </tr><tr>
         <td>
-          112
+          117
         </td>
         <td>
-          702
+          720
         </td>
         <td>
-          4042
+          4389
           -
-          4042
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.self
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          701
-        </td>
-        <td>
-          4044
-          -
-          4083
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.HttpResp.apply
-        </td>
-        <td style="background: #F0ADAD">
-          HttpResp.apply(s.entity, s.headers, s.status)
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          698
-        </td>
-        <td>
-          4053
-          -
-          4061
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.http.HttpResponse.entity
-        </td>
-        <td style="background: #F0ADAD">
-          s.entity
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          700
-        </td>
-        <td>
-          4074
-          -
-          4082
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.http.HttpResponse.status
-        </td>
-        <td style="background: #F0ADAD">
-          s.status
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          703
-        </td>
-        <td>
-          4035
-          -
-          4083
+          4437
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1776,141 +1823,36 @@
         </td>
       </tr><tr>
         <td>
-          114
+          117
         </td>
         <td>
-          705
+          717
         </td>
         <td>
-          4197
+          4428
           -
-          4209
+          4436
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          java.lang.Throwable.getMessage
+          spray.http.HttpResponse.status
         </td>
         <td style="background: #F0ADAD">
-          f.getMessage()
+          s.status
         </td>
       </tr><tr>
         <td>
-          114
+          117
         </td>
         <td>
-          708
+          719
         </td>
         <td>
-          4130
+          4396
           -
-          4215
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Status.Failure.apply
-        </td>
-        <td style="background: #F0ADAD">
-          akka.actor.Status.Failure.apply(HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f))
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          710
-        </td>
-        <td>
-          4121
-          -
-          4215
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f)))(CoreSprayClient.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          704
-        </td>
-        <td>
-          4165
-          -
-          4179
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;URL[%s] : %s&quot;
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          707
-        </td>
-        <td>
-          4145
-          -
-          4214
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.HttpClientException.apply
-        </td>
-        <td style="background: #F0ADAD">
-          HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f)
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          706
-        </td>
-        <td>
-          4165
-          -
-          4210
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.immutable.StringLike.format
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage())
-        </td>
-      </tr><tr>
-        <td>
-          114
-        </td>
-        <td>
-          709
-        </td>
-        <td>
-          4128
-          -
-          4128
+          4396
         </td>
         <td>
           Select
@@ -1923,120 +1865,99 @@
         </td>
       </tr><tr>
         <td>
-          118
-        </td>
-        <td>
-          714
-        </td>
-        <td>
-          4272
-          -
-          4278
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Actor.sender
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.sender()
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          717
-        </td>
-        <td>
-          4281
-          -
-          4333
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Status.Failure.apply
-        </td>
-        <td style="background: #F0ADAD">
-          akka.actor.Status.Failure.apply(HttpClientException.apply(e.getMessage(), e))
-        </td>
-      </tr><tr>
-        <td>
-          118
-        </td>
-        <td>
-          719
-        </td>
-        <td>
-          4272
-          -
-          4333
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(CoreSprayClient.this.sender()).!(akka.actor.Status.Failure.apply(HttpClientException.apply(e.getMessage(), e)))(CoreSprayClient.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          118
+          117
         </td>
         <td>
           716
         </td>
         <td>
-          4296
+          4417
           -
-          4332
+          4426
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.spray.client.HttpClientException.apply
+          spray.http.HttpResponse.headers
         </td>
         <td style="background: #F0ADAD">
-          HttpClientException.apply(e.getMessage(), e)
+          s.headers
         </td>
       </tr><tr>
         <td>
-          118
+          117
         </td>
         <td>
           715
         </td>
         <td>
-          4316
+          4407
           -
-          4328
+          4415
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          java.lang.Throwable.getMessage
+          spray.http.HttpResponse.entity
         </td>
         <td style="background: #F0ADAD">
-          e.getMessage()
+          s.entity
         </td>
       </tr><tr>
         <td>
-          118
+          117
         </td>
         <td>
           718
         </td>
         <td>
-          4279
+          4398
           -
-          4279
+          4437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpResp.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HttpResp.apply(s.entity, s.headers, s.status)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          4519
+          -
+          4564
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          726
+        </td>
+        <td>
+          4482
+          -
+          4482
         </td>
         <td>
           Select
@@ -2052,12 +1973,243 @@
           119
         </td>
         <td>
-          720
+          722
         </td>
         <td>
-          4342
+          4551
           -
-          4384
+          4563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          4484
+          -
+          4569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f))
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          4499
+          -
+          4568
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpClientException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          727
+        </td>
+        <td>
+          4475
+          -
+          4569
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(caller).!(akka.actor.Status.Failure.apply(HttpClientException.apply(scala.this.Predef.augmentString(&quot;URL[%s] : %s&quot;).format(fullPath, f.getMessage()), f)))(CoreSprayClient.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          4519
+          -
+          4533
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;URL[%s] : %s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          732
+        </td>
+        <td>
+          4670
+          -
+          4682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          4633
+          -
+          4633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.self
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          4626
+          -
+          4632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          4635
+          -
+          4687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Status.Failure.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Status.Failure.apply(HttpClientException.apply(e.getMessage(), e))
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          4650
+          -
+          4686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpClientException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HttpClientException.apply(e.getMessage(), e)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          4626
+          -
+          4687
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoreSprayClient.this.sender()).!(akka.actor.Status.Failure.apply(HttpClientException.apply(e.getMessage(), e)))(CoreSprayClient.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          4696
+          -
+          4738
         </td>
         <td>
           Throw
@@ -2070,120 +2222,36 @@
         </td>
       </tr><tr>
         <td>
-          124
+          129
         </td>
         <td>
-          723
+          738
         </td>
         <td>
-          4427
+          4784
           -
-          4436
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.io.IO.apply
-        </td>
-        <td style="background: #F0ADAD">
-          akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system)
-        </td>
-      </tr><tr>
-        <td>
-          124
-        </td>
-        <td>
-          726
-        </td>
-        <td>
-          4456
-          -
-          4465
+          4789
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.concurrent.duration.DurationConversions.seconds
+          spray.can.server.UHttp
         </td>
         <td style="background: #F0ADAD">
-          scala.concurrent.duration.`package`.DurationInt(2).seconds
+          spray.can.server.UHttp
         </td>
       </tr><tr>
         <td>
-          124
+          129
         </td>
         <td>
-          728
+          741
         </td>
         <td>
-          4427
+          4795
           -
-          4466
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.pattern.AskableActorRef.ask
-        </td>
-        <td style="background: #F0ADAD">
-          akka.pattern.`package`.ask(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system)).ask(spray.can.Http.CloseAll)(util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(2).seconds))
-        </td>
-      </tr><tr>
-        <td>
-          124
-        </td>
-        <td>
-          722
-        </td>
-        <td>
-          4429
-          -
-          4429
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.CoreSprayClient.system
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.system
-        </td>
-      </tr><tr>
-        <td>
-          124
-        </td>
-        <td>
-          725
-        </td>
-        <td>
-          4456
-          -
-          4457
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          2
-        </td>
-      </tr><tr>
-        <td>
-          124
-        </td>
-        <td>
-          724
-        </td>
-        <td>
-          4441
-          -
-          4454
+          4808
         </td>
         <td>
           Select
@@ -2196,15 +2264,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          129
         </td>
         <td>
-          727
+          744
         </td>
         <td>
-          4456
+          4810
           -
-          4465
+          4819
         </td>
         <td>
           ApplyImplicitView
@@ -2217,78 +2285,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          129
         </td>
         <td>
-          721
+          743
         </td>
         <td>
-          4430
+          4810
           -
-          4435
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          spray.can.server.UHttp
-        </td>
-        <td style="background: #F0ADAD">
-          spray.can.server.UHttp
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          729
-        </td>
-        <td>
-          4486
-          -
-          4487
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          2
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          731
-        </td>
-        <td>
-          4471
-          -
-          4496
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.concurrent.Await.ready
-        </td>
-        <td style="background: #F0ADAD">
-          scala.concurrent.Await.ready[Any](f, scala.concurrent.duration.`package`.DurationInt(2).seconds)
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          730
-        </td>
-        <td>
-          4486
-          -
-          4495
+          4819
         </td>
         <td>
           Select
@@ -2304,75 +2309,159 @@
           129
         </td>
         <td>
-          732
+          740
         </td>
         <td>
-          4651
+          4781
           -
-          4663
+          4790
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.io.IO.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          4810
+          -
+          4811
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          4781
+          -
+          4820
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.ask
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayClient.this.system)).ask(spray.can.Http.CloseAll)(util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(2).seconds))
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          4783
+          -
+          4783
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Int.toLong
+          com.webtrends.harness.component.spray.client.CoreSprayClient.system
         </td>
         <td style="background: #F0ADAD">
-          timeoutValue.toLong
+          CoreSprayClient.this.system
         </td>
       </tr><tr>
         <td>
-          129
+          130
         </td>
         <td>
-          735
+          747
         </td>
         <td>
-          4634
+          4840
           -
-          4676
+          4849
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(2).seconds
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          4840
+          -
+          4841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          4825
+          -
+          4850
         </td>
         <td>
           Apply
         </td>
         <td>
-          akka.util.Timeout.apply
+          scala.concurrent.Await.ready
         </td>
         <td style="background: #F0ADAD">
-          akka.util.Timeout.apply(scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;))
+          scala.concurrent.Await.ready[Any](f, scala.concurrent.duration.`package`.DurationInt(2).seconds)
         </td>
       </tr><tr>
         <td>
-          129
+          134
         </td>
         <td>
-          734
+          750
         </td>
         <td>
-          4642
+          5019
           -
-          4675
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.concurrent.duration.Duration.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          129
-        </td>
-        <td>
-          733
-        </td>
-        <td>
-          4665
-          -
-          4674
+          5028
         </td>
         <td>
           Literal
@@ -2385,15 +2474,78 @@
         </td>
       </tr><tr>
         <td>
-          130
+          134
         </td>
         <td>
-          736
+          752
         </td>
         <td>
-          4689
+          4988
           -
-          4716
+          5030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          5005
+          -
+          5017
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          timeoutValue.toLong
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          751
+        </td>
+        <td>
+          4996
+          -
+          5029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(timeoutValue.toLong, &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          5043
+          -
+          5070
         </td>
         <td>
           Apply
@@ -2406,15 +2558,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          136
         </td>
         <td>
-          761
+          778
         </td>
         <td>
-          4733
+          5087
           -
-          5316
+          5670
         </td>
         <td>
           Block
@@ -2436,15 +2588,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          137
         </td>
         <td>
-          737
+          754
         </td>
         <td>
-          4741
+          5095
           -
-          4784
+          5138
         </td>
         <td>
           Apply
@@ -2457,36 +2609,15 @@
         </td>
       </tr><tr>
         <td>
-          133
+          138
         </td>
         <td>
-          759
+          777
         </td>
         <td>
-          4793
+          5145
           -
-          4793
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          133
-        </td>
-        <td>
-          760
-        </td>
-        <td>
-          4791
-          -
-          5316
+          5670
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2505,15 +2636,36 @@
         </td>
       </tr><tr>
         <td>
-          135
+          138
         </td>
         <td>
-          738
+          776
         </td>
         <td>
-          4870
+          5147
           -
-          4875
+          5147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          5231
+          -
+          5254
         </td>
         <td>
           Literal
@@ -2522,103 +2674,19 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          false
+          &quot;Could not connect to &quot;
         </td>
       </tr><tr>
         <td>
-          135
+          140
         </td>
         <td>
-          741
+          759
         </td>
         <td>
-          4929
+          5314
           -
-          4957
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; responded with exception &quot;
-        </td>
-      </tr><tr>
-        <td>
-          135
-        </td>
-        <td>
-          744
-        </td>
-        <td>
-          4853
-          -
-          4973
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
-        </td>
-        <td style="background: #F0ADAD">
-          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          135
-        </td>
-        <td>
-          743
-        </td>
-        <td>
-          4877
-          -
-          4972
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.+
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())
-        </td>
-      </tr><tr>
-        <td>
-          135
-        </td>
-        <td>
-          740
-        </td>
-        <td>
-          4903
-          -
-          4926
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
-        </td>
-        <td style="background: #F0ADAD">
-          config.fullPath(&quot;ping&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          135
-        </td>
-        <td>
-          742
-        </td>
-        <td>
-          4960
-          -
-          4972
+          5326
         </td>
         <td>
           Apply
@@ -2631,15 +2699,15 @@
         </td>
       </tr><tr>
         <td>
-          135
+          140
         </td>
         <td>
-          745
+          762
         </td>
         <td>
-          4843
+          5197
           -
-          4973
+          5327
         </td>
         <td>
           Apply
@@ -2652,15 +2720,36 @@
         </td>
       </tr><tr>
         <td>
-          135
+          140
         </td>
         <td>
-          739
+          761
         </td>
         <td>
-          4877
+          5207
           -
-          4900
+          5327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          5224
+          -
+          5229
         </td>
         <td>
           Literal
@@ -2669,19 +2758,82 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;Could not connect to &quot;
+          false
         </td>
       </tr><tr>
         <td>
-          137
+          140
         </td>
         <td>
-          746
+          758
         </td>
         <td>
-          5011
+          5283
           -
-          5046
+          5311
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with exception &quot;
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          5257
+          -
+          5280
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(&quot;ping&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          5231
+          -
+          5326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(&quot;ping&quot;)).+(&quot; responded with exception &quot;).+(f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          5365
+          -
+          5400
         </td>
         <td>
           Select
@@ -2694,120 +2846,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          143
         </td>
         <td>
-          747
+          765
         </td>
         <td>
-          5124
+          5484
           -
-          5128
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          750
-        </td>
-        <td>
-          5130
-          -
-          5186
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.+
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          752
-        </td>
-        <td>
-          5097
-          -
-          5187
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.concurrent.Promise.success
-        </td>
-        <td style="background: #F0ADAD">
-          p.success(ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))))
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          749
-        </td>
-        <td>
-          5161
-          -
-          5186
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
-        </td>
-        <td style="background: #F0ADAD">
-          config.fullPath(pingPath)
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          751
-        </td>
-        <td>
-          5107
-          -
-          5187
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
-        </td>
-        <td style="background: #F0ADAD">
-          ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath)))
-        </td>
-      </tr><tr>
-        <td>
-          138
-        </td>
-        <td>
-          748
-        </td>
-        <td>
-          5130
-          -
-          5158
+          5512
         </td>
         <td>
           Literal
@@ -2820,36 +2867,36 @@
         </td>
       </tr><tr>
         <td>
-          139
+          143
         </td>
         <td>
-          756
+          768
         </td>
         <td>
-          5244
+          5461
           -
-          5295
+          5541
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.String.+
+          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
         </td>
         <td style="background: #F0ADAD">
-          &quot;Could not connect to &quot;.+(config.fullPath(pingPath))
+          ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath)))
         </td>
       </tr><tr>
         <td>
-          139
+          143
         </td>
         <td>
-          753
+          764
         </td>
         <td>
-          5237
+          5478
           -
-          5242
+          5482
         </td>
         <td>
           Literal
@@ -2858,19 +2905,40 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          false
+          true
         </td>
       </tr><tr>
         <td>
-          139
+          143
         </td>
         <td>
-          755
+          767
         </td>
         <td>
-          5270
+          5484
           -
-          5295
+          5540
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          5515
+          -
+          5540
         </td>
         <td>
           Apply
@@ -2883,15 +2951,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          143
         </td>
         <td>
-          758
+          769
         </td>
         <td>
-          5210
+          5451
           -
-          5296
+          5541
         </td>
         <td>
           Apply
@@ -2900,19 +2968,19 @@
           scala.concurrent.Promise.success
         </td>
         <td style="background: #F0ADAD">
-          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath))))
+          p.success(ConnectionStatus.apply(true, &quot;Connected successfully to &quot;.+(config.fullPath(pingPath))))
         </td>
       </tr><tr>
         <td>
-          139
+          144
         </td>
         <td>
-          757
+          774
         </td>
         <td>
-          5220
+          5574
           -
-          5296
+          5650
         </td>
         <td>
           Apply
@@ -2925,15 +2993,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          144
         </td>
         <td>
-          754
+          771
         </td>
         <td>
-          5244
+          5598
           -
-          5267
+          5621
         </td>
         <td>
           Literal
@@ -2949,159 +3017,12 @@
           144
         </td>
         <td>
-          765
+          770
         </td>
         <td>
-          5456
+          5591
           -
-          5468
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          e.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          762
-        </td>
-        <td>
-          5375
-          -
-          5398
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Could not connect to &quot;
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          764
-        </td>
-        <td>
-          5429
-          -
-          5453
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; responded with error &quot;
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          767
-        </td>
-        <td>
-          5365
-          -
-          5469
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          CoreSprayClient.this.log.debug(&quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          766
-        </td>
-        <td>
-          5375
-          -
-          5468
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.+
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          763
-        </td>
-        <td>
-          5401
-          -
-          5426
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
-        </td>
-        <td style="background: #F0ADAD">
-          config.fullPath(pingPath)
-        </td>
-      </tr><tr>
-        <td>
-          145
-        </td>
-        <td>
-          774
-        </td>
-        <td>
-          5488
-          -
-          5606
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
-        </td>
-        <td style="background: #F0ADAD">
-          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          145
-        </td>
-        <td>
-          768
-        </td>
-        <td>
-          5505
-          -
-          5510
+          5596
         </td>
         <td>
           Literal
@@ -3114,36 +3035,57 @@
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
-          771
+          773
         </td>
         <td>
-          5566
+          5598
           -
-          5590
+          5649
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          java.lang.String.+
         </td>
         <td style="background: #F0ADAD">
-          &quot; responded with error &quot;
+          &quot;Could not connect to &quot;.+(config.fullPath(pingPath))
         </td>
       </tr><tr>
         <td>
-          145
+          144
         </td>
         <td>
-          770
+          775
         </td>
         <td>
-          5538
+          5564
           -
-          5563
+          5650
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath))))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          5624
+          -
+          5649
         </td>
         <td>
           Apply
@@ -3156,15 +3098,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          149
         </td>
         <td>
-          773
+          783
         </td>
         <td>
-          5512
+          5729
           -
-          5605
+          5822
         </td>
         <td>
           Apply
@@ -3177,36 +3119,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          149
         </td>
         <td>
-          775
+          779
         </td>
         <td>
-          5478
+          5729
           -
-          5606
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.concurrent.Promise.success
-        </td>
-        <td style="background: #F0ADAD">
-          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())))
-        </td>
-      </tr><tr>
-        <td>
-          145
-        </td>
-        <td>
-          769
-        </td>
-        <td>
-          5512
-          -
-          5535
+          5752
         </td>
         <td>
           Literal
@@ -3219,15 +3140,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          149
         </td>
         <td>
-          772
+          782
         </td>
         <td>
-          5593
+          5810
           -
-          5605
+          5822
         </td>
         <td>
           Apply
@@ -3240,15 +3161,246 @@
         </td>
       </tr><tr>
         <td>
-          147
+          149
         </td>
         <td>
-          776
+          784
         </td>
         <td>
-          5617
+          5719
           -
-          5625
+          5823
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayClient.this.log.debug(&quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          5783
+          -
+          5807
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with error &quot;
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          5755
+          -
+          5780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          5832
+          -
+          5960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          5866
+          -
+          5889
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          5920
+          -
+          5944
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; responded with error &quot;
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          5842
+          -
+          5960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.ConnectionStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ConnectionStatus.apply(false, &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          5859
+          -
+          5864
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          5892
+          -
+          5917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.client.HttpConfig.fullPath
+        </td>
+        <td style="background: #F0ADAD">
+          config.fullPath(pingPath)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          5866
+          -
+          5959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Could not connect to &quot;.+(config.fullPath(pingPath)).+(&quot; responded with error &quot;).+(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          5947
+          -
+          5959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          5971
+          -
+          5979
         </td>
         <td>
           Select
