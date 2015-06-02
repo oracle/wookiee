@@ -26,7 +26,7 @@ import akka.actor._
 import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.{FetchConsumer, KafkaRefreshReq}
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.FetchConsumer
 import com.webtrends.harness.component.kafka.actor.OffsetManager.{GetOffsetData, OffsetData, OffsetDataResponse, StoreOffsetData}
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.health.KafkaHealthState
@@ -35,6 +35,7 @@ import com.webtrends.harness.component.kafka.util._
 import com.webtrends.harness.component.zookeeper.{Curator, ZookeeperAdapter}
 import kafka.api.FetchRequestBuilder
 import kafka.common.{ErrorMapping, InvalidMessageSizeException, OffsetOutOfRangeException}
+import kafka.consumer.SimpleConsumer
 import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
 
 import scala.concurrent.Await
@@ -113,7 +114,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   // We need to ensure that the initial node completes before the new node reads the offsets out of ZK
   protected val lock = new InterProcessSemaphoreV2(curator, lockPath, 1)
 
-  protected var consumer: Option[KafkaConsumer] = None
+  protected var consumer: Option[SimpleConsumer] = None
 
   /**
    * Fetch Mode - Defaults to automatic
@@ -168,14 +169,14 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         fetchRequest(ackedOffset)
         scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
           zkCommitRate milliseconds, self, CommitOffset)
+        log.info(s"$name: We are transitioned to Consuming")
       }
-      log.info(s"$name: We are transitioned to Consuming")
   }
 
   protected def fetchConsumer() {
     log.debug(s"$name: Consumer closed, fetching new one")
     Try { consumer = Await.result(kafkaProxy.ask(FetchConsumer(host))(Timeout(consumerWait, TimeUnit.MILLISECONDS)), consumerWait milliseconds) match {
-      case Some(con) => Some(con.asInstanceOf[KafkaConsumer])
+      case Some(con) => Some(con.asInstanceOf[SimpleConsumer])
       case None =>
         log.error(s"No consumer found for $host")
         context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
@@ -196,7 +197,13 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         case None => stay()
       }
 
-    case Event(OffsetDataResponse | CommitOffset | FetchRes, Unlocked) =>
+    case Event(CommitOffset, Unlocked) =>
+      stay()
+
+    case Event(msg: OffsetDataResponse, Unlocked) =>
+      stay()
+
+    case Event(msg: FetchRes, Unlocked) =>
       stay()
   }
 
@@ -221,13 +228,13 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
     case Event(msg: FetchErrorBadOffset, aq: Acquired) =>
       log.warning(s"$name: Failed to fetch events from kafka. " +
-                  s"Offset out of range. Using offset ${msg.nextAvailableOffset}")
+        s"Offset out of range. Using offset ${msg.nextAvailableOffset}")
       fetchRequest(msg.nextAvailableOffset)
       stay()
 
     case Event(msg: FetchErrorPartitionNotAvailable, aq: Acquired) =>
       context.parent ! KafkaHealthState(name, healthy = false, s"Failed to fetch events from kafka. Partition not available", topic)
-      log.error(s"$name: Unable to fetch events from kafka. Partition no available")
+      log.error(s"$name: Unable to fetch events from kafka. Partition not available")
       goto(Stopped) using Unlocked
 
     case Event(CommitOffset, aq: Acquired) =>
@@ -332,14 +339,8 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
    * Fetch data from kafka
    */
   protected def fetchRequest(nextOffset: Long) = {
-    //log.debug(s"$name fetching offset $nextOffset")
     try {
-      if (consumer.forall(_.closed)) {
-        fetchConsumer()
-      }
-      if (consumer.isDefined) {
-        self ! fetchTopicPart(topic, partition, nextOffset, clientId)
-      }
+      self ! fetchTopicPart(topic, partition, nextOffset, clientId)
     } catch {
       case ex: OffsetOutOfRangeException =>
         self ! FetchErrorBadOffset(KafkaUtil.getDesiredAvailableOffset(consumer.get, topic, partition, nextOffset, clientId))
@@ -352,7 +353,6 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
       // and kick off a refresh of our kafka info
       case ex: Exception =>
         log.error(s"Failed to fetch from [$host] [$topic] [$partition] [$nextOffset] [${ex.getClass.toString}] [${ex.getMessage}]")
-        kafkaProxy ! KafkaRefreshReq(light = true)
         self ! FetchErrorPartitionNotAvailable(nextOffset)
     }
   }
@@ -369,9 +369,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
     }
 
     val msgSet = fetchResponse.messageSet(topic, part)
-
     val msgSeq = KafkaMessageSet(msgSet, offset) // This is needed since if Kafka is compressing the messages, the fetch request will return an entire compressed block even if the requested offset isn't the beginning of the compressed block. Thus a message we saw previously may be returned again.
-
     FetchRes(msgSeq, if (msgSet.size > 0) msgSet.last.nextOffset else offset)
   }
 }

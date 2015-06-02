@@ -67,6 +67,19 @@ trait ActorHealth {
   }
 
   /**
+   * This is the list of child actors that should be iterated and checked for health
+   * This can be overridden in cases where one does not want to check all children for
+   * health, or some children may not support health checks, or a child is using a push
+   * based model of health reporting
+   * CheckHealth function
+   *
+   * @return
+   */
+  protected def getHealthChildren: Iterable[ActorRef] = {
+    context.children
+  }
+
+  /**
    * The actor has been asked to respond with some health information. It needs
    * to implement this function and provide a list of components used in this service
    * and their current state. By default the health check will simply run through all the
@@ -79,7 +92,7 @@ trait ActorHealth {
 
     getHealth.onComplete {
       case Success(s) =>
-        val healthFutures = context.children map { ref =>
+        val healthFutures = getHealthChildren map { ref =>
           (ref ? CheckHealth).mapTo[HealthComponent] recover {
             case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
           }

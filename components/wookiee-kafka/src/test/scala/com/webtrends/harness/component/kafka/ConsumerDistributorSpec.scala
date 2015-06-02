@@ -6,7 +6,7 @@ import akka.actor._
 import akka.testkit.TestProbe
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.{BroadcastToWorkers, TopicPartitionResp}
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerProxy.TopicPartitionReq
+import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.TopicPartitionReq
 import com.webtrends.harness.component.kafka.config.KafkaTestConfig
 import com.webtrends.harness.component.zookeeper.{ZookeeperActor, ZookeeperService}
 import com.webtrends.harness.health.{ComponentState, HealthComponent}

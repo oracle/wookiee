@@ -156,7 +156,7 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
 {
   import AssignmentDistributorLeader._
   import AssignmentFetcher._
-  import KafkaConsumerProxy._
+  import KafkaConsumerManager._
   import context.dispatcher
 
   val configRoot = "wookiee-kafka.consumer.assignment-distributor"
