@@ -26,17 +26,22 @@ import akka.actor.Actor
 import com.typesafe.config.Config
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
+import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec
 import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
 import com.webtrends.harness.config.ConfigHelper
 import com.webtrends.harness.utils.ConfigUtil
+import scala.concurrent.duration._
 
 import scala.collection.JavaConversions._
+import scala.collection.mutable
+import scala.util.Try
 
 trait KafkaSettings extends ConfigHelper { this: Actor =>
   @volatile
   var kafkaConfig: Config = ConfigUtil.prepareSubConfig(renewableConfig, "wookie-kafka")
   val hostname = InetAddress.getLocalHost.getHostName
   val clientId = s"kk_$hostname"
+  val bufferSize = 1024*1024
 
   // Used for ZK paths
   def pod = zkConf.get.dataCenter+"_"+zkConf.get.pod
@@ -47,9 +52,10 @@ trait KafkaSettings extends ConfigHelper { this: Actor =>
   val utf8 = StandardCharsets.UTF_8
 
   def distributorPaths = DistributorPaths(s"$distributionRootPath/nodes",
-                                          s"$distributionRootPath/assignments",
-                                          s"$distributionRootPath/leader")
+    s"$distributionRootPath/assignments",
+    s"$distributionRootPath/leader")
 
+  def offsetGetExpiration = Try { kafkaConfig.getInt("offset-timeout-seconds") } getOrElse 10 seconds
   def zkConf = renewableConfig.hasPath("wookie-zookeeper.quorum") match {
     case true => Some(ZookeeperSettings(renewableConfig.getConfig("wookie-zookeeper")))
     case false => None
@@ -68,13 +74,18 @@ trait KafkaSettings extends ConfigHelper { this: Actor =>
     this
   }
 
-  def topicMap: Map[String, Config] = kafkaConfig.getConfigList("consumer.topics").toList.map{top =>
+  def topicMap: Map[String, Config] = (kafkaConfig.getConfigList("consumer.topics") map { top =>
     top.getString("name") -> top
-  }.toMap
-  
-  def kafkaSources: Map[String, List[String]] = kafkaConfig.getConfigList("consumer.kafka-hosts").toList.map { clusters =>
-    clusters.getString("id") -> clusters.getStringList("brokers").toList
-  }.toMap
+  }).toMap
+
+  def kafkaSources: Map[String, BrokerSpec] = (kafkaConfig.getConfigList("consumer.kafka-hosts") flatMap { clusters =>
+    clusters.getStringList("brokers") map { broker =>
+      val hostPort: Array[String] = broker.split(":")
+      val host: String = hostPort(0)
+      val port: Int = if (hostPort.length == 2) hostPort(1).toInt else 9092
+      host -> BrokerSpec(host, port, clusters.getString("id"))
+    }
+  }).toMap
 
   def assignmentName(spec:PartitionAssignment): String = {
     s"${spec.host}-${spec.topic}-${spec.partition}"

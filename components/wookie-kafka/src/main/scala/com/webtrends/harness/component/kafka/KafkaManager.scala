@@ -20,16 +20,17 @@
 package com.webtrends.harness.component.kafka
 
 import akka.actor.{ActorRef, Props}
+import akka.pattern._
+import akka.routing.RoundRobinPool
 import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.Component
-import com.webtrends.harness.component.kafka.actor.{KafkaConsumerManager, KafkaProducer}
+import com.webtrends.harness.component.kafka.actor.{KafkaTopicManager, KafkaProducer}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
-import akka.pattern._
 
-import scala.concurrent.{Promise, Future}
-import scala.util.{Failure, Success}
+import scala.concurrent.{Future, Promise}
+import scala.util.{Try, Failure, Success}
 
 /**
  * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
@@ -47,7 +48,6 @@ object KafkaManager {
 
 class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   import KafkaManager._
-
   import context.dispatcher
   // Consumer coordinator started up if 'consumer' is configured
   var coordinator: Option[ActorRef] = None
@@ -86,7 +86,8 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
 
   def startProducer() {
     log.info("Starting producer as wookie-kafka config contained 'producer' config")
-    producer = Some(context.actorOf(KafkaProducer.props(), "producer"))
+    val writerCount = Try { kafkaConfig.getInt("producer-count") } getOrElse 10
+    producer = Some(context.actorOf(RoundRobinPool(writerCount).props(KafkaProducer.props()), "producer"))
   }
 
   override def checkHealth: Future[HealthComponent] = {
@@ -129,7 +130,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   def startCoordinator() {
     if(coordinator.isEmpty) {
       log.info(s"Starting coordinator class")
-      consumerManager = Some(context.actorOf(KafkaConsumerManager.props(), "consumer-manager"))
+      consumerManager = Some(context.actorOf(KafkaTopicManager.props(), "consumer-manager"))
       coordinator = Some(context.actorOf(Props(leader, consumerManager.get), "consumer-coordinator"))
       distributor = Some(context.actorOf(KafkaConsumerDistributor.props(consumerManager.get), "consumer-distributor"))
     }

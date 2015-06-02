@@ -35,6 +35,7 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.util.Try
 
 object KafkaConsumerCoordinator {
 
@@ -47,10 +48,10 @@ object KafkaConsumerCoordinator {
 }
 
 class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
-    with ActorLoggingAdapter
-    with CoordinatorHealth
-    with KafkaSettings
-    with ZookeeperEventAdapter {
+with ActorLoggingAdapter
+with CoordinatorHealth
+with KafkaSettings
+with ZookeeperEventAdapter {
 
   import AssignmentDistributorLeader._
   import KafkaConsumerCoordinator._
@@ -58,7 +59,7 @@ class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
   implicit val timeout = Timeout(10 seconds)
   implicit val system = context.system
 
-  val offsetManager = context.actorOf(OffsetManager.props(appRootPath), "offset-manager")
+  val offsetManager = context.actorOf(OffsetManager.props(appRootPath, offsetGetExpiration), "offset-manager")
 
   val workers = mutable.Map.empty[String,WorkerRef]
 
