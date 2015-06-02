@@ -3,7 +3,6 @@ package com.webtrends.harness.component.kafka.actor
 
 import akka.actor._
 import akka.util.Timeout
-import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.{ZookeeperAdapter, ZookeeperEventAdapter}
@@ -22,7 +21,7 @@ object AssignmentDistributorLeader {
   }
 
   implicit val formats = Serialization.formats(NoTypeHints) +
-                                              FieldSerializer[PartitionAssignment]()
+    FieldSerializer[PartitionAssignment]()
   implicit val partsManifest = manifest[List[PartitionAssignment]]
 
   // Node data refresh
@@ -52,9 +51,8 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
 
   val paths = distributorPaths
   var scheduler: Option[Cancellable] = None
-  //log.debug(kafkaConfig.root().render())
   val refresh = Try { kafkaConfig.getInt("consumer.assignment-distributor.assignment-refresh-seconds")
-                    } getOrElse 20
+  } getOrElse 20
 
   val nodeName = self.path.name
 
@@ -79,7 +77,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
   def refreshNodeAssignments() = {
     if(scheduler.isEmpty) scheduler =
       Some(context.system.scheduler.schedule( refresh seconds,
-                                              refresh seconds, self, RefreshNodeAssignments))
+        refresh seconds, self, RefreshNodeAssignments))
 
     context.child(fetcherActorName) match {
       case None => context.actorOf(AssignmentFetcher.props(self, sourceProxy), fetcherActorName)
@@ -94,9 +92,9 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
     val assignsByNode = (for (
       node <- nodes.zipWithIndex
     ) yield {
-      node._1 -> assignsWithIndex.filter { assign =>
-        (assign._2 >= node._2) && (assign._2 - node._2) % nodes.length == 0 }.map { x => x._1 }
-    }).toMap
+        node._1 -> assignsWithIndex.filter { assign =>
+          (assign._2 >= node._2) && (assign._2 - node._2) % nodes.length == 0 }.map { x => x._1 }
+      }).toMap
 
     log.debug(s"Setting new node assignments: ${assignsByNode.toString()}")
     setAssignmentsForNodes(assignsByNode.map { case (nodeId, partitionsByTopic) =>
@@ -109,7 +107,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
     getChildren(s"${paths.assignmentPath}", includeData = true).onComplete {
       case Success(existingData) =>
         // Delete any entries that don't have new data
-        val nodesToDelete = existingData.filter{ case (nodeId, existingData) => !data.contains(nodeId)}
+        val nodesToDelete = existingData.filter{ case (nodeId, d) => !data.contains(nodeId)}
 
         Future.traverse(nodesToDelete) { case (nodeId, _) =>
           deleteNode(s"${paths.assignmentPath}/$nodeId")
@@ -118,7 +116,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
         }
       case Failure(fail) =>
         log.error(s"Unable to get list of nodes at ${paths.assignmentPath} " +
-                  s"while attempting to delete stale node data. ${fail.getMessage()}")
+          s"while attempting to delete stale node data. ${fail.getMessage}")
     }
 
     Future.traverse(data) { case (nodeId, nodeData) =>
@@ -127,7 +125,7 @@ class AssignmentDistributorLeader(sourceProxy: ActorRef)
       case Success(path) =>
         log.debug(s"Successfully set node data")
       case Failure(fail) =>
-        log.error(s"Unable to set node data. ${fail.getMessage()}")
+        log.error(s"Unable to set node data. ${fail.getMessage}")
     }
   }
 }
@@ -146,17 +144,17 @@ object AssignmentFetcher {
 /**
  * Actor is responsible for making requests to dependent services,
  * required for assignment distribution
- * @param receiver
- * @param sourceProxy
+ * @param receiver The leader which will take meta info sent back
+ * @param sourceProxy The consumer manager which provides assignments
  */
 class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
-  with ActorLoggingAdapter
-  with ZookeeperAdapter
-  with KafkaSettings
+with ActorLoggingAdapter
+with ZookeeperAdapter
+with KafkaSettings
 {
   import AssignmentDistributorLeader._
   import AssignmentFetcher._
-  import KafkaConsumerManager._
+  import KafkaTopicManager._
   import context.dispatcher
 
   val configRoot = "wookiee-kafka.consumer.assignment-distributor"
@@ -167,7 +165,7 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
     .getOrElse[Timeout](5 seconds)
 
   val fetchTimeout = Try {c.getLong(s"$configRoot.fetch-timeout-millis")
-                         } getOrElse 2000L
+  } getOrElse 60000L
 
   log.debug(s"Fetching with timeout $fetchTimeout")
 
@@ -187,11 +185,11 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
 
     case cn: ConsumerNodes =>
       nodes = Some(cn.nodes)
-      isDone
+      isDone()
 
     case tr: TopicPartitionResp =>
       topicPartitions = Some(tr)
-      isDone
+      isDone()
 
     case FetchTimeout =>
       if(nodes.isEmpty) {
@@ -204,7 +202,7 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
       sendAndShutdown(FetchTimeout)
   }
 
-  def isDone = (nodes, topicPartitions) match {
+  def isDone() = (nodes, topicPartitions) match {
     case (Some(n), Some(tp)) =>
       log.debug(s"Got $nodes and $tp")
 
@@ -221,11 +219,11 @@ class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
 
   def fetch() = {
     getChildren(s"${paths.nodePath}", includeData = false).onComplete {
-      case Success(nodes) =>
-        self ! ConsumerNodes(nodes.map{node => node._1}.toList)
+      case Success(nodeData) =>
+        self ! ConsumerNodes(nodeData.map{node => node._1}.toList)
       case Failure(fail) =>
         log.error(s"Not requesting node data update because " +
-          s"I am unable to get list of nodes at ${paths.nodePath}. ${fail.getMessage()}")
+          s"I am unable to get list of nodes at ${paths.nodePath}. ${fail.getMessage}")
     }
 
     sourceProxy ! TopicPartitionReq

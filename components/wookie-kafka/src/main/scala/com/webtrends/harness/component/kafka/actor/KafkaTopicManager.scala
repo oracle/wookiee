@@ -32,7 +32,7 @@ import kafka.consumer.SimpleConsumer
 import scala.collection.mutable
 import scala.language.postfixOps
 
-object KafkaConsumerManager {
+object KafkaTopicManager {
   /**
    * BrokerSpec maps the JSON used by Kafka 0.8 to describe a broker as
    * written by it in Zookeeper.
@@ -42,67 +42,25 @@ object KafkaConsumerManager {
    */
   case class BrokerSpec(host: String, port: Int, cluster: String)
 
-  case class FetchConsumer(host: String)
-
   case object TopicPartitionReq
 
-  def props() = Props[KafkaConsumerManager]
+  def props() = Props[KafkaTopicManager]
 }
 
-class KafkaConsumerManager extends Actor with KafkaSettings
+class KafkaTopicManager extends Actor with KafkaSettings
 with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
+  import KafkaTopicManager._
 
-  def configuredTopics = topicMap.keys.toList
-  import KafkaConsumerManager._
-
-  val actorName = "Kafka Consumer Manager"
-  val bufferSize = 1024*1024
-
-  // List of kafka brokers and information about them
-  var brokers = new mutable.HashMap[String, BrokerSpec]()
+  val actorName = "Kafka Topic Manager"
 
   // Holder of consumers connected to each kafka broker
   val consumersByHost = new mutable.HashMap[String, SimpleConsumer]()
 
-  context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Proxy has not acquired brokers yet")
-
-  override def preStart() = {
-    requestBrokerInfo()
-  }
+  context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Proxy has been started")
 
   def receive: Receive = configReceive orElse {
     case TopicPartitionReq =>
       sender ! TopicPartitionResp(getPartitionLeaders)
-
-    case FetchConsumer(host) =>
-      sender ! consumersByHost.get(host)
-  }
-
-  override def renewConfiguration() = {
-    super.renewConfiguration()
-    requestBrokerInfo()
-    log.info("Config renewed, new broker list: {}", brokers)
-  }
-
-  def requestBrokerInfo() = {
-    log.debug("Using kafka-hosts to set consumed hosts, {}", kafkaSources)
-    brokers.clear()
-    kafkaSources foreach { s =>
-      s._2 foreach { broker =>
-        val hostPort: Array[String] = broker.split(":")
-        val host: String = hostPort(0)
-        val port: Int = if (hostPort.length == 2) hostPort(1).toInt else 9092
-        brokers.put(host, BrokerSpec(host, port, s._1))
-      }
-    }
-
-    log.debug("Processing brokers {}", brokers.toString())
-    brokers.values.foreach { b =>
-      if (!consumersByHost.contains(b.host)) {
-        consumersByHost.put(b.host, new SimpleConsumer(b.host, b.port, 15000, bufferSize, clientId))
-      }
-    }
-    context.parent ! HealthComponent(actorName, ComponentState.NORMAL, s"Proxy has been configured.")
   }
 
   def getPartitionLeaders: Set[PartitionAssignment] = {
@@ -111,13 +69,16 @@ with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
 
     // Get our partition meta data for the configured topics
     val processedClusters = new mutable.HashSet[String]()
-    val unprocessed = new mutable.HashSet[String]
+    val brokers = kafkaSources
     for (bro <- brokers.values
          if !processedClusters.contains(bro.cluster)) {
       try {
+        if (!consumersByHost.contains(bro.host)) {
+          consumersByHost.put(bro.host, new SimpleConsumer(bro.host, bro.port, 15000, bufferSize, clientId))
+        }
         val consumer = consumersByHost(bro.host)
         val topicsMetaResp = consumer.send(topicMetaRequest)
-        for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => configuredTopics.contains(meta.topic) };
+        for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => topicMap.keys.toList.contains(meta.topic) };
               partMeta <- topicMeta.partitionsMetadata )
           yield {
             partMeta.leader match {
@@ -132,13 +93,14 @@ with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
       } catch {
         case e: Throwable =>
           log.error(s"Unable to get topic meta data from ${bro.host}, will retry soon", e)
-          unprocessed.add(bro.host)
+          consumersByHost.remove(bro.host).foreach(_.close())
       }
     }
 
-    if (unprocessed.nonEmpty) {
-      log.warn(s"Some brokers despondent: ${unprocessed.mkString(",")}. Remaining brokers will start their workers.")
-      context.parent ! HealthComponent(actorName, ComponentState.DEGRADED, s"Brokers despondent: ${unprocessed.mkString(",")}.")
+    val unprocClusters = brokers.filter(it => !processedClusters.contains(it._2.cluster)).map(_._2.cluster).toSet
+    if (unprocClusters.nonEmpty) {
+      log.warn(s"Some brokers despondent: ${unprocClusters.mkString(",")}. Remaining brokers will start their workers.")
+      context.parent ! HealthComponent(actorName, ComponentState.DEGRADED, s"Brokers despondent: ${unprocClusters.mkString(",")}.")
     } else {
       log.debug("Successfully processed brokers {}", brokers.toString())
       context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Successfully fetched broker data")

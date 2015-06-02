@@ -25,9 +25,10 @@ import java.util.concurrent.TimeUnit
 import akka.actor.{Actor, Props}
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigValueType}
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.BrokerSpec
+import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec
 import com.webtrends.harness.component.kafka.health.KafkaProducerHealthCheck
 import com.webtrends.harness.component.kafka.util.KafkaSettings
+import com.webtrends.harness.component.metrics.metrictype.Meter
 import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
 import com.webtrends.harness.health.ComponentState
 import com.webtrends.harness.logging.ActorLoggingAdapter
@@ -57,11 +58,12 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
   import KafkaProducer._
   implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
+  lazy val totalEvents = Meter("total-events-per-second")
+  lazy val totalBytesPerSecond = Meter("total-bytes-per-second")
+
   var dataProducer: Option[Producer[String, Array[Byte]]] = None
   val formats = Serialization.formats(NoTypeHints)
-
   var partitionKey = 0L
-
   val evenPartitionDistribution = Try { kafkaConfig.getBoolean("even-partition-distribution")} getOrElse true
 
   override def preStart() = {
@@ -78,7 +80,6 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
     }
   }
 
-
   def receive:Receive = healthReceive orElse {
     case EventToWrite(topic, event) => sendData(topic, Seq(event))
 
@@ -88,16 +89,19 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
       sender() ! EventWriteAck(sendData(msg.topic, msg.events, msg.ackId))
   }
 
-
   def sendData(topic: String, eventMessages: Seq[Array[Byte]], ackId: String = ""): Either[String, Throwable] ={
     Try {
       ensureProducer()
+      var bytes = 0L
+      val keyedMessages = eventMessages.withFilter(_.length > 0).map { it =>
+        bytes += it.length
+        keyedMessage(topic, it)
+      }
 
-      val keyedMessages = eventMessages.withFilter(_.length > 0)
-        .map(keyedMessage(topic, _))
-
-      //Only Send if we have 1 valid messages
+      // Only Send if we have >=1 valid messages
       if(keyedMessages.nonEmpty) {
+        totalEvents.mark(keyedMessages.size)
+        totalBytesPerSecond.mark(bytes)
         dataProducer.foreach(_.send(keyedMessages: _*))
       }
 
@@ -120,10 +124,8 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
         new KeyedMessage[String, Array[Byte]](topic, value)
 
     partitionKey += 1
-
     keyedMessage
   }
-
 
   def ensureProducer() = {
     if (dataProducer.isEmpty) {
@@ -131,13 +133,12 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
     }
   }
 
-
   def resetProducer() = {
     if (dataProducer.isDefined) {
       dataProducer.get.close()
       dataProducer = None
     }
-    dataProducer = Some(new Producer(new ProducerConfig(configToProps(context.system.settings.config.getConfig("harness-kafka.producer")))))
+    dataProducer = Some(new Producer(new ProducerConfig(configToProps(kafkaConfig.getConfig("producer")))))
     log.info("Kafka Producer Started")
   }
 
@@ -184,7 +185,7 @@ with ActorLoggingAdapter with  KafkaProducerHealthCheck with ZookeeperAdapter wi
         // Ignore other types
       }
     }
-    val brokerList = getKafkaNodes(context.system.settings.config.getConfig("harness-kafka.producer"))
+    val brokerList = getKafkaNodes(kafkaConfig.getConfig("producer"))
     props.put("key.serializer.class","kafka.serializer.StringEncoder")
     props.put("metadata.broker.list", brokerList)
     props

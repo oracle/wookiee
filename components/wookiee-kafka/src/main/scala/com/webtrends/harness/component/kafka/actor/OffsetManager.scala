@@ -11,6 +11,7 @@ import org.apache.zookeeper.KeeperException.NoNodeException
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
+import scala.collection.mutable
 
 object OffsetManager {
   def props(appRoot: String, timeout: Timeout = 5 seconds): Props =
@@ -27,10 +28,10 @@ object OffsetManager {
 }
 
 class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
- with ActorLoggingAdapter with ZookeeperAdapter {
+with ActorLoggingAdapter with ZookeeperAdapter {
   import OffsetManager._
   implicit val implicitTimeout = timeout
-
+  val createPaths = new mutable.HashSet[String]
   val offsetPath = s"$appRoot/offsets"
 
   def receive: Receive = {
@@ -41,7 +42,6 @@ class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
 
   /**
    * Get the state from zk and send back offset data response
-   * @param req
    */
   def getOffsetState(req: GetOffsetData) = {
     val originalSender = sender()
@@ -50,15 +50,15 @@ class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
     val path = s"$offsetPath/${req.path}"
     getData(path).onComplete {
       case Success(data) =>
-         Try {
-           originalSender ! OffsetDataResponse(Left(OffsetData(data)))
-           parent ! healthy(path)
-         } recover {
-           case ex =>
-             log.error("Error retrieving state from zk", ex)
-             originalSender ! OffsetDataResponse(Right(ex))
-             parent ! unhealthy(path)
-         }
+        Try {
+          originalSender ! OffsetDataResponse(Left(OffsetData(data)))
+          parent ! healthy(path)
+        } recover {
+          case ex =>
+            log.error("Error retrieving state from zk", ex)
+            originalSender ! OffsetDataResponse(Right(ex))
+            parent ! unhealthy(path)
+        }
       case Failure(err) =>
         err match {
           case ex: NoNodeException =>
@@ -72,20 +72,25 @@ class OffsetManager(appRoot: String, timeout:Timeout) extends Actor
     }
   }
 
-  def storeOffsetState(req: StoreOffsetData) = {
+  def storeOffsetState(req: StoreOffsetData, create: Boolean = false): Unit = {
     val path = s"$offsetPath/${req.path}"
     val originalSender = sender()
     val parent = context.parent
-    //ZNode should be create and not be ephemeral
-    setData(path, req.offsetData.data, true, false).onComplete {
+    // ZNode should be create and not be ephemeral
+    setData(path, req.offsetData.data, create = create || !createPaths.contains(path), ephemeral = false).onComplete {
       case Success(bytesWritten) =>
         originalSender ! OffsetDataResponse(Left(OffsetData(req.offsetData.data)))
         parent ! healthy(path)
       case Failure(ex) =>
-        log.error("Uanble to write zk state", ex)
-        originalSender ! OffsetDataResponse(Right(ex))
-        parent ! unhealthy(path)
+        ex match {
+          case ex: NoNodeException => storeOffsetState(req, create = true)
+          case ex: Exception =>
+            log.error("Unable to write zk state", ex)
+            originalSender ! OffsetDataResponse(Right(ex))
+            parent ! unhealthy(path)
+        }
     }
+    createPaths.add(path)
   }
 
   private def unhealthy(path: String) =
