@@ -64,7 +64,7 @@ class Read extends Command
     val p = Promise[CommandResponse[T]]
     bean match {
       case Some(b) =>
-        getComponent("wookie-cache-memcache") onComplete {
+        getComponent("wookiee-cache-memcache") onComplete {
           case Success(actor) =>
             val personName = b("name").asInstanceOf[String]
             Person(personName).readFromCache(actor) onComplete {

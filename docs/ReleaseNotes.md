@@ -1,6 +1,6 @@
 # Release Notes
 ### 1.0
-* Open Sourced as Wookie
+* Open Sourced as Wookiee
 * Added Apache 2.0 Licensing
 
 ### 0.3.0
