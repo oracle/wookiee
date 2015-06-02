@@ -1,0 +1,1932 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/zookeeper/NodeRegistration.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.zookeeper
+</span>20 <span style=''>
+</span>21 <span style=''>import java.net.InetAddress
+</span>22 <span style=''>import java.nio.charset.Charset
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.actor.Actor
+</span>25 <span style=''>import akka.util.Timeout
+</span>26 <span style=''>import org.apache.curator.framework.CuratorFramework
+</span>27 <span style=''>import com.typesafe.config.Config
+</span>28 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
+</span>29 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>30 <span style=''>import net.liftweb.json.JsonDSL._
+</span>31 <span style=''>import net.liftweb.json._
+</span>32 <span style=''>import org.apache.zookeeper.KeeperException.NoNodeException
+</span>33 <span style=''>
+</span>34 <span style=''>import scala.concurrent.duration._
+</span>35 <span style=''>import scala.util.{Failure, Success, Try}
+</span>36 <span style=''>
+</span>37 <span style=''>object NodeRegistration {
+</span>38 <span style=''>
+</span>39 <span style=''>  /**
+</span>40 <span style=''>   * Get the node/cluster base path
+</span>41 <span style=''>   * @param config the system config
+</span>42 <span style=''>   * @return the base path
+</span>43 <span style=''>   */
+</span>44 <span style=''>  def getBasePath(config: Config): String = {
+</span>45 <span style=''>    val zookeeperSettings = </span><span style='background: #AEF1AE'>ZookeeperSettings(config.getConfig("wookiee-zookeeper"))</span><span style=''>
+</span>46 <span style=''>    val basePath = if (</span><span style='background: #AEF1AE'>config.hasPath("wookiee-cluster.base-path")</span><span style=''>) {
+</span>47 <span style=''>      </span><span style='background: #F0ADAD'>config.getConfig("wookiee-cluster").getString("base-path")</span><span style=''>
+</span>48 <span style=''>    } else {
+</span>49 <span style=''>      </span><span style='background: #AEF1AE'>zookeeperSettings.basePath</span><span style=''>
+</span>50 <span style=''>    }
+</span>51 <span style=''>    </span><span style='background: #AEF1AE'>s"$basePath/${zookeeperSettings.dataCenter}_${zookeeperSettings.pod}/${zookeeperSettings.version}"</span><span style=''>
+</span>52 <span style=''>  }
+</span>53 <span style=''>}
+</span>54 <span style=''>
+</span>55 <span style=''>trait NodeRegistration extends ZookeeperAdapter {
+</span>56 <span style=''>  this: Actor with ActorLoggingAdapter =>
+</span>57 <span style=''>
+</span>58 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(5 seconds)</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  import context.dispatcher
+</span>61 <span style=''>
+</span>62 <span style=''>  val utf8 = </span><span style='background: #AEF1AE'>Charset.forName("UTF-8")</span><span style=''>
+</span>63 <span style=''>  val address = </span><span style='background: #AEF1AE'>SystemExtension(context.system).address</span><span style=''>
+</span>64 <span style=''>  val port = if (</span><span style='background: #AEF1AE'>address.port.isDefined</span><span style=''>) </span><span style='background: #F0ADAD'>address.port.get</span><span style=''> else </span><span style='background: #AEF1AE'>context.system.settings.config.getInt("akka.remote.netty.tcp.port")</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  private def getAddress: String = {
+</span>68 <span style=''>
+</span>69 <span style=''>    val host = if (</span><span style='background: #AEF1AE'>address.host.isEmpty || </span><span style='background: #F0ADAD'>address.host.get.equalsIgnoreCase("localhost")</span><span style='background: #AEF1AE'> || </span><span style='background: #F0ADAD'>address.host.get.equals("127.0.0.1")</span><span style=''>) {
+</span>70 <span style=''>      </span><span style='background: #AEF1AE'>InetAddress.getLocalHost.getCanonicalHostName</span><span style=''>
+</span>71 <span style=''>    } else {
+</span>72 <span style=''>      </span><span style='background: #F0ADAD'>address.host.get</span><span style=''>
+</span>73 <span style=''>    }
+</span>74 <span style=''>
+</span>75 <span style=''>    </span><span style='background: #AEF1AE'>s"${host}:${port}"</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  def unregisterNode(curator: CuratorFramework, zookeeperSettings: ZookeeperSettings) = {
+</span>79 <span style=''>
+</span>80 <span style=''>    val path = </span><span style='background: #AEF1AE'>s"${NodeRegistration.getBasePath(context.system.settings.config)}/nodes/${getAddress}"</span><span style=''>
+</span>81 <span style=''>    </span><span style='background: #AEF1AE'>Try({
+</span>82 <span style=''></span><span style='background: #AEF1AE'>      // Call Curator directly because this method is usually called after the actor's queue has been disabled
+</span>83 <span style=''></span><span style='background: #AEF1AE'>      curator.delete.forPath(path)
+</span>84 <span style=''></span><span style='background: #AEF1AE'>    }).recover({
+</span>85 <span style=''></span><span style='background: #AEF1AE'>      case e: NoNodeException </span><span style='background: #F0ADAD'>=></span><span style='background: #AEF1AE'>
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      // do nothing
+</span>87 <span style=''></span><span style='background: #AEF1AE'>      case e: Throwable =>
+</span>88 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.warn(e, "The node {} could not be deleted", path)</span><span style='background: #AEF1AE'>
+</span>89 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>90 <span style=''>  }
+</span>91 <span style=''>
+</span>92 <span style=''>  def registerNode(curator: CuratorFramework, zookeeperSettings: ZookeeperSettings, clusterEnabled: Boolean) {
+</span>93 <span style=''>
+</span>94 <span style=''>    val add = </span><span style='background: #AEF1AE'>getAddress</span><span style=''>
+</span>95 <span style=''>    val path = </span><span style='background: #AEF1AE'>s"${NodeRegistration.getBasePath(context.system.settings.config)}/nodes/${add}"</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>    // Delete the node first
+</span>98 <span style=''>    </span><span style='background: #AEF1AE'>deleteNode(path) onComplete {
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      case Success(_) => log.debug("The node {} was deleted", path)
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      case Failure(t) => </span><span style='background: #F0ADAD'>log.error(t, "The node {} could not be deleted", path)</span><span style='background: #AEF1AE'>
+</span>101 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>102 <span style=''>
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>log.info("Registering harness to path: " + path)</span><span style=''>
+</span>104 <span style=''>    val json = </span><span style='background: #AEF1AE'>compact(render(("address" -> add.toString) ~ ("cluster-enabled" -> clusterEnabled)))</span><span style=''>
+</span>105 <span style=''>
+</span>106 <span style=''>    </span><span style='background: #AEF1AE'>createNode(path, true, Some(json.getBytes(utf8))) onComplete {
+</span>107 <span style=''></span><span style='background: #AEF1AE'>      case Success(_) => log.debug("The node {} was created", path)
+</span>108 <span style=''></span><span style='background: #AEF1AE'>      case Failure(t) => </span><span style='background: #F0ADAD'>log.error(t, "Failed to create node registration for {}", path)</span><span style='background: #AEF1AE'>
+</span>109 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>110 <span style=''>  }
+</span>111 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          1530
+          -
+          1586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.apply(config.getConfig(&quot;wookiee-zookeeper&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          1548
+          -
+          1585
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getConfig
+        </td>
+        <td style="background: #AEF1AE">
+          config.getConfig(&quot;wookiee-zookeeper&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          1610
+          -
+          1653
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #AEF1AE">
+          config.hasPath(&quot;wookiee-cluster.base-path&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          1663
+          -
+          1721
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          config.getConfig(&quot;wookiee-cluster&quot;).getString(&quot;base-path&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          1663
+          -
+          1721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          config.getConfig(&quot;wookiee-cluster&quot;).getString(&quot;base-path&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          1741
+          -
+          1767
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.basePath
+        </td>
+        <td style="background: #AEF1AE">
+          zookeeperSettings.basePath
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          1741
+          -
+          1767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.basePath
+        </td>
+        <td style="background: #AEF1AE">
+          zookeeperSettings.basePath
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          1846
+          -
+          1848
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          1824
+          -
+          1845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.pod
+        </td>
+        <td style="background: #AEF1AE">
+          zookeeperSettings.pod
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          1780
+          -
+          1781
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          1778
+          -
+          1876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;_&quot;, &quot;/&quot;, &quot;&quot;).s(basePath, zookeeperSettings.dataCenter, zookeeperSettings.pod, zookeeperSettings.version)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          1821
+          -
+          1823
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;_&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          1792
+          -
+          1820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.dataCenter
+        </td>
+        <td style="background: #AEF1AE">
+          zookeeperSettings.dataCenter
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          1875
+          -
+          1876
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          1849
+          -
+          1874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.version
+        </td>
+        <td style="background: #AEF1AE">
+          zookeeperSettings.version
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          1789
+          -
+          1791
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2010
+          -
+          2011
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          2002
+          -
+          2020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2010
+          -
+          2019
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2064
+          -
+          2088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.charset.Charset.forName
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.charset.Charset.forName(&quot;UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2105
+          -
+          2144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.SystemExtension.address
+        </td>
+        <td style="background: #AEF1AE">
+          SystemExtension.apply(NodeRegistration.this.context.system).address
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2121
+          -
+          2135
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2162
+          -
+          2184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.address.port.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          2208
+          -
+          2275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.system.settings.config.getInt(&quot;akka.remote.netty.tcp.port&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          2186
+          -
+          2202
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.port.get
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2186
+          -
+          2202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.port.get
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2208
+          -
+          2275
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.system.settings.config.getInt(&quot;akka.remote.netty.tcp.port&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2409
+          -
+          2445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equals
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.host.get.equals(&quot;127.0.0.1&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2359
+          -
+          2405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.host.get.equalsIgnoreCase(&quot;localhost&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2335
+          -
+          2445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.address.host.isEmpty.||(NodeRegistration.this.address.host.get.equalsIgnoreCase(&quot;localhost&quot;)).||(NodeRegistration.this.address.host.get.equals(&quot;127.0.0.1&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2455
+          -
+          2500
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.net.InetAddress.getCanonicalHostName
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.InetAddress.getLocalHost().getCanonicalHostName()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2455
+          -
+          2500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getCanonicalHostName
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.InetAddress.getLocalHost().getCanonicalHostName()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2520
+          -
+          2536
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.host.get
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2520
+          -
+          2536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.address.host.get
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          2550
+          -
+          2551
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          2560
+          -
+          2564
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.port
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.port
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          2565
+          -
+          2566
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          2548
+          -
+          2566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;:&quot;, &quot;&quot;).s(host, NodeRegistration.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          2557
+          -
+          2559
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          2682
+          -
+          2742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.getBasePath
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.getBasePath(NodeRegistration.this.context.system.settings.config)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          2743
+          -
+          2751
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/nodes/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          2711
+          -
+          2741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          2678
+          -
+          2764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;/nodes/&quot;, &quot;&quot;).s(NodeRegistration.getBasePath(NodeRegistration.this.context.system.settings.config), NodeRegistration.this.getAddress)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          2680
+          -
+          2681
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          2763
+          -
+          2764
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          2752
+          -
+          2762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.getAddress
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.getAddress
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          2892
+          -
+          2920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.api.Pathable.forPath
+        </td>
+        <td style="background: #AEF1AE">
+          curator.delete().forPath(path)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          2936
+          -
+          2936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          2769
+          -
+          3086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[Void](curator.delete().forPath(path)).recover[Any](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: org.apache.zookeeper.KeeperException.NoNodeException)) =&gt; ()
+      case (e @ (_: Throwable)) =&gt; NodeRegistration.this.log.warn(e, &quot;The node {} could not be deleted&quot;, path)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Throwable): Boolean = ((x1.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: org.apache.zookeeper.KeeperException.NoNodeException)) =&gt; true
+      case (e @ (_: Throwable)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          2968
+          -
+          2970
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3026
+          -
+          3079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.log.warn(e, &quot;The node {} could not be deleted&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3218
+          -
+          3228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.getAddress
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.getAddress
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          3246
+          -
+          3247
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3277
+          -
+          3307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          3244
+          -
+          3323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot;/nodes/&quot;, &quot;&quot;).s(NodeRegistration.getBasePath(NodeRegistration.this.context.system.settings.config), add)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3322
+          -
+          3323
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          3248
+          -
+          3308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.getBasePath
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.getBasePath(NodeRegistration.this.context.system.settings.config)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          3309
+          -
+          3317
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;/nodes/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3375
+          -
+          3375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3368
+          -
+          3368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3358
+          -
+          3541
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.deleteNode(path)(NodeRegistration.this.timeout).onComplete[Unit](((x0$1: scala.util.Try[String]) =&gt; x0$1 match {
+  case (value: String)scala.util.Success[String](_) =&gt; NodeRegistration.this.log.debug(&quot;The node {} was deleted&quot;, path)
+  case (exception: Throwable)scala.util.Failure[String]((t @ _)) =&gt; NodeRegistration.this.log.error(t, &quot;The node {} could not be deleted&quot;, path)
+}))(NodeRegistration.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          3413
+          -
+          3455
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.log.debug(&quot;The node {} was deleted&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          3481
+          -
+          3535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.log.error(t, &quot;The node {} could not be deleted&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3547
+          -
+          3595
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.log.info(&quot;Registering harness to path: &quot;.+(path))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          3556
+          -
+          3594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Registering harness to path: &quot;.+(path)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          3654
+          -
+          3654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.boolean2jvalue
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonDSL.boolean2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          3611
+          -
+          3695
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.compact
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.`package`.compact(net.liftweb.json.`package`.render(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](add.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Boolean](scala.this.Predef.ArrowAssoc[String](&quot;cluster-enabled&quot;).-&gt;[Boolean](clusterEnabled))({
+  ((x: Boolean) =&gt; net.liftweb.json.JsonDSL.boolean2jvalue(x))
+})))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          3627
+          -
+          3652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](add.toString())
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          3640
+          -
+          3652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.toString
+        </td>
+        <td style="background: #AEF1AE">
+          add.toString()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          3657
+          -
+          3692
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](&quot;cluster-enabled&quot;).-&gt;[Boolean](clusterEnabled)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          3619
+          -
+          3694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.render
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.`package`.render(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](add.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Boolean](scala.this.Predef.ArrowAssoc[String](&quot;cluster-enabled&quot;).-&gt;[Boolean](clusterEnabled))({
+  ((x: Boolean) =&gt; net.liftweb.json.JsonDSL.boolean2jvalue(x))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          3626
+          -
+          3693
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonAssoc.~
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](add.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Boolean](scala.this.Predef.ArrowAssoc[String](&quot;cluster-enabled&quot;).-&gt;[Boolean](clusterEnabled))({
+  ((x: Boolean) =&gt; net.liftweb.json.JsonDSL.boolean2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          3627
+          -
+          3636
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;address&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          3637
+          -
+          3637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #AEF1AE">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          3701
+          -
+          3926
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.createNode(path, true, scala.Some.apply[Array[Byte]](json.getBytes(NodeRegistration.this.utf8)))(NodeRegistration.this.timeout).onComplete[Unit](((x0$2: scala.util.Try[String]) =&gt; x0$2 match {
+  case (value: String)scala.util.Success[String](_) =&gt; NodeRegistration.this.log.debug(&quot;The node {} was created&quot;, path)
+  case (exception: Throwable)scala.util.Failure[String]((t @ _)) =&gt; NodeRegistration.this.log.error(t, &quot;Failed to create node registration for {}&quot;, path)
+}))(NodeRegistration.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          3729
+          -
+          3748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #AEF1AE">
+          json.getBytes(NodeRegistration.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          3743
+          -
+          3747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.utf8
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          3711
+          -
+          3711
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.NodeRegistration.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          3751
+          -
+          3751
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          3718
+          -
+          3722
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          3724
+          -
+          3749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Array[Byte]](json.getBytes(NodeRegistration.this.utf8))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          3789
+          -
+          3831
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          NodeRegistration.this.log.debug(&quot;The node {} was created&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          3857
+          -
+          3920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          NodeRegistration.this.log.error(t, &quot;Failed to create node registration for {}&quot;, path)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

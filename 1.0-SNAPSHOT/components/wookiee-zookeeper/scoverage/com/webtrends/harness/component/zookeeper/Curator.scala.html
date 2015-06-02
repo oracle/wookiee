@@ -1,0 +1,1165 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/zookeeper/Curator.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.zookeeper
+</span>20 <span style=''>
+</span>21 <span style=''>import org.apache.curator.framework.imps.CuratorFrameworkState
+</span>22 <span style=''>import org.apache.curator.framework.state.ConnectionStateListener
+</span>23 <span style=''>import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
+</span>24 <span style=''>import org.apache.curator.retry.RetryNTimes
+</span>25 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
+</span>26 <span style=''>import com.webtrends.harness.logging.LoggingAdapter
+</span>27 <span style=''>import scala.collection.mutable
+</span>28 <span style=''>
+</span>29 <span style=''>private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAdapter {
+</span>30 <span style=''>
+</span>31 <span style=''>  // We manage an internal client since the CuratorFramework will not allow re-use of the client
+</span>32 <span style=''>  // after it has been closed
+</span>33 <span style=''>  private var internalClient: Option[CuratorFramework] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>34 <span style=''>
+</span>35 <span style=''>  def client = </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
+</span>36 <span style=''>
+</span>37 <span style=''>  private[zookeeper] def createClient: CuratorFramework = {
+</span>38 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
+</span>39 <span style=''>    </span><span style='background: #AEF1AE'>internalClient = Some(CuratorFrameworkFactory.newClient(
+</span>40 <span style=''></span><span style='background: #AEF1AE'>      settings.quorum,
+</span>41 <span style=''></span><span style='background: #AEF1AE'>      settings.sessionTimeout.intValue,
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      settings.connectionTimeout.intValue, new RetryNTimes(
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        settings.retryCount,
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        settings.retrySleep.intValue)))</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>    }
+</span>47 <span style=''>
+</span>48 <span style=''>    </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
+</span>49 <span style=''>  }
+</span>50 <span style=''>
+</span>51 <span style=''>  private[zookeeper] def start(listener: Option[ConnectionStateListener] = None): Unit = {
+</span>52 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
+</span>53 <span style=''>      </span><span style='background: #AEF1AE'>createClient</span><span style=''>
+</span>54 <span style=''>    }
+</span>55 <span style=''>
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>client.synchronized {
+</span>57 <span style=''></span><span style='background: #AEF1AE'>      if (client.getState == CuratorFrameworkState.LATENT) {
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        log.info("Starting curator with quorum " + settings.quorum)
+</span>59 <span style=''></span><span style='background: #AEF1AE'>        if (listener.isDefined) {
+</span>60 <span style=''></span><span style='background: #AEF1AE'>          client.getConnectionStateListenable.addListener(listener.get)
+</span>61 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>62 <span style=''></span><span style='background: #AEF1AE'>
+</span>63 <span style=''></span><span style='background: #AEF1AE'>        client.start
+</span>64 <span style=''></span><span style='background: #AEF1AE'>        client.getZookeeperClient.blockUntilConnectedOrTimedOut
+</span>65 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>66 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  private[zookeeper] def stop: Unit = {
+</span>70 <span style=''>    </span><span style='background: #AEF1AE'>log.debug("Stopping curator")</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #AEF1AE'>client.close</span><span style=''>
+</span>72 <span style=''>    </span><span style='background: #AEF1AE'>internalClient = None</span><span style=''>
+</span>73 <span style=''>  }
+</span>74 <span style=''>}
+</span>75 <span style=''>
+</span>76 <span style=''>/**
+</span>77 <span style=''> * This allows access to a single instance of the curator client per quorum when an application
+</span>78 <span style=''> * needs direct access. It is still preferred for one to use the ZookeeperAdapter
+</span>79 <span style=''> * and ZookeeperEventAdapter traits.
+</span>80 <span style=''> */
+</span>81 <span style=''>object Curator {
+</span>82 <span style=''>
+</span>83 <span style=''>  private val curators = </span><span style='background: #AEF1AE'>mutable.Map.empty[String, Curator]</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>  /**
+</span>86 <span style=''>   * Return the instance of the Curator client object. This is usually used after the harness has
+</span>87 <span style=''>   * called the apply method that takes the required settings.
+</span>88 <span style=''>   * @return the singleton instance of the Curator
+</span>89 <span style=''>   */
+</span>90 <span style=''>  def apply(settings: ZookeeperSettings): Curator = {
+</span>91 <span style=''>    </span><span style='background: #AEF1AE'>curators.synchronized {
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      curators.getOrElseUpdate(settings.quorum, new Curator(settings))
+</span>93 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>94 <span style=''>  }
+</span>95 <span style=''>
+</span>96 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1474
+          -
+          1478
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1495
+          -
+          1513
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient.get
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          1579
+          -
+          1579
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1583
+          -
+          1605
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          1579
+          -
+          1579
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          1630
+          -
+          1861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[org.apache.curator.framework.CuratorFramework](org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue())))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          1613
+          -
+          1861
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.internalClient_=
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient_=(scala.Some.apply[org.apache.curator.framework.CuratorFramework](org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()))))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          1635
+          -
+          1860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.CuratorFrameworkFactory.newClient
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          1613
+          -
+          1861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.internalClient_=
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient_=(scala.Some.apply[org.apache.curator.framework.CuratorFramework](org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()))))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          1676
+          -
+          1691
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.quorum
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.settings.quorum
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          1699
+          -
+          1731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Long.intValue
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          1776
+          -
+          1859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.retry.RetryNTimes.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue())
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1739
+          -
+          1774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Long.intValue
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          1801
+          -
+          1820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.retryCount
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.settings.retryCount
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          1830
+          -
+          1858
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Long.intValue
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          1874
+          -
+          1892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient.get
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          1997
+          -
+          2019
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          1993
+          -
+          1993
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          1993
+          -
+          1993
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2029
+          -
+          2041
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.createClient
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.createClient
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2029
+          -
+          2041
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.createClient
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.createClient
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2053
+          -
+          2419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.synchronized[AnyVal](if (Curator.this.client.getState().==(LATENT))
+  {
+    Curator.this.log.info(&quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum));
+    if (listener.isDefined)
+      Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+    else
+      ();
+    Curator.this.client.start();
+    Curator.this.client.getZookeeperClient().blockUntilConnectedOrTimedOut()
+  }
+else
+  ())
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2073
+          -
+          2073
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2134
+          -
+          2413
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  Curator.this.log.info(&quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum));
+  if (listener.isDefined)
+    Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+  else
+    ();
+  Curator.this.client.start();
+  Curator.this.client.getZookeeperClient().blockUntilConnectedOrTimedOut()
+}
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2085
+          -
+          2132
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.getState().==(LATENT)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2081
+          -
+          2081
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2081
+          -
+          2081
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          2153
+          -
+          2184
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Starting curator with quorum &quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2144
+          -
+          2203
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.log.info(&quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2153
+          -
+          2202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2187
+          -
+          2202
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.quorum
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.settings.quorum
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2212
+          -
+          2212
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2212
+          -
+          2212
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2216
+          -
+          2234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          listener.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2248
+          -
+          2309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.listen.Listenable.addListener
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2296
+          -
+          2308
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          listener.get
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2248
+          -
+          2309
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.curator.framework.listen.Listenable.addListener
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2329
+          -
+          2341
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.CuratorFramework.start
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.start()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2350
+          -
+          2405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.CuratorZookeeperClient.blockUntilConnectedOrTimedOut
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.getZookeeperClient().blockUntilConnectedOrTimedOut()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2469
+          -
+          2498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.log.debug(&quot;Stopping curator&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2503
+          -
+          2515
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.CuratorFramework.close
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.close()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          2520
+          -
+          2541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.internalClient_=
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2537
+          -
+          2541
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2815
+          -
+          2849
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.empty[String, com.webtrends.harness.component.zookeeper.Curator]
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          3133
+          -
+          3233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.curators.synchronized[com.webtrends.harness.component.zookeeper.Curator](Curator.this.curators.getOrElseUpdate(settings.quorum, new Curator(settings)))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          3163
+          -
+          3227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.getOrElseUpdate
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.curators.getOrElseUpdate(settings.quorum, new Curator(settings))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          3205
+          -
+          3226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new Curator(settings)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          3188
+          -
+          3203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.quorum
+        </td>
+        <td style="background: #AEF1AE">
+          settings.quorum
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
