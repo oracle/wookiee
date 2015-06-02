@@ -1,0 +1,1474 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/netty/BaseInboundHandler.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.netty
+</span>21 <span style=''>
+</span>22 <span style=''>import com.webtrends.harness.logging.Logger
+</span>23 <span style=''>import io.netty.buffer.Unpooled
+</span>24 <span style=''>import io.netty.channel.{ChannelInboundHandlerAdapter, ChannelFutureListener, ChannelHandlerContext}
+</span>25 <span style=''>import io.netty.handler.codec.http.HttpResponseStatus._
+</span>26 <span style=''>import io.netty.handler.codec.http.{FullHttpResponse, HttpHeaders, DefaultFullHttpResponse, FullHttpRequest}
+</span>27 <span style=''>import io.netty.handler.codec.http.websocketx.{WebSocketFrame, WebSocketServerHandshaker}
+</span>28 <span style=''>import io.netty.util.{ReferenceCountUtil, CharsetUtil}
+</span>29 <span style=''>
+</span>30 <span style=''>/**
+</span>31 <span style=''> * Created by wallinm on 12/22/14.
+</span>32 <span style=''> */
+</span>33 <span style=''>abstract class BaseInboundHandler() extends ChannelInboundHandlerAdapter {
+</span>34 <span style=''>
+</span>35 <span style=''>  protected val log = </span><span style='background: #AEF1AE'>Logger.getLogger(getClass)</span><span style=''>
+</span>36 <span style=''>  protected var handshaker: Option[WebSocketServerHandshaker] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  override final def channelRead(ctx: ChannelHandlerContext, msg: AnyRef) {
+</span>39 <span style=''>    var msgHandled = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>    try {
+</span>42 <span style=''>    </span><span style='background: #AEF1AE'>msg match {
+</span>43 <span style=''></span><span style='background: #AEF1AE'>      // http requests
+</span>44 <span style=''></span><span style='background: #AEF1AE'>      case req: FullHttpRequest => msgHandled = handleHttpRequest(ctx, req)
+</span>45 <span style=''></span><span style='background: #AEF1AE'>      // websocket frames
+</span>46 <span style=''></span><span style='background: #AEF1AE'>      case frame: WebSocketFrame => msgHandled = handleWebSocketFrame(ctx, frame)
+</span>47 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>48 <span style=''>  } finally {
+</span>49 <span style=''>      </span><span style='background: #AEF1AE'>if (!msgHandled) {
+</span>50 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>ctx.fireChannelRead(msg)</span><span style='background: #AEF1AE'>
+</span>51 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>52 <span style=''></span><span style='background: #AEF1AE'>        ReferenceCountUtil.release(msg)
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>54 <span style=''>    }
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  /**
+</span>58 <span style=''>   * Override this function in order to process http requests. 
+</span>59 <span style=''>   * @param ctx
+</span>60 <span style=''>   * @param req
+</span>61 <span style=''>   * @return true if this function handled the request; otherwise, false
+</span>62 <span style=''>   */
+</span>63 <span style=''>  def handleHttpRequest(ctx: ChannelHandlerContext, req: FullHttpRequest): Boolean = {</span><span style='background: #F0ADAD'>false</span><span style=''>}
+</span>64 <span style=''>
+</span>65 <span style=''>  /**
+</span>66 <span style=''>   * Override this function in order to process websocket frames 
+</span>67 <span style=''>   * @param ctx
+</span>68 <span style=''>   * @param frame
+</span>69 <span style=''>   * @return true if this function handled the frame; otherwise, false
+</span>70 <span style=''>   */
+</span>71 <span style=''>  def handleWebSocketFrame(ctx: ChannelHandlerContext, frame: WebSocketFrame): Boolean = {</span><span style='background: #F0ADAD'>false</span><span style=''>}
+</span>72 <span style=''>
+</span>73 <span style=''>  /**
+</span>74 <span style=''>   * Sends an HttpResponse 
+</span>75 <span style=''>   * @param ctx ChannelHandlerContext
+</span>76 <span style=''>   * @param req The request which is being responded to
+</span>77 <span style=''>   * @param content The content for the response
+</span>78 <span style=''>   * @param contentType The content type
+</span>79 <span style=''>   */
+</span>80 <span style=''>  def sendContent(ctx: ChannelHandlerContext, req: FullHttpRequest, content: String, contentType: String) {
+</span>81 <span style=''>    val buf = </span><span style='background: #AEF1AE'>Unpooled.copiedBuffer(content, CharsetUtil.UTF_8)</span><span style=''>
+</span>82 <span style=''>    val res = </span><span style='background: #AEF1AE'>new DefaultFullHttpResponse(req.getProtocolVersion, OK, buf)</span><span style=''>
+</span>83 <span style=''>    </span><span style='background: #AEF1AE'>res.headers().set(HttpHeaders.Names.CONTENT_TYPE, contentType.concat("; charset=UTF-8"))</span><span style=''>
+</span>84 <span style=''>    </span><span style='background: #AEF1AE'>sendHttpResponse(ctx, req, res)</span><span style=''>
+</span>85 <span style=''>  }
+</span>86 <span style=''>
+</span>87 <span style=''>  /**
+</span>88 <span style=''>   * Sends an HttpResponse with a status of 500
+</span>89 <span style=''>   * @param ctx ChannelHandlerContext
+</span>90 <span style=''>   * @param req The request which is being responded to
+</span>91 <span style=''>   * @param error The error which caused the error response
+</span>92 <span style=''>   */
+</span>93 <span style=''>  def sendFailure(ctx: ChannelHandlerContext, req: FullHttpRequest, error: Throwable) {
+</span>94 <span style=''>    val content = </span><span style='background: #F0ADAD'>Unpooled.copiedBuffer(s"error: ${error.getMessage}", CharsetUtil.UTF_8)</span><span style=''>
+</span>95 <span style=''>    val res = </span><span style='background: #F0ADAD'>new DefaultFullHttpResponse(req.getProtocolVersion, INTERNAL_SERVER_ERROR, content)</span><span style=''>
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>res.headers().set(HttpHeaders.Names.CONTENT_TYPE, "text/plain; charset=UTF-8")</span><span style=''>
+</span>97 <span style=''>    </span><span style='background: #F0ADAD'>sendHttpResponse(ctx, req, res)</span><span style=''>
+</span>98 <span style=''>  }
+</span>99 <span style=''>
+</span>100 <span style=''>  /**
+</span>101 <span style=''>   * Sends an HttpResponse
+</span>102 <span style=''>   * @param ctx ChannelHandlerContext
+</span>103 <span style=''>   * @param req The request being responded to
+</span>104 <span style=''>   * @param res The response to be sent
+</span>105 <span style=''>   */
+</span>106 <span style=''>  def sendHttpResponse(ctx: ChannelHandlerContext, req: FullHttpRequest, res: FullHttpResponse) {
+</span>107 <span style=''>    val keepAlive = </span><span style='background: #AEF1AE'>HttpHeaders.isKeepAlive(req)</span><span style=''>
+</span>108 <span style=''>
+</span>109 <span style=''>    </span><span style='background: #AEF1AE'>HttpHeaders.setContentLength(res, res.content().readableBytes())</span><span style=''>
+</span>110 <span style=''>
+</span>111 <span style=''>    </span><span style='background: #AEF1AE'>res.getStatus.code</span><span style=''> match {
+</span>112 <span style=''>      case 200 </span><span style='background: #AEF1AE'>=></span><span style=''>
+</span>113 <span style=''>      case _ =>
+</span>114 <span style=''>        val buf = </span><span style='background: #F0ADAD'>Unpooled.copiedBuffer(res.getStatus.toString, CharsetUtil.UTF_8)</span><span style=''>
+</span>115 <span style=''>        </span><span style='background: #F0ADAD'>res.content().writeBytes(buf)</span><span style=''>
+</span>116 <span style=''>        </span><span style='background: #F0ADAD'>buf.release()</span><span style=''>
+</span>117 <span style=''>        </span><span style='background: #F0ADAD'>HttpHeaders.setContentLength(res, res.content().readableBytes())</span><span style=''>
+</span>118 <span style=''>    }
+</span>119 <span style=''>
+</span>120 <span style=''>    val f = </span><span style='background: #AEF1AE'>ctx.channel().writeAndFlush(res)</span><span style=''>
+</span>121 <span style=''>    if (</span><span style='background: #AEF1AE'>!keepAlive || res.getStatus.code() != 200</span><span style=''>) {
+</span>122 <span style=''>      </span><span style='background: #F0ADAD'>f.addListener(ChannelFutureListener.CLOSE)</span><span style=''>
+</span>123 <span style=''>    }
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>  override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit = {
+</span>127 <span style=''>    </span><span style='background: #F0ADAD'>cause.printStackTrace()</span><span style=''>
+</span>128 <span style=''>    </span><span style='background: #F0ADAD'>ctx.close</span><span style=''>
+</span>129 <span style=''>  }
+</span>130 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1416
+          -
+          1442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.getLogger
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.logging.Logger.getLogger(BaseInboundHandler.this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1433
+          -
+          1441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #AEF1AE">
+          BaseInboundHandler.this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1507
+          -
+          1511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          1610
+          -
+          1615
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          1631
+          -
+          1855
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          msg match {
+  case (req @ (_: io.netty.handler.codec.http.FullHttpRequest)) =&gt; msgHandled = BaseInboundHandler.this.handleHttpRequest(ctx, req)
+  case (frame @ (_: io.netty.handler.codec.http.websocketx.WebSocketFrame)) =&gt; msgHandled = BaseInboundHandler.this.handleWebSocketFrame(ctx, frame)
+}
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          1714
+          -
+          1741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.handleHttpRequest
+        </td>
+        <td style="background: #AEF1AE">
+          BaseInboundHandler.this.handleHttpRequest(ctx, req)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1817
+          -
+          1849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.handleWebSocketFrame
+        </td>
+        <td style="background: #AEF1AE">
+          BaseInboundHandler.this.handleWebSocketFrame(ctx, frame)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          1880
+          -
+          1891
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          msgHandled.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          1876
+          -
+          1990
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          if (msgHandled.unary_!)
+  {
+    ctx.fireChannelRead(msg);
+    ()
+  }
+else
+  {
+    io.netty.util.ReferenceCountUtil.release(msg);
+    ()
+  }
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          1903
+          -
+          1927
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ctx.fireChannelRead(msg);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          1922
+          -
+          1922
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          1903
+          -
+          1927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.fireChannelRead
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.fireChannelRead(msg)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          1951
+          -
+          1982
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  io.netty.util.ReferenceCountUtil.release(msg);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          1977
+          -
+          1977
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          1951
+          -
+          1982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.util.ReferenceCountUtil.release
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.util.ReferenceCountUtil.release(msg)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2269
+          -
+          2274
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2550
+          -
+          2555
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2904
+          -
+          2953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.Unpooled.copiedBuffer
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.buffer.Unpooled.copiedBuffer(content, io.netty.util.CharsetUtil.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2935
+          -
+          2952
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2996
+          -
+          3018
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #AEF1AE">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2968
+          -
+          3028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.OK, buf)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          3020
+          -
+          3022
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.OK
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.handler.codec.http.HttpResponseStatus.OK
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          3051
+          -
+          3081
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Content-Type&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          3033
+          -
+          3121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.set
+        </td>
+        <td style="background: #AEF1AE">
+          res.headers().set(&quot;Content-Type&quot;, contentType.concat(&quot;; charset=UTF-8&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          3083
+          -
+          3120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #AEF1AE">
+          contentType.concat(&quot;; charset=UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          3126
+          -
+          3157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #AEF1AE">
+          BaseInboundHandler.this.sendHttpResponse(ctx, req, res)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          3483
+          -
+          3554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.Unpooled.copiedBuffer
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.buffer.Unpooled.copiedBuffer(scala.StringContext.apply(&quot;error: &quot;, &quot;&quot;).s(error.getMessage()), io.netty.util.CharsetUtil.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          3516
+          -
+          3532
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          error.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          3536
+          -
+          3553
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          3533
+          -
+          3534
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          3507
+          -
+          3515
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;error: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          3505
+          -
+          3534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;error: &quot;, &quot;&quot;).s(error.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          3569
+          -
+          3652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.DefaultFullHttpResponse.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new io.netty.handler.codec.http.DefaultFullHttpResponse(req.getProtocolVersion(), io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR, content)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          3621
+          -
+          3642
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          3597
+          -
+          3619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMessage.getProtocolVersion
+        </td>
+        <td style="background: #F0ADAD">
+          req.getProtocolVersion()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          3657
+          -
+          3735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.set
+        </td>
+        <td style="background: #F0ADAD">
+          res.headers().set(&quot;Content-Type&quot;, &quot;text/plain; charset=UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          3740
+          -
+          3771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.BaseInboundHandler.sendHttpResponse
+        </td>
+        <td style="background: #F0ADAD">
+          BaseInboundHandler.this.sendHttpResponse(ctx, req, res)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          4059
+          -
+          4087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.isKeepAlive
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.handler.codec.http.HttpHeaders.isKeepAlive(req)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          4093
+          -
+          4157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.setContentLength
+        </td>
+        <td style="background: #AEF1AE">
+          io.netty.handler.codec.http.HttpHeaders.setContentLength(res, res.content().readableBytes().toLong)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          4127
+          -
+          4156
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #AEF1AE">
+          res.content().readableBytes().toLong
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          4163
+          -
+          4181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.code
+        </td>
+        <td style="background: #AEF1AE">
+          res.getStatus().code()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          4205
+          -
+          4207
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          4288
+          -
+          4305
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.util.CharsetUtil.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          4264
+          -
+          4286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpResponseStatus.toString
+        </td>
+        <td style="background: #F0ADAD">
+          res.getStatus().toString()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          4242
+          -
+          4306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.Unpooled.copiedBuffer
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.buffer.Unpooled.copiedBuffer(res.getStatus().toString(), io.netty.util.CharsetUtil.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          4315
+          -
+          4344
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.buffer.ByteBuf.writeBytes
+        </td>
+        <td style="background: #F0ADAD">
+          res.content().writeBytes(buf)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          4353
+          -
+          4366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.util.ReferenceCounted.release
+        </td>
+        <td style="background: #F0ADAD">
+          buf.release()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          4375
+          -
+          4439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpHeaders.setContentLength
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpHeaders.setContentLength(res, res.content().readableBytes().toLong)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          4409
+          -
+          4438
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          res.content().readableBytes().toLong
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          4459
+          -
+          4491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.Channel.writeAndFlush
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.channel().writeAndFlush(res)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          4496
+          -
+          4496
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          4500
+          -
+          4541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          keepAlive.unary_!.||(res.getStatus().code().!=(200))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          4496
+          -
+          4496
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          4514
+          -
+          4541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td style="background: #AEF1AE">
+          res.getStatus().code().!=(200)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          4565
+          -
+          4592
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.channel.ChannelFutureListener.CLOSE
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          4551
+          -
+          4593
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  f.addListener(io.netty.channel.ChannelFutureListener.CLOSE);
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          4564
+          -
+          4564
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          4551
+          -
+          4593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelFuture.addListener
+        </td>
+        <td style="background: #F0ADAD">
+          f.addListener(io.netty.channel.ChannelFutureListener.CLOSE)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          4696
+          -
+          4719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.printStackTrace
+        </td>
+        <td style="background: #F0ADAD">
+          cause.printStackTrace()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          4728
+          -
+          4728
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          4724
+          -
+          4733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          io.netty.channel.ChannelHandlerContext.close
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.close()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

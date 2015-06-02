@@ -1,0 +1,1547 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/netty/CoreNettyServer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.netty
+</span>20 <span style=''>
+</span>21 <span style=''>import java.net.InetAddress
+</span>22 <span style=''>
+</span>23 <span style=''>import akka.actor._
+</span>24 <span style=''>import akka.routing.FromConfig
+</span>25 <span style=''>import com.webtrends.harness.app.HActor
+</span>26 <span style=''>import com.webtrends.harness.component.netty.config.NettyServerSettings
+</span>27 <span style=''>import com.webtrends.harness.component.netty.handler.HandlerManager
+</span>28 <span style=''>import com.webtrends.harness.component.netty.server.SocketServer
+</span>29 <span style=''>import com.webtrends.harness.health._
+</span>30 <span style=''>import io.netty.channel.ChannelHandler
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.concurrent.Future
+</span>33 <span style=''>
+</span>34 <span style=''>object CoreNettyServer {
+</span>35 <span style=''>  def props(settings:NettyServerSettings): Props = </span><span style='background: #AEF1AE'>Props(classOf[CoreNettyServer], settings)</span><span style=''>
+</span>36 <span style=''>}
+</span>37 <span style=''>
+</span>38 <span style=''>@SerialVersionUID(1L) case class StartServer()
+</span>39 <span style=''>@SerialVersionUID(1L) case class ShutdownServer()
+</span>40 <span style=''>
+</span>41 <span style=''>class CoreNettyServer(settings:NettyServerSettings) extends HActor {
+</span>42 <span style=''>  var server: Option[SocketServer] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>43 <span style=''>  var worker: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  override def receive: Receive = </span><span style='background: #AEF1AE'>starting</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  def starting: Receive = {
+</span>48 <span style=''>    case StartServer => </span><span style='background: #AEF1AE'>startServer</span><span style=''>
+</span>49 <span style=''>  }
+</span>50 <span style=''>
+</span>51 <span style=''>  def running: Receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>52 <span style=''></span><span style='background: #AEF1AE'>    case ShutdownServer => </span><span style='background: #F0ADAD'>shutdownServer</span><span style='background: #AEF1AE'>
+</span>53 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  protected def startServer: Unit = {
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>server = Some(SocketServer(settings, this))</span><span style=''>
+</span>57 <span style=''>    </span><span style='background: #AEF1AE'>worker = Some(context.actorOf(FromConfig.props(Props[CoreNettyWorker]), "netty-worker"))</span><span style=''>
+</span>58 <span style=''>    </span><span style='background: #AEF1AE'>context.become(running)</span><span style=''>
+</span>59 <span style=''>    </span><span style='background: #AEF1AE'>context.parent ! NettyRunning</span><span style=''>
+</span>60 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s"Netty Http server bound to port ${settings.port}")</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  protected def shutdownServer: Unit = {
+</span>64 <span style=''>    </span><span style='background: #F0ADAD'>server</span><span style=''> match {
+</span>65 <span style=''>      case Some(s) =>
+</span>66 <span style=''>        </span><span style='background: #F0ADAD'>log.info(s"Trying to shutdown the netty server ${InetAddress.getLocalHost.getHostName} on port ${settings.port}")</span><span style=''>
+</span>67 <span style=''>        </span><span style='background: #F0ADAD'>s.close()</span><span style=''>
+</span>68 <span style=''>      case None </span><span style='background: #F0ADAD'>=></span><span style=''> // do nothing
+</span>69 <span style=''>    }
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  /**
+</span>73 <span style=''>   * Fetch routes from all registered services and concatenate with our default ones that
+</span>74 <span style=''>   * are defined below.
+</span>75 <span style=''>   */
+</span>76 <span style=''>  def getHandlers: Map[String, ChannelHandler] = {
+</span>77 <span style=''>    val serviceHandlers = </span><span style='background: #AEF1AE'>HandlerManager.getHandlers.filter (r => </span><span style='background: #F0ADAD'>! r.equals (Map.empty)</span><span style='background: #AEF1AE'> )</span><span style=''>
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>serviceHandlers ++ getBaseHandlers</span><span style=''>
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  private def getBaseHandlers = {
+</span>82 <span style=''>    </span><span style='background: #AEF1AE'>Map[String, ChannelHandler]("core-http-handler" -> new CoreHttpHandler(settings, worker.get) with WebSocket)</span><span style=''>
+</span>83 <span style=''>  }
+</span>84 <span style=''>
+</span>85 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>86 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>87 <span style=''>    
+</span>88 <span style=''>    </span><span style='background: #AEF1AE'>Future {
+</span>89 <span style=''></span><span style='background: #AEF1AE'>      server match {
+</span>90 <span style=''></span><span style='background: #AEF1AE'>        case None =>
+</span>91 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>HealthComponent(
+</span>92 <span style=''></span><span style='background: #F0ADAD'>            "netty-server",
+</span>93 <span style=''></span><span style='background: #F0ADAD'>            ComponentState.CRITICAL,
+</span>94 <span style=''></span><span style='background: #F0ADAD'>            "The internal netty server is not running",
+</span>95 <span style=''></span><span style='background: #F0ADAD'>            None)</span><span style='background: #AEF1AE'>
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        case Some(s) =>
+</span>97 <span style=''></span><span style='background: #AEF1AE'>          HealthComponent(
+</span>98 <span style=''></span><span style='background: #AEF1AE'>            "netty-server",
+</span>99 <span style=''></span><span style='background: #AEF1AE'>            ComponentState.NORMAL,
+</span>100 <span style=''></span><span style='background: #AEF1AE'>            s"The internal netty server is running on port ${settings.port}",
+</span>101 <span style=''></span><span style='background: #AEF1AE'>            None)
+</span>102 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>103 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>104 <span style=''>  }
+</span>105 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          1297
+          -
+          1338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.netty.CoreNettyServer], settings)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          1546
+          -
+          1550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          1584
+          -
+          1588
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          1624
+          -
+          1632
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.starting
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.starting
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          1660
+          -
+          1660
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          1686
+          -
+          1697
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.startServer
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.startServer
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          1728
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case ShutdownServer =&gt; CoreNettyServer.this.shutdownServer
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case ShutdownServer =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          1742
+          -
+          1742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          1771
+          -
+          1785
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.shutdownServer
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyServer.this.shutdownServer
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          1860
+          -
+          1868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.settings
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.settings
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          1833
+          -
+          1876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.server_=
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.server_=(scala.Some.apply[com.webtrends.harness.component.netty.server.SocketServer](com.webtrends.harness.component.netty.server.SocketServer.apply(CoreNettyServer.this.settings, this)))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          1842
+          -
+          1876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.component.netty.server.SocketServer](com.webtrends.harness.component.netty.server.SocketServer.apply(CoreNettyServer.this.settings, this))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          1847
+          -
+          1875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.server.SocketServer.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.netty.server.SocketServer.apply(CoreNettyServer.this.settings, this)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          1953
+          -
+          1967
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;netty-worker&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          1881
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.worker_=
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.worker_=(scala.Some.apply[akka.actor.ActorRef](CoreNettyServer.this.context.actorOf(akka.routing.FromConfig.props(akka.actor.Props.apply[com.webtrends.harness.component.netty.CoreNettyWorker]()((ClassTag.apply[com.webtrends.harness.component.netty.CoreNettyWorker](classOf[com.webtrends.harness.component.netty.CoreNettyWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.netty.CoreNettyWorker]))), &quot;netty-worker&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          1911
+          -
+          1951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Pool.props
+        </td>
+        <td style="background: #AEF1AE">
+          akka.routing.FromConfig.props(akka.actor.Props.apply[com.webtrends.harness.component.netty.CoreNettyWorker]()((ClassTag.apply[com.webtrends.harness.component.netty.CoreNettyWorker](classOf[com.webtrends.harness.component.netty.CoreNettyWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.netty.CoreNettyWorker])))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          1890
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](CoreNettyServer.this.context.actorOf(akka.routing.FromConfig.props(akka.actor.Props.apply[com.webtrends.harness.component.netty.CoreNettyWorker]()((ClassTag.apply[com.webtrends.harness.component.netty.CoreNettyWorker](classOf[com.webtrends.harness.component.netty.CoreNettyWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.netty.CoreNettyWorker]))), &quot;netty-worker&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          1895
+          -
+          1968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.context.actorOf(akka.routing.FromConfig.props(akka.actor.Props.apply[com.webtrends.harness.component.netty.CoreNettyWorker]()((ClassTag.apply[com.webtrends.harness.component.netty.CoreNettyWorker](classOf[com.webtrends.harness.component.netty.CoreNettyWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.netty.CoreNettyWorker]))), &quot;netty-worker&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          1928
+          -
+          1950
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.component.netty.CoreNettyWorker]()((ClassTag.apply[com.webtrends.harness.component.netty.CoreNettyWorker](classOf[com.webtrends.harness.component.netty.CoreNettyWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.netty.CoreNettyWorker]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          1974
+          -
+          1997
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.context.become(CoreNettyServer.this.running)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          1989
+          -
+          1996
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.running
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.running
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          2002
+          -
+          2016
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          2002
+          -
+          2031
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(CoreNettyServer.this.context.parent).!(NettyRunning)(CoreNettyServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          2017
+          -
+          2017
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          2047
+          -
+          2080
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Netty Http server bound to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          2045
+          -
+          2096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Netty Http server bound to port &quot;, &quot;&quot;).s(CoreNettyServer.this.settings.port)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          2081
+          -
+          2094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.settings.port
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          281
+        </td>
+        <td>
+          2095
+          -
+          2096
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          2036
+          -
+          2097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.log.info(scala.StringContext.apply(&quot;Netty Http server bound to port &quot;, &quot;&quot;).s(CoreNettyServer.this.settings.port))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          2148
+          -
+          2154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.server
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyServer.this.server
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          2204
+          -
+          2241
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Trying to shutdown the netty server &quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          2242
+          -
+          2278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostName
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          2193
+          -
+          2306
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyServer.this.log.info(scala.StringContext.apply(&quot;Trying to shutdown the netty server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreNettyServer.this.settings.port))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          288
+        </td>
+        <td>
+          2304
+          -
+          2305
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          291
+        </td>
+        <td>
+          2202
+          -
+          2305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Trying to shutdown the netty server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreNettyServer.this.settings.port)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          2290
+          -
+          2303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreNettyServer.this.settings.port
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          2279
+          -
+          2289
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          2315
+          -
+          2324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.server.SocketServer.close
+        </td>
+        <td style="background: #F0ADAD">
+          s.close()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          2341
+          -
+          2343
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          2624
+          -
+          2633
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.empty[Nothing, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          297
+        </td>
+        <td>
+          2572
+          -
+          2636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.netty.handler.HandlerManager.getHandlers.filter(((r: (String, io.netty.channel.ChannelHandler)) =&gt; r.equals(scala.this.Predef.Map.empty[Nothing, Nothing]).unary_!))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          296
+        </td>
+        <td>
+          2612
+          -
+          2634
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          r.equals(scala.this.Predef.Map.empty[Nothing, Nothing]).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          298
+        </td>
+        <td>
+          2660
+          -
+          2675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.getBaseHandlers
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.getBaseHandlers
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          2641
+          -
+          2675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.MapLike.++
+        </td>
+        <td style="background: #AEF1AE">
+          serviceHandlers.++[io.netty.channel.ChannelHandler](CoreNettyServer.this.getBaseHandlers)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          301
+        </td>
+        <td>
+          2770
+          -
+          2773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          300
+        </td>
+        <td>
+          2747
+          -
+          2766
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;core-http-handler&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          2719
+          -
+          2827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, io.netty.channel.ChannelHandler](scala.this.Predef.ArrowAssoc[String](&quot;core-http-handler&quot;).-&gt;[com.webtrends.harness.component.netty.CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket]({
+  final class $anon extends CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket {
+    def &lt;init&gt;(): &lt;$anon: com.webtrends.harness.component.netty.CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket&gt; = {
+      $anon.super.&lt;init&gt;(CoreNettyServer.this.settings, CoreNettyServer.this.worker.get);
+      ()
+    }
+  };
+  new $anon()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          2747
+          -
+          2826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](&quot;core-http-handler&quot;).-&gt;[com.webtrends.harness.component.netty.CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket]({
+  final class $anon extends CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket {
+    def &lt;init&gt;(): &lt;$anon: com.webtrends.harness.component.netty.CoreHttpHandler with com.webtrends.harness.component.netty.WebSocket&gt; = {
+      $anon.super.&lt;init&gt;(CoreNettyServer.this.settings, CoreNettyServer.this.worker.get);
+      ()
+    }
+  };
+  new $anon()
+})
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          2968
+          -
+          3408
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](CoreNettyServer.this.server match {
+  case scala.None =&gt; com.webtrends.harness.health.HealthComponent.apply(&quot;netty-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal netty server is not running&quot;, scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  case (x: com.webtrends.harness.component.netty.server.SocketServer)Some[com.webtrends.harness.component.netty.server.SocketServer]((s @ _)) =&gt; com.webtrends.harness.health.HealthComponent.apply(&quot;netty-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal netty server is running on port &quot;, &quot;&quot;).s(CoreNettyServer.this.settings.port), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+})(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          2983
+          -
+          2989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.CoreNettyServer.server
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.server
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          3029
+          -
+          3184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;netty-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal netty server is not running&quot;, scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          309
+        </td>
+        <td>
+          3029
+          -
+          3029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          3058
+          -
+          3072
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;netty-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          3086
+          -
+          3109
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          3123
+          -
+          3165
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal netty server is not running&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          3179
+          -
+          3183
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          3219
+          -
+          3394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;netty-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal netty server is running on port &quot;, &quot;&quot;).s(CoreNettyServer.this.settings.port), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          3219
+          -
+          3219
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          3248
+          -
+          3262
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;netty-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          3276
+          -
+          3297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          3313
+          -
+          3359
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The internal netty server is running on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          3311
+          -
+          3375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;The internal netty server is running on port &quot;, &quot;&quot;).s(CoreNettyServer.this.settings.port)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          3360
+          -
+          3373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.config.NettyServerSettings.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreNettyServer.this.settings.port
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          3374
+          -
+          3375
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          3389
+          -
+          3393
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
