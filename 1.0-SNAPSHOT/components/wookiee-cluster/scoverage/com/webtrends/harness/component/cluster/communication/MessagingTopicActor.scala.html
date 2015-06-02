@@ -1,0 +1,2933 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cluster/communication/MessagingTopicActor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>/**
+</span>20 <span style=''> * @author cuthbertm on 10/22/14 9:23 AM
+</span>21 <span style=''> */
+</span>22 <span style=''>package com.webtrends.harness.component.cluster.communication
+</span>23 <span style=''>
+</span>24 <span style=''>import java.net.URLDecoder
+</span>25 <span style=''>
+</span>26 <span style=''>import akka.actor._
+</span>27 <span style=''>import akka.routing.{ActorRefRoutee, RoundRobinRoutingLogic, Router}
+</span>28 <span style=''>import com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.{UpdateSubscriptions, Subscription}
+</span>29 <span style=''>import com.webtrends.harness.component.cluster.communication.MessageService.{Publish, Unsubscribe, Send, Subscribe}
+</span>30 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.concurrent.duration.{Deadline, FiniteDuration}
+</span>33 <span style=''>
+</span>34 <span style=''>object MessagingTopicActor {
+</span>35 <span style=''>  def props(selfAddress: Address, trashInterval: FiniteDuration, seed: Set[Subscription]): Props = {
+</span>36 <span style=''>    </span><span style='background: #AEF1AE'>Props(classOf[MessagingTopicActor], selfAddress, trashInterval, seed)</span><span style=''>
+</span>37 <span style=''>  }
+</span>38 <span style=''>}
+</span>39 <span style=''>
+</span>40 <span style=''>class MessagingTopicActor(selfAddress: Address, trashInterval: FiniteDuration, seed: Set[Subscription]) extends Actor
+</span>41 <span style=''>with ActorLoggingAdapter {
+</span>42 <span style=''>
+</span>43 <span style=''>  import context.dispatcher
+</span>44 <span style=''>
+</span>45 <span style=''>  // The name of this actor is actually the topic
+</span>46 <span style=''>  val topic = </span><span style='background: #AEF1AE'>URLDecoder.decode(self.path.name, "utf-8")</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  // Setup a recurring task that checks to see if we have no more subscribers.
+</span>49 <span style=''>  // This helps to prevent the retention of resources that are not needed.
+</span>50 <span style=''>  case object Sweep
+</span>51 <span style=''>
+</span>52 <span style=''>  val sweepInterval: FiniteDuration = </span><span style='background: #AEF1AE'>trashInterval / 2</span><span style=''>
+</span>53 <span style=''>  val sweepTask = </span><span style='background: #AEF1AE'>context.system.scheduler.schedule(sweepInterval, sweepInterval, self, Sweep)</span><span style=''>
+</span>54 <span style=''>  var trashDeadline: Option[Deadline] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  // The list of subscribers
+</span>57 <span style=''>  var registry = </span><span style='background: #AEF1AE'>Map.empty[ActorRef, Boolean]</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  // Establish the routing logic
+</span>60 <span style=''>  val routingLogic = </span><span style='background: #AEF1AE'>RoundRobinRoutingLogic()</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  override def preStart: Unit = {
+</span>63 <span style=''>    // Take the seed subscriptions and set them up
+</span>64 <span style=''>    </span><span style='background: #AEF1AE'>updateSubscriptions(seed)</span><span style=''>
+</span>65 <span style=''>  }
+</span>66 <span style=''>
+</span>67 <span style=''>  override def postStop(): Unit = {
+</span>68 <span style=''>    </span><span style='background: #AEF1AE'>sweepTask.cancel()</span><span style=''>
+</span>69 <span style=''>    </span><span style='background: #AEF1AE'>super.postStop()</span><span style=''>
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  def receive = {
+</span>73 <span style=''>    case UpdateSubscriptions(subscriptions) => </span><span style='background: #F0ADAD'>updateSubscriptions(subscriptions)</span><span style=''>
+</span>74 <span style=''>    case message@Subscribe(_, ref, localOnly) => </span><span style='background: #AEF1AE'>subscribe(ref, localOnly)</span><span style=''>
+</span>75 <span style=''>    case message@Unsubscribe(_, ref) => </span><span style='background: #F0ADAD'>unsubscribe(ref, false)</span><span style=''>
+</span>76 <span style=''>    case Terminated(ref) => </span><span style='background: #AEF1AE'>unsubscribe(ref, true)</span><span style=''>
+</span>77 <span style=''>    case Publish(_, message) => </span><span style='background: #AEF1AE'>publish(message)</span><span style=''>
+</span>78 <span style=''>    case Send(_, message) => </span><span style='background: #AEF1AE'>send(message)</span><span style=''>
+</span>79 <span style=''>    case Sweep if </span><span style='background: #F0ADAD'>trashDeadline.isDefined && trashDeadline.get.isOverdue</span><span style=''> =>
+</span>80 <span style=''>      </span><span style='background: #F0ADAD'>log.debug("The actor [{}] is stopping because there are no more subscriptions and it was scheduled for deletion", self.path)</span><span style=''>
+</span>81 <span style=''>      </span><span style='background: #F0ADAD'>context stop self</span><span style=''>
+</span>82 <span style=''>
+</span>83 <span style=''>  }
+</span>84 <span style=''>
+</span>85 <span style=''>  /**
+</span>86 <span style=''>   * Bulk update the subscriptions
+</span>87 <span style=''>   * @param subscriptions
+</span>88 <span style=''>   */
+</span>89 <span style=''>  private def updateSubscriptions(subscriptions: Set[Subscription]): Unit = {
+</span>90 <span style=''>    </span><span style='background: #AEF1AE'>log.info("The actor [{}] is updating it's subscriptions: {}", self.path, subscriptions.map(_.subscriber.path).mkString(","))</span><span style=''>
+</span>91 <span style=''>
+</span>92 <span style=''>    // Unwatch all of the entries that are not in the passed in set
+</span>93 <span style=''>    val removals = </span><span style='background: #AEF1AE'>registry.map(</span><span style='background: #F0ADAD'>_._1</span><span style='background: #AEF1AE'>).toSet &~ subscriptions.map(_.subscriber)</span><span style=''>
+</span>94 <span style=''>    </span><span style='background: #AEF1AE'>removals foreach { sub =>
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>context unwatch sub</span><span style=''>
+</span>96 <span style=''>    }
+</span>97 <span style=''>
+</span>98 <span style=''>    // Copy the subscriptions
+</span>99 <span style=''>    </span><span style='background: #AEF1AE'>registry = subscriptions.map(e => (e.subscriber -> e.localOnly)).toMap</span><span style=''>
+</span>100 <span style=''>    if (</span><span style='background: #AEF1AE'>registry.isEmpty</span><span style=''>) {
+</span>101 <span style=''>      // If we have no more subscriptions then schedule the removal of this actor
+</span>102 <span style=''>      </span><span style='background: #F0ADAD'>trashDeadline = Some(Deadline.now + trashInterval)</span><span style=''>
+</span>103 <span style=''>    }
+</span>104 <span style=''>    else </span><span style='background: #AEF1AE'>{
+</span>105 <span style=''></span><span style='background: #AEF1AE'>      trashDeadline = None
+</span>106 <span style=''></span><span style='background: #AEF1AE'>      registry foreach { sub =>
+</span>107 <span style=''></span><span style='background: #AEF1AE'>        context watch sub._1
+</span>108 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>109 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>110 <span style=''>  }
+</span>111 <span style=''>
+</span>112 <span style=''>  /**
+</span>113 <span style=''>   * Add the subscription
+</span>114 <span style=''>   * @param ref the actor to subscribe
+</span>115 <span style=''>   * @param localOnly
+</span>116 <span style=''>   */
+</span>117 <span style=''>  private def subscribe(ref: ActorRef, localOnly: Boolean): Unit = {
+</span>118 <span style=''>    if (</span><span style='background: #AEF1AE'>!registry.contains(ref)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>119 <span style=''></span><span style='background: #F0ADAD'>      log.info("The actor {} is subscribing to the topic {}", ref.path.toString, topic)
+</span>120 <span style=''></span><span style='background: #F0ADAD'>      context watch ref
+</span>121 <span style=''></span><span style='background: #F0ADAD'>      registry += (ref -> localOnly)
+</span>122 <span style=''></span><span style='background: #F0ADAD'>      trashDeadline = None
+</span>123 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>  /**
+</span>127 <span style=''>   * Remove the subscription
+</span>128 <span style=''>   * @param ref the actor to unsubscribe
+</span>129 <span style=''>   * @param terminated is the unsubscribe due to a termination
+</span>130 <span style=''>   */
+</span>131 <span style=''>  private def unsubscribe(ref: ActorRef, terminated: Boolean): Unit = {
+</span>132 <span style=''>    if (</span><span style='background: #AEF1AE'>registry.contains(ref)</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>133 <span style=''></span><span style='background: #AEF1AE'>      if (terminated) {
+</span>134 <span style=''></span><span style='background: #AEF1AE'>        log.info("The actor {} is un-subscribed to the topic {} since it has been terminated", ref.path.toString, topic)
+</span>135 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>136 <span style=''></span><span style='background: #AEF1AE'>      else {
+</span>137 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.info("The actor {} is un-subscribing to the topic {}", ref.path.toString, topic)</span><span style='background: #AEF1AE'>
+</span>138 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>139 <span style=''></span><span style='background: #AEF1AE'>
+</span>140 <span style=''></span><span style='background: #AEF1AE'>      context unwatch ref
+</span>141 <span style=''></span><span style='background: #AEF1AE'>      registry -= ref
+</span>142 <span style=''></span><span style='background: #AEF1AE'>      if (registry.isEmpty) {
+</span>143 <span style=''></span><span style='background: #AEF1AE'>        // If we have no more subscriptions then schedule the removal of this actor
+</span>144 <span style=''></span><span style='background: #AEF1AE'>        trashDeadline = Some(Deadline.now + trashInterval)
+</span>145 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>146 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>147 <span style=''>  }
+</span>148 <span style=''>
+</span>149 <span style=''>  /**
+</span>150 <span style=''>   * Forward the message to all subscribers
+</span>151 <span style=''>   * @param message
+</span>152 <span style=''>   */
+</span>153 <span style=''>  private def publish(message: Any): Unit = {
+</span>154 <span style=''>    </span><span style='background: #AEF1AE'>for {
+</span>155 <span style=''></span><span style='background: #AEF1AE'>      subscription <- registry
+</span>156 <span style=''></span><span style='background: #AEF1AE'>      // Only send the message to internal actors or external ones that are registered for external publishes
+</span>157 <span style=''></span><span style='background: #AEF1AE'>      if (subscription._1.path.address.host.isEmpty || </span><span style='background: #F0ADAD'>subscription._1.path.address == selfAddress</span><span style='background: #AEF1AE'> || </span><span style='background: #F0ADAD'>!subscription._2</span><span style='background: #AEF1AE'>)
+</span>158 <span style=''></span><span style='background: #AEF1AE'>    } {
+</span>159 <span style=''></span><span style='background: #AEF1AE'>      log.debug("Publishing message for '{}' to {}", topic, subscription._1.path)
+</span>160 <span style=''></span><span style='background: #AEF1AE'>      subscription._1 forward message
+</span>161 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>162 <span style=''>  }
+</span>163 <span style=''>
+</span>164 <span style=''>  private def send(message: Any): Unit = {
+</span>165 <span style=''>    val routees = (</span><span style='background: #AEF1AE'>for {
+</span>166 <span style=''></span><span style='background: #AEF1AE'>      sub <- registry
+</span>167 <span style=''></span><span style='background: #AEF1AE'>    } yield ActorRefRoutee(sub._1)).toVector</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>    if (</span><span style='background: #AEF1AE'>routees.nonEmpty</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>170 <span style=''></span><span style='background: #AEF1AE'>      // Forward the message through our router
+</span>171 <span style=''></span><span style='background: #AEF1AE'>      log.debug("Routing the message")
+</span>172 <span style=''></span><span style='background: #AEF1AE'>      Router(routingLogic, routees).route(message, sender())
+</span>173 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>174 <span style=''>    else {
+</span>175 <span style=''>      </span><span style='background: #F0ADAD'>log.warn("There are no subscribers available for the topic {}", topic)</span><span style=''>
+</span>176 <span style=''>    }
+</span>177 <span style=''>  }
+</span>178 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1357
+        </td>
+        <td>
+          1460
+          -
+          1529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.cluster.communication.MessagingTopicActor], selfAddress, trashInterval, seed)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1360
+        </td>
+        <td>
+          1776
+          -
+          1818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLDecoder.decode
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.URLDecoder.decode(MessagingTopicActor.this.self.path.name, &quot;utf-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1359
+        </td>
+        <td>
+          1810
+          -
+          1817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;utf-8&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1358
+        </td>
+        <td>
+          1794
+          -
+          1808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1361
+        </td>
+        <td>
+          2033
+          -
+          2050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.FiniteDuration./
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.trashInterval./(2L)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1366
+        </td>
+        <td>
+          2102
+          -
+          2102
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          2118
+          -
+          2131
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.sweepInterval
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.sweepInterval
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1365
+        </td>
+        <td>
+          2139
+          -
+          2144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.Sweep
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.Sweep
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1368
+        </td>
+        <td>
+          2069
+          -
+          2145
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.context.system.scheduler.schedule(MessagingTopicActor.this.sweepInterval, MessagingTopicActor.this.sweepInterval, MessagingTopicActor.this.self, MessagingTopicActor.this.Sweep)(MessagingTopicActor.this.context.dispatcher, MessagingTopicActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1362
+        </td>
+        <td>
+          2103
+          -
+          2116
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.sweepInterval
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.sweepInterval
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1364
+        </td>
+        <td>
+          2133
+          -
+          2137
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          2102
+          -
+          2102
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1369
+        </td>
+        <td>
+          2186
+          -
+          2190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1370
+        </td>
+        <td>
+          2238
+          -
+          2266
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.empty[akka.actor.ActorRef, Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1371
+        </td>
+        <td>
+          2322
+          -
+          2346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.RoundRobinRoutingLogic.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.routing.RoundRobinRoutingLogic.apply()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1372
+        </td>
+        <td>
+          2457
+          -
+          2461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.seed
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.seed
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1373
+        </td>
+        <td>
+          2437
+          -
+          2462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.updateSubscriptions
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.updateSubscriptions(MessagingTopicActor.this.seed)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          2508
+          -
+          2526
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Cancellable.cancel
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.sweepTask.cancel()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1375
+        </td>
+        <td>
+          2531
+          -
+          2547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.postStop
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.super.postStop()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          2569
+          -
+          2569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1376
+        </td>
+        <td>
+          2618
+          -
+          2652
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.updateSubscriptions
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.updateSubscriptions(subscriptions)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1377
+        </td>
+        <td>
+          2702
+          -
+          2727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.subscribe
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.subscribe(ref, localOnly)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1378
+        </td>
+        <td>
+          2768
+          -
+          2791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.unsubscribe
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.unsubscribe(ref, false)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          2820
+          -
+          2842
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.unsubscribe
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.unsubscribe(ref, true)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          2875
+          -
+          2891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.publish
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.publish(message)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1381
+        </td>
+        <td>
+          2921
+          -
+          2934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.send
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.send(message)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1383
+        </td>
+        <td>
+          2953
+          -
+          3007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashDeadline.isDefined.&amp;&amp;(MessagingTopicActor.this.trashDeadline.get.isOverdue())
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1382
+        </td>
+        <td>
+          2980
+          -
+          3007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.isOverdue
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashDeadline.get.isOverdue()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1384
+        </td>
+        <td>
+          3027
+          -
+          3129
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The actor [{}] is stopping because there are no more subscriptions and it was scheduled for deletion&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1386
+        </td>
+        <td>
+          3017
+          -
+          3141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.debug(&quot;The actor [{}] is stopping because there are no more subscriptions and it was scheduled for deletion&quot;, MessagingTopicActor.this.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1385
+        </td>
+        <td>
+          3131
+          -
+          3140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.self.path
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1387
+        </td>
+        <td>
+          3161
+          -
+          3165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1388
+        </td>
+        <td>
+          3148
+          -
+          3165
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.context.stop(MessagingTopicActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1393
+        </td>
+        <td>
+          3327
+          -
+          3451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.log.info(&quot;The actor [{}] is updating it\'s subscriptions: {}&quot;, MessagingTopicActor.this.self.path, subscriptions.map[akka.actor.ActorPath, scala.collection.immutable.Set[akka.actor.ActorPath]](((x$1: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; x$1.subscriber.path))(immutable.this.Set.canBuildFrom[akka.actor.ActorPath]).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1390
+        </td>
+        <td>
+          3336
+          -
+          3387
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The actor [{}] is updating it\'s subscriptions: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1392
+        </td>
+        <td>
+          3400
+          -
+          3450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #AEF1AE">
+          subscriptions.map[akka.actor.ActorPath, scala.collection.immutable.Set[akka.actor.ActorPath]](((x$1: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; x$1.subscriber.path))(immutable.this.Set.canBuildFrom[akka.actor.ActorPath]).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1391
+        </td>
+        <td>
+          3389
+          -
+          3398
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.self.path
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1396
+        </td>
+        <td>
+          3586
+          -
+          3598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription.subscriber
+        </td>
+        <td style="background: #AEF1AE">
+          x$3.subscriber
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1399
+        </td>
+        <td>
+          3540
+          -
+          3599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.GenSetLike.&amp;~
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.map[akka.actor.ActorRef, scala.collection.immutable.Iterable[akka.actor.ActorRef]](((x$2: (akka.actor.ActorRef, Boolean)) =&gt; x$2._1))(immutable.this.Iterable.canBuildFrom[akka.actor.ActorRef]).toSet[akka.actor.ActorRef].&amp;~(subscriptions.map[akka.actor.ActorRef, scala.collection.immutable.Set[akka.actor.ActorRef]](((x$3: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; x$3.subscriber))(immutable.this.Set.canBuildFrom[akka.actor.ActorRef]))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1398
+        </td>
+        <td>
+          3568
+          -
+          3599
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SetLike.map
+        </td>
+        <td style="background: #AEF1AE">
+          subscriptions.map[akka.actor.ActorRef, scala.collection.immutable.Set[akka.actor.ActorRef]](((x$3: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; x$3.subscriber))(immutable.this.Set.canBuildFrom[akka.actor.ActorRef])
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1395
+        </td>
+        <td>
+          3552
+          -
+          3552
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Iterable.canBuildFrom[akka.actor.ActorRef]
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1394
+        </td>
+        <td>
+          3553
+          -
+          3557
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1397
+        </td>
+        <td>
+          3585
+          -
+          3585
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Set.canBuildFrom[akka.actor.ActorRef]
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1401
+        </td>
+        <td>
+          3604
+          -
+          3655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          removals.foreach[akka.actor.ActorRef](((sub: akka.actor.ActorRef) =&gt; MessagingTopicActor.this.context.unwatch(sub)))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1400
+        </td>
+        <td>
+          3636
+          -
+          3655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.unwatch
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.context.unwatch(sub)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1402
+        </td>
+        <td>
+          3732
+          -
+          3744
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription.subscriber
+        </td>
+        <td style="background: #AEF1AE">
+          e.subscriber
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1405
+        </td>
+        <td>
+          3725
+          -
+          3725
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Set.canBuildFrom[(akka.actor.ActorRef, Boolean)]
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1408
+        </td>
+        <td>
+          3697
+          -
+          3767
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.registry_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry_=(subscriptions.map[(akka.actor.ActorRef, Boolean), scala.collection.immutable.Set[(akka.actor.ActorRef, Boolean)]](((e: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](e.subscriber).-&gt;[Boolean](e.localOnly)))(immutable.this.Set.canBuildFrom[(akka.actor.ActorRef, Boolean)]).toMap[akka.actor.ActorRef, Boolean](scala.this.Predef.$conforms[(akka.actor.ActorRef, Boolean)]))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1407
+        </td>
+        <td>
+          3708
+          -
+          3767
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #AEF1AE">
+          subscriptions.map[(akka.actor.ActorRef, Boolean), scala.collection.immutable.Set[(akka.actor.ActorRef, Boolean)]](((e: com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription) =&gt; scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](e.subscriber).-&gt;[Boolean](e.localOnly)))(immutable.this.Set.canBuildFrom[(akka.actor.ActorRef, Boolean)]).toMap[akka.actor.ActorRef, Boolean](scala.this.Predef.$conforms[(akka.actor.ActorRef, Boolean)])
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1404
+        </td>
+        <td>
+          3732
+          -
+          3759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](e.subscriber).-&gt;[Boolean](e.localOnly)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1403
+        </td>
+        <td>
+          3748
+          -
+          3759
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessageProcessor.Internal.Subscription.localOnly
+        </td>
+        <td style="background: #AEF1AE">
+          e.localOnly
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1406
+        </td>
+        <td>
+          3762
+          -
+          3762
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.$conforms[(akka.actor.ActorRef, Boolean)]
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1409
+        </td>
+        <td>
+          3776
+          -
+          3792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.MapLike.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1411
+        </td>
+        <td>
+          3905
+          -
+          3933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1414
+        </td>
+        <td>
+          3884
+          -
+          3934
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashDeadline_=(scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1410
+        </td>
+        <td>
+          3920
+          -
+          3933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashInterval
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashInterval
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1413
+        </td>
+        <td>
+          3884
+          -
+          3934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashDeadline_=(scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1412
+        </td>
+        <td>
+          3900
+          -
+          3934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1420
+        </td>
+        <td>
+          3950
+          -
+          4053
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  MessagingTopicActor.this.trashDeadline_=(scala.None);
+  MessagingTopicActor.this.registry.foreach[akka.actor.ActorRef](((sub: (akka.actor.ActorRef, Boolean)) =&gt; MessagingTopicActor.this.context.watch(sub._1)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1416
+        </td>
+        <td>
+          3958
+          -
+          3978
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.trashDeadline_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1415
+        </td>
+        <td>
+          3974
+          -
+          3978
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1419
+        </td>
+        <td>
+          3985
+          -
+          4039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.foreach[akka.actor.ActorRef](((sub: (akka.actor.ActorRef, Boolean)) =&gt; MessagingTopicActor.this.context.watch(sub._1)))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1418
+        </td>
+        <td>
+          4019
+          -
+          4039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.watch
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.context.watch(sub._1)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1417
+        </td>
+        <td>
+          4033
+          -
+          4039
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          sub._1
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1432
+        </td>
+        <td>
+          4260
+          -
+          4443
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  MessagingTopicActor.this.log.info(&quot;The actor {} is subscribing to the topic {}&quot;, ref.path.toString(), MessagingTopicActor.this.topic);
+  MessagingTopicActor.this.context.watch(ref);
+  MessagingTopicActor.this.registry_=(MessagingTopicActor.this.registry.+[Boolean](scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](ref).-&gt;[Boolean](localOnly)));
+  MessagingTopicActor.this.trashDeadline_=(scala.None)
+}
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1434
+        </td>
+        <td>
+          4231
+          -
+          4231
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1421
+        </td>
+        <td>
+          4235
+          -
+          4258
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.contains(ref).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1433
+        </td>
+        <td>
+          4231
+          -
+          4231
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1423
+        </td>
+        <td>
+          4324
+          -
+          4341
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ref.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1425
+        </td>
+        <td>
+          4268
+          -
+          4349
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.info(&quot;The actor {} is subscribing to the topic {}&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1422
+        </td>
+        <td>
+          4277
+          -
+          4322
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The actor {} is subscribing to the topic {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1424
+        </td>
+        <td>
+          4343
+          -
+          4348
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.topic
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1426
+        </td>
+        <td>
+          4356
+          -
+          4373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.watch
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.context.watch(ref)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1429
+        </td>
+        <td>
+          4380
+          -
+          4410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.registry_=
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.registry_=(MessagingTopicActor.this.registry.+[Boolean](scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](ref).-&gt;[Boolean](localOnly)))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1428
+        </td>
+        <td>
+          4380
+          -
+          4410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Map.+
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.registry.+[Boolean](scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](ref).-&gt;[Boolean](localOnly))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1427
+        </td>
+        <td>
+          4393
+          -
+          4409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[akka.actor.ActorRef](ref).-&gt;[Boolean](localOnly)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1431
+        </td>
+        <td>
+          4417
+          -
+          4437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.trashDeadline_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1430
+        </td>
+        <td>
+          4433
+          -
+          4437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1459
+        </td>
+        <td>
+          4670
+          -
+          4670
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1458
+        </td>
+        <td>
+          4670
+          -
+          4670
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1457
+        </td>
+        <td>
+          4698
+          -
+          5202
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  if (terminated)
+    MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribed to the topic {} since it has been terminated&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+  else
+    MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribing to the topic {}&quot;, ref.path.toString(), MessagingTopicActor.this.topic);
+  MessagingTopicActor.this.context.unwatch(ref);
+  MessagingTopicActor.this.registry_=(MessagingTopicActor.this.registry.-(ref));
+  if (MessagingTopicActor.this.registry.isEmpty)
+    MessagingTopicActor.this.trashDeadline_=(scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)))
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          4674
+          -
+          4696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.contains(ref)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          4838
+          -
+          4843
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.topic
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1440
+        </td>
+        <td>
+          4732
+          -
+          4844
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribed to the topic {} since it has been terminated&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1437
+        </td>
+        <td>
+          4819
+          -
+          4836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #AEF1AE">
+          ref.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1439
+        </td>
+        <td>
+          4732
+          -
+          4844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribed to the topic {} since it has been terminated&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1436
+        </td>
+        <td>
+          4741
+          -
+          4817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;The actor {} is un-subscribed to the topic {} since it has been terminated&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1441
+        </td>
+        <td>
+          4883
+          -
+          4931
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The actor {} is un-subscribing to the topic {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1443
+        </td>
+        <td>
+          4952
+          -
+          4957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.topic
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1442
+        </td>
+        <td>
+          4933
+          -
+          4950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ref.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1445
+        </td>
+        <td>
+          4874
+          -
+          4958
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribing to the topic {}&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1444
+        </td>
+        <td>
+          4874
+          -
+          4958
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.info(&quot;The actor {} is un-subscribing to the topic {}&quot;, ref.path.toString(), MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          1446
+        </td>
+        <td>
+          4974
+          -
+          4993
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.unwatch
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.context.unwatch(ref)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1447
+        </td>
+        <td>
+          5000
+          -
+          5015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.-
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.-(ref)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1448
+        </td>
+        <td>
+          5000
+          -
+          5015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.registry_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry_=(MessagingTopicActor.this.registry.-(ref))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1456
+        </td>
+        <td>
+          5022
+          -
+          5022
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          5026
+          -
+          5042
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.MapLike.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          5022
+          -
+          5022
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1450
+        </td>
+        <td>
+          5174
+          -
+          5187
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashInterval
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.trashInterval
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1452
+        </td>
+        <td>
+          5154
+          -
+          5188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1454
+        </td>
+        <td>
+          5138
+          -
+          5188
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.trashDeadline_=(scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1451
+        </td>
+        <td>
+          5159
+          -
+          5187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.+
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1453
+        </td>
+        <td>
+          5138
+          -
+          5188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.trashDeadline_=
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.trashDeadline_=(scala.Some.apply[scala.concurrent.duration.Deadline](scala.concurrent.duration.Deadline.now.+(MessagingTopicActor.this.trashInterval)))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1470
+        </td>
+        <td>
+          5334
+          -
+          5734
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.FilterMonadic.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.withFilter(((subscription: (akka.actor.ActorRef, Boolean)) =&gt; subscription._1.path.address.host.isEmpty.||(subscription._1.path.address.==(MessagingTopicActor.this.selfAddress)).||(subscription._2.unary_!))).foreach[Unit](((subscription: (akka.actor.ActorRef, Boolean)) =&gt; {
+  MessagingTopicActor.this.log.debug(&quot;Publishing message for \'{}\' to {}&quot;, MessagingTopicActor.this.topic, subscription._1.path);
+  subscription._1.forward(message)(MessagingTopicActor.this.context)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1461
+        </td>
+        <td>
+          5536
+          -
+          5579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          subscription._1.path.address.==(MessagingTopicActor.this.selfAddress)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1463
+        </td>
+        <td>
+          5491
+          -
+          5599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          subscription._1.path.address.host.isEmpty.||(subscription._1.path.address.==(MessagingTopicActor.this.selfAddress)).||(subscription._2.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1460
+        </td>
+        <td>
+          5568
+          -
+          5579
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.selfAddress
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.selfAddress
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1462
+        </td>
+        <td>
+          5583
+          -
+          5599
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          subscription._2.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1465
+        </td>
+        <td>
+          5662
+          -
+          5667
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.topic
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1467
+        </td>
+        <td>
+          5615
+          -
+          5690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.log.debug(&quot;Publishing message for \'{}\' to {}&quot;, MessagingTopicActor.this.topic, subscription._1.path)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1464
+        </td>
+        <td>
+          5625
+          -
+          5660
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Publishing message for \'{}\' to {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1466
+        </td>
+        <td>
+          5669
+          -
+          5689
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #AEF1AE">
+          subscription._1.path
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1468
+        </td>
+        <td>
+          5713
+          -
+          5713
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.context
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1469
+        </td>
+        <td>
+          5697
+          -
+          5728
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ActorRef.forward
+        </td>
+        <td style="background: #AEF1AE">
+          subscription._1.forward(message)(MessagingTopicActor.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          1473
+        </td>
+        <td>
+          5818
+          -
+          5818
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Iterable.canBuildFrom[akka.routing.ActorRefRoutee]
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1474
+        </td>
+        <td>
+          5802
+          -
+          5874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toVector
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.registry.map[akka.routing.ActorRefRoutee, scala.collection.immutable.Iterable[akka.routing.ActorRefRoutee]](((sub: (akka.actor.ActorRef, Boolean)) =&gt; akka.routing.ActorRefRoutee.apply(sub._1)))(immutable.this.Iterable.canBuildFrom[akka.routing.ActorRefRoutee]).toVector
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1472
+        </td>
+        <td>
+          5842
+          -
+          5864
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.ActorRefRoutee.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.routing.ActorRefRoutee.apply(sub._1)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1471
+        </td>
+        <td>
+          5857
+          -
+          5863
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          sub._1
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1475
+        </td>
+        <td>
+          5884
+          -
+          5900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          routees.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1480
+        </td>
+        <td>
+          5902
+          -
+          6057
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  MessagingTopicActor.this.log.debug(&quot;Routing the message&quot;);
+  akka.routing.Router.apply(MessagingTopicActor.this.routingLogic, routees).route(message, MessagingTopicActor.this.sender())
+}
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1476
+        </td>
+        <td>
+          5958
+          -
+          5990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.log.debug(&quot;Routing the message&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1479
+        </td>
+        <td>
+          5997
+          -
+          6051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Router.route
+        </td>
+        <td style="background: #AEF1AE">
+          akka.routing.Router.apply(MessagingTopicActor.this.routingLogic, routees).route(message, MessagingTopicActor.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1478
+        </td>
+        <td>
+          6042
+          -
+          6050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          6004
+          -
+          6016
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.routingLogic
+        </td>
+        <td style="background: #AEF1AE">
+          MessagingTopicActor.this.routingLogic
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1483
+        </td>
+        <td>
+          6075
+          -
+          6145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.warn(&quot;There are no subscribers available for the topic {}&quot;, MessagingTopicActor.this.topic)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1482
+        </td>
+        <td>
+          6139
+          -
+          6144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.communication.MessagingTopicActor.topic
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1481
+        </td>
+        <td>
+          6084
+          -
+          6137
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;There are no subscribers available for the topic {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1484
+        </td>
+        <td>
+          6075
+          -
+          6145
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          MessagingTopicActor.this.log.warn(&quot;There are no subscribers available for the topic {}&quot;, MessagingTopicActor.this.topic)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

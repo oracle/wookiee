@@ -1,0 +1,2820 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cluster/ClusterStateSerializer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.cluster
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor.Address
+</span>22 <span style=''>import akka.cluster.ClusterEvent.CurrentClusterState
+</span>23 <span style=''>import akka.cluster.MemberStatus
+</span>24 <span style=''>import net.liftweb.json.JString
+</span>25 <span style=''>import net.liftweb.json.JsonDSL._
+</span>26 <span style=''>import net.liftweb.json._
+</span>27 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
+</span>28 <span style=''>
+</span>29 <span style=''>trait ClusterStateSerializer {
+</span>30 <span style=''>
+</span>31 <span style=''>  implicit val formats = </span><span style='background: #F0ADAD'>net.liftweb.json.DefaultFormats + new AddressSerializer + new MemberStatusSerializer ++ JodaTimeSerializers.all</span><span style=''>
+</span>32 <span style=''>
+</span>33 <span style=''>  def serializeState(state: CurrentClusterState): JValue = {
+</span>34 <span style=''>    implicit val order: Ordering[Address] = </span><span style='background: #F0ADAD'>Ordering.by(_.toString)</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>    </span><span style='background: #F0ADAD'>"cluster" ->
+</span>37 <span style=''></span><span style='background: #F0ADAD'>      ("leader" -> (state.leader match {
+</span>38 <span style=''></span><span style='background: #F0ADAD'>        case Some(lead) => lead.toString
+</span>39 <span style=''></span><span style='background: #F0ADAD'>        case None => "N/A"
+</span>40 <span style=''></span><span style='background: #F0ADAD'>      })) ~
+</span>41 <span style=''></span><span style='background: #F0ADAD'>        ("peer-members" ->
+</span>42 <span style=''></span><span style='background: #F0ADAD'>          state.seenBy.toSeq.sorted.map {
+</span>43 <span style=''></span><span style='background: #F0ADAD'>            m => m.toString
+</span>44 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>45 <span style=''></span><span style='background: #F0ADAD'>          ) ~
+</span>46 <span style=''></span><span style='background: #F0ADAD'>        ("active-members" ->
+</span>47 <span style=''></span><span style='background: #F0ADAD'>          state.members.toSeq.sortBy(_.address).map {
+</span>48 <span style=''></span><span style='background: #F0ADAD'>            m =>
+</span>49 <span style=''></span><span style='background: #F0ADAD'>              ("address" -> m.address.toString) ~
+</span>50 <span style=''></span><span style='background: #F0ADAD'>                ("status" -> m.status.toString) ~
+</span>51 <span style=''></span><span style='background: #F0ADAD'>                ("roles" -> m.roles)
+</span>52 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>53 <span style=''></span><span style='background: #F0ADAD'>          ) ~
+</span>54 <span style=''></span><span style='background: #F0ADAD'>        ("unreachable-members" ->
+</span>55 <span style=''></span><span style='background: #F0ADAD'>          state.unreachable.toSeq.sortBy(_.address).map {
+</span>56 <span style=''></span><span style='background: #F0ADAD'>            m =>
+</span>57 <span style=''></span><span style='background: #F0ADAD'>              ("address" -> m.address.toString) ~
+</span>58 <span style=''></span><span style='background: #F0ADAD'>                ("status" -> m.status.toString) ~
+</span>59 <span style=''></span><span style='background: #F0ADAD'>                ("roles" -> m.roles)
+</span>60 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>61 <span style=''></span><span style='background: #F0ADAD'>          ) ~
+</span>62 <span style=''></span><span style='background: #F0ADAD'>        ("roles" ->
+</span>63 <span style=''></span><span style='background: #F0ADAD'>          state.allRoles.toSeq.sorted.map {
+</span>64 <span style=''></span><span style='background: #F0ADAD'>            r =>
+</span>65 <span style=''></span><span style='background: #F0ADAD'>              ("role" -> r) ~
+</span>66 <span style=''></span><span style='background: #F0ADAD'>                ("leader" -> (state.roleLeader(r) match {
+</span>67 <span style=''></span><span style='background: #F0ADAD'>                  case Some(lead) => lead.toString
+</span>68 <span style=''></span><span style='background: #F0ADAD'>                  case None => "N/A"
+</span>69 <span style=''></span><span style='background: #F0ADAD'>                })) ~
+</span>70 <span style=''></span><span style='background: #F0ADAD'>                ("members" -> (state.members ++ state.unreachable).filter(_.roles.contains(r)).toSeq.sorted.map {
+</span>71 <span style=''></span><span style='background: #F0ADAD'>                  m => m.address.toString
+</span>72 <span style=''></span><span style='background: #F0ADAD'>                })
+</span>73 <span style=''></span><span style='background: #F0ADAD'>          })</span><span style=''>
+</span>74 <span style=''>  }
+</span>75 <span style=''>
+</span>76 <span style=''>  class AddressSerializer extends Serializer[Address] {
+</span>77 <span style=''>    private val Class = </span><span style='background: #F0ADAD'>classOf[Address]</span><span style=''>
+</span>78 <span style=''>
+</span>79 <span style=''>    def deserialize(implicit format: Formats) = {
+</span>80 <span style=''>      case (TypeInfo(Class, _), json) => json match {
+</span>81 <span style=''>        case JString(s) => </span><span style='background: #F0ADAD'>Address("", "", "", 8080)</span><span style=''>
+</span>82 <span style=''>        case x => </span><span style='background: #F0ADAD'>throw new MappingException("Can't convert " + x + " to MemberStatus")</span><span style=''>
+</span>83 <span style=''>      }
+</span>84 <span style=''>    }
+</span>85 <span style=''>
+</span>86 <span style=''>    def serialize(implicit format: Formats) = {
+</span>87 <span style=''>      case s: Address => </span><span style='background: #F0ADAD'>JString(s.toString)</span><span style=''>
+</span>88 <span style=''>    }
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  class MemberStatusSerializer extends Serializer[MemberStatus] {
+</span>92 <span style=''>
+</span>93 <span style=''>    import MemberStatus._
+</span>94 <span style=''>
+</span>95 <span style=''>    private val Class = </span><span style='background: #F0ADAD'>classOf[MemberStatus]</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>    def deserialize(implicit format: Formats) = {
+</span>98 <span style=''>      case (TypeInfo(Class, _), json) => json match {
+</span>99 <span style=''>        case JString(s) => </span><span style='background: #F0ADAD'>Joining</span><span style=''>
+</span>100 <span style=''>        case x => </span><span style='background: #F0ADAD'>throw new MappingException("Can't convert " + x + " to MemberStatus")</span><span style=''>
+</span>101 <span style=''>      }
+</span>102 <span style=''>    }
+</span>103 <span style=''>
+</span>104 <span style=''>    def serialize(implicit format: Formats) = {
+</span>105 <span style=''>      case s: MemberStatus => </span><span style='background: #F0ADAD'>JString(s.toString)</span><span style=''>
+</span>106 <span style=''>    }
+</span>107 <span style=''>  }
+</span>108 <span style=''>
+</span>109 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          1156
+          -
+          1182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.MemberStatusSerializer.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new ClusterStateSerializer.this.MemberStatusSerializer()
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          1098
+          -
+          1209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Formats.++
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.DefaultFormats.+(new ClusterStateSerializer.this.AddressSerializer()).+(new ClusterStateSerializer.this.MemberStatusSerializer()).++(net.liftweb.json.ext.JodaTimeSerializers.all)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          1132
+          -
+          1153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.AddressSerializer.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new ClusterStateSerializer.this.AddressSerializer()
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          1186
+          -
+          1209
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          1316
+          -
+          1339
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.math.Ordering.by
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Ordering.by[akka.actor.Address, String](((x$1: akka.actor.Address) =&gt; x$1.toString))(math.this.Ordering.String)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          1327
+          -
+          1327
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.String
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.Ordering.String
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          1345
+          -
+          2603
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[net.liftweb.json.JsonAST.JObject](scala.this.Predef.ArrowAssoc[String](&quot;cluster&quot;).-&gt;[net.liftweb.json.JsonAST.JObject](net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))))(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          1355
+          -
+          1355
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          1345
+          -
+          1354
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;cluster&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          1345
+          -
+          2603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;cluster&quot;).-&gt;[net.liftweb.json.JsonAST.JObject](net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+})))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          1378
+          -
+          1390
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.ClusterEvent.CurrentClusterState.leader
+        </td>
+        <td style="background: #F0ADAD">
+          state.leader
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          1365
+          -
+          1373
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;leader&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          1365
+          -
+          1475
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+})
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          1374
+          -
+          1374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          1461
+          -
+          1466
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;N/A&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          1477
+          -
+          1477
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          1477
+          -
+          1477
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          1364
+          -
+          1599
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          1488
+          -
+          1502
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;peer-members&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          1488
+          -
+          1587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String]))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          1516
+          -
+          1587
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          1546
+          -
+          1546
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          1364
+          -
+          1862
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          1611
+          -
+          1850
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+})
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          1628
+          -
+          1628
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          1611
+          -
+          1627
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;active-members&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          1628
+          -
+          1628
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          1611
+          -
+          1850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          1641
+          -
+          1850
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          1683
+          -
+          1683
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          1668
+          -
+          1677
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.Member.address
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.address
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          1727
+          -
+          1727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          1716
+          -
+          1799
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          1717
+          -
+          1748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          1717
+          -
+          1726
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;address&quot;
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          1750
+          -
+          1750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          1781
+          -
+          1798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          m.status.toString()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          1769
+          -
+          1777
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;status&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          1716
+          -
+          1838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          1769
+          -
+          1798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString())
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          1827
+          -
+          1827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          1819
+          -
+          1837
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          1819
+          -
+          1837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          1830
+          -
+          1837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.Member.roles
+        </td>
+        <td style="background: #F0ADAD">
+          m.roles
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          1827
+          -
+          1827
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          1819
+          -
+          1826
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;roles&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          1364
+          -
+          2134
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          1874
+          -
+          1895
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;unreachable-members&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          1896
+          -
+          1896
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          1896
+          -
+          1896
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          1874
+          -
+          2122
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          1874
+          -
+          2122
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+})
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          1909
+          -
+          2122
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          1955
+          -
+          1955
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          1940
+          -
+          1949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.Member.address
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.address
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          1988
+          -
+          2071
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          1989
+          -
+          2020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          2022
+          -
+          2022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          1989
+          -
+          1998
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;address&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          1999
+          -
+          1999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          2041
+          -
+          2070
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString())
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          1988
+          -
+          2110
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          2053
+          -
+          2070
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          m.status.toString()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          2041
+          -
+          2049
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;status&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          2091
+          -
+          2109
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          2091
+          -
+          2109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          2099
+          -
+          2099
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          2102
+          -
+          2109
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.Member.roles
+        </td>
+        <td style="background: #F0ADAD">
+          m.roles
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          2091
+          -
+          2098
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;roles&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          2099
+          -
+          2099
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          1364
+          -
+          2603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.leader match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;peer-members&quot;).-&gt;[Seq[String]](state.seenBy.toSeq.sorted[akka.actor.Address](order).map[String, Seq[String]](((m: akka.actor.Address) =&gt; m.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;active-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.members.toSeq.sortBy[akka.actor.Address](((x$2: akka.cluster.Member) =&gt; x$2.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;unreachable-members&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.unreachable.toSeq.sortBy[akka.actor.Address](((x$3: akka.cluster.Member) =&gt; x$3.address))(order).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((m: akka.cluster.Member) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;address&quot;).-&gt;[String](m.address.toString))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;status&quot;).-&gt;[String](m.status.toString()))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Set[String]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Set[String]](m.roles))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          2146
+          -
+          2153
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;roles&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          2154
+          -
+          2154
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          2146
+          -
+          2602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          2146
+          -
+          2602
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Seq[net.liftweb.json.JsonAST.JObject]](scala.this.Predef.ArrowAssoc[String](&quot;roles&quot;).-&gt;[Seq[net.liftweb.json.JsonAST.JObject]](state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])))({
+  ((s: Traversable[net.liftweb.json.JsonAST.JObject]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject]))
+})
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          2154
+          -
+          2154
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[net.liftweb.json.JsonAST.JObject](s)(scala.this.Predef.$conforms[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          2188
+          -
+          2188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Ordering.String
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.Ordering.String
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          2199
+          -
+          2199
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject]
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          2167
+          -
+          2602
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          state.allRoles.toSeq.sorted[String](math.this.Ordering.String).map[net.liftweb.json.JsonAST.JObject, Seq[net.liftweb.json.JsonAST.JObject]](((r: String) =&gt; net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))))(collection.this.Seq.canBuildFrom[net.liftweb.json.JsonAST.JObject])
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          2232
+          -
+          2413
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          2240
+          -
+          2240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          2246
+          -
+          2246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          2233
+          -
+          2244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          2278
+          -
+          2297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.cluster.ClusterEvent.CurrentClusterState.roleLeader
+        </td>
+        <td style="background: #F0ADAD">
+          state.roleLeader(r)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          2265
+          -
+          2273
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;leader&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          2265
+          -
+          2412
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+})
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          2388
+          -
+          2393
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;N/A&quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          2232
+          -
+          2590
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.JsonListAssoc.~
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.jobject2assoc(net.liftweb.json.JsonDSL.pair2Assoc[String](scala.this.Predef.ArrowAssoc[String](&quot;role&quot;).-&gt;[String](r))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+}).~[String](scala.this.Predef.ArrowAssoc[String](&quot;leader&quot;).-&gt;[String](state.roleLeader(r) match {
+  case (x: akka.actor.Address)Some[akka.actor.Address]((lead @ _)) =&gt; lead.toString
+  case scala.None =&gt; &quot;N/A&quot;
+}))({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})).~(net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+}))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          2433
+          -
+          2442
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;members&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          2443
+          -
+          2443
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.seq2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+  ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+})
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          2490
+          -
+          2509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.roles.contains(r)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          2447
+          -
+          2589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          2528
+          -
+          2528
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          2443
+          -
+          2443
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Implicits.string2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.string2jvalue(x)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          2464
+          -
+          2481
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.ClusterEvent.CurrentClusterState.unreachable
+        </td>
+        <td style="background: #F0ADAD">
+          state.unreachable
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          2433
+          -
+          2589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonDSL.pair2jvalue
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonDSL.pair2jvalue[Seq[String]](scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String])))({
+  ((s: Traversable[String]) =&gt; net.liftweb.json.JsonDSL.seq2jvalue[String](s)({
+    ((x: String) =&gt; net.liftweb.json.JsonDSL.string2jvalue(x))
+  }))
+})
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          2517
+          -
+          2517
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.Member.ordering
+        </td>
+        <td style="background: #F0ADAD">
+          cluster.this.Member.ordering
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          2433
+          -
+          2589
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;members&quot;).-&gt;[Seq[String]](state.members.++(state.unreachable).filter(((x$4: akka.cluster.Member) =&gt; x$4.roles.contains(r))).toSeq.sorted[akka.cluster.Member](cluster.this.Member.ordering).map[String, Seq[String]](((m: akka.cluster.Member) =&gt; m.address.toString))(collection.this.Seq.canBuildFrom[String]))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          2689
+          -
+          2705
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[akka.actor.Address]
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          2755
+          -
+          2755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.AddressSerializer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          2838
+          -
+          2863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Address.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Address.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;, 8080)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          2882
+          -
+          2951
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new net.liftweb.json.MappingException(&quot;Can\'t convert &quot;.+(x).+(&quot; to MemberStatus&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          3013
+          -
+          3013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.AddressSerializer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          3040
+          -
+          3059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.JString.apply(s.toString)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          3189
+          -
+          3210
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[akka.cluster.MemberStatus]
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          3260
+          -
+          3260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.MemberStatusSerializer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          3343
+          -
+          3350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.cluster.MemberStatus.Joining
+        </td>
+        <td style="background: #F0ADAD">
+          akka.cluster.MemberStatus.Joining
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          3369
+          -
+          3438
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new net.liftweb.json.MappingException(&quot;Can\'t convert &quot;.+(x).+(&quot; to MemberStatus&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          3500
+          -
+          3500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cluster.ClusterStateSerializer.MemberStatusSerializer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          3532
+          -
+          3551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JString.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.JString.apply(s.toString())
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          3540
+          -
+          3550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          s.toString()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
