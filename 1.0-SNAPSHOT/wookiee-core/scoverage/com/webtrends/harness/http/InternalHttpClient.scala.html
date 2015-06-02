@@ -1,0 +1,2394 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/http/InternalHttpClient.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.http
+</span>20 <span style=''>
+</span>21 <span style=''>import java.io.{BufferedReader, InputStreamReader}
+</span>22 <span style=''>import java.net.{HttpURLConnection, URLConnection}
+</span>23 <span style=''>import java.util.zip.{GZIPInputStream, InflaterInputStream}
+</span>24 <span style=''>
+</span>25 <span style=''>/**
+</span>26 <span style=''> * Contains common methods used to call our web server
+</span>27 <span style=''> */
+</span>28 <span style=''>trait InternalHttpClient {
+</span>29 <span style=''>
+</span>30 <span style=''>  /**
+</span>31 <span style=''>   * Get standard response form the supplied connection
+</span>32 <span style=''>   *
+</span>33 <span style=''>   * @param conn HTTP Connection
+</span>34 <span style=''>   */
+</span>35 <span style=''>  def getResponseContent(conn: HttpURLConnection): HttpResponseData = {
+</span>36 <span style=''>    try {
+</span>37 <span style=''>      </span><span style='background: #AEF1AE'>val connIn = conn.getInputStream
+</span>38 <span style=''></span><span style='background: #AEF1AE'>      val headers = collection.mutable.Map.empty[String, String]
+</span>39 <span style=''></span><span style='background: #AEF1AE'>      val statusLine = getResponseHeaders(conn, headers)
+</span>40 <span style=''></span><span style='background: #AEF1AE'>
+</span>41 <span style=''></span><span style='background: #AEF1AE'>      val content = new StringBuilder
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      if (connIn != null) {
+</span>43 <span style=''></span><span style='background: #AEF1AE'>        var in: BufferedReader = null
+</span>44 <span style=''></span><span style='background: #AEF1AE'>        val contentEncoding = headers.getOrElse("Content-Encoding", "")
+</span>45 <span style=''></span><span style='background: #AEF1AE'>        if (contentEncoding == "") {
+</span>46 <span style=''></span><span style='background: #AEF1AE'>          in = new BufferedReader(new InputStreamReader(connIn))
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        } else {
+</span>48 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>if (contentEncoding == "gzip") {
+</span>49 <span style=''></span><span style='background: #F0ADAD'>            in = new BufferedReader(new InputStreamReader(new GZIPInputStream(connIn)))
+</span>50 <span style=''></span><span style='background: #F0ADAD'>          } else if (contentEncoding == "deflate") {
+</span>51 <span style=''></span><span style='background: #F0ADAD'>            in = new BufferedReader(new InputStreamReader(new InflaterInputStream(connIn)))
+</span>52 <span style=''></span><span style='background: #F0ADAD'>          } else {
+</span>53 <span style=''></span><span style='background: #F0ADAD'>            throw new UnsupportedOperationException("Content encoding: " + contentEncoding)
+</span>54 <span style=''></span><span style='background: #F0ADAD'>          }</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>56 <span style=''></span><span style='background: #AEF1AE'>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        readAll(in, content)
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        in.close()
+</span>59 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>60 <span style=''></span><span style='background: #AEF1AE'>
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      HttpResponseData(statusLine, content.toString(), headers)</span><span style=''>
+</span>62 <span style=''>    } catch {
+</span>63 <span style=''>      case ex: Throwable =>
+</span>64 <span style=''>        </span><span style='background: #F0ADAD'>System.out.println(ex.toString)</span><span style=''>
+</span>65 <span style=''>        </span><span style='background: #F0ADAD'>getResponseErrorContent(conn)</span><span style=''>
+</span>66 <span style=''>    }
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  /**
+</span>70 <span style=''>   * Get error response in the event that response status is not 200
+</span>71 <span style=''>   *
+</span>72 <span style=''>   * @param conn HTTP Connection
+</span>73 <span style=''>   */
+</span>74 <span style=''>  def getResponseErrorContent(conn: HttpURLConnection): HttpResponseData = {
+</span>75 <span style=''>    val content = </span><span style='background: #F0ADAD'>new StringBuilder()</span><span style=''>
+</span>76 <span style=''>    if (</span><span style='background: #F0ADAD'>conn.getErrorStream != null</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>77 <span style=''></span><span style='background: #F0ADAD'>      val in = new BufferedReader(new InputStreamReader(conn.getErrorStream))
+</span>78 <span style=''></span><span style='background: #F0ADAD'>      readAll(in, content)
+</span>79 <span style=''></span><span style='background: #F0ADAD'>      in.close()
+</span>80 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>    val headers = </span><span style='background: #F0ADAD'>collection.mutable.Map.empty[String, String]</span><span style=''>
+</span>83 <span style=''>    val statusLine = </span><span style='background: #F0ADAD'>getResponseHeaders(conn, headers)</span><span style=''>
+</span>84 <span style=''>
+</span>85 <span style=''>    </span><span style='background: #F0ADAD'>HttpResponseData(statusLine, content.toString(), headers)</span><span style=''>
+</span>86 <span style=''>  }
+</span>87 <span style=''>
+</span>88 <span style=''>  /**
+</span>89 <span style=''>   * Read in headers
+</span>90 <span style=''>   *
+</span>91 <span style=''>   * @param conn HTTP Connection
+</span>92 <span style=''>   * @param headers Collection of header name-values
+</span>93 <span style=''>   */
+</span>94 <span style=''>  def getResponseHeaders(conn: URLConnection, headers: collection.mutable.Map[String, String]): String = {
+</span>95 <span style=''>    </span><span style='background: #AEF1AE'>headers.clear()</span><span style=''>
+</span>96 <span style=''>    var statusLine = </span><span style='background: #AEF1AE'>""</span><span style=''>
+</span>97 <span style=''>    var i = </span><span style='background: #AEF1AE'>0</span><span style=''>
+</span>98 <span style=''>    while (</span><span style='background: #AEF1AE'>i >= 0</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>99 <span style=''></span><span style='background: #AEF1AE'>      val name = conn.getHeaderFieldKey(i)
+</span>100 <span style=''></span><span style='background: #AEF1AE'>      val value = conn.getHeaderField(i)
+</span>101 <span style=''></span><span style='background: #AEF1AE'>
+</span>102 <span style=''></span><span style='background: #AEF1AE'>      if (name == null && value == null) {
+</span>103 <span style=''></span><span style='background: #AEF1AE'>        i = -1
+</span>104 <span style=''></span><span style='background: #AEF1AE'>      } else if (name == null) {
+</span>105 <span style=''></span><span style='background: #AEF1AE'>        // Value must be the response code like "HTTP/1.1 404 Not Found"
+</span>106 <span style=''></span><span style='background: #AEF1AE'>        statusLine = value
+</span>107 <span style=''></span><span style='background: #AEF1AE'>        i += 1
+</span>108 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>109 <span style=''></span><span style='background: #AEF1AE'>        headers.put(name, value)
+</span>110 <span style=''></span><span style='background: #AEF1AE'>        i += 1
+</span>111 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>112 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>113 <span style=''>
+</span>114 <span style=''>    statusLine
+</span>115 <span style=''>  }
+</span>116 <span style=''>
+</span>117 <span style=''>  private def readAll(in: BufferedReader, sb: StringBuilder) = {
+</span>118 <span style=''>    var finished = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>119 <span style=''>    while (</span><span style='background: #AEF1AE'>!finished</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>120 <span style=''></span><span style='background: #AEF1AE'>      val str = in.readLine()
+</span>121 <span style=''></span><span style='background: #AEF1AE'>      if (str == null) {
+</span>122 <span style=''></span><span style='background: #AEF1AE'>        sb.setLength(sb.length - 1) //Remove last \n
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        finished = true
+</span>124 <span style=''></span><span style='background: #AEF1AE'>      } else {
+</span>125 <span style=''></span><span style='background: #AEF1AE'>        sb.append(str + "\n")
+</span>126 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>127 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>128 <span style=''>  }
+</span>129 <span style=''>
+</span>130 <span style=''>  /**
+</span>131 <span style=''>   * Data returned from the HTTP connection
+</span>132 <span style=''>   */
+</span>133 <span style=''>  case class HttpResponseData(
+</span>134 <span style=''>                               statusLine: String,
+</span>135 <span style=''>                               content: String,
+</span>136 <span style=''>                               headers: collection.mutable.Map[String, String]) {
+</span>137 <span style=''>
+</span>138 <span style=''>    private val startIndex = </span><span style='background: #AEF1AE'>statusLine.indexOf(" ") + 1</span><span style=''>
+</span>139 <span style=''>    val status = </span><span style='background: #AEF1AE'>statusLine.substring(startIndex, startIndex + 3)</span><span style=''>
+</span>140 <span style=''>
+</span>141 <span style=''>    override def toString: String = {
+</span>142 <span style=''>      val sb = </span><span style='background: #F0ADAD'>new StringBuilder</span><span style=''>
+</span>143 <span style=''>      </span><span style='background: #F0ADAD'>sb.append(statusLine + "\n")</span><span style=''>
+</span>144 <span style=''>      </span><span style='background: #F0ADAD'>headers.foreach(m => sb.append(m._1 + "=" + m._2 + "\n"))</span><span style=''>
+</span>145 <span style=''>      </span><span style='background: #F0ADAD'>sb.append("\n" + content + "\n")</span><span style=''>
+</span>146 <span style=''>      </span><span style='background: #F0ADAD'>sb.toString()</span><span style=''>
+</span>147 <span style=''>    }
+</span>148 <span style=''>
+</span>149 <span style=''>  }
+</span>150 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1793
+        </td>
+        <td>
+          1223
+          -
+          2204
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val connIn: java.io.InputStream = conn.getInputStream();
+  val headers: scala.collection.mutable.Map[String,String] = scala.collection.mutable.Map.empty[String, String];
+  val statusLine: String = InternalHttpClient.this.getResponseHeaders(conn, headers);
+  val content: StringBuilder = new scala.`package`.StringBuilder();
+  if (connIn.!=(null))
+    {
+      var in: java.io.BufferedReader = null;
+      val contentEncoding: String = headers.getOrElse[String](&quot;Content-Encoding&quot;, &quot;&quot;);
+      if (contentEncoding.==(&quot;&quot;))
+        in = new java.io.BufferedReader(new java.io.InputStreamReader(connIn))
+      else
+        if (contentEncoding.==(&quot;gzip&quot;))
+          in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn)))
+        else
+          if (contentEncoding.==(&quot;deflate&quot;))
+            in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+          else
+            throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding));
+      InternalHttpClient.this.readAll(in, content);
+      in.close()
+    }
+  else
+    ();
+  InternalHttpClient.this.HttpResponseData.apply(statusLine, content.toString(), headers)
+}
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1761
+        </td>
+        <td>
+          1236
+          -
+          1255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getInputStream
+        </td>
+        <td style="background: #AEF1AE">
+          conn.getInputStream()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1762
+        </td>
+        <td>
+          1276
+          -
+          1320
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.empty
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.empty[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1763
+        </td>
+        <td>
+          1344
+          -
+          1377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.getResponseHeaders
+        </td>
+        <td style="background: #AEF1AE">
+          InternalHttpClient.this.getResponseHeaders(conn, headers)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1764
+        </td>
+        <td>
+          1399
+          -
+          1416
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.`package`.StringBuilder()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1788
+        </td>
+        <td>
+          1443
+          -
+          2139
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  var in: java.io.BufferedReader = null;
+  val contentEncoding: String = headers.getOrElse[String](&quot;Content-Encoding&quot;, &quot;&quot;);
+  if (contentEncoding.==(&quot;&quot;))
+    in = new java.io.BufferedReader(new java.io.InputStreamReader(connIn))
+  else
+    if (contentEncoding.==(&quot;gzip&quot;))
+      in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn)))
+    else
+      if (contentEncoding.==(&quot;deflate&quot;))
+        in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+      else
+        throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding));
+  InternalHttpClient.this.readAll(in, content);
+  in.close()
+}
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1790
+        </td>
+        <td>
+          1423
+          -
+          1423
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1789
+        </td>
+        <td>
+          1423
+          -
+          1423
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          1427
+          -
+          1441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          connIn.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1766
+        </td>
+        <td>
+          1478
+          -
+          1482
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          1513
+          -
+          1554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td style="background: #AEF1AE">
+          headers.getOrElse[String](&quot;Content-Encoding&quot;, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1768
+        </td>
+        <td>
+          1567
+          -
+          1588
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          contentEncoding.==(&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1770
+        </td>
+        <td>
+          1607
+          -
+          1656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.BufferedReader(new java.io.InputStreamReader(connIn))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1769
+        </td>
+        <td>
+          1626
+          -
+          1655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStreamReader.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.io.InputStreamReader(connIn)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1771
+        </td>
+        <td>
+          1602
+          -
+          1656
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          in = new java.io.BufferedReader(new java.io.InputStreamReader(connIn))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1772
+        </td>
+        <td>
+          1688
+          -
+          1713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          contentEncoding.==(&quot;gzip&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1785
+        </td>
+        <td>
+          1684
+          -
+          2072
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (contentEncoding.==(&quot;gzip&quot;))
+  in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn)))
+else
+  if (contentEncoding.==(&quot;deflate&quot;))
+    in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+  else
+    throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1773
+        </td>
+        <td>
+          1775
+          -
+          1802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.zip.GZIPInputStream.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.zip.GZIPInputStream(connIn)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1775
+        </td>
+        <td>
+          1734
+          -
+          1804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn)))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1774
+        </td>
+        <td>
+          1753
+          -
+          1803
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStreamReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1776
+        </td>
+        <td>
+          1729
+          -
+          1804
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.GZIPInputStream(connIn)))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1784
+        </td>
+        <td>
+          1822
+          -
+          2072
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (contentEncoding.==(&quot;deflate&quot;))
+  in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+else
+  throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1777
+        </td>
+        <td>
+          1826
+          -
+          1854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          contentEncoding.==(&quot;deflate&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1779
+        </td>
+        <td>
+          1894
+          -
+          1948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStreamReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1781
+        </td>
+        <td>
+          1870
+          -
+          1949
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1778
+        </td>
+        <td>
+          1916
+          -
+          1947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.zip.InflaterInputStream.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.zip.InflaterInputStream(connIn)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1780
+        </td>
+        <td>
+          1875
+          -
+          1949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.BufferedReader(new java.io.InputStreamReader(new java.util.zip.InflaterInputStream(connIn)))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1782
+        </td>
+        <td>
+          1981
+          -
+          2060
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1783
+        </td>
+        <td>
+          1981
+          -
+          2060
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;Content encoding: &quot;.+(contentEncoding))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1786
+        </td>
+        <td>
+          2092
+          -
+          2112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.readAll
+        </td>
+        <td style="background: #AEF1AE">
+          InternalHttpClient.this.readAll(in, content)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1787
+        </td>
+        <td>
+          2121
+          -
+          2131
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.close
+        </td>
+        <td style="background: #AEF1AE">
+          in.close()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1791
+        </td>
+        <td>
+          2176
+          -
+          2194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.toString
+        </td>
+        <td style="background: #AEF1AE">
+          content.toString()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1792
+        </td>
+        <td>
+          2147
+          -
+          2204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.HttpResponseData.apply
+        </td>
+        <td style="background: #AEF1AE">
+          InternalHttpClient.this.HttpResponseData.apply(statusLine, content.toString(), headers)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1795
+        </td>
+        <td>
+          2255
+          -
+          2286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.PrintStream.println
+        </td>
+        <td style="background: #F0ADAD">
+          java.this.lang.System.out.println(ex.toString())
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1794
+        </td>
+        <td>
+          2274
+          -
+          2285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ex.toString()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1796
+        </td>
+        <td>
+          2295
+          -
+          2324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.getResponseErrorContent
+        </td>
+        <td style="background: #F0ADAD">
+          InternalHttpClient.this.getResponseErrorContent(conn)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1797
+        </td>
+        <td>
+          2550
+          -
+          2569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.`package`.StringBuilder()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1806
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1805
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1804
+        </td>
+        <td>
+          2607
+          -
+          2736
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val in: java.io.BufferedReader = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getErrorStream()));
+  InternalHttpClient.this.readAll(in, content);
+  in.close()
+}
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1798
+        </td>
+        <td>
+          2578
+          -
+          2605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          conn.getErrorStream().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1799
+        </td>
+        <td>
+          2665
+          -
+          2684
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.HttpURLConnection.getErrorStream
+        </td>
+        <td style="background: #F0ADAD">
+          conn.getErrorStream()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1801
+        </td>
+        <td>
+          2624
+          -
+          2686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.BufferedReader(new java.io.InputStreamReader(conn.getErrorStream()))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1800
+        </td>
+        <td>
+          2643
+          -
+          2685
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStreamReader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.InputStreamReader(conn.getErrorStream())
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1802
+        </td>
+        <td>
+          2693
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.readAll
+        </td>
+        <td style="background: #F0ADAD">
+          InternalHttpClient.this.readAll(in, content)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1803
+        </td>
+        <td>
+          2720
+          -
+          2730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.close
+        </td>
+        <td style="background: #F0ADAD">
+          in.close()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1807
+        </td>
+        <td>
+          2756
+          -
+          2800
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.empty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.empty[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1808
+        </td>
+        <td>
+          2822
+          -
+          2855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.getResponseHeaders
+        </td>
+        <td style="background: #F0ADAD">
+          InternalHttpClient.this.getResponseHeaders(conn, headers)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1810
+        </td>
+        <td>
+          2861
+          -
+          2918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.HttpResponseData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          InternalHttpClient.this.HttpResponseData.apply(statusLine, content.toString(), headers)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1809
+        </td>
+        <td>
+          2890
+          -
+          2908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.toString
+        </td>
+        <td style="background: #F0ADAD">
+          content.toString()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1811
+        </td>
+        <td>
+          3159
+          -
+          3174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.clear
+        </td>
+        <td style="background: #AEF1AE">
+          headers.clear()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1812
+        </td>
+        <td>
+          3196
+          -
+          3198
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1813
+        </td>
+        <td>
+          3211
+          -
+          3212
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1832
+        </td>
+        <td>
+          3217
+          -
+          3217
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1814
+        </td>
+        <td>
+          3224
+          -
+          3230
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;=
+        </td>
+        <td style="background: #AEF1AE">
+          i.&gt;=(0)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1829
+        </td>
+        <td>
+          3232
+          -
+          3232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1831
+        </td>
+        <td>
+          3217
+          -
+          3217
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          3232
+          -
+          3601
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    val name: String = conn.getHeaderFieldKey(i);
+    val value: String = conn.getHeaderField(i);
+    if (name.==(null).&amp;&amp;(value.==(null)))
+      i = -1
+    else
+      if (name.==(null))
+        {
+          statusLine = value;
+          i = i.+(1)
+        }
+      else
+        {
+          headers.put(name, value);
+          i = i.+(1)
+        }
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1815
+        </td>
+        <td>
+          3251
+          -
+          3276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getHeaderFieldKey
+        </td>
+        <td style="background: #AEF1AE">
+          conn.getHeaderFieldKey(i)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1816
+        </td>
+        <td>
+          3295
+          -
+          3317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLConnection.getHeaderField
+        </td>
+        <td style="background: #AEF1AE">
+          conn.getHeaderField(i)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          3337
+          -
+          3341
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1819
+        </td>
+        <td>
+          3329
+          -
+          3358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          name.==(null).&amp;&amp;(value.==(null))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          3345
+          -
+          3358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          value.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1820
+        </td>
+        <td>
+          3375
+          -
+          3376
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          -1
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1821
+        </td>
+        <td>
+          3370
+          -
+          3376
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          i = -1
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1824
+        </td>
+        <td>
+          3408
+          -
+          3532
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  statusLine = value;
+  i = i.+(1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1822
+        </td>
+        <td>
+          3394
+          -
+          3406
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          name.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1828
+        </td>
+        <td>
+          3390
+          -
+          3595
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          if (name.==(null))
+  {
+    statusLine = value;
+    i = i.+(1)
+  }
+else
+  {
+    headers.put(name, value);
+    i = i.+(1)
+  }
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          3518
+          -
+          3524
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #AEF1AE">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1827
+        </td>
+        <td>
+          3538
+          -
+          3595
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  headers.put(name, value);
+  i = i.+(1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          3548
+          -
+          3572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #AEF1AE">
+          headers.put(name, value)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          3581
+          -
+          3587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #AEF1AE">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          3707
+          -
+          3712
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1844
+        </td>
+        <td>
+          3735
+          -
+          3735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.while$2
+        </td>
+        <td style="background: #AEF1AE">
+          while$2()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1847
+        </td>
+        <td>
+          3717
+          -
+          3717
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1846
+        </td>
+        <td>
+          3717
+          -
+          3717
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1834
+        </td>
+        <td>
+          3724
+          -
+          3733
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          finished.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1845
+        </td>
+        <td>
+          3735
+          -
+          3927
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    val str: String = in.readLine();
+    if (str.==(null))
+      {
+        sb.setLength(sb.length.-(1));
+        finished = true
+      }
+    else
+      sb.append(str.+(&quot;\n&quot;))
+  };
+  while$2()
+}
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          3753
+          -
+          3766
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.BufferedReader.readLine
+        </td>
+        <td style="background: #AEF1AE">
+          in.readLine()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          3790
+          -
+          3876
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  sb.setLength(sb.length.-(1));
+  finished = true
+}
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1836
+        </td>
+        <td>
+          3777
+          -
+          3788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          str.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1838
+        </td>
+        <td>
+          3800
+          -
+          3827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.setLength
+        </td>
+        <td style="background: #AEF1AE">
+          sb.setLength(sb.length.-(1))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1837
+        </td>
+        <td>
+          3813
+          -
+          3826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td style="background: #AEF1AE">
+          sb.length.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1839
+        </td>
+        <td>
+          3864
+          -
+          3868
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1842
+        </td>
+        <td>
+          3892
+          -
+          3913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append(str.+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1841
+        </td>
+        <td>
+          3902
+          -
+          3912
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          str.+(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1843
+        </td>
+        <td>
+          3892
+          -
+          3913
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append(str.+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1848
+        </td>
+        <td>
+          4231
+          -
+          4258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #AEF1AE">
+          HttpResponseData.this.statusLine.indexOf(&quot; &quot;).+(1)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1851
+        </td>
+        <td>
+          4276
+          -
+          4324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td style="background: #AEF1AE">
+          HttpResponseData.this.statusLine.substring(HttpResponseData.this.startIndex, HttpResponseData.this.startIndex.+(3))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1850
+        </td>
+        <td>
+          4309
+          -
+          4323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #AEF1AE">
+          HttpResponseData.this.startIndex.+(3)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1849
+        </td>
+        <td>
+          4297
+          -
+          4307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHttpClient.HttpResponseData.startIndex
+        </td>
+        <td style="background: #AEF1AE">
+          HttpResponseData.this.startIndex
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          1852
+        </td>
+        <td>
+          4379
+          -
+          4396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.`package`.StringBuilder()
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          1853
+        </td>
+        <td>
+          4413
+          -
+          4430
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          HttpResponseData.this.statusLine.+(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          1854
+        </td>
+        <td>
+          4403
+          -
+          4431
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(HttpResponseData.this.statusLine.+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1856
+        </td>
+        <td>
+          4459
+          -
+          4494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(m._1.+(&quot;=&quot;).+(m._2).+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1855
+        </td>
+        <td>
+          4469
+          -
+          4493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          m._1.+(&quot;=&quot;).+(m._2).+(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1857
+        </td>
+        <td>
+          4438
+          -
+          4495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          HttpResponseData.this.headers.foreach[StringBuilder](((m: (String, String)) =&gt; sb.append(m._1.+(&quot;=&quot;).+(m._2).+(&quot;\n&quot;))))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          1859
+        </td>
+        <td>
+          4502
+          -
+          4534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td style="background: #F0ADAD">
+          sb.append(&quot;\n&quot;.+(HttpResponseData.this.content).+(&quot;\n&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          1858
+        </td>
+        <td>
+          4512
+          -
+          4533
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n&quot;.+(HttpResponseData.this.content).+(&quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1860
+        </td>
+        <td>
+          4541
+          -
+          4554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.toString
+        </td>
+        <td style="background: #F0ADAD">
+          sb.toString()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

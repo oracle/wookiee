@@ -1,0 +1,1212 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/command/Command.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.command
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.pattern.pipe
+</span>23 <span style=''>import com.webtrends.harness.app.HActor
+</span>24 <span style=''>
+</span>25 <span style=''>import scala.concurrent.Future
+</span>26 <span style=''>
+</span>27 <span style=''>/**
+</span>28 <span style=''> * A command should be a business logic that handles messages from some source (like http) then executes
+</span>29 <span style=''> * the logic that is defined for the end point and returns the response. It should not ever deal with the
+</span>30 <span style=''> * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
+</span>31 <span style=''> * deal with any storage or caching or anything like that.
+</span>32 <span style=''> *
+</span>33 <span style=''> * @author Michael Cuthbert on 12/1/14.
+</span>34 <span style=''> */
+</span>35 <span style=''>trait Command extends HActor {
+</span>36 <span style=''>  import context.dispatcher
+</span>37 <span style=''>
+</span>38 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>health orElse ({
+</span>39 <span style=''></span><span style='background: #F0ADAD'>    case ExecuteCommand(name, bean) => pipe(execute(bean)) to sender
+</span>40 <span style=''></span><span style='background: #F0ADAD'>    case _ => // ignore all other messages to this actor
+</span>41 <span style=''></span><span style='background: #F0ADAD'>  } : Receive)</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  def path : String = </span><span style='background: #F0ADAD'>s"_wt_internal/${commandName.toLowerCase}"</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  /**
+</span>46 <span style=''>   * This allows for extra functionality in your command path. Basically it will allow
+</span>47 <span style=''>   * for multiple paths to be matched to a single command, and will map each path to a
+</span>48 <span style=''>   * given name so that you can find out which path was mapped in the end. By default it
+</span>49 <span style=''>   * will simply be a map of 1 element being retrieved from the default "path" function.
+</span>50 <span style=''>   * So if you only require a single path you wouldn't worry about this function at all
+</span>51 <span style=''>   *
+</span>52 <span style=''>   * @return
+</span>53 <span style=''>   */
+</span>54 <span style=''>  def paths : Map[String, String] =  </span><span style='background: #F0ADAD'>Map("default" -> path)</span><span style=''>
+</span>55 <span style=''>
+</span>56 <span style=''>  /**
+</span>57 <span style=''>   * Name of the command that will be used for the actor name
+</span>58 <span style=''>   *
+</span>59 <span style=''>   * @return
+</span>60 <span style=''>   */
+</span>61 <span style=''>  def commandName : String
+</span>62 <span style=''>
+</span>63 <span style=''>  /**
+</span>64 <span style=''>   * The primary entry point for the command, the actor for this command
+</span>65 <span style=''>   * will ignore all other messaging and only execute through this
+</span>66 <span style=''>   *
+</span>67 <span style=''>   * @return
+</span>68 <span style=''>   */
+</span>69 <span style=''>  def execute[T](bean:Option[CommandBean]=None) : Future[CommandResponse[T]]
+</span>70 <span style=''>}
+</span>71 <span style=''>
+</span>72 <span style=''>object Command {
+</span>73 <span style=''>
+</span>74 <span style=''>  /**
+</span>75 <span style=''>   * Checks the match between a test path and url path
+</span>76 <span style=''>   *
+</span>77 <span style=''>   * @param test The test path, like /test/$var1/ping
+</span>78 <span style=''>   * @param uri The uri, like /test/1/ping
+</span>79 <span style=''>   * @return Will return a command bean if matched, None if not and in the command bean the
+</span>80 <span style=''>   *         key var1 will equal 1 as per the example above
+</span>81 <span style=''>   */
+</span>82 <span style=''>  def matchPath(test:String, uri:String) : Option[CommandBean] = {
+</span>83 <span style=''>    val bean = </span><span style='background: #F0ADAD'>new CommandBean()</span><span style=''>
+</span>84 <span style=''>    val testPath = </span><span style='background: #F0ADAD'>test.split("/") filter { x => x.nonEmpty</span><span style=''> }
+</span>85 <span style=''>    val urlPath = </span><span style='background: #F0ADAD'>uri.split("/") filter { x => x.nonEmpty</span><span style=''> }
+</span>86 <span style=''>
+</span>87 <span style=''>    val m = </span><span style='background: #F0ADAD'>urlPath.corresponds(testPath) {
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      // case for grabbing variable from the url
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      case (x, y) if y.charAt(0) == '$' =>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>        // try to normalize the segment into an INT or STRING
+</span>91 <span style=''></span><span style='background: #F0ADAD'>        val key = y.substring(1)
+</span>92 <span style=''></span><span style='background: #F0ADAD'>        x forall {_.isDigit} match {
+</span>93 <span style=''></span><span style='background: #F0ADAD'>          case true => bean.addValue(key, x.toInt.asInstanceOf[Integer])
+</span>94 <span style=''></span><span style='background: #F0ADAD'>          case false => bean.addValue(key, x)
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>96 <span style=''></span><span style='background: #F0ADAD'>        true
+</span>97 <span style=''></span><span style='background: #F0ADAD'>      // case if you want optional path values
+</span>98 <span style=''></span><span style='background: #F0ADAD'>      case (x, y) if y.contains("|") =>
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        val matches = y.split("\\|") flatMap {
+</span>100 <span style=''></span><span style='background: #F0ADAD'>          _ == x match {
+</span>101 <span style=''></span><span style='background: #F0ADAD'>            case true => Some(true)
+</span>102 <span style=''></span><span style='background: #F0ADAD'>            case false => None
+</span>103 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>104 <span style=''></span><span style='background: #F0ADAD'>        } groupBy(_ == true)
+</span>105 <span style=''></span><span style='background: #F0ADAD'>        // the flatMap and groupBy function will return a map with a single element pointing to all the
+</span>106 <span style=''></span><span style='background: #F0ADAD'>        // matched path elements, all false matches will be thrown out. So if there is no matches the
+</span>107 <span style=''></span><span style='background: #F0ADAD'>        // size of the map would be 0 otherwise it would be 1
+</span>108 <span style=''></span><span style='background: #F0ADAD'>        matches.size == 1
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      // standard case
+</span>110 <span style=''></span><span style='background: #F0ADAD'>      case (x, y) => x == y
+</span>111 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>112 <span style=''>
+</span>113 <span style=''>    m match {
+</span>114 <span style=''>      case true => </span><span style='background: #F0ADAD'>Some(bean)</span><span style=''>
+</span>115 <span style=''>      case false => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>116 <span style=''>    }
+</span>117 <span style=''>  }
+</span>118 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          1402
+          -
+          1402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          1387
+          -
+          1544
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.health.orElse[Any, Unit]((({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteCommand((name @ _), (bean @ _)) =&gt; {
+        akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](Command.this.execute[Nothing](bean))(Command.this.context.dispatcher).to(Command.this.sender());
+        ()
+      }
+      case _ =&gt; ()
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteCommand((name @ _), (bean @ _)) =&gt; true
+      case _ =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]): Command.this.Receive))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          1447
+          -
+          1447
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          1448
+          -
+          1461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.execute
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.execute[Nothing](bean)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          1443
+          -
+          1472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](Command.this.execute[Nothing](bean))(Command.this.context.dispatcher).to(Command.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          1466
+          -
+          1472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          1463
+          -
+          1463
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          1484
+          -
+          1486
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          1585
+          -
+          1608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.toLowerCase
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.commandName.toLowerCase()
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          1609
+          -
+          1610
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          1570
+          -
+          1584
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_wt_internal/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          1568
+          -
+          1610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;_wt_internal/&quot;, &quot;&quot;).s(Command.this.commandName.toLowerCase())
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          2123
+          -
+          2132
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;default&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          2119
+          -
+          2141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[String, String](scala.this.Predef.ArrowAssoc[String](&quot;default&quot;).-&gt;[String](Command.this.path))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          2123
+          -
+          2140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](&quot;default&quot;).-&gt;[String](Command.this.path)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          2136
+          -
+          2140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.path
+        </td>
+        <td style="background: #F0ADAD">
+          Command.this.path
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          2934
+          -
+          2951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new CommandBean()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          2971
+          -
+          3011
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](test.split(&quot;/&quot;)).filter(((x: String) =&gt; scala.this.Predef.augmentString(x).nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          3001
+          -
+          3011
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(x).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          2971
+          -
+          2986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          test.split(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          3061
+          -
+          3071
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(x).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          3032
+          -
+          3046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          uri.split(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          3032
+          -
+          3071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](uri.split(&quot;/&quot;)).filter(((x: String) =&gt; scala.this.Predef.augmentString(x).nonEmpty))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          3087
+          -
+          4102
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.corresponds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](urlPath).corresponds[String](scala.this.Predef.wrapRefArray[String](testPath))(((x0$1: String, x1$1: String) =&gt; scala.Tuple2.apply[String, String](x0$1, x1$1) match {
+  case (_1: String, _2: String)(String, String)((x @ _), (y @ _)) if y.charAt(0).==('$') =&gt; {
+    val key: String = y.substring(1);
+    scala.this.Predef.augmentString(x).forall(((x$1: Char) =&gt; scala.this.Predef.charWrapper(x$1).isDigit)) match {
+      case true =&gt; bean.addValue(key, scala.this.Predef.augmentString(x).toInt.asInstanceOf[Integer])
+      case false =&gt; bean.addValue(key, x)
+    };
+    true
+  }
+  case (_1: String, _2: String)(String, String)((x @ _), (y @ _)) if y.contains(&quot;|&quot;) =&gt; {
+    val matches: scala.collection.immutable.Map[Boolean,Array[Boolean]] = scala.this.Predef.booleanArrayOps(scala.this.Predef.refArrayOps[String](y.split(&quot;\\|&quot;)).flatMap[Boolean, Array[Boolean]](((x$2: String) =&gt; x$2.==(x) match {
+  case true =&gt; scala.this.Option.option2Iterable[Boolean](scala.Some.apply[Boolean](true))
+  case false =&gt; scala.this.Option.option2Iterable[Nothing](scala.None)
+}))(scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean])))).groupBy[Boolean](((x$3: Boolean) =&gt; x$3.==(true)));
+    matches.size.==(1)
+  }
+  case (_1: String, _2: String)(String, String)((x @ _), (y @ _)) =&gt; x.==(y)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          3107
+          -
+          3115
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.wrapRefArray[String](testPath)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          3189
+          -
+          3207
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Char.==
+        </td>
+        <td style="background: #F0ADAD">
+          y.charAt(0).==('$')
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          3291
+          -
+          3305
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td style="background: #F0ADAD">
+          y.substring(1)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          3314
+          -
+          3333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.forall
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(x).forall(((x$1: Char) =&gt; scala.this.Predef.charWrapper(x$1).isDigit))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          3324
+          -
+          3333
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.runtime.RichChar.isDigit
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.charWrapper(x$1).isDigit
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          3385
+          -
+          3414
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(x).toInt.asInstanceOf[Integer]
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          3366
+          -
+          3415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.addValue
+        </td>
+        <td style="background: #F0ADAD">
+          bean.addValue(key, scala.this.Predef.augmentString(x).toInt.asInstanceOf[Integer])
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          3440
+          -
+          3461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandBean.addValue
+        </td>
+        <td style="background: #F0ADAD">
+          bean.addValue(key, x)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          3480
+          -
+          3484
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          3553
+          -
+          3568
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td style="background: #F0ADAD">
+          y.contains(&quot;|&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          3609
+          -
+          3609
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          3594
+          -
+          3608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          y.split(&quot;\\|&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          3594
+          -
+          3722
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.refArrayOps[String](y.split(&quot;\\|&quot;)).flatMap[Boolean, Array[Boolean]](((x$2: String) =&gt; x$2.==(x) match {
+  case true =&gt; scala.this.Option.option2Iterable[Boolean](scala.Some.apply[Boolean](true))
+  case false =&gt; scala.this.Option.option2Iterable[Nothing](scala.None)
+}))(scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean])))
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          3629
+          -
+          3635
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.==(x)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          3669
+          -
+          3679
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[Boolean](scala.Some.apply[Boolean](true))
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          3669
+          -
+          3679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Boolean](true)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          3706
+          -
+          3710
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[Nothing](scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          3706
+          -
+          3710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          3594
+          -
+          3751
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.groupBy
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.booleanArrayOps(scala.this.Predef.refArrayOps[String](y.split(&quot;\\|&quot;)).flatMap[Boolean, Array[Boolean]](((x$2: String) =&gt; x$2.==(x) match {
+  case true =&gt; scala.this.Option.option2Iterable[Boolean](scala.Some.apply[Boolean](true))
+  case false =&gt; scala.this.Option.option2Iterable[Nothing](scala.None)
+}))(scala.this.Array.canBuildFrom[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean])))).groupBy[Boolean](((x$3: Boolean) =&gt; x$3.==(true)))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          3741
+          -
+          3750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.==
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.==(true)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          4028
+          -
+          4045
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          matches.size.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          4090
+          -
+          4096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          x.==(y)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          4137
+          -
+          4147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.command.CommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          4168
+          -
+          4172
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
