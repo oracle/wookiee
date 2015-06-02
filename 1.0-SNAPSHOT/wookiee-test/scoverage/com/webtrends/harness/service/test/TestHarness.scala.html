@@ -1,0 +1,3608 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/service/test/TestHarness.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.service.test
+</span>21 <span style=''>
+</span>22 <span style=''>import java.util.concurrent.TimeUnit
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.actor._
+</span>25 <span style=''>import akka.pattern._
+</span>26 <span style=''>import akka.util.Timeout
+</span>27 <span style=''>import ch.qos.logback.classic.Level
+</span>28 <span style=''>import com.typesafe.config.{Config, ConfigFactory}
+</span>29 <span style=''>import com.webtrends.harness.app.HarnessActor.{SystemReady, GetManagers, ReadyCheck}
+</span>30 <span style=''>import com.webtrends.harness.app.Harness
+</span>31 <span style=''>import com.webtrends.harness.component.{LoadComponent, Component}
+</span>32 <span style=''>import com.webtrends.harness.service.Service
+</span>33 <span style=''>import com.webtrends.harness.service.messages.{Ready, LoadService}
+</span>34 <span style=''>import com.webtrends.harness.HarnessConstants._
+</span>35 <span style=''>
+</span>36 <span style=''>import scala.concurrent.Await
+</span>37 <span style=''>import scala.concurrent.duration._
+</span>38 <span style=''>
+</span>39 <span style=''>object TestHarness {
+</span>40 <span style=''>  var harness:Option[TestHarness] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  /**
+</span>43 <span style=''>   * Create a new instance of the test harness and start all of it's components
+</span>44 <span style=''>   * @param config the config to use
+</span>45 <span style=''>   * @return
+</span>46 <span style=''>   */
+</span>47 <span style=''>  def apply(config:Config,
+</span>48 <span style=''>            serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
+</span>49 <span style=''>            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
+</span>50 <span style=''>    </span><span style='background: #AEF1AE'>harness</span><span style=''> match {
+</span>51 <span style=''>      case Some(h) => h
+</span>52 <span style=''>      case None =>
+</span>53 <span style=''>        </span><span style='background: #AEF1AE'>harness = Some(new TestHarness(config).start(serviceMap, componentMap, logLevel))</span><span style=''>
+</span>54 <span style=''>        </span><span style='background: #AEF1AE'>harness.get</span><span style=''>
+</span>55 <span style=''>    }
+</span>56 <span style=''>  }
+</span>57 <span style=''>
+</span>58 <span style=''>  def system = </span><span style='background: #AEF1AE'>Harness.getActorSystem</span><span style=''>
+</span>59 <span style=''>  def log = </span><span style='background: #AEF1AE'>Harness.getLogger</span><span style=''>
+</span>60 <span style=''>  def rootActor = </span><span style='background: #AEF1AE'>Harness.getRootActor</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  def shutdown = </span><span style='background: #F0ADAD'>harness</span><span style=''> match {
+</span>63 <span style=''>    case Some(h) => </span><span style='background: #F0ADAD'>h.stop</span><span style=''>
+</span>64 <span style=''>    case None </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore
+</span>65 <span style=''>  }
+</span>66 <span style=''>}
+</span>67 <span style=''>
+</span>68 <span style=''>class TestHarness(conf:Config) {
+</span>69 <span style=''>  var services = </span><span style='background: #AEF1AE'>Map[String, ActorRef]()</span><span style=''>
+</span>70 <span style=''>  var components = </span><span style='background: #AEF1AE'>Map[String, ActorRef]()</span><span style=''>
+</span>71 <span style=''>  var serviceManager: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>72 <span style=''>  var componentManager: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>73 <span style=''>  var commandManager: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>74 <span style=''>  var config = </span><span style='background: #AEF1AE'>conf.withFallback(defaultConfig)</span><span style=''>
+</span>75 <span style=''>  </span><span style='background: #AEF1AE'>config = config.withFallback(config.getConfig("wookiee-system")).resolve()</span><span style=''>
+</span>76 <span style=''>
+</span>77 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(4000, TimeUnit.MILLISECONDS)</span><span style=''>
+</span>78 <span style=''>
+</span>79 <span style=''>  def start(serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
+</span>80 <span style=''>            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
+</span>81 <span style=''>    </span><span style='background: #AEF1AE'>Harness.externalLogger.info("Starting Harness...")</span><span style=''>
+</span>82 <span style=''>    </span><span style='background: #AEF1AE'>Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")</span><span style=''>
+</span>83 <span style=''>    </span><span style='background: #AEF1AE'>Harness.addShutdownHook</span><span style=''>
+</span>84 <span style=''>    </span><span style='background: #AEF1AE'>Harness.startActorSystem(Some(config))</span><span style=''>
+</span>85 <span style=''>    // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
+</span>86 <span style=''>    </span><span style='background: #AEF1AE'>harnessReadyCheck(10.seconds.fromNow)</span><span style=''>
+</span>87 <span style=''>    </span><span style='background: #AEF1AE'>Await.result(TestHarness.rootActor.get ? GetManagers, 5.seconds)</span><span style=''> match {
+</span>88 <span style=''>      case m =>
+</span>89 <span style=''>        val map = </span><span style='background: #AEF1AE'>m.asInstanceOf[Map[String, ActorRef]]</span><span style=''>
+</span>90 <span style=''>        </span><span style='background: #AEF1AE'>serviceManager = map.get(ServicesName)</span><span style=''>
+</span>91 <span style=''>        </span><span style='background: #AEF1AE'>commandManager = map.get(CommandName)</span><span style=''>
+</span>92 <span style=''>        </span><span style='background: #AEF1AE'>componentManager = map.get(ComponentName)</span><span style=''>
+</span>93 <span style=''>        </span><span style='background: #AEF1AE'>TestHarness.log.get.info("Managers all accounted for")</span><span style=''>
+</span>94 <span style=''>    }
+</span>95 <span style=''>    </span><span style='background: #AEF1AE'>setLogLevel(logLevel)</span><span style=''>
+</span>96 <span style=''>    if (</span><span style='background: #AEF1AE'>componentMap.isDefined</span><span style=''>) {
+</span>97 <span style=''>      </span><span style='background: #AEF1AE'>loadComponents(componentMap.get)</span><span style=''>
+</span>98 <span style=''>    }
+</span>99 <span style=''>    if (</span><span style='background: #AEF1AE'>serviceMap.isDefined</span><span style=''>) {
+</span>100 <span style=''>      </span><span style='background: #AEF1AE'>loadServices(serviceMap.get)</span><span style=''>
+</span>101 <span style=''>    }
+</span>102 <span style=''>    </span><span style='background: #AEF1AE'>componentManager.foreach {_ ! SystemReady}</span><span style=''>
+</span>103 <span style=''>    </span><span style='background: #AEF1AE'>serviceManager.foreach {_ ! SystemReady}</span><span style=''>
+</span>104 <span style=''>    this
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  def stop = {
+</span>108 <span style=''>    </span><span style='background: #AEF1AE'>Harness.shutdownActorSystem(false) {
+</span>109 <span style=''></span><span style='background: #AEF1AE'>      // wait a second to make sure it shutdown correctly
+</span>110 <span style=''></span><span style='background: #AEF1AE'>      Thread.sleep(1000)
+</span>111 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>  def setLogLevel(level:Level) = {
+</span>115 <span style=''>    </span><span style='background: #AEF1AE'>TestHarness.log.get.setLogLevel(level)</span><span style=''>
+</span>116 <span style=''>  }
+</span>117 <span style=''>
+</span>118 <span style=''>  def harnessReadyCheck(timeOut: Deadline) {
+</span>119 <span style=''>    while(</span><span style='background: #AEF1AE'>!timeOut.isOverdue() && !Await.result(TestHarness.rootActor.get ? ReadyCheck, 10.seconds).asInstanceOf[Boolean]</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>120 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>121 <span style=''>
+</span>122 <span style=''>    if (</span><span style='background: #AEF1AE'>timeOut.isOverdue()</span><span style=''>) {
+</span>123 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("HarnessActor did not start up")</span><span style=''>
+</span>124 <span style=''>    }
+</span>125 <span style=''>  }
+</span>126 <span style=''>
+</span>127 <span style=''>  def getService(service: String): Option[ActorRef] = {
+</span>128 <span style=''>    </span><span style='background: #AEF1AE'>services.get(service)</span><span style=''>
+</span>129 <span style=''>  }
+</span>130 <span style=''>
+</span>131 <span style=''>  def getComponent(component: String): Option[ActorRef] = {
+</span>132 <span style=''>    </span><span style='background: #AEF1AE'>components.get(component)</span><span style=''>
+</span>133 <span style=''>  }
+</span>134 <span style=''>
+</span>135 <span style=''>  def loadComponents(componentMap: Map[String, Class[_ <: Component]]) = {
+</span>136 <span style=''>    </span><span style='background: #AEF1AE'>componentMap foreach { p =>
+</span>137 <span style=''></span><span style='background: #AEF1AE'>      componentReady(5.seconds.fromNow, p._1, p._2.getCanonicalName)</span><span style=''>
+</span>138 <span style=''>    }
+</span>139 <span style=''>  }
+</span>140 <span style=''>  
+</span>141 <span style=''>  def loadServices(serviceMap: Map[String, Class[_ <: Service]]) = {
+</span>142 <span style=''>    </span><span style='background: #AEF1AE'>serviceMap foreach { p =>
+</span>143 <span style=''></span><span style='background: #AEF1AE'>      serviceReady(5.seconds.fromNow, p._1, p._2)</span><span style=''>
+</span>144 <span style=''>    }
+</span>145 <span style=''>  }
+</span>146 <span style=''>
+</span>147 <span style=''>  private def componentReady(timeOut: Deadline, componentName: String, componentClass: String) {
+</span>148 <span style=''>    if (</span><span style='background: #AEF1AE'>timeOut.isOverdue()</span><span style=''>) {
+</span>149 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Component $componentName did not start up")</span><span style=''>
+</span>150 <span style=''>    }
+</span>151 <span style=''>    </span><span style='background: #AEF1AE'>Await.result(componentManager.get ? LoadComponent(componentName, componentClass), 5.seconds)</span><span style=''> match {
+</span>152 <span style=''>      case Some(m) =>
+</span>153 <span style=''>        val component = </span><span style='background: #AEF1AE'>m.asInstanceOf[ActorRef]</span><span style=''>
+</span>154 <span style=''>        </span><span style='background: #AEF1AE'>TestHarness.log.get.info(s"Loaded component $componentName, ${component.path.toString}")</span><span style=''>
+</span>155 <span style=''>        </span><span style='background: #AEF1AE'>components += (componentName -> component)</span><span style=''>
+</span>156 <span style=''>      case None =>
+</span>157 <span style=''>        </span><span style='background: #F0ADAD'>throw new Exception("Component not returned")</span><span style=''>
+</span>158 <span style=''>    }
+</span>159 <span style=''>  }
+</span>160 <span style=''>
+</span>161 <span style=''>  private def serviceReady(timeOut: Deadline, serviceName: String, serviceClass: Class[_ <: Service]) {
+</span>162 <span style=''>    if (</span><span style='background: #AEF1AE'>timeOut.isOverdue()</span><span style=''>) {
+</span>163 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Service $serviceName did not start up")</span><span style=''>
+</span>164 <span style=''>    }
+</span>165 <span style=''>    </span><span style='background: #AEF1AE'>Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), 3.seconds)</span><span style=''> match {
+</span>166 <span style=''>      case Some(m) =>
+</span>167 <span style=''>        val service = </span><span style='background: #AEF1AE'>m.asInstanceOf[ActorRef]</span><span style=''>
+</span>168 <span style=''>        </span><span style='background: #AEF1AE'>TestHarness.log.get.info(s"Loaded service $serviceName, ${service.path.toString}")</span><span style=''>
+</span>169 <span style=''>        </span><span style='background: #AEF1AE'>services += (serviceName -> service)</span><span style=''>
+</span>170 <span style=''>      case None =>
+</span>171 <span style=''>        </span><span style='background: #F0ADAD'>throw new Exception("Service not returned")</span><span style=''>
+</span>172 <span style=''>    }
+</span>173 <span style=''>  }
+</span>174 <span style=''>
+</span>175 <span style=''>  def defaultConfig : Config = {
+</span>176 <span style=''>    </span><span style='background: #AEF1AE'>ConfigFactory.parseString(
+</span>177 <span style=''></span><span style='background: #AEF1AE'>      """
+</span>178 <span style=''></span><span style='background: #AEF1AE'>        wookiee-system {
+</span>179 <span style=''></span><span style='background: #AEF1AE'>          prepare-to-shutdown-timeout = 1
+</span>180 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>181 <span style=''></span><span style='background: #AEF1AE'>        services {
+</span>182 <span style=''></span><span style='background: #AEF1AE'>          path = ""
+</span>183 <span style=''></span><span style='background: #AEF1AE'>          distinct-classloader = false
+</span>184 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>185 <span style=''></span><span style='background: #AEF1AE'>        components {
+</span>186 <span style=''></span><span style='background: #AEF1AE'>          path = ""
+</span>187 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>188 <span style=''></span><span style='background: #AEF1AE'>        test-mode = true
+</span>189 <span style=''></span><span style='background: #AEF1AE'>        internal-http {
+</span>190 <span style=''></span><span style='background: #AEF1AE'>          enabled = false
+</span>191 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>192 <span style=''></span><span style='background: #AEF1AE'>        # CIDR Rules
+</span>193 <span style=''></span><span style='background: #AEF1AE'>        cidr-rules {
+</span>194 <span style=''></span><span style='background: #AEF1AE'>          # This is a list of IP ranges to allow through. Can be empty.
+</span>195 <span style=''></span><span style='background: #AEF1AE'>          allow = ["127.0.0.1/30", "10.0.0.0/8"]
+</span>196 <span style=''></span><span style='background: #AEF1AE'>          # This is a list of IP ranges to specifically deny access. Can be empty.
+</span>197 <span style=''></span><span style='background: #AEF1AE'>          deny = []
+</span>198 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>199 <span style=''></span><span style='background: #AEF1AE'>        message-processor {
+</span>200 <span style=''></span><span style='background: #AEF1AE'>          # How often the MessageProcessor should share it's subscription information
+</span>201 <span style=''></span><span style='background: #AEF1AE'>          share-interval = 1s
+</span>202 <span style=''></span><span style='background: #AEF1AE'>          # When should MessageTopicProcessor instances be removed after there are no longer any subscribers for that topic
+</span>203 <span style=''></span><span style='background: #AEF1AE'>          trash-interval = 30s
+</span>204 <span style=''></span><span style='background: #AEF1AE'>          # The default send timeout
+</span>205 <span style=''></span><span style='background: #AEF1AE'>          default-send-timeout = 2s
+</span>206 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>207 <span style=''></span><span style='background: #AEF1AE'>        commands {
+</span>208 <span style=''></span><span style='background: #AEF1AE'>          # generally this should be enabled
+</span>209 <span style=''></span><span style='background: #AEF1AE'>          enabled = true
+</span>210 <span style=''></span><span style='background: #AEF1AE'>          default-nr-routees = 5
+</span>211 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>212 <span style=''></span><span style='background: #AEF1AE'>      """)</span><span style=''>
+</span>213 <span style=''>  }
+</span>214 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1452
+          -
+          1456
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          1821
+          -
+          1828
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.harness
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.harness
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          1888
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.harness_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.harness_=(scala.Some.apply[com.webtrends.harness.service.test.TestHarness](new TestHarness(config).start(serviceMap, componentMap, logLevel)))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          1898
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.webtrends.harness.service.test.TestHarness](new TestHarness(config).start(serviceMap, componentMap, logLevel))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          1903
+          -
+          1968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.start
+        </td>
+        <td style="background: #AEF1AE">
+          new TestHarness(config).start(serviceMap, componentMap, logLevel)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          1978
+          -
+          1989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.harness.get
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2016
+          -
+          2038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.getActorSystem
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.getActorSystem
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2051
+          -
+          2068
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.getLogger
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.getLogger
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2087
+          -
+          2107
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.getRootActor
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.getRootActor
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2126
+          -
+          2133
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.harness
+        </td>
+        <td style="background: #F0ADAD">
+          TestHarness.this.harness
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2162
+          -
+          2168
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.stop
+        </td>
+        <td style="background: #F0ADAD">
+          h.stop
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2183
+          -
+          2185
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2253
+          -
+          2276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2296
+          -
+          2319
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.Map.apply[String, akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2361
+          -
+          2365
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2409
+          -
+          2413
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2455
+          -
+          2459
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2475
+          -
+          2507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.withFallback
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.conf.withFallback(TestHarness.this.defaultConfig)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2493
+          -
+          2506
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.defaultConfig
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.defaultConfig
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2519
+          -
+          2584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.resolve
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.config.withFallback(TestHarness.this.config.getConfig(&quot;wookiee-system&quot;)).resolve()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2510
+          -
+          2584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.config_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.config_=(TestHarness.this.config.withFallback(TestHarness.this.config.getConfig(&quot;wookiee-system&quot;)).resolve())
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          2611
+          -
+          2647
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(4000L, MILLISECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2843
+          -
+          2893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.externalLogger.info(&quot;Starting Harness...&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2951
+          -
+          2966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.config.toString()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2967
+          -
+          2968
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2898
+          -
+          2969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.externalLogger.info(scala.StringContext.apply(&quot;Test Harness Config: &quot;, &quot;&quot;).s(TestHarness.this.config.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2928
+          -
+          2950
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Test Harness Config: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2926
+          -
+          2968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Test Harness Config: &quot;, &quot;&quot;).s(TestHarness.this.config.toString())
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2974
+          -
+          2997
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.addShutdownHook
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.addShutdownHook
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          3002
+          -
+          3040
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.startActorSystem
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.startActorSystem(scala.Some.apply[com.typesafe.config.Config](TestHarness.this.config))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          3027
+          -
+          3039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.typesafe.config.Config](TestHarness.this.config)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          3032
+          -
+          3038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.config
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.config
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          3178
+          -
+          3215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.harnessReadyCheck
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.harnessReadyCheck(scala.concurrent.duration.`package`.DurationInt(10).seconds.fromNow)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          3196
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.FiniteDuration.fromNow
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds.fromNow
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          3196
+          -
+          3198
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          3259
+          -
+          3259
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          3274
+          -
+          3283
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          3261
+          -
+          3272
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.GetManagers
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.GetManagers
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          3274
+          -
+          3275
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          3233
+          -
+          3272
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(TestHarness.rootActor.get).?(com.webtrends.harness.app.HarnessActor.GetManagers)(TestHarness.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          3220
+          -
+          3284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Await.result[Any](akka.pattern.`package`.ask(TestHarness.rootActor.get).?(com.webtrends.harness.app.HarnessActor.GetManagers)(TestHarness.this.timeout), scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          3233
+          -
+          3258
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.rootActor.get
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          3327
+          -
+          3364
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          m.asInstanceOf[Map[String,akka.actor.ActorRef]]
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          3398
+          -
+          3410
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          3373
+          -
+          3411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.serviceManager_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.serviceManager_=(map.get(com.webtrends.harness.HarnessConstants.ServicesName))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          3390
+          -
+          3411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          map.get(com.webtrends.harness.HarnessConstants.ServicesName)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          3445
+          -
+          3456
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          3420
+          -
+          3457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.commandManager_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.commandManager_=(map.get(com.webtrends.harness.HarnessConstants.CommandName))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          3437
+          -
+          3457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          map.get(com.webtrends.harness.HarnessConstants.CommandName)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          3493
+          -
+          3506
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          3466
+          -
+          3507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.componentManager_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.componentManager_=(map.get(com.webtrends.harness.HarnessConstants.ComponentName))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          3485
+          -
+          3507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          map.get(com.webtrends.harness.HarnessConstants.ComponentName)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          3516
+          -
+          3570
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.log.get.info(&quot;Managers all accounted for&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          3581
+          -
+          3602
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.setLogLevel
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.setLogLevel(logLevel)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          3607
+          -
+          3607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          3611
+          -
+          3633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          componentMap.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          3607
+          -
+          3607
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          3658
+          -
+          3674
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          componentMap.get
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          3643
+          -
+          3675
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.loadComponents
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.loadComponents(componentMap.get)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          3643
+          -
+          3675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.loadComponents
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.loadComponents(componentMap.get)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          3686
+          -
+          3686
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          3690
+          -
+          3710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #AEF1AE">
+          serviceMap.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          3686
+          -
+          3686
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          3733
+          -
+          3747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          serviceMap.get
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          3720
+          -
+          3748
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.loadServices
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.loadServices(serviceMap.get)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          3720
+          -
+          3748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.loadServices
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.loadServices(serviceMap.get)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3759
+          -
+          3801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.componentManager.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; {
+  &lt;artifact&gt; val qual$1: akka.actor.ScalaActorRef = akka.actor.`package`.actorRef2Scala(x$1);
+  &lt;artifact&gt; val x$3: com.webtrends.harness.app.HarnessActor.SystemReady.type = com.webtrends.harness.app.HarnessActor.SystemReady;
+  &lt;artifact&gt; val x$4: akka.actor.ActorRef = qual$1.!$default$2(x$3);
+  qual$1.!(x$3)(x$4)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3789
+          -
+          3800
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3785
+          -
+          3800
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.!(x$3)(x$4)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3785
+          -
+          3786
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3787
+          -
+          3787
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #AEF1AE">
+          qual$1.!$default$2(x$3)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          3832
+          -
+          3832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.!$default$2(x$5)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          3834
+          -
+          3845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          3806
+          -
+          3846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.serviceManager.foreach[Unit](((x$2: akka.actor.ActorRef) =&gt; {
+  &lt;artifact&gt; val qual$2: akka.actor.ScalaActorRef = akka.actor.`package`.actorRef2Scala(x$2);
+  &lt;artifact&gt; val x$5: com.webtrends.harness.app.HarnessActor.SystemReady.type = com.webtrends.harness.app.HarnessActor.SystemReady;
+  &lt;artifact&gt; val x$6: akka.actor.ActorRef = qual$2.!$default$2(x$5);
+  qual$2.!(x$5)(x$6)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          3830
+          -
+          3845
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          qual$2.!(x$5)(x$6)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          3830
+          -
+          3831
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          3908
+          -
+          3913
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          3880
+          -
+          4005
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.shutdownActorSystem
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.Harness.shutdownActorSystem(false)(java.this.lang.Thread.sleep(1000L))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          3981
+          -
+          3999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.sleep
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.Thread.sleep(1000L)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          4050
+          -
+          4088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Slf4jLogging.setLogLevel
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.log.get.setLogLevel(level)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          4262
+          -
+          4269
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          4213
+          -
+          4213
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          4143
+          -
+          4143
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          4227
+          -
+          4237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          4227
+          -
+          4229
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          4149
+          -
+          4260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          timeOut.isOverdue().unary_!.&amp;&amp;(scala.concurrent.Await.result[Any](akka.pattern.`package`.ask(TestHarness.rootActor.get).?(com.webtrends.harness.app.HarnessActor.ReadyCheck)(TestHarness.this.timeout), scala.concurrent.duration.`package`.DurationInt(10).seconds).asInstanceOf[Boolean].unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          4215
+          -
+          4225
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ReadyCheck
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.ReadyCheck
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          4262
+          -
+          4269
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ();
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          4187
+          -
+          4225
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(TestHarness.rootActor.get).?(com.webtrends.harness.app.HarnessActor.ReadyCheck)(TestHarness.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          4143
+          -
+          4143
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          4173
+          -
+          4260
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Await.result[Any](akka.pattern.`package`.ask(TestHarness.rootActor.get).?(com.webtrends.harness.app.HarnessActor.ReadyCheck)(TestHarness.this.timeout), scala.concurrent.duration.`package`.DurationInt(10).seconds).asInstanceOf[Boolean].unary_!
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          4187
+          -
+          4212
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.rootActor.get
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          4262
+          -
+          4262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4275
+          -
+          4275
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          4279
+          -
+          4298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.isOverdue
+        </td>
+        <td style="background: #AEF1AE">
+          timeOut.isOverdue()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          4275
+          -
+          4275
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          4308
+          -
+          4372
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;HarnessActor did not start up&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          4308
+          -
+          4372
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;HarnessActor did not start up&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4444
+          -
+          4465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.services.get(service)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          4535
+          -
+          4560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.components.get(component)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          4645
+          -
+          4741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          componentMap.foreach[Unit](((p: (String, Class[_ &lt;: com.webtrends.harness.component.Component])) =&gt; TestHarness.this.componentReady(scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow, p._1, p._2.getCanonicalName())))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          4694
+          -
+          4695
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          4719
+          -
+          4740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getCanonicalName
+        </td>
+        <td style="background: #AEF1AE">
+          p._2.getCanonicalName()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          4713
+          -
+          4717
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          4694
+          -
+          4711
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.FiniteDuration.fromNow
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          4679
+          -
+          4741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.componentReady
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.componentReady(scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow, p._1, p._2.getCanonicalName())
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          4828
+          -
+          4903
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          serviceMap.foreach[Unit](((p: (String, Class[_ &lt;: com.webtrends.harness.service.Service])) =&gt; TestHarness.this.serviceReady(scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow, p._1, p._2)))
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          4873
+          -
+          4874
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          4898
+          -
+          4902
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #AEF1AE">
+          p._2
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          4892
+          -
+          4896
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #AEF1AE">
+          p._1
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          4873
+          -
+          4890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.FiniteDuration.fromNow
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          4860
+          -
+          4903
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.serviceReady
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.serviceReady(scala.concurrent.duration.`package`.DurationInt(5).seconds.fromNow, p._1, p._2)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          5016
+          -
+          5016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          5020
+          -
+          5039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.isOverdue
+        </td>
+        <td style="background: #AEF1AE">
+          timeOut.isOverdue()
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          5016
+          -
+          5016
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          5049
+          -
+          5126
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Component &quot;, &quot; did not start up&quot;).s(componentName))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          5049
+          -
+          5126
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Component &quot;, &quot; did not start up&quot;).s(componentName))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          5173
+          -
+          5217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.LoadComponent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.LoadComponent.apply(componentName, componentClass)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          5150
+          -
+          5217
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(TestHarness.this.componentManager.get).?(com.webtrends.harness.component.LoadComponent.apply(componentName, componentClass))(TestHarness.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          5137
+          -
+          5229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Await.result[Any](akka.pattern.`package`.ask(TestHarness.this.componentManager.get).?(com.webtrends.harness.component.LoadComponent.apply(componentName, componentClass))(TestHarness.this.timeout), scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          5150
+          -
+          5170
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.componentManager.get
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          5171
+          -
+          5171
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          5219
+          -
+          5228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          5219
+          -
+          5220
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          5284
+          -
+          5308
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          m.asInstanceOf[akka.actor.ActorRef]
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          5403
+          -
+          5404
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          5342
+          -
+          5404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Loaded component &quot;, &quot;, &quot;, &quot;&quot;).s(componentName, component.path.toString())
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          5375
+          -
+          5378
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          5344
+          -
+          5362
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Loaded component &quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          5379
+          -
+          5402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #AEF1AE">
+          component.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          5317
+          -
+          5405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.log.get.info(scala.StringContext.apply(&quot;Loaded component &quot;, &quot;, &quot;, &quot;&quot;).s(componentName, component.path.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          5414
+          -
+          5456
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.components_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.components_=(TestHarness.this.components.+[akka.actor.ActorRef](scala.this.Predef.ArrowAssoc[String](componentName).-&gt;[akka.actor.ActorRef](component)))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          5414
+          -
+          5456
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Map.+
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.components.+[akka.actor.ActorRef](scala.this.Predef.ArrowAssoc[String](componentName).-&gt;[akka.actor.ActorRef](component))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          5429
+          -
+          5455
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](componentName).-&gt;[akka.actor.ActorRef](component)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          5484
+          -
+          5529
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.Exception(&quot;Component not returned&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          5649
+          -
+          5649
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          5653
+          -
+          5672
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Deadline.isOverdue
+        </td>
+        <td style="background: #AEF1AE">
+          timeOut.isOverdue()
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          5649
+          -
+          5649
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          5682
+          -
+          5755
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Service &quot;, &quot; did not start up&quot;).s(serviceName))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          5682
+          -
+          5755
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Service &quot;, &quot; did not start up&quot;).s(serviceName))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          5798
+          -
+          5798
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          5840
+          -
+          5849
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(3).seconds
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          5840
+          -
+          5841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          5800
+          -
+          5838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.LoadService.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.service.messages.LoadService.apply(serviceName, serviceClass)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          5779
+          -
+          5838
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(TestHarness.this.serviceManager.get).?(com.webtrends.harness.service.messages.LoadService.apply(serviceName, serviceClass))(TestHarness.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          5766
+          -
+          5850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Await.result[Any](akka.pattern.`package`.ask(TestHarness.this.serviceManager.get).?(com.webtrends.harness.service.messages.LoadService.apply(serviceName, serviceClass))(TestHarness.this.timeout), scala.concurrent.duration.`package`.DurationInt(3).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          5779
+          -
+          5797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.serviceManager.get
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          5903
+          -
+          5927
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          m.asInstanceOf[akka.actor.ActorRef]
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          5994
+          -
+          6015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #AEF1AE">
+          service.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          5936
+          -
+          6018
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.log.get.info(scala.StringContext.apply(&quot;Loaded service &quot;, &quot;, &quot;, &quot;&quot;).s(serviceName, service.path.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          6016
+          -
+          6017
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          5961
+          -
+          6017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Loaded service &quot;, &quot;, &quot;, &quot;&quot;).s(serviceName, service.path.toString())
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          5990
+          -
+          5993
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          5963
+          -
+          5979
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Loaded service &quot;
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          6040
+          -
+          6062
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](serviceName).-&gt;[akka.actor.ActorRef](service)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          6027
+          -
+          6063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.test.TestHarness.services_=
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.services_=(TestHarness.this.services.+[akka.actor.ActorRef](scala.this.Predef.ArrowAssoc[String](serviceName).-&gt;[akka.actor.ActorRef](service)))
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          6027
+          -
+          6063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Map.+
+        </td>
+        <td style="background: #AEF1AE">
+          TestHarness.this.services.+[akka.actor.ActorRef](scala.this.Predef.ArrowAssoc[String](serviceName).-&gt;[akka.actor.ActorRef](service))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          6091
+          -
+          6134
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.Exception(&quot;Service not returned&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          6183
+          -
+          7321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.ConfigFactory.parseString
+        </td>
+        <td style="background: #AEF1AE">
+          com.typesafe.config.ConfigFactory.parseString(&quot;\n        wookiee-system {\n          prepare-to-shutdown-timeout = 1\n        }\n        services {\n          path = \&quot;\&quot;\n          distinct-classloader = false\n        }\n        components {\n          path = \&quot;\&quot;\n        }\n        test-mode = true\n        internal-http {\n          enabled = false\n        }\n        # CIDR Rules\n        cidr-rules {\n          # This is a list of IP ranges to allow through. Can be empty.\n          allow = [\&quot;127.0.0.1/30\&quot;, \&quot;10.0.0.0/8\&quot;]\n          # This is a list of IP ranges to specifically deny access. Can be empty.\n          deny = []\n        }\n        message-processor {\n          # How often the MessageProcessor should share it\'s subscription information\n          share-interval = 1s\n          # When should MessageTopicProcessor instances be removed after there are no longer any subscribers for that topic\n          trash-interval = 30s\n          # The default send timeout\n          default-send-timeout = 2s\n        }\n        commands {\n          # generally this should be enabled\n          enabled = true\n          default-nr-routees = 5\n        }\n      &quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
