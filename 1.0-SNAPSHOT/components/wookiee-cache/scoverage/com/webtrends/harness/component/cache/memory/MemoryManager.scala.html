@@ -1,0 +1,3243 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cache/memory/MemoryManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.cache.memory
+</span>20 <span style=''>
+</span>21 <span style=''>import com.webtrends.harness.component.cache.{CacheConfig, Cache}
+</span>22 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>23 <span style=''>import org.jboss.netty.buffer.ChannelBuffer
+</span>24 <span style=''>import scala.concurrent._
+</span>25 <span style=''>import scala.collection.mutable
+</span>26 <span style=''>
+</span>27 <span style=''>import scala.concurrent.duration.Duration
+</span>28 <span style=''>
+</span>29 <span style=''>/**
+</span>30 <span style=''> * In memory cache is exactly that, it stores values inside a standard HashMap. There are obviously
+</span>31 <span style=''> * issues with this approach, you wouldn't use it if you wanted the cache to be distributed or if the
+</span>32 <span style=''> * data became too large.
+</span>33 <span style=''> *
+</span>34 <span style=''> * It is a TTL cache that will default to 5 minutes until it expires elements.
+</span>35 <span style=''> */
+</span>36 <span style=''>case class TimedChannelBuffer(insertionTime:Long, buffer:ChannelBuffer)
+</span>37 <span style=''>
+</span>38 <span style=''>object MemoryManager {
+</span>39 <span style=''>  val caches = </span><span style='background: #F0ADAD'>mutable.Map[String, mutable.Map[String, TimedChannelBuffer]]()</span><span style=''>
+</span>40 <span style=''>}
+</span>41 <span style=''>
+</span>42 <span style=''>class MemoryManager(name:String) extends Cache(name) {
+</span>43 <span style=''>
+</span>44 <span style=''>  def caches = </span><span style='background: #F0ADAD'>MemoryManager.caches</span><span style=''>
+</span>45 <span style=''>
+</span>46 <span style=''>  protected val DEFAULT_TTL = </span><span style='background: #F0ADAD'>75L</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  import context.dispatcher
+</span>49 <span style=''>
+</span>50 <span style=''>  protected val ttl = if (</span><span style='background: #F0ADAD'>config.hasPath(s"$name.ttl")</span><span style=''>) {
+</span>51 <span style=''>    </span><span style='background: #F0ADAD'>Duration(config.getLong(s"$name.ttl"), "seconds")</span><span style=''>
+</span>52 <span style=''>  } else {
+</span>53 <span style=''>    </span><span style='background: #F0ADAD'>Duration(DEFAULT_TTL, "seconds")</span><span style=''>
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  private[this] val scheduler = </span><span style='background: #F0ADAD'>context.system.scheduler</span><span style=''>
+</span>57 <span style=''>  private[this] var taskRunning: Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  private[this] def scheduleTimer() : Unit = </span><span style='background: #F0ADAD'>synchronized {
+</span>60 <span style=''></span><span style='background: #F0ADAD'>    require(!taskRunning)
+</span>61 <span style=''></span><span style='background: #F0ADAD'>    taskRunning = true
+</span>62 <span style=''></span><span style='background: #F0ADAD'>    scheduler.scheduleOnce(ttl)(() => timeout())
+</span>63 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  private[this] def timeout() = {
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>synchronized {
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      removeExpiredItems()
+</span>68 <span style=''></span><span style='background: #F0ADAD'>      taskRunning = false
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      if (caches.nonEmpty) scheduleTimer()
+</span>70 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>71 <span style=''>  }
+</span>72 <span style=''>
+</span>73 <span style=''>  private[this] def checkTimeout(insertionTime:Long) : Boolean = {
+</span>74 <span style=''>    if (</span><span style='background: #F0ADAD'>compat.Platform.currentTime - (ttl.toSeconds*1000) <= insertionTime</span><span style=''>) {
+</span>75 <span style=''>      </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>76 <span style=''>    } else {
+</span>77 <span style=''>      </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>78 <span style=''>    }
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  private[this] def removeExpiredItems() = </span><span style='background: #F0ADAD'>synchronized {
+</span>82 <span style=''></span><span style='background: #F0ADAD'>    val cache = caches
+</span>83 <span style=''></span><span style='background: #F0ADAD'>    val expired:mutable.Map[String, List[String]] = cache map {
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      nc =>
+</span>85 <span style=''></span><span style='background: #F0ADAD'>        val expireList = mutable.MutableList[String]()
+</span>86 <span style=''></span><span style='background: #F0ADAD'>        nc._2 foreach { cacheItem =>
+</span>87 <span style=''></span><span style='background: #F0ADAD'>          if (checkTimeout(cacheItem._2.insertionTime)) {
+</span>88 <span style=''></span><span style='background: #F0ADAD'>            expireList += cacheItem._1
+</span>89 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>90 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>91 <span style=''></span><span style='background: #F0ADAD'>        nc._1 -> expireList.toList
+</span>92 <span style=''></span><span style='background: #F0ADAD'>    }
+</span>93 <span style=''></span><span style='background: #F0ADAD'>
+</span>94 <span style=''></span><span style='background: #F0ADAD'>    // we delete here so that we don't get any concurrent modification exceptions
+</span>95 <span style=''></span><span style='background: #F0ADAD'>    expired foreach {
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      nc => nc._2 foreach { delete(nc._1, _) }
+</span>97 <span style=''></span><span style='background: #F0ADAD'>    }
+</span>98 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>99 <span style=''>
+</span>100 <span style=''>  /**
+</span>101 <span style=''>   * Any logic to stop the component
+</span>102 <span style=''>   */
+</span>103 <span style=''>  override def stop = {
+</span>104 <span style=''>    </span><span style='background: #F0ADAD'>super.stop</span><span style=''>
+</span>105 <span style=''>    </span><span style='background: #F0ADAD'>caches.clear()</span><span style=''>
+</span>106 <span style=''>  }
+</span>107 <span style=''>
+</span>108 <span style=''>  override protected def get(namespace: String, key: String): Future[Option[ChannelBuffer]] = {
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>110 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>Future {
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        c.get(key) match {
+</span>112 <span style=''></span><span style='background: #F0ADAD'>          case Some(value) => Some(value.buffer)
+</span>113 <span style=''></span><span style='background: #F0ADAD'>          case None => None
+</span>114 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>115 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>116 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { None }</span><span style=''>
+</span>117 <span style=''>    }
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  override protected def clear(namespace: String): Future[Boolean] = {
+</span>121 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>122 <span style=''>      case Some(c) =>
+</span>123 <span style=''>        </span><span style='background: #F0ADAD'>c.clear()</span><span style=''>
+</span>124 <span style=''>        </span><span style='background: #F0ADAD'>Future { true }</span><span style=''>
+</span>125 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
+</span>126 <span style=''>    }
+</span>127 <span style=''>  }
+</span>128 <span style=''>
+</span>129 <span style=''>  // Not supported in in-memory cache
+</span>130 <span style=''>  override protected def increment(namespace: String, key: String, incrementBy: Long): Future[Option[Long]] = </span><span style='background: #F0ADAD'>???</span><span style=''>
+</span>131 <span style=''>
+</span>132 <span style=''>  // Not supported in in-memory cache
+</span>133 <span style=''>  override protected def decrement(namespace: String, key: String, decrementBy: Long): Future[Option[Long]] = </span><span style='background: #F0ADAD'>???</span><span style=''>
+</span>134 <span style=''>
+</span>135 <span style=''>  override protected def delete(namespace: String, key: String): Future[Boolean] = {
+</span>136 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>137 <span style=''>      case Some(c) =>
+</span>138 <span style=''>        </span><span style='background: #F0ADAD'>c.remove(key)</span><span style=''>
+</span>139 <span style=''>        </span><span style='background: #F0ADAD'>Future { true }</span><span style=''>
+</span>140 <span style=''>      case None =>
+</span>141 <span style=''>        </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
+</span>142 <span style=''>    }
+</span>143 <span style=''>  }
+</span>144 <span style=''>
+</span>145 <span style=''>  override protected def contains(namespace: String, key: String): Future[Boolean] = {
+</span>146 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>147 <span style=''>      case Some(c) => </span><span style='background: #F0ADAD'>Future { c.contains(key) }</span><span style=''>
+</span>148 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
+</span>149 <span style=''>    }
+</span>150 <span style=''>  }
+</span>151 <span style=''>
+</span>152 <span style=''>  override protected def getHealth: Future[HealthComponent] =
+</span>153 <span style=''>    </span><span style='background: #F0ADAD'>Future { HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size)) }</span><span style=''>
+</span>154 <span style=''>
+</span>155 <span style=''>  /**
+</span>156 <span style=''>   * Creates a cache based on the implementer of the function. So could be any cache type
+</span>157 <span style=''>   *
+</span>158 <span style=''>   * @param config The
+</span>159 <span style=''>   * @return true if created, false if already created
+</span>160 <span style=''>   */
+</span>161 <span style=''>  override protected def createCache(config: CacheConfig): Boolean = {
+</span>162 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(config.namespace)</span><span style=''> match {
+</span>163 <span style=''>      case Some(c) =>
+</span>164 <span style=''>        </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>165 <span style=''>      case None =>
+</span>166 <span style=''>        val cache = </span><span style='background: #F0ADAD'>mutable.Map[String, TimedChannelBuffer]()</span><span style=''>
+</span>167 <span style=''>        </span><span style='background: #F0ADAD'>caches += (config.namespace -> cache)</span><span style=''>
+</span>168 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>169 <span style=''>    }
+</span>170 <span style=''>  }
+</span>171 <span style=''>
+</span>172 <span style=''>  /**
+</span>173 <span style=''>   * Deletes the cache from the in memory map
+</span>174 <span style=''>   *
+</span>175 <span style=''>   * @param namespace namespace for the cache you are deleting
+</span>176 <span style=''>   * @return
+</span>177 <span style=''>   */
+</span>178 <span style=''>  override protected def deleteCache(namespace:String): Boolean = {
+</span>179 <span style=''>    if (</span><span style='background: #F0ADAD'>caches.contains(namespace)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>180 <span style=''></span><span style='background: #F0ADAD'>      caches.remove(namespace)
+</span>181 <span style=''></span><span style='background: #F0ADAD'>      true
+</span>182 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else {
+</span>183 <span style=''>      </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>184 <span style=''>    }
+</span>185 <span style=''>  }
+</span>186 <span style=''>
+</span>187 <span style=''>  override protected def add(namespace: String, key: String, value: ChannelBuffer): Future[Boolean] = {
+</span>188 <span style=''>    </span><span style='background: #F0ADAD'>caches.get(namespace)</span><span style=''> match {
+</span>189 <span style=''>      case Some(c) =>
+</span>190 <span style=''>        </span><span style='background: #F0ADAD'>c.put(key, TimedChannelBuffer(compat.Platform.currentTime, value))</span><span style=''>
+</span>191 <span style=''>        if (</span><span style='background: #F0ADAD'>c.nonEmpty && !taskRunning</span><span style=''>) </span><span style='background: #F0ADAD'>scheduleTimer()</span><span style=''>
+</span>192 <span style=''>        </span><span style='background: #F0ADAD'>Future { true }</span><span style=''>
+</span>193 <span style=''>      case None => </span><span style='background: #F0ADAD'>Future { false }</span><span style=''>
+</span>194 <span style=''>    }
+</span>195 <span style=''>  }
+</span>196 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          1504
+          -
+          1566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer]]()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          1641
+          -
+          1661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.caches
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.caches
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          1693
+          -
+          1696
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          75L
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          1770
+          -
+          1771
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          1768
+          -
+          1780
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          1771
+          -
+          1775
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.name
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          1775
+          -
+          1780
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.ttl&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          1753
+          -
+          1781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.config.hasPath(scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          1798
+          -
+          1826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getLong
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.config.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          1789
+          -
+          1838
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(MemoryManager.this.config.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name)), &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          1815
+          -
+          1816
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          1813
+          -
+          1825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          1789
+          -
+          1838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(MemoryManager.this.config.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.ttl&quot;).s(MemoryManager.this.name)), &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          1828
+          -
+          1837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;seconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          1816
+          -
+          1820
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.name
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          1820
+          -
+          1825
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.ttl&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          1876
+          -
+          1885
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;seconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          1863
+          -
+          1874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.DEFAULT_TTL
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.DEFAULT_TTL
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          1854
+          -
+          1886
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(MemoryManager.this.DEFAULT_TTL, &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          1854
+          -
+          1886
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(MemoryManager.this.DEFAULT_TTL, &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          1924
+          -
+          1948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.scheduler
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.system.scheduler
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          1992
+          -
+          1997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          2044
+          -
+          2160
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.synchronized[akka.actor.Cancellable]({
+  scala.this.Predef.require(MemoryManager.this.taskRunning.unary_!);
+  MemoryManager.this.taskRunning = true;
+  MemoryManager.this.scheduler.scheduleOnce(MemoryManager.this.ttl)({
+    (() =&gt; MemoryManager.this.timeout());
+    ()
+  })(MemoryManager.this.context.dispatcher)
+})
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          2057
+          -
+          2057
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          2063
+          -
+          2084
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.require(MemoryManager.this.taskRunning.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          2071
+          -
+          2083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.taskRunning.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          2103
+          -
+          2107
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          2146
+          -
+          2155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.timeout()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          2112
+          -
+          2156
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Scheduler.scheduleOnce
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.scheduler.scheduleOnce(MemoryManager.this.ttl)({
+  (() =&gt; MemoryManager.this.timeout());
+  ()
+})(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          2135
+          -
+          2138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.ttl
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.ttl
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          2139
+          -
+          2139
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          2143
+          -
+          2143
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          2200
+          -
+          2316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.synchronized[Unit]({
+  MemoryManager.this.removeExpiredItems();
+  MemoryManager.this.taskRunning = false;
+  if (MemoryManager.this.caches.nonEmpty)
+    MemoryManager.this.scheduleTimer()
+  else
+    ()
+})
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          2221
+          -
+          2241
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.removeExpiredItems
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.removeExpiredItems()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          2262
+          -
+          2267
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          2295
+          -
+          2310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.scheduleTimer()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          2278
+          -
+          2293
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          2295
+          -
+          2310
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.scheduleTimer()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          2397
+          -
+          2464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;=
+        </td>
+        <td style="background: #F0ADAD">
+          scala.compat.Platform.currentTime.-(MemoryManager.this.ttl.toSeconds.*(1000)).&lt;=(insertionTime)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          2474
+          -
+          2478
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          2474
+          -
+          2478
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          2498
+          -
+          2503
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          2498
+          -
+          2503
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          2558
+          -
+          3085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.synchronized[Unit]({
+  val cache: scala.collection.mutable.Map[String,scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer]] = MemoryManager.this.caches;
+  val expired: scala.collection.mutable.Map[String,List[String]] = cache.map[(String, List[String]), scala.collection.mutable.Map[String,List[String]]](((nc: (String, scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer])) =&gt; {
+    val expireList: scala.collection.mutable.MutableList[String] = scala.collection.mutable.MutableList.apply[String]();
+    nc._2.foreach[Any](((cacheItem: (String, com.webtrends.harness.component.cache.memory.TimedChannelBuffer)) =&gt; if (MemoryManager.this.checkTimeout(cacheItem._2.insertionTime))
+      expireList.+=(cacheItem._1)
+    else
+      ()));
+    scala.this.Predef.ArrowAssoc[String](nc._1).-&gt;[List[String]](expireList.toList)
+  }))(mutable.this.Map.canBuildFrom[String, List[String]]);
+  expired.foreach[Unit](((nc: (String, List[String])) =&gt; nc._2.foreach[scala.concurrent.Future[Boolean]](((x$1: String) =&gt; MemoryManager.this.delete(nc._1, x$1)))))
+})
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          2589
+          -
+          2595
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.caches
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          2648
+          -
+          2917
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          cache.map[(String, List[String]), scala.collection.mutable.Map[String,List[String]]](((nc: (String, scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer])) =&gt; {
+  val expireList: scala.collection.mutable.MutableList[String] = scala.collection.mutable.MutableList.apply[String]();
+  nc._2.foreach[Any](((cacheItem: (String, com.webtrends.harness.component.cache.memory.TimedChannelBuffer)) =&gt; if (MemoryManager.this.checkTimeout(cacheItem._2.insertionTime))
+    expireList.+=(cacheItem._1)
+  else
+    ()));
+  scala.this.Predef.ArrowAssoc[String](nc._1).-&gt;[List[String]](expireList.toList)
+}))(mutable.this.Map.canBuildFrom[String, List[String]])
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          2654
+          -
+          2654
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Map.canBuildFrom[String, List[String]]
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          2697
+          -
+          2726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.MutableList.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          2735
+          -
+          2872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          nc._2.foreach[Any](((cacheItem: (String, com.webtrends.harness.component.cache.memory.TimedChannelBuffer)) =&gt; if (MemoryManager.this.checkTimeout(cacheItem._2.insertionTime))
+  expireList.+=(cacheItem._1)
+else
+  ()))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          2778
+          -
+          2818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.checkTimeout(cacheItem._2.insertionTime)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          2774
+          -
+          2774
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          2791
+          -
+          2817
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.TimedChannelBuffer.insertionTime
+        </td>
+        <td style="background: #F0ADAD">
+          cacheItem._2.insertionTime
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          2774
+          -
+          2774
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          2834
+          -
+          2860
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.MutableList.+=
+        </td>
+        <td style="background: #F0ADAD">
+          expireList.+=(cacheItem._1)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          2834
+          -
+          2860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MutableList.+=
+        </td>
+        <td style="background: #F0ADAD">
+          expireList.+=(cacheItem._1)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          2848
+          -
+          2860
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          cacheItem._1
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          2891
+          -
+          2917
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](nc._1).-&gt;[List[String]](expireList.toList)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          2900
+          -
+          2917
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.mutable.MutableList.toList
+        </td>
+        <td style="background: #F0ADAD">
+          expireList.toList
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          2891
+          -
+          2896
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          nc._1
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          3011
+          -
+          3075
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          expired.foreach[Unit](((nc: (String, List[String])) =&gt; nc._2.foreach[scala.concurrent.Future[Boolean]](((x$1: String) =&gt; MemoryManager.this.delete(nc._1, x$1)))))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          3041
+          -
+          3073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          nc._2.foreach[scala.concurrent.Future[Boolean]](((x$1: String) =&gt; MemoryManager.this.delete(nc._1, x$1)))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          3057
+          -
+          3073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.delete
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.delete(nc._1, x$1)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          3064
+          -
+          3069
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          nc._1
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          3164
+          -
+          3174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.stop
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.super.stop
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          3179
+          -
+          3193
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.clear
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.clear()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          3299
+          -
+          3320
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          3351
+          -
+          3481
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Option[org.jboss.netty.buffer.ChannelBuffer]](c.get(key) match {
+  case (x: com.webtrends.harness.component.cache.memory.TimedChannelBuffer)Some[com.webtrends.harness.component.cache.memory.TimedChannelBuffer]((value @ _)) =&gt; scala.Some.apply[org.jboss.netty.buffer.ChannelBuffer](value.buffer)
+  case scala.None =&gt; scala.None
+})(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          215
+        </td>
+        <td>
+          3358
+          -
+          3358
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          3368
+          -
+          3378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          c.get(key)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          3417
+          -
+          3435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.jboss.netty.buffer.ChannelBuffer](value.buffer)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          3422
+          -
+          3434
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.TimedChannelBuffer.buffer
+        </td>
+        <td style="background: #F0ADAD">
+          value.buffer
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          3459
+          -
+          3463
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          3508
+          -
+          3508
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          3510
+          -
+          3514
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          3501
+          -
+          3516
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[None.type](scala.None)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          3603
+          -
+          3624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          3663
+          -
+          3672
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.clear
+        </td>
+        <td style="background: #F0ADAD">
+          c.clear()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          3688
+          -
+          3688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          3690
+          -
+          3694
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          3681
+          -
+          3696
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](true)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          3716
+          -
+          3732
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          3723
+          -
+          3723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          3725
+          -
+          3730
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          3892
+          -
+          3895
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          4045
+          -
+          4048
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          4139
+          -
+          4160
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          4199
+          -
+          4212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.remove
+        </td>
+        <td style="background: #F0ADAD">
+          c.remove(key)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          4230
+          -
+          4234
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          4221
+          -
+          4236
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](true)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          4228
+          -
+          4228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          4271
+          -
+          4271
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          4273
+          -
+          4278
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          4264
+          -
+          4280
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          4383
+          -
+          4404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          241
+        </td>
+        <td>
+          4435
+          -
+          4461
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](c.contains(key))(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          4442
+          -
+          4442
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          239
+        </td>
+        <td>
+          4444
+          -
+          4459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          c.contains(key)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          244
+        </td>
+        <td>
+          4481
+          -
+          4497
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          4488
+          -
+          4488
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          4490
+          -
+          4495
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          4575
+          -
+          4692
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(MemoryManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;All Good, managing %d caches&quot;).format(MemoryManager.this.caches.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          245
+        </td>
+        <td>
+          4600
+          -
+          4614
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          4582
+          -
+          4582
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          4639
+          -
+          4669
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;All Good, managing %d caches&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          250
+        </td>
+        <td>
+          4584
+          -
+          4584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          4639
+          -
+          4689
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;All Good, managing %d caches&quot;).format(MemoryManager.this.caches.size)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          4584
+          -
+          4690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(MemoryManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, scala.this.Predef.augmentString(&quot;All Good, managing %d caches&quot;).format(MemoryManager.this.caches.size), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          246
+        </td>
+        <td>
+          4616
+          -
+          4637
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          4677
+          -
+          4688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.size
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.size
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          4584
+          -
+          4584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          4954
+          -
+          4982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(config.namespace)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          4965
+          -
+          4981
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.CacheConfig.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          config.namespace
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          5021
+          -
+          5026
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          5066
+          -
+          5107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, com.webtrends.harness.component.cache.memory.TimedChannelBuffer]()
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          5127
+          -
+          5152
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](config.namespace).-&gt;[scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer]](cache)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          5116
+          -
+          5153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.+=(scala.this.Predef.ArrowAssoc[String](config.namespace).-&gt;[scala.collection.mutable.Map[String,com.webtrends.harness.component.cache.memory.TimedChannelBuffer]](cache))
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          5162
+          -
+          5166
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          5393
+          -
+          5419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.contains(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          5421
+          -
+          5470
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  MemoryManager.this.caches.remove(namespace);
+  true
+}
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          5429
+          -
+          5453
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.remove
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.remove(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          5460
+          -
+          5464
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          5484
+          -
+          5489
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          5484
+          -
+          5489
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          5609
+          -
+          5630
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.caches.get(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          5669
+          -
+          5735
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #F0ADAD">
+          c.put(key, TimedChannelBuffer.apply(scala.compat.Platform.currentTime, value))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          5680
+          -
+          5734
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.TimedChannelBuffer.apply
+        </td>
+        <td style="background: #F0ADAD">
+          TimedChannelBuffer.apply(scala.compat.Platform.currentTime, value)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          5699
+          -
+          5726
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.compat.Platform.currentTime
+        </td>
+        <td style="background: #F0ADAD">
+          scala.compat.Platform.currentTime
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          5776
+          -
+          5791
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.scheduleTimer()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          5744
+          -
+          5744
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          5744
+          -
+          5744
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          5748
+          -
+          5774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          c.nonEmpty.&amp;&amp;(MemoryManager.this.taskRunning.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          5762
+          -
+          5774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.taskRunning.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          5776
+          -
+          5791
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.memory.MemoryManager.scheduleTimer
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.scheduleTimer()
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          5800
+          -
+          5815
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](true)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          5807
+          -
+          5807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          5809
+          -
+          5813
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          5835
+          -
+          5851
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Boolean](false)(MemoryManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          5842
+          -
+          5842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          MemoryManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          281
+        </td>
+        <td>
+          5844
+          -
+          5849
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

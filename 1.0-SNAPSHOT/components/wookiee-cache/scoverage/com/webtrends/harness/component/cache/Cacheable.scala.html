@@ -1,0 +1,2302 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/cache/Cacheable.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.cache
+</span>20 <span style=''>
+</span>21 <span style=''>import java.nio.charset.StandardCharsets
+</span>22 <span style=''>
+</span>23 <span style=''>import akka.pattern.Patterns
+</span>24 <span style=''>import akka.actor.{ActorSelection, ActorRef}
+</span>25 <span style=''>import org.jboss.netty.buffer.{ChannelBuffer, ChannelBuffers}
+</span>26 <span style=''>import net.liftweb.json._
+</span>27 <span style=''>import net.liftweb.json.ext.JodaTimeSerializers
+</span>28 <span style=''>import scala.concurrent._
+</span>29 <span style=''>import net.liftweb.json.Extraction._
+</span>30 <span style=''>import scala.util.Success
+</span>31 <span style=''>import scala.util.Failure
+</span>32 <span style=''>import akka.util.Timeout
+</span>33 <span style=''>import scala.concurrent.duration.Duration
+</span>34 <span style=''>import scala.pickling._
+</span>35 <span style=''>import binary._
+</span>36 <span style=''>
+</span>37 <span style=''>/**
+</span>38 <span style=''> * Trait to help with caching objects in the wookiee-cache
+</span>39 <span style=''> * A cacheable object will be converted to JSON and then stored as Array[Byte] in the cache manager
+</span>40 <span style=''> *
+</span>41 <span style=''> * TODO: Need to implement timeout strategies. Currently it simply times out the object based on when it
+</span>42 <span style=''> * was inserted. This can cause an object to constantly be updating the insert time and possibly never timeout.
+</span>43 <span style=''> * Also need to implement a strategy where everything will time out every hour or something like that.
+</span>44 <span style=''> */
+</span>45 <span style=''>trait Cacheable[T] extends Serializable {
+</span>46 <span style=''>  this : Serializable =>
+</span>47 <span style=''>
+</span>48 <span style=''>  // This is a wrapper object that will basically wrap the object with an insertion time and any other meta data that it may require
+</span>49 <span style=''>  @SerialVersionUID(10L)
+</span>50 <span style=''>  protected case class CacheWrapper(data:Array[Byte], insertionTime:Long=0L) extends Serializable
+</span>51 <span style=''>
+</span>52 <span style=''>  @transient implicit def liftJsonFormats = </span><span style='background: #F0ADAD'>DefaultFormats.lossless + NoTypeHints ++ JodaTimeSerializers.all</span><span style=''>
+</span>53 <span style=''>  @transient implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(Duration(1, "seconds"))</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  /**
+</span>56 <span style=''>   * Gets the timeout for the data in the cache, by default will be set to 0L which means it will never time out
+</span>57 <span style=''>   * The value is in milliseconds
+</span>58 <span style=''>   *
+</span>59 <span style=''>   * @return milliseconds for timeout of data in cache
+</span>60 <span style=''>   */
+</span>61 <span style=''>  def dataTimeout : Long = -</span><span style='background: #F0ADAD'>1L</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  /**
+</span>64 <span style=''>   * The key used to cache the object
+</span>65 <span style=''>   *
+</span>66 <span style=''>   * @return
+</span>67 <span style=''>   */
+</span>68 <span style=''>  def key : String = </span><span style='background: #F0ADAD'>???</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  /**
+</span>71 <span style=''>   * The namespace used for the object
+</span>72 <span style=''>   *
+</span>73 <span style=''>   * @return
+</span>74 <span style=''>   */
+</span>75 <span style=''>  def namespace : String = </span><span style='background: #F0ADAD'>???</span><span style=''>
+</span>76 <span style=''>
+</span>77 <span style=''>  /**
+</span>78 <span style=''>   * Extract function allows cacheable object to have control how it extracts the byte data from the array
+</span>79 <span style=''>   * by default it will try and parse it as a JSON object and then extract it to the class type
+</span>80 <span style=''>   *
+</span>81 <span style=''>   * @param obj the array of bytes
+</span>82 <span style=''>   * @return
+</span>83 <span style=''>   */
+</span>84 <span style=''>  protected def extract(obj:Array[Byte])(implicit m: Manifest[T]) : Option[T] = {
+</span>85 <span style=''>    </span><span style='background: #F0ADAD'>Some(JsonParser.parse(new String(obj, StandardCharsets.UTF_8)).extract[T])</span><span style=''>
+</span>86 <span style=''>  }
+</span>87 <span style=''>
+</span>88 <span style=''>  /**
+</span>89 <span style=''>   * getBytes function allows cacheable object to have control over how it writes the data to memcache
+</span>90 <span style=''>   * By default it will use Lift JSON to decompose then render the object from json to a string and
+</span>91 <span style=''>   * then simply call getBytes on the string
+</span>92 <span style=''>   *
+</span>93 <span style=''>   * @return
+</span>94 <span style=''>   */
+</span>95 <span style=''>  protected def getBytes : Array[Byte] = {
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>compactRender(decompose(this)).getBytes(StandardCharsets.UTF_8)</span><span style=''>
+</span>97 <span style=''>  }
+</span>98 <span style=''>
+</span>99 <span style=''>  /**
+</span>100 <span style=''>   * Checks to see if the object that was stored in the cache is past the timeout, if it
+</span>101 <span style=''>   * is then then false else true, if timeout is 0L then assumes no timeout and will always return true
+</span>102 <span style=''>   *
+</span>103 <span style=''>   * @param insertionTime the time the object was inserted into the cache
+</span>104 <span style=''>   * @return true if current time subtract the timeout for the object is less than or equal too the time the object
+</span>105 <span style=''>   *         was inserted into the cache
+</span>106 <span style=''>   */
+</span>107 <span style=''>  protected def checkTimeout(insertionTime:Long) : Boolean = {
+</span>108 <span style=''>    if (</span><span style='background: #F0ADAD'>dataTimeout < 0 || compat.Platform.currentTime - dataTimeout <= insertionTime</span><span style=''>) {
+</span>109 <span style=''>      </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>110 <span style=''>    } else {
+</span>111 <span style=''>      </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>112 <span style=''>    }
+</span>113 <span style=''>  }
+</span>114 <span style=''>
+</span>115 <span style=''>  def readFromCacheSelect(cacheRef:ActorSelection, cacheKey:Option[CacheKey]=None)
+</span>116 <span style=''>      (implicit timeout:Timeout, executor:ExecutionContext, m:Manifest[T]) : Future[Option[T]] = {
+</span>117 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Option[T]]</span><span style=''>
+</span>118 <span style=''>    </span><span style='background: #F0ADAD'>cacheRef.resolveOne onComplete {
+</span>119 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>120 <span style=''></span><span style='background: #F0ADAD'>        readFromCache(s, cacheKey)(timeout, executor, m) onComplete {
+</span>121 <span style=''></span><span style='background: #F0ADAD'>          case Success(result) => p success result
+</span>122 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) =>
+</span>123 <span style=''></span><span style='background: #F0ADAD'>            p success None
+</span>124 <span style=''></span><span style='background: #F0ADAD'>            throw f
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>126 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) =>
+</span>127 <span style=''></span><span style='background: #F0ADAD'>        p success None
+</span>128 <span style=''></span><span style='background: #F0ADAD'>        throw f
+</span>129 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>130 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>131 <span style=''>  }
+</span>132 <span style=''>
+</span>133 <span style=''>  /**
+</span>134 <span style=''>   * Looks in the supplied cache for the current object
+</span>135 <span style=''>   *
+</span>136 <span style=''>   * @param cacheRef This is a reference to the cache actor
+</span>137 <span style=''>   * @param timeout Timeout for the cache read
+</span>138 <span style=''>   * @return
+</span>139 <span style=''>   */
+</span>140 <span style=''>  def readFromCache(cacheRef:ActorRef, cacheKey:Option[CacheKey]=None)
+</span>141 <span style=''>      (implicit timeout:Timeout, executor:ExecutionContext, m:Manifest[T]) : Future[Option[T]] = {
+</span>142 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(cacheKey)</span><span style=''>
+</span>143 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Option[T]]</span><span style=''>
+</span>144 <span style=''>    val future = </span><span style='background: #F0ADAD'>Patterns.ask(cacheRef, Get(namespace, ck), timeout).mapTo[Option[ChannelBuffer]]</span><span style=''>
+</span>145 <span style=''>    </span><span style='background: #F0ADAD'>future onComplete {
+</span>146 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>147 <span style=''></span><span style='background: #F0ADAD'>        unwrapData(s) match {
+</span>148 <span style=''></span><span style='background: #F0ADAD'>          case Some(s) => p success Some(s)
+</span>149 <span style=''></span><span style='background: #F0ADAD'>          case None =>
+</span>150 <span style=''></span><span style='background: #F0ADAD'>            cacheRef ! Delete(namespace, ck)
+</span>151 <span style=''></span><span style='background: #F0ADAD'>            p success None
+</span>152 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>153 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => throw f
+</span>154 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>155 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>156 <span style=''>  }
+</span>157 <span style=''>
+</span>158 <span style=''>  def writeInCacheSelect(cacheRef:ActorSelection, cacheKey:Option[CacheKey]=None)
+</span>159 <span style=''>      (implicit timeout:Timeout, executor:ExecutionContext) : Future[Boolean] = {
+</span>160 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Boolean]</span><span style=''>
+</span>161 <span style=''>    </span><span style='background: #F0ADAD'>cacheRef.resolveOne onComplete {
+</span>162 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>163 <span style=''></span><span style='background: #F0ADAD'>        writeInCache(s, cacheKey)(timeout, executor) onComplete {
+</span>164 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => p success true
+</span>165 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p success false
+</span>166 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>167 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => throw f
+</span>168 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>169 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>170 <span style=''>  }
+</span>171 <span style=''>
+</span>172 <span style=''>  /**
+</span>173 <span style=''>   * Writes the current object to the supplied cache
+</span>174 <span style=''>   *
+</span>175 <span style=''>   * @param cacheRef This is a reference to the cache actor
+</span>176 <span style=''>   * @param timeout Timeout for the cache read
+</span>177 <span style=''>   * @return
+</span>178 <span style=''>   */
+</span>179 <span style=''>  def writeInCache(cacheRef:ActorRef, cacheKey:Option[CacheKey]=None)
+</span>180 <span style=''>      (implicit timeout:Timeout, executor:ExecutionContext) : Future[Boolean] = {
+</span>181 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Boolean]</span><span style=''>
+</span>182 <span style=''>    val future = </span><span style='background: #F0ADAD'>Patterns.ask(cacheRef, Add(namespace, getCacheKey(cacheKey), wrapData), timeout).mapTo[Boolean]</span><span style=''>
+</span>183 <span style=''>    </span><span style='background: #F0ADAD'>future onComplete {
+</span>184 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => p success true
+</span>185 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) =>
+</span>186 <span style=''></span><span style='background: #F0ADAD'>        p failure f
+</span>187 <span style=''></span><span style='background: #F0ADAD'>        throw f
+</span>188 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>189 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>190 <span style=''>  }
+</span>191 <span style=''>
+</span>192 <span style=''>  /**
+</span>193 <span style=''>   * Deletes the current item from the cache
+</span>194 <span style=''>   *
+</span>195 <span style=''>   * @param cacheRef The is a reference to the cache actor
+</span>196 <span style=''>   * @param cacheKey Optional key, usually this is managed by the object itself
+</span>197 <span style=''>   * @param timeout timeout for the cache delete response
+</span>198 <span style=''>   * @param executor the executor
+</span>199 <span style=''>   * @return true if delete was successful
+</span>200 <span style=''>   */
+</span>201 <span style=''>  def deleteFromCache(cacheRef:ActorRef, cacheKey:Option[CacheKey]=None)
+</span>202 <span style=''>      (implicit timeout:Timeout, executor:ExecutionContext) : Future[Boolean] = {
+</span>203 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Boolean]</span><span style=''>
+</span>204 <span style=''>    val future = </span><span style='background: #F0ADAD'>Patterns.ask(cacheRef, Delete(namespace, getCacheKey(cacheKey)), timeout).mapTo[Boolean]</span><span style=''>
+</span>205 <span style=''>    </span><span style='background: #F0ADAD'>future onComplete {
+</span>206 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => p success true
+</span>207 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) =>
+</span>208 <span style=''></span><span style='background: #F0ADAD'>        p failure f
+</span>209 <span style=''></span><span style='background: #F0ADAD'>        throw f
+</span>210 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>211 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>212 <span style=''>  }
+</span>213 <span style=''>
+</span>214 <span style=''>  private def wrapData : ChannelBuffer = {
+</span>215 <span style=''>    val wrapper = </span><span style='background: #F0ADAD'>CacheWrapper(this.getBytes, compat.Platform.currentTime)</span><span style=''>
+</span>216 <span style=''>    </span><span style='background: #F0ADAD'>ChannelBuffers.wrappedBuffer(wrapper.pickle.value)</span><span style=''>
+</span>217 <span style=''>  }
+</span>218 <span style=''>
+</span>219 <span style=''>  private def unwrapData(data:Option[ChannelBuffer])(implicit m:Manifest[T]) : Option[T] = {
+</span>220 <span style=''>    data match {
+</span>221 <span style=''>      case Some(buffer) =>
+</span>222 <span style=''>        val wrapper = buffer.array.unpickle[CacheWrapper]
+</span>223 <span style=''>        </span><span style='background: #F0ADAD'>extract(wrapper.data)</span><span style=''> match {
+</span>224 <span style=''>          case Some(value) =>
+</span>225 <span style=''>            if (</span><span style='background: #F0ADAD'>checkTimeout(wrapper.insertionTime)</span><span style=''>) {
+</span>226 <span style=''>              </span><span style='background: #F0ADAD'>Some(value)</span><span style=''>
+</span>227 <span style=''>            } else {
+</span>228 <span style=''>              </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>229 <span style=''>            }
+</span>230 <span style=''>          case None => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>231 <span style=''>        }
+</span>232 <span style=''>      case None => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>233 <span style=''>    }
+</span>234 <span style=''>  }
+</span>235 <span style=''>
+</span>236 <span style=''>  protected def getCacheKey(cacheKey:Option[CacheKey]) : String = {
+</span>237 <span style=''>    cacheKey match {
+</span>238 <span style=''>      case Some(s) => </span><span style='background: #F0ADAD'>s.toString</span><span style=''>
+</span>239 <span style=''>      case None => </span><span style='background: #F0ADAD'>key</span><span style=''>
+</span>240 <span style=''>    }
+</span>241 <span style=''>  }
+</span>242 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          2120
+          -
+          2184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Formats.++
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.DefaultFormats.lossless.+(net.liftweb.json.NoTypeHints).++(net.liftweb.json.ext.JodaTimeSerializers.all)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2161
+          -
+          2184
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.ext.JodaTimeSerializers.all
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2146
+          -
+          2157
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          2221
+          -
+          2252
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.Duration.apply(1L, &quot;seconds&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          2229
+          -
+          2251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.duration.Duration.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.Duration.apply(1L, &quot;seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          2501
+          -
+          2503
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          -1L
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          2594
+          -
+          2597
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          2695
+          -
+          2698
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.???
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.???
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          3092
+          -
+          3114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          3059
+          -
+          3127
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.JsonAST.JValue.extract
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.JsonParser.parse(new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8)).extract[T](Cacheable.this.liftJsonFormats, m)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          3124
+          -
+          3124
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.liftJsonFormats
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.liftJsonFormats
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          3054
+          -
+          3128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](net.liftweb.json.JsonParser.parse(new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8)).extract[T](Cacheable.this.liftJsonFormats, m))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          3076
+          -
+          3115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new scala.this.Predef.String(obj, java.nio.charset.StandardCharsets.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3473
+          -
+          3488
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Extraction.decompose
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Extraction.decompose(this)(Cacheable.this.liftJsonFormats)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3459
+          -
+          3522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.`package`.compactRender(net.liftweb.json.Extraction.decompose(this)(Cacheable.this.liftJsonFormats)).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3482
+          -
+          3482
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.liftJsonFormats
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.liftJsonFormats
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3499
+          -
+          3521
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.charset.StandardCharsets.UTF_8
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          4054
+          -
+          4055
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          4040
+          -
+          4117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.dataTimeout.&lt;(0).||(scala.compat.Platform.currentTime.-(Cacheable.this.dataTimeout).&lt;=(insertionTime))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          4059
+          -
+          4117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;=
+        </td>
+        <td style="background: #F0ADAD">
+          scala.compat.Platform.currentTime.-(Cacheable.this.dataTimeout).&lt;=(insertionTime)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          4127
+          -
+          4131
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          4127
+          -
+          4131
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          4151
+          -
+          4156
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          4151
+          -
+          4156
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          4362
+          -
+          4380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Option[T]]()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          4385
+          -
+          4719
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          cacheRef.resolveOne()(timeout).onComplete[Unit](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; Cacheable.this.readFromCache(s, cacheKey)(timeout, executor, m).onComplete[scala.concurrent.Promise[Option[T]]](((x0$2: scala.util.Try[Option[T]]) =&gt; x0$2 match {
+    case (value: Option[T])scala.util.Success[Option[T]]((result @ _)) =&gt; p.success(result)
+    case (exception: Throwable)scala.util.Failure[Option[T]]((f @ _)) =&gt; {
+      p.success(scala.None);
+      throw f
+    }
+  }))(executor)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; {
+    p.success(scala.None);
+    throw f
+  }
+}))(executor)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          4724
+          -
+          4732
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          5114
+          -
+          5135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.getCacheKey(cacheKey)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          5148
+          -
+          5166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Option[T]]()
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          5211
+          -
+          5220
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.namespace
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          5184
+          -
+          5264
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.Patterns.ask(cacheRef, Get.apply(Cacheable.this.namespace, ck), timeout).mapTo[Option[org.jboss.netty.buffer.ChannelBuffer]]((ClassTag.apply[Option[org.jboss.netty.buffer.ChannelBuffer]](classOf[scala.Option]): scala.reflect.ClassTag[Option[org.jboss.netty.buffer.ChannelBuffer]]))
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          5207
+          -
+          5225
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Get.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Get.apply(Cacheable.this.namespace, ck)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          5269
+          -
+          5531
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[Option[T]]](((x0$3: scala.util.Try[Option[org.jboss.netty.buffer.ChannelBuffer]]) =&gt; x0$3 match {
+  case (value: Option[org.jboss.netty.buffer.ChannelBuffer])scala.util.Success[Option[org.jboss.netty.buffer.ChannelBuffer]]((s @ _)) =&gt; Cacheable.this.unwrapData(s)(m) match {
+    case (x: T)Some[T]((s @ _)) =&gt; p.success(scala.Some.apply[T](s))
+    case scala.None =&gt; {
+      {
+        &lt;artifact&gt; val qual$1: akka.actor.ScalaActorRef = akka.this.actor.`package`.actorRef2Scala(cacheRef);
+        &lt;artifact&gt; val x$1: com.webtrends.harness.component.cache.Delete = Delete.apply(Cacheable.this.namespace, ck);
+        &lt;artifact&gt; val x$2: akka.actor.ActorRef = qual$1.!$default$2(x$1);
+        qual$1.!(x$1)(x$2)
+      };
+      p.success(scala.None)
+    }
+  }
+  case (exception: Throwable)scala.util.Failure[Option[org.jboss.netty.buffer.ChannelBuffer]]((f @ _)) =&gt; throw f
+}))(executor)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          5536
+          -
+          5544
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          5726
+          -
+          5742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          5747
+          -
+          6008
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          cacheRef.resolveOne()(timeout).onComplete[Unit](((x0$4: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$4 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; Cacheable.this.writeInCache(s, cacheKey)(timeout, executor).onComplete[scala.concurrent.Promise[Boolean]](((x0$5: scala.util.Try[Boolean]) =&gt; x0$5 match {
+    case (value: Boolean)scala.util.Success[Boolean]((s @ _)) =&gt; p.success(true)
+    case (exception: Throwable)scala.util.Failure[Boolean]((f @ _)) =&gt; p.success(false)
+  }))(executor)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; throw f
+}))(executor)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          6013
+          -
+          6021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          6381
+          -
+          6397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          6442
+          -
+          6451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.namespace
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          6438
+          -
+          6485
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Add.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Add.apply(Cacheable.this.namespace, Cacheable.this.getCacheKey(cacheKey), Cacheable.this.wrapData)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          6476
+          -
+          6484
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.wrapData
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.wrapData
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          6453
+          -
+          6474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.getCacheKey(cacheKey)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          6415
+          -
+          6510
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.Patterns.ask(cacheRef, Add.apply(Cacheable.this.namespace, Cacheable.this.getCacheKey(cacheKey), Cacheable.this.wrapData), timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          6515
+          -
+          6641
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[Boolean]](((x0$6: scala.util.Try[Boolean]) =&gt; x0$6 match {
+  case (value: Boolean)scala.util.Success[Boolean]((s @ _)) =&gt; p.success(true)
+  case (exception: Throwable)scala.util.Failure[Boolean]((f @ _)) =&gt; {
+    p.failure(f);
+    throw f
+  }
+}))(executor)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          6646
+          -
+          6654
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          7163
+          -
+          7179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          7238
+          -
+          7259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.getCacheKey(cacheKey)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          7197
+          -
+          7285
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.Patterns.ask(cacheRef, Delete.apply(Cacheable.this.namespace, Cacheable.this.getCacheKey(cacheKey)), timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          7227
+          -
+          7236
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.namespace
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.namespace
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          7220
+          -
+          7260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Delete.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Delete.apply(Cacheable.this.namespace, Cacheable.this.getCacheKey(cacheKey))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          7290
+          -
+          7416
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[Boolean]](((x0$7: scala.util.Try[Boolean]) =&gt; x0$7 match {
+  case (value: Boolean)scala.util.Success[Boolean]((s @ _)) =&gt; p.success(true)
+  case (exception: Throwable)scala.util.Failure[Boolean]((f @ _)) =&gt; {
+    p.failure(f);
+    throw f
+  }
+}))(executor)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          7421
+          -
+          7429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          7524
+          -
+          7551
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.compat.Platform.currentTime
+        </td>
+        <td style="background: #F0ADAD">
+          scala.compat.Platform.currentTime
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          7509
+          -
+          7522
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          this.getBytes
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          7496
+          -
+          7552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.CacheWrapper.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.CacheWrapper.apply(this.getBytes, scala.compat.Platform.currentTime)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          7557
+          -
+          7607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer
+        </td>
+        <td style="background: #F0ADAD">
+          org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer({
+  import scala.pickling._;
+  import scala.pickling.internal._;
+  val picklee: Cacheable.this.CacheWrapper = wrapper;
+  val builder: scala.pickling.binary.BinaryPickleBuilder = scala.pickling.binary.`package`.pickleFormat.createBuilder();
+  {
+    import scala.language.existentials;
+    import scala.pickling._;
+    import scala.pickling.internal._;
+    val picklee: Cacheable.this.CacheWrapper = picklee;
+    scala.pickling.internal.`package`.GRL.lock();
+    if (picklee.!=(null))
+      {
+        val pickler: scala.pickling.SPickler[_7] forSome { type _7 &gt;: _$3 with Cacheable.this.CacheWrapper; type _$3 } = {
+          val customPickler: scala.pickling.SPickler[Cacheable.this.CacheWrapper] = scala.this.Predef.implicitly[scala.pickling.SPickler[Cacheable.this.CacheWrapper]]({
+            implicit object CacheableThisCacheWrapperPickler$macro$1 extends AnyRef with scala.pickling.SPickler[Cacheable.this.CacheWrapper] with scala.pickling.Generated {
+              def &lt;init&gt;(): CacheableThisCacheWrapperPickler$macro$1.type = {
+                CacheableThisCacheWrapperPickler$macro$1.super.&lt;init&gt;();
+                ()
+              };
+              import scala.pickling._;
+              import scala.pickling.internal._;
+              import scala.pickling.`package`.PickleOps;
+              def pickle(picklee: Cacheable.this.CacheWrapper, builder: scala.pickling.PBuilder): Unit = {
+                val oid: Int = scala.pickling.internal.`package`.lookupPicklee(picklee);
+                builder.hintOid(oid);
+                {
+                  if (true.&amp;&amp;(picklee.data.!=(null)))
+                    {
+                      val size: Int = picklee.data.length.*(1).+(4).+(8).+(27).+(4);
+                      builder.hintKnownSize(size)
+                    }
+                  else
+                    ();
+                  builder.beginEntry(picklee)
+                };
+                if (oid.==(-1))
+                  {
+                    builder.putField(&quot;data&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                      b.hintStaticallyElidedType();
+                      {
+                        import scala.language.existentials;
+                        import scala.pickling._;
+                        import scala.pickling.internal._;
+                        val picklee: Array[Byte] = picklee.data;
+                        scala.pickling.internal.`package`.GRL.lock();
+                        if (picklee.!=(null))
+                          {
+                            val pickler: scala.pickling.SPickler[Array[Byte]] = {
+                              b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Array[Byte]]](pickling.this.FastTypeTag.ArrayByte));
+                              scala.this.Predef.implicitly[scala.pickling.SPickler[Array[Byte]]](pickling.this.SPickler.byteArrPicklerUnpickler)
+                            };
+                            pickler.asInstanceOf[scala.pickling.SPickler[Array[Byte]]].pickle(picklee, b)
+                          }
+                        else
+                          {
+                            b.hintTag(scala.pickling.FastTypeTag.Null);
+                            scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, b)
+                          };
+                        scala.pickling.internal.`package`.GRL.unlock()
+                      }
+                    }));
+                    builder.putField(&quot;insertionTime&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                      b.hintStaticallyElidedType();
+                      {
+                        import scala.language.existentials;
+                        import scala.pickling._;
+                        import scala.pickling.internal._;
+                        val picklee: Long = picklee.insertionTime;
+                        scala.pickling.internal.`package`.GRL.lock();
+                        {
+                          val pickler: scala.pickling.SPickler[Long] = {
+                            b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Long]](pickling.this.FastTypeTag.Long));
+                            scala.this.Predef.implicitly[scala.pickling.SPickler[Long]](pickling.this.SPickler.longPicklerUnpickler)
+                          };
+                          pickler.pickle(picklee, b)
+                        };
+                        scala.pickling.internal.`package`.GRL.unlock()
+                      }
+                    }))
+                  }
+                else
+                  ();
+                builder.endEntry()
+              }
+            };
+            CacheableThisCacheWrapperPickler$macro$1
+          });
+          if (customPickler.isInstanceOf[scala.pickling.PicklerUnpicklerNotFound[_]].||(customPickler.isInstanceOf[scala.pickling.Generated]))
+            {
+              val clazz: Class[_] = if (picklee.!=(null))
+                picklee.getClass()
+              else
+                null;
+              clazz match {
+                case (clazz @ _) if clazz.==(classOf[com.webtrends.harness.component.cache.Cacheable$CacheWrapper]) =&gt; {
+                  builder.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]]({
+                    final class $anon extends AnyRef with scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper] {
+                      def &lt;init&gt;(): &lt;$anon: scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]&gt; = {
+                        $anon.super.&lt;init&gt;();
+                        ()
+                      };
+                      def mirror: reflect.runtime.universe.Mirror = if (scala.pickling.internal.`package`.cachedMirror.!=(null))
+                        scala.pickling.internal.`package`.cachedMirror
+                      else
+                        {
+                          scala.pickling.internal.`package`.cachedMirror_=((scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader()): reflect.runtime.universe.Mirror));
+                          scala.pickling.internal.`package`.cachedMirror
+                        };
+                      lazy private[this] var tpe: reflect.runtime.universe.Type = _;
+                      &lt;stable&gt; &lt;accessor&gt; lazy def tpe: reflect.runtime.universe.Type = {
+                        $anon.this.tpe = scala.reflect.runtime.`package`.universe.weakTypeOf[Cacheable.this.CacheWrapper](({
+                          val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+                          val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader());
+                          $u.TypeTag.apply[Cacheable.this.CacheWrapper]($m, {
+                            final class $typecreator1 extends TypeCreator {
+                              def &lt;init&gt;(): $typecreator1 = {
+                                $typecreator1.super.&lt;init&gt;();
+                                ()
+                              };
+                              def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+                                val $u: U = $m$untyped.universe;
+                                val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+                                $u.internal.reificationSupport.TypeRef($u.internal.reificationSupport.ThisType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;)), $u.internal.reificationSupport.selectType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;), &quot;CacheWrapper&quot;), immutable.this.Nil)
+                              }
+                            };
+                            new $typecreator1()
+                          })
+                        }: reflect.runtime.universe.WeakTypeTag[Cacheable.this.CacheWrapper]));
+                        $anon.this.tpe
+                      };
+                      def key: String = &quot;Cacheable.this.CacheWrapper&quot;
+                    };
+                    new $anon()
+                  }));
+                  scala.this.Predef.implicitly[scala.pickling.SPickler[Cacheable.this.CacheWrapper]]({
+                    implicit object CacheableThisCacheWrapperPickler$macro$2 extends AnyRef with scala.pickling.SPickler[Cacheable.this.CacheWrapper] with scala.pickling.Generated {
+                      def &lt;init&gt;(): CacheableThisCacheWrapperPickler$macro$2.type = {
+                        CacheableThisCacheWrapperPickler$macro$2.super.&lt;init&gt;();
+                        ()
+                      };
+                      import scala.pickling._;
+                      import scala.pickling.internal._;
+                      import scala.pickling.`package`.PickleOps;
+                      def pickle(picklee: Cacheable.this.CacheWrapper, builder: scala.pickling.PBuilder): Unit = {
+                        val oid: Int = scala.pickling.internal.`package`.lookupPicklee(picklee);
+                        builder.hintOid(oid);
+                        {
+                          if (true.&amp;&amp;(picklee.data.!=(null)))
+                            {
+                              val size: Int = picklee.data.length.*(1).+(4).+(8).+(27).+(4);
+                              builder.hintKnownSize(size)
+                            }
+                          else
+                            ();
+                          builder.beginEntry(picklee)
+                        };
+                        if (oid.==(-1))
+                          {
+                            builder.putField(&quot;data&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                              b.hintStaticallyElidedType();
+                              {
+                                import scala.language.existentials;
+                                import scala.pickling._;
+                                import scala.pickling.internal._;
+                                val picklee: Array[Byte] = picklee.data;
+                                scala.pickling.internal.`package`.GRL.lock();
+                                if (picklee.!=(null))
+                                  {
+                                    val pickler: scala.pickling.SPickler[Array[Byte]] = {
+                                      b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Array[Byte]]](pickling.this.FastTypeTag.ArrayByte));
+                                      scala.this.Predef.implicitly[scala.pickling.SPickler[Array[Byte]]](pickling.this.SPickler.byteArrPicklerUnpickler)
+                                    };
+                                    pickler.asInstanceOf[scala.pickling.SPickler[Array[Byte]]].pickle(picklee, b)
+                                  }
+                                else
+                                  {
+                                    b.hintTag(scala.pickling.FastTypeTag.Null);
+                                    scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, b)
+                                  };
+                                scala.pickling.internal.`package`.GRL.unlock()
+                              }
+                            }));
+                            builder.putField(&quot;insertionTime&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                              b.hintStaticallyElidedType();
+                              {
+                                import scala.language.existentials;
+                                import scala.pickling._;
+                                import scala.pickling.internal._;
+                                val picklee: Long = picklee.insertionTime;
+                                scala.pickling.internal.`package`.GRL.lock();
+                                {
+                                  val pickler: scala.pickling.SPickler[Long] = {
+                                    b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Long]](pickling.this.FastTypeTag.Long));
+                                    scala.this.Predef.implicitly[scala.pickling.SPickler[Long]](pickling.this.SPickler.longPicklerUnpickler)
+                                  };
+                                  pickler.pickle(picklee, b)
+                                };
+                                scala.pickling.internal.`package`.GRL.unlock()
+                              }
+                            }))
+                          }
+                        else
+                          ();
+                        builder.endEntry()
+                      }
+                    };
+                    CacheableThisCacheWrapperPickler$macro$2
+                  })
+                }
+                case _ =&gt; {
+                  val classLoader: ClassLoader = this.getClass().getClassLoader();
+                  val tag: scala.pickling.FastTypeTag[_] = scala.pickling.FastTypeTag.mkRaw(clazz, scala.reflect.runtime.`package`.universe.runtimeMirror(classLoader));
+                  builder.hintTag(tag);
+                  scala.pickling.SPickler.genPickler(classLoader, clazz, tag)(refs.this.Share.ShareNonPrimitives)
+                }
+              }
+            }
+          else
+            {
+              builder.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]]({
+                final class $anon extends AnyRef with scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper] {
+                  def &lt;init&gt;(): &lt;$anon: scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]&gt; = {
+                    $anon.super.&lt;init&gt;();
+                    ()
+                  };
+                  def mirror: reflect.runtime.universe.Mirror = if (scala.pickling.internal.`package`.cachedMirror.!=(null))
+                    scala.pickling.internal.`package`.cachedMirror
+                  else
+                    {
+                      scala.pickling.internal.`package`.cachedMirror_=((scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader()): reflect.runtime.universe.Mirror));
+                      scala.pickling.internal.`package`.cachedMirror
+                    };
+                  lazy private[this] var tpe: reflect.runtime.universe.Type = _;
+                  &lt;stable&gt; &lt;accessor&gt; lazy def tpe: reflect.runtime.universe.Type = {
+                    $anon.this.tpe = scala.reflect.runtime.`package`.universe.weakTypeOf[Cacheable.this.CacheWrapper](({
+                      val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+                      val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader());
+                      $u.TypeTag.apply[Cacheable.this.CacheWrapper]($m, {
+                        final class $typecreator2 extends TypeCreator {
+                          def &lt;init&gt;(): $typecreator2 = {
+                            $typecreator2.super.&lt;init&gt;();
+                            ()
+                          };
+                          def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+                            val $u: U = $m$untyped.universe;
+                            val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+                            $u.internal.reificationSupport.TypeRef($u.internal.reificationSupport.ThisType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;)), $u.internal.reificationSupport.selectType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;), &quot;CacheWrapper&quot;), immutable.this.Nil)
+                          }
+                        };
+                        new $typecreator2()
+                      })
+                    }: reflect.runtime.universe.WeakTypeTag[Cacheable.this.CacheWrapper]));
+                    $anon.this.tpe
+                  };
+                  def key: String = &quot;Cacheable.this.CacheWrapper&quot;
+                };
+                new $anon()
+              }));
+              customPickler
+            }
+        };
+        pickler.asInstanceOf[scala.pickling.SPickler[Cacheable.this.CacheWrapper]].pickle(picklee, builder)
+      }
+    else
+      {
+        builder.hintTag(scala.pickling.FastTypeTag.Null);
+        scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, builder)
+      };
+    scala.pickling.internal.`package`.GRL.unlock()
+  };
+  scala.pickling.internal.`package`.clearPicklees();
+  builder.result()
+}.value)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          7586
+          -
+          7606
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.pickling.binary.BinaryPickle.value
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  import scala.pickling._;
+  import scala.pickling.internal._;
+  val picklee: Cacheable.this.CacheWrapper = wrapper;
+  val builder: scala.pickling.binary.BinaryPickleBuilder = scala.pickling.binary.`package`.pickleFormat.createBuilder();
+  {
+    import scala.language.existentials;
+    import scala.pickling._;
+    import scala.pickling.internal._;
+    val picklee: Cacheable.this.CacheWrapper = picklee;
+    scala.pickling.internal.`package`.GRL.lock();
+    if (picklee.!=(null))
+      {
+        val pickler: scala.pickling.SPickler[_7] forSome { type _7 &gt;: _$3 with Cacheable.this.CacheWrapper; type _$3 } = {
+          val customPickler: scala.pickling.SPickler[Cacheable.this.CacheWrapper] = scala.this.Predef.implicitly[scala.pickling.SPickler[Cacheable.this.CacheWrapper]]({
+            implicit object CacheableThisCacheWrapperPickler$macro$1 extends AnyRef with scala.pickling.SPickler[Cacheable.this.CacheWrapper] with scala.pickling.Generated {
+              def &lt;init&gt;(): CacheableThisCacheWrapperPickler$macro$1.type = {
+                CacheableThisCacheWrapperPickler$macro$1.super.&lt;init&gt;();
+                ()
+              };
+              import scala.pickling._;
+              import scala.pickling.internal._;
+              import scala.pickling.`package`.PickleOps;
+              def pickle(picklee: Cacheable.this.CacheWrapper, builder: scala.pickling.PBuilder): Unit = {
+                val oid: Int = scala.pickling.internal.`package`.lookupPicklee(picklee);
+                builder.hintOid(oid);
+                {
+                  if (true.&amp;&amp;(picklee.data.!=(null)))
+                    {
+                      val size: Int = picklee.data.length.*(1).+(4).+(8).+(27).+(4);
+                      builder.hintKnownSize(size)
+                    }
+                  else
+                    ();
+                  builder.beginEntry(picklee)
+                };
+                if (oid.==(-1))
+                  {
+                    builder.putField(&quot;data&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                      b.hintStaticallyElidedType();
+                      {
+                        import scala.language.existentials;
+                        import scala.pickling._;
+                        import scala.pickling.internal._;
+                        val picklee: Array[Byte] = picklee.data;
+                        scala.pickling.internal.`package`.GRL.lock();
+                        if (picklee.!=(null))
+                          {
+                            val pickler: scala.pickling.SPickler[Array[Byte]] = {
+                              b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Array[Byte]]](pickling.this.FastTypeTag.ArrayByte));
+                              scala.this.Predef.implicitly[scala.pickling.SPickler[Array[Byte]]](pickling.this.SPickler.byteArrPicklerUnpickler)
+                            };
+                            pickler.asInstanceOf[scala.pickling.SPickler[Array[Byte]]].pickle(picklee, b)
+                          }
+                        else
+                          {
+                            b.hintTag(scala.pickling.FastTypeTag.Null);
+                            scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, b)
+                          };
+                        scala.pickling.internal.`package`.GRL.unlock()
+                      }
+                    }));
+                    builder.putField(&quot;insertionTime&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                      b.hintStaticallyElidedType();
+                      {
+                        import scala.language.existentials;
+                        import scala.pickling._;
+                        import scala.pickling.internal._;
+                        val picklee: Long = picklee.insertionTime;
+                        scala.pickling.internal.`package`.GRL.lock();
+                        {
+                          val pickler: scala.pickling.SPickler[Long] = {
+                            b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Long]](pickling.this.FastTypeTag.Long));
+                            scala.this.Predef.implicitly[scala.pickling.SPickler[Long]](pickling.this.SPickler.longPicklerUnpickler)
+                          };
+                          pickler.pickle(picklee, b)
+                        };
+                        scala.pickling.internal.`package`.GRL.unlock()
+                      }
+                    }))
+                  }
+                else
+                  ();
+                builder.endEntry()
+              }
+            };
+            CacheableThisCacheWrapperPickler$macro$1
+          });
+          if (customPickler.isInstanceOf[scala.pickling.PicklerUnpicklerNotFound[_]].||(customPickler.isInstanceOf[scala.pickling.Generated]))
+            {
+              val clazz: Class[_] = if (picklee.!=(null))
+                picklee.getClass()
+              else
+                null;
+              clazz match {
+                case (clazz @ _) if clazz.==(classOf[com.webtrends.harness.component.cache.Cacheable$CacheWrapper]) =&gt; {
+                  builder.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]]({
+                    final class $anon extends AnyRef with scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper] {
+                      def &lt;init&gt;(): &lt;$anon: scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]&gt; = {
+                        $anon.super.&lt;init&gt;();
+                        ()
+                      };
+                      def mirror: reflect.runtime.universe.Mirror = if (scala.pickling.internal.`package`.cachedMirror.!=(null))
+                        scala.pickling.internal.`package`.cachedMirror
+                      else
+                        {
+                          scala.pickling.internal.`package`.cachedMirror_=((scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader()): reflect.runtime.universe.Mirror));
+                          scala.pickling.internal.`package`.cachedMirror
+                        };
+                      lazy private[this] var tpe: reflect.runtime.universe.Type = _;
+                      &lt;stable&gt; &lt;accessor&gt; lazy def tpe: reflect.runtime.universe.Type = {
+                        $anon.this.tpe = scala.reflect.runtime.`package`.universe.weakTypeOf[Cacheable.this.CacheWrapper](({
+                          val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+                          val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader());
+                          $u.TypeTag.apply[Cacheable.this.CacheWrapper]($m, {
+                            final class $typecreator1 extends TypeCreator {
+                              def &lt;init&gt;(): $typecreator1 = {
+                                $typecreator1.super.&lt;init&gt;();
+                                ()
+                              };
+                              def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+                                val $u: U = $m$untyped.universe;
+                                val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+                                $u.internal.reificationSupport.TypeRef($u.internal.reificationSupport.ThisType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;)), $u.internal.reificationSupport.selectType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;), &quot;CacheWrapper&quot;), immutable.this.Nil)
+                              }
+                            };
+                            new $typecreator1()
+                          })
+                        }: reflect.runtime.universe.WeakTypeTag[Cacheable.this.CacheWrapper]));
+                        $anon.this.tpe
+                      };
+                      def key: String = &quot;Cacheable.this.CacheWrapper&quot;
+                    };
+                    new $anon()
+                  }));
+                  scala.this.Predef.implicitly[scala.pickling.SPickler[Cacheable.this.CacheWrapper]]({
+                    implicit object CacheableThisCacheWrapperPickler$macro$2 extends AnyRef with scala.pickling.SPickler[Cacheable.this.CacheWrapper] with scala.pickling.Generated {
+                      def &lt;init&gt;(): CacheableThisCacheWrapperPickler$macro$2.type = {
+                        CacheableThisCacheWrapperPickler$macro$2.super.&lt;init&gt;();
+                        ()
+                      };
+                      import scala.pickling._;
+                      import scala.pickling.internal._;
+                      import scala.pickling.`package`.PickleOps;
+                      def pickle(picklee: Cacheable.this.CacheWrapper, builder: scala.pickling.PBuilder): Unit = {
+                        val oid: Int = scala.pickling.internal.`package`.lookupPicklee(picklee);
+                        builder.hintOid(oid);
+                        {
+                          if (true.&amp;&amp;(picklee.data.!=(null)))
+                            {
+                              val size: Int = picklee.data.length.*(1).+(4).+(8).+(27).+(4);
+                              builder.hintKnownSize(size)
+                            }
+                          else
+                            ();
+                          builder.beginEntry(picklee)
+                        };
+                        if (oid.==(-1))
+                          {
+                            builder.putField(&quot;data&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                              b.hintStaticallyElidedType();
+                              {
+                                import scala.language.existentials;
+                                import scala.pickling._;
+                                import scala.pickling.internal._;
+                                val picklee: Array[Byte] = picklee.data;
+                                scala.pickling.internal.`package`.GRL.lock();
+                                if (picklee.!=(null))
+                                  {
+                                    val pickler: scala.pickling.SPickler[Array[Byte]] = {
+                                      b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Array[Byte]]](pickling.this.FastTypeTag.ArrayByte));
+                                      scala.this.Predef.implicitly[scala.pickling.SPickler[Array[Byte]]](pickling.this.SPickler.byteArrPicklerUnpickler)
+                                    };
+                                    pickler.asInstanceOf[scala.pickling.SPickler[Array[Byte]]].pickle(picklee, b)
+                                  }
+                                else
+                                  {
+                                    b.hintTag(scala.pickling.FastTypeTag.Null);
+                                    scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, b)
+                                  };
+                                scala.pickling.internal.`package`.GRL.unlock()
+                              }
+                            }));
+                            builder.putField(&quot;insertionTime&quot;, ((b: scala.pickling.PBuilder) =&gt; {
+                              b.hintStaticallyElidedType();
+                              {
+                                import scala.language.existentials;
+                                import scala.pickling._;
+                                import scala.pickling.internal._;
+                                val picklee: Long = picklee.insertionTime;
+                                scala.pickling.internal.`package`.GRL.lock();
+                                {
+                                  val pickler: scala.pickling.SPickler[Long] = {
+                                    b.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Long]](pickling.this.FastTypeTag.Long));
+                                    scala.this.Predef.implicitly[scala.pickling.SPickler[Long]](pickling.this.SPickler.longPicklerUnpickler)
+                                  };
+                                  pickler.pickle(picklee, b)
+                                };
+                                scala.pickling.internal.`package`.GRL.unlock()
+                              }
+                            }))
+                          }
+                        else
+                          ();
+                        builder.endEntry()
+                      }
+                    };
+                    CacheableThisCacheWrapperPickler$macro$2
+                  })
+                }
+                case _ =&gt; {
+                  val classLoader: ClassLoader = this.getClass().getClassLoader();
+                  val tag: scala.pickling.FastTypeTag[_] = scala.pickling.FastTypeTag.mkRaw(clazz, scala.reflect.runtime.`package`.universe.runtimeMirror(classLoader));
+                  builder.hintTag(tag);
+                  scala.pickling.SPickler.genPickler(classLoader, clazz, tag)(refs.this.Share.ShareNonPrimitives)
+                }
+              }
+            }
+          else
+            {
+              builder.hintTag(scala.this.Predef.implicitly[scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]]({
+                final class $anon extends AnyRef with scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper] {
+                  def &lt;init&gt;(): &lt;$anon: scala.pickling.FastTypeTag[Cacheable.this.CacheWrapper]&gt; = {
+                    $anon.super.&lt;init&gt;();
+                    ()
+                  };
+                  def mirror: reflect.runtime.universe.Mirror = if (scala.pickling.internal.`package`.cachedMirror.!=(null))
+                    scala.pickling.internal.`package`.cachedMirror
+                  else
+                    {
+                      scala.pickling.internal.`package`.cachedMirror_=((scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader()): reflect.runtime.universe.Mirror));
+                      scala.pickling.internal.`package`.cachedMirror
+                    };
+                  lazy private[this] var tpe: reflect.runtime.universe.Type = _;
+                  &lt;stable&gt; &lt;accessor&gt; lazy def tpe: reflect.runtime.universe.Type = {
+                    $anon.this.tpe = scala.reflect.runtime.`package`.universe.weakTypeOf[Cacheable.this.CacheWrapper](({
+                      val $u: reflect.runtime.universe.type = scala.reflect.runtime.`package`.universe;
+                      val $m: $u.Mirror = scala.reflect.runtime.`package`.universe.runtimeMirror(classOf[com.webtrends.harness.component.cache.Cacheable$wrapData$pickler$$anon].getClassLoader());
+                      $u.TypeTag.apply[Cacheable.this.CacheWrapper]($m, {
+                        final class $typecreator2 extends TypeCreator {
+                          def &lt;init&gt;(): $typecreator2 = {
+                            $typecreator2.super.&lt;init&gt;();
+                            ()
+                          };
+                          def apply[U &lt;: scala.reflect.api.Universe with Singleton]($m$untyped: scala.reflect.api.Mirror[U]): U#Type = {
+                            val $u: U = $m$untyped.universe;
+                            val $m: $u.Mirror = $m$untyped.asInstanceOf[$u.Mirror];
+                            $u.internal.reificationSupport.TypeRef($u.internal.reificationSupport.ThisType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;)), $u.internal.reificationSupport.selectType($m.staticClass(&quot;com.webtrends.harness.component.cache.Cacheable&quot;), &quot;CacheWrapper&quot;), immutable.this.Nil)
+                          }
+                        };
+                        new $typecreator2()
+                      })
+                    }: reflect.runtime.universe.WeakTypeTag[Cacheable.this.CacheWrapper]));
+                    $anon.this.tpe
+                  };
+                  def key: String = &quot;Cacheable.this.CacheWrapper&quot;
+                };
+                new $anon()
+              }));
+              customPickler
+            }
+        };
+        pickler.asInstanceOf[scala.pickling.SPickler[Cacheable.this.CacheWrapper]].pickle(picklee, builder)
+      }
+    else
+      {
+        builder.hintTag(scala.pickling.FastTypeTag.Null);
+        scala.pickling.SPickler.nullPicklerUnpickler.pickle(null, builder)
+      };
+    scala.pickling.internal.`package`.GRL.unlock()
+  };
+  scala.pickling.internal.`package`.clearPicklees();
+  builder.result()
+}.value
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          7816
+          -
+          7837
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.extract
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.extract(wrapper.data)(m)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          7892
+          -
+          7927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.checkTimeout(wrapper.insertionTime)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          7905
+          -
+          7926
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.CacheWrapper.insertionTime
+        </td>
+        <td style="background: #F0ADAD">
+          wrapper.insertionTime
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          7945
+          -
+          7956
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](value)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          7945
+          -
+          7956
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[T](value)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          7992
+          -
+          7996
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          7992
+          -
+          7996
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          8034
+          -
+          8038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          8068
+          -
+          8072
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          8195
+          -
+          8205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.CacheKey.toString
+        </td>
+        <td style="background: #F0ADAD">
+          s.toString()
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          8225
+          -
+          8228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.Cacheable.key
+        </td>
+        <td style="background: #F0ADAD">
+          Cacheable.this.key
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
