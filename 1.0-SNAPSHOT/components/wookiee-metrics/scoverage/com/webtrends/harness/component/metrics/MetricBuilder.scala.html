@@ -1,0 +1,930 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/metrics/MetricBuilder.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.metrics
+</span>20 <span style=''>
+</span>21 <span style=''>import com.codahale.metrics._
+</span>22 <span style=''>import com.codahale.metrics.jvm._
+</span>23 <span style=''>import com.webtrends.harness.component.metrics.messages._
+</span>24 <span style=''>import java.lang.management.ManagementFactory
+</span>25 <span style=''>import scala.collection.JavaConversions._
+</span>26 <span style=''>
+</span>27 <span style=''>object MetricBuilder {
+</span>28 <span style=''>
+</span>29 <span style=''>  val registry = </span><span style='background: #AEF1AE'>new MetricRegistry()</span><span style=''>
+</span>30 <span style=''>  val jvmRegistry = </span><span style='background: #AEF1AE'>new MetricRegistry()</span><span style=''>
+</span>31 <span style=''>
+</span>32 <span style=''>  def apply() : MetricRegistry = </span><span style='background: #F0ADAD'>registry</span><span style=''>
+</span>33 <span style=''>
+</span>34 <span style=''>  /**
+</span>35 <span style=''>   * Fetch or register a Counter metric
+</span>36 <span style=''>   * @param o
+</span>37 <span style=''>   * @return
+</span>38 <span style=''>   */
+</span>39 <span style=''>  def apply(o: CounterObservation): Counter = </span><span style='background: #AEF1AE'>registry.counter(o.metric.name)</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>  /**
+</span>42 <span style=''>   * Fetch or register a Gauge metric
+</span>43 <span style=''>   * @param o
+</span>44 <span style=''>   * @return
+</span>45 <span style=''>   */
+</span>46 <span style=''>  def apply(o: GaugeObservation): UpdatableGauge[Float] = {
+</span>47 <span style=''>    // See if this is already registered
+</span>48 <span style=''>    </span><span style='background: #F0ADAD'>registry.getGauges(new MetricFilter { def matches(regName:String, metric:Metric): Boolean =
+</span>49 <span style=''></span><span style='background: #F0ADAD'>      regName.equals(o.metric.name)}).values.headOption</span><span style=''> match {
+</span>50 <span style=''>
+</span>51 <span style=''>      case Some(m) =>
+</span>52 <span style=''>        </span><span style='background: #F0ADAD'>m.asInstanceOf[UpdatableGauge[Float]]</span><span style=''>
+</span>53 <span style=''>      case None =>
+</span>54 <span style=''>        // Not registered so do so now
+</span>55 <span style=''>        </span><span style='background: #F0ADAD'>registry.register(o.metric.name, new UpdatableGauge[Float]())</span><span style=''>
+</span>56 <span style=''>    }
+</span>57 <span style=''>  }
+</span>58 <span style=''>
+</span>59 <span style=''>  /**
+</span>60 <span style=''>   * Fetch or register a Histogram metric
+</span>61 <span style=''>   * @param o
+</span>62 <span style=''>   * @return
+</span>63 <span style=''>   */
+</span>64 <span style=''>  def apply(o: HistogramObservation): Histogram = {
+</span>65 <span style=''>    </span><span style='background: #F0ADAD'>registry.getHistograms(new MetricFilter { def matches(regName:String, metric:Metric): Boolean =
+</span>66 <span style=''></span><span style='background: #F0ADAD'>      regName.equals(o.metric.name)}).values.headOption</span><span style=''> match {
+</span>67 <span style=''>
+</span>68 <span style=''>      case Some(m: Histogram) =>
+</span>69 <span style=''>        m
+</span>70 <span style=''>      case None =>
+</span>71 <span style=''>        // Not registered so do so now
+</span>72 <span style=''>        </span><span style='background: #F0ADAD'>registry.register(o.metric.name,
+</span>73 <span style=''></span><span style='background: #F0ADAD'>          o.metric.biased match {
+</span>74 <span style=''></span><span style='background: #F0ADAD'>            case true => new Histogram(new ExponentiallyDecayingReservoir)
+</span>75 <span style=''></span><span style='background: #F0ADAD'>            case false => new Histogram(new UniformReservoir)
+</span>76 <span style=''></span><span style='background: #F0ADAD'>          })</span><span style=''>
+</span>77 <span style=''>    }
+</span>78 <span style=''>  }
+</span>79 <span style=''>
+</span>80 <span style=''>  /**
+</span>81 <span style=''>   * Fetch or register a Meter metric
+</span>82 <span style=''>   * @param o
+</span>83 <span style=''>   * @return
+</span>84 <span style=''>   */
+</span>85 <span style=''>  def apply(o: MeterObservation): Meter = </span><span style='background: #F0ADAD'>registry.meter(o.metric.name)</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>  /**
+</span>88 <span style=''>   * Fetch or register a Timer metric
+</span>89 <span style=''>   * @param o
+</span>90 <span style=''>   * @return
+</span>91 <span style=''>   */
+</span>92 <span style=''>  def apply(o: TimerObservation): Timer = </span><span style='background: #F0ADAD'>registry.timer(o.metric.name)</span><span style=''>
+</span>93 <span style=''>
+</span>94 <span style=''>  /**
+</span>95 <span style=''>   * Remove the given metric
+</span>96 <span style=''>   * @param metric the metric to remove
+</span>97 <span style=''>   * @return was the metric removed
+</span>98 <span style=''>   */
+</span>99 <span style=''>  def remove(metric: com.webtrends.harness.component.metrics.metrictype.Metric): Boolean = </span><span style='background: #AEF1AE'>registry.remove(metric.name)</span><span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>  def registerJvmMetrics = {
+</span>102 <span style=''>
+</span>103 <span style=''>    val srv = </span><span style='background: #AEF1AE'>ManagementFactory.getPlatformMBeanServer()</span><span style=''>
+</span>104 <span style=''>    val poolset = </span><span style='background: #AEF1AE'>new BufferPoolMetricSet(srv)</span><span style=''>
+</span>105 <span style=''>    </span><span style='background: #AEF1AE'>jvmRegistry.register("buffer-pool", poolset)</span><span style=''>
+</span>106 <span style=''>    val gcset = </span><span style='background: #AEF1AE'>new GarbageCollectorMetricSet()</span><span style=''>
+</span>107 <span style=''>    </span><span style='background: #AEF1AE'>jvmRegistry.register("gc", gcset)</span><span style=''>
+</span>108 <span style=''>    val musage = </span><span style='background: #AEF1AE'>new MemoryUsageGaugeSet()</span><span style=''>
+</span>109 <span style=''>    </span><span style='background: #AEF1AE'>jvmRegistry.register("memory", musage)</span><span style=''>
+</span>110 <span style=''>    val ts = </span><span style='background: #AEF1AE'>new ThreadStatesGaugeSet()</span><span style=''>
+</span>111 <span style=''>    </span><span style='background: #AEF1AE'>jvmRegistry.register("thread", ts)</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1040
+          -
+          1060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.MetricRegistry()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1081
+          -
+          1101
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.MetricRegistry()
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1136
+          -
+          1144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.MetricBuilder.registry
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          1271
+          -
+          1302
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.counter
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.registry.counter(o.metric.name)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          1288
+          -
+          1301
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Counter.name
+        </td>
+        <td style="background: #AEF1AE">
+          o.metric.name
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          1486
+          -
+          1633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.collectionAsScalaIterable[com.codahale.metrics.Gauge[_]](MetricBuilder.this.registry.getGauges({
+  final class $anon extends Object with com.codahale.metrics.MetricFilter {
+    def &lt;init&gt;(): &lt;$anon: com.codahale.metrics.MetricFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def matches(regName: String, metric: com.codahale.metrics.Metric): Boolean = regName.equals(o.metric.name)
+  };
+  new $anon()
+}).values()).headOption
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1486
+          -
+          1622
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.SortedMap.values
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.getGauges({
+  final class $anon extends Object with com.codahale.metrics.MetricFilter {
+    def &lt;init&gt;(): &lt;$anon: com.codahale.metrics.MetricFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def matches(regName: String, metric: com.codahale.metrics.Metric): Boolean = regName.equals(o.metric.name)
+  };
+  new $anon()
+}).values()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          1673
+          -
+          1710
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          m.asInstanceOf[com.webtrends.harness.component.metrics.UpdatableGauge[Float]]
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          1777
+          -
+          1838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.register[com.webtrends.harness.component.metrics.UpdatableGauge[Float]](o.metric.name, new com.webtrends.harness.component.metrics.UpdatableGauge[Float]())
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          1810
+          -
+          1837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.UpdatableGauge.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.webtrends.harness.component.metrics.UpdatableGauge[Float]()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          1795
+          -
+          1808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Gauge.name
+        </td>
+        <td style="background: #F0ADAD">
+          o.metric.name
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          1987
+          -
+          2138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.collectionAsScalaIterable[com.codahale.metrics.Histogram](MetricBuilder.this.registry.getHistograms({
+  final class $anon extends Object with com.codahale.metrics.MetricFilter {
+    def &lt;init&gt;(): &lt;$anon: com.codahale.metrics.MetricFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def matches(regName: String, metric: com.codahale.metrics.Metric): Boolean = regName.equals(o.metric.name)
+  };
+  new $anon()
+}).values()).headOption
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          1987
+          -
+          2127
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.SortedMap.values
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.getHistograms({
+  final class $anon extends Object with com.codahale.metrics.MetricFilter {
+    def &lt;init&gt;(): &lt;$anon: com.codahale.metrics.MetricFilter&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    def matches(regName: String, metric: com.codahale.metrics.Metric): Boolean = regName.equals(o.metric.name)
+  };
+  new $anon()
+}).values()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2257
+          -
+          2473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.register[com.codahale.metrics.Histogram](o.metric.name, o.metric.biased match {
+  case true =&gt; new com.codahale.metrics.Histogram(new com.codahale.metrics.ExponentiallyDecayingReservoir())
+  case false =&gt; new com.codahale.metrics.Histogram(new com.codahale.metrics.UniformReservoir())
+})
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2275
+          -
+          2288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Histogram.name
+        </td>
+        <td style="background: #F0ADAD">
+          o.metric.name
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          2300
+          -
+          2315
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Histogram.biased
+        </td>
+        <td style="background: #F0ADAD">
+          o.metric.biased
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2349
+          -
+          2398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Histogram.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.Histogram(new com.codahale.metrics.ExponentiallyDecayingReservoir())
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2363
+          -
+          2397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.ExponentiallyDecayingReservoir.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.ExponentiallyDecayingReservoir()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2425
+          -
+          2460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.Histogram.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.Histogram(new com.codahale.metrics.UniformReservoir())
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2439
+          -
+          2459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.UniformReservoir.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new com.codahale.metrics.UniformReservoir()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2604
+          -
+          2633
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.meter
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.meter(o.metric.name)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          2619
+          -
+          2632
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Meter.name
+        </td>
+        <td style="background: #F0ADAD">
+          o.metric.name
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          2769
+          -
+          2782
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Timer.name
+        </td>
+        <td style="background: #F0ADAD">
+          o.metric.name
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2754
+          -
+          2783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.timer
+        </td>
+        <td style="background: #F0ADAD">
+          MetricBuilder.this.registry.timer(o.metric.name)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2993
+          -
+          3021
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.remove
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.registry.remove(metric.name)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          3009
+          -
+          3020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.metrics.metrictype.Metric.name
+        </td>
+        <td style="background: #AEF1AE">
+          metric.name
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          3067
+          -
+          3109
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.management.ManagementFactory.getPlatformMBeanServer
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.management.ManagementFactory.getPlatformMBeanServer()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          3128
+          -
+          3156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.jvm.BufferPoolMetricSet.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.jvm.BufferPoolMetricSet(srv)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          3161
+          -
+          3205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.jvmRegistry.register[com.codahale.metrics.jvm.BufferPoolMetricSet](&quot;buffer-pool&quot;, poolset)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          3222
+          -
+          3253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.jvm.GarbageCollectorMetricSet.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.jvm.GarbageCollectorMetricSet()
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          3258
+          -
+          3291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.jvmRegistry.register[com.codahale.metrics.jvm.GarbageCollectorMetricSet](&quot;gc&quot;, gcset)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          3309
+          -
+          3334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.jvm.MemoryUsageGaugeSet.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.jvm.MemoryUsageGaugeSet()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          3339
+          -
+          3377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.jvmRegistry.register[com.codahale.metrics.jvm.MemoryUsageGaugeSet](&quot;memory&quot;, musage)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          3391
+          -
+          3417
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.jvm.ThreadStatesGaugeSet.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new com.codahale.metrics.jvm.ThreadStatesGaugeSet()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          3422
+          -
+          3456
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.codahale.metrics.MetricRegistry.register
+        </td>
+        <td style="background: #AEF1AE">
+          MetricBuilder.this.jvmRegistry.register[com.codahale.metrics.jvm.ThreadStatesGaugeSet](&quot;thread&quot;, ts)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
