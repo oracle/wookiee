@@ -1,0 +1,2856 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/spray/CoreSprayServer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.spray
+</span>20 <span style=''>
+</span>21 <span style=''>import java.net.InetAddress
+</span>22 <span style=''>import akka.actor._
+</span>23 <span style=''>import akka.io.IO
+</span>24 <span style=''>import akka.pattern._
+</span>25 <span style=''>import akka.routing.Broadcast
+</span>26 <span style=''>import akka.util.Timeout
+</span>27 <span style=''>import com.webtrends.harness.app.HActor
+</span>28 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>29 <span style=''>import com.webtrends.harness.utils.AkkaUtil
+</span>30 <span style=''>import spray.can.Http
+</span>31 <span style=''>import spray.can.server.{UHttp, Stats, ServerSettings}
+</span>32 <span style=''>import scala.concurrent.duration._
+</span>33 <span style=''>import scala.concurrent.{Await, Promise, Future}
+</span>34 <span style=''>import scala.util._
+</span>35 <span style=''>
+</span>36 <span style=''>object CoreSprayServer {
+</span>37 <span style=''>  def props(port:Int, settings:Option[ServerSettings]=None): Props = </span><span style='background: #AEF1AE'>Props(classOf[CoreSprayServer], port, settings)</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>  val ParamChildWorker = </span><span style='background: #AEF1AE'>"spray-base"</span><span style=''>
+</span>40 <span style=''>}
+</span>41 <span style=''>
+</span>42 <span style=''>@SerialVersionUID(1L) case class BindServer()
+</span>43 <span style=''>@SerialVersionUID(1L) case class ShutdownServer()
+</span>44 <span style=''>@SerialVersionUID(1L) case class GetMetrics()
+</span>45 <span style=''>
+</span>46 <span style=''>class CoreSprayServer(port:Int, settings:Option[ServerSettings]=None) extends HActor {
+</span>47 <span style=''>  import context.system
+</span>48 <span style=''>  import context.dispatcher
+</span>49 <span style=''>
+</span>50 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(2 seconds)</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  override def receive: Receive = </span><span style='background: #AEF1AE'>binding</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  def binding: Receive = {
+</span>55 <span style=''>    case BindServer => </span><span style='background: #AEF1AE'>bindHttpServer</span><span style=''>
+</span>56 <span style=''>  }
+</span>57 <span style=''>
+</span>58 <span style=''>  def running: Receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>59 <span style=''></span><span style='background: #AEF1AE'>    case HttpStartProcessing =>
+</span>60 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.debug("Http processing starting.")</span><span style='background: #AEF1AE'>
+</span>61 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>context.child(CoreSprayServer.ParamChildWorker).get ! Broadcast(HttpStartProcessing)</span><span style='background: #AEF1AE'>
+</span>62 <span style=''></span><span style='background: #AEF1AE'>    case HttpReloadRoutes =>
+</span>63 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.debug("Http reloading routes.")</span><span style='background: #AEF1AE'>
+</span>64 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>context.child(CoreSprayServer.ParamChildWorker).get ! Broadcast(HttpReloadRoutes)</span><span style='background: #AEF1AE'>
+</span>65 <span style=''></span><span style='background: #AEF1AE'>    case ShutdownServer => </span><span style='background: #F0ADAD'>shutdownHttpServer</span><span style='background: #AEF1AE'>
+</span>66 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>  var metricsJob: Option[Cancellable] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  def httpServer = </span><span style='background: #AEF1AE'>IO(UHttp)</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>  /**
+</span>73 <span style=''>   * Bind to the http service
+</span>74 <span style=''>   */
+</span>75 <span style=''>  protected def bindHttpServer: Unit = {
+</span>76 <span style=''>    // a running HttpServer can be bound, unbound and rebound
+</span>77 <span style=''>    // initially to need to tell it where to bind to
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s"Trying to bind to port ${port}")</span><span style=''>
+</span>79 <span style=''>
+</span>80 <span style=''>    // Create and start the spray-can HttpServer, telling it that we want
+</span>81 <span style=''>    // requests to be handled by the root service actor
+</span>82 <span style=''>    if (</span><span style='background: #AEF1AE'>context.child(CoreSprayServer.ParamChildWorker).isEmpty</span><span style=''>) {
+</span>83 <span style=''>      (</span><span style='background: #AEF1AE'>httpServer ? Http.Bind(listener = AkkaUtil.initActorFromConfig(Props[CoreSprayWorker], CoreSprayServer.ParamChildWorker),
+</span>84 <span style=''></span><span style='background: #AEF1AE'>        interface = "0.0.0.0", port = port, settings = settings))
+</span>85 <span style=''></span><span style='background: #AEF1AE'>        .onComplete {
+</span>86 <span style=''></span><span style='background: #AEF1AE'>          case Failure(e) =>
+</span>87 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>log.error(s"Error trying to bind to the http port ${port}", e)</span><span style='background: #AEF1AE'>
+</span>88 <span style=''></span><span style='background: #AEF1AE'>            </span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>
+</span>89 <span style=''></span><span style='background: #AEF1AE'>          case Success(s) =>
+</span>90 <span style=''></span><span style='background: #AEF1AE'>            context.become(running)
+</span>91 <span style=''></span><span style='background: #AEF1AE'>            context.parent ! HttpRunning
+</span>92 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>93 <span style=''>    }
+</span>94 <span style=''>  }
+</span>95 <span style=''>
+</span>96 <span style=''>  /**
+</span>97 <span style=''>   * Unbind from the http service
+</span>98 <span style=''>   */
+</span>99 <span style=''>  protected def shutdownHttpServer: Unit = {
+</span>100 <span style=''>
+</span>101 <span style=''>    </span><span style='background: #F0ADAD'>metricsJob</span><span style=''> match {
+</span>102 <span style=''>      case Some(job) =>
+</span>103 <span style=''>        </span><span style='background: #F0ADAD'>log.info("Cancelling the http server metrics job")</span><span style=''>
+</span>104 <span style=''>        </span><span style='background: #F0ADAD'>job.cancel</span><span style=''>
+</span>105 <span style=''>      case None </span><span style='background: #F0ADAD'>=></span><span style=''>
+</span>106 <span style=''>      // Do nothing
+</span>107 <span style=''>    }
+</span>108 <span style=''>
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Trying to shutdown the http server ${InetAddress.getLocalHost.getHostName} on port ${port}")</span><span style=''>
+</span>110 <span style=''>    val f = </span><span style='background: #F0ADAD'>httpServer ? Http.CloseAll</span><span style=''>
+</span>111 <span style=''>    </span><span style='background: #F0ADAD'>Try(Await.result(f, 1 second)).recover({
+</span>112 <span style=''></span><span style='background: #F0ADAD'>      case e: Throwable =>
+</span>113 <span style=''></span><span style='background: #F0ADAD'>        log.warning("we were unable to properly shutdown the HttpServer: {}", e.getMessage)
+</span>114 <span style=''></span><span style='background: #F0ADAD'>    })</span><span style=''>
+</span>115 <span style=''>
+</span>116 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Http server shutdown complete")</span><span style=''>
+</span>117 <span style=''>    </span><span style='background: #F0ADAD'>context.become(binding)</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  /**
+</span>121 <span style=''>   * This is the health of the current object, by default will be NORMAL
+</span>122 <span style=''>   * In general this should be overridden to define the health of the current object
+</span>123 <span style=''>   * For objects that simply manage other objects you shouldn't need to do anything
+</span>124 <span style=''>   * else, as the health of the children components would be handled by their own
+</span>125 <span style=''>   * CheckHealth function
+</span>126 <span style=''>   *
+</span>127 <span style=''>   * @return
+</span>128 <span style=''>   */
+</span>129 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>130 <span style=''>    val future = </span><span style='background: #F0ADAD'>system.actorSelection(httpServer.path.toString.concat("/listener-0")) ? Http.GetStats</span><span style=''>
+</span>131 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]()</span><span style=''>
+</span>132 <span style=''>
+</span>133 <span style=''>    </span><span style='background: #F0ADAD'>future.onComplete {
+</span>134 <span style=''></span><span style='background: #F0ADAD'>      case f: Failure[_] =>
+</span>135 <span style=''></span><span style='background: #F0ADAD'>        p complete Success(HealthComponent(
+</span>136 <span style=''></span><span style='background: #F0ADAD'>          "http-server",
+</span>137 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.CRITICAL,
+</span>138 <span style=''></span><span style='background: #F0ADAD'>          "The internal http server is not running: " + f.exception.getMessage,
+</span>139 <span style=''></span><span style='background: #F0ADAD'>          None)
+</span>140 <span style=''></span><span style='background: #F0ADAD'>        )
+</span>141 <span style=''></span><span style='background: #F0ADAD'>      case s: Success[_] =>
+</span>142 <span style=''></span><span style='background: #F0ADAD'>        p complete Success(HealthComponent(
+</span>143 <span style=''></span><span style='background: #F0ADAD'>          "http-server",
+</span>144 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.NORMAL,
+</span>145 <span style=''></span><span style='background: #F0ADAD'>          s"The internal http server is running on port ${port}",
+</span>146 <span style=''></span><span style='background: #F0ADAD'>          Some(s.value.asInstanceOf[Stats]))
+</span>147 <span style=''></span><span style='background: #F0ADAD'>        )
+</span>148 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>149 <span style=''>
+</span>150 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>151 <span style=''>  }
+</span>152 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1359
+          -
+          1406
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.spray.CoreSprayServer], port, settings)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1433
+          -
+          1445
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;spray-base&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          1757
+          -
+          1775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(2).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          1765
+          -
+          1774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(2).seconds
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1765
+          -
+          1766
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1811
+          -
+          1818
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.binding
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          1845
+          -
+          1845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          1870
+          -
+          1884
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.bindHttpServer
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.bindHttpServer
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          1915
+          -
+          2307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpStartProcessing =&gt; {
+        CoreSprayServer.this.log.debug(&quot;Http processing starting.&quot;);
+        akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get).!(akka.routing.Broadcast.apply(HttpStartProcessing))(CoreSprayServer.this.self)
+      }
+      case HttpReloadRoutes =&gt; {
+        CoreSprayServer.this.log.debug(&quot;Http reloading routes.&quot;);
+        akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get).!(akka.routing.Broadcast.apply(HttpReloadRoutes))(CoreSprayServer.this.self)
+      }
+      case ShutdownServer =&gt; CoreSprayServer.this.shutdownHttpServer
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case HttpStartProcessing =&gt; true
+      case HttpReloadRoutes =&gt; true
+      case ShutdownServer =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1929
+          -
+          1929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          1969
+          -
+          2007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.debug(&quot;Http processing starting.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          2014
+          -
+          2065
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2014
+          -
+          2098
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get).!(akka.routing.Broadcast.apply(HttpStartProcessing))(CoreSprayServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          2066
+          -
+          2066
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          2028
+          -
+          2060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.ParamChildWorker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.ParamChildWorker
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          2068
+          -
+          2098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Broadcast.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.Broadcast.apply(HttpStartProcessing)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          2134
+          -
+          2169
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.debug(&quot;Http reloading routes.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2176
+          -
+          2227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          2176
+          -
+          2257
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).get).!(akka.routing.Broadcast.apply(HttpReloadRoutes))(CoreSprayServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2190
+          -
+          2222
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.ParamChildWorker
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.ParamChildWorker
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2228
+          -
+          2228
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          2230
+          -
+          2257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Broadcast.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.Broadcast.apply(HttpReloadRoutes)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          2285
+          -
+          2303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.shutdownHttpServer
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.shutdownHttpServer
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2349
+          -
+          2353
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2376
+          -
+          2376
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2377
+          -
+          2382
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.server.UHttp
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.server.UHttp
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2374
+          -
+          2383
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.io.IO.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreSprayServer.this.context.system)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2587
+          -
+          2630
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.log.info(scala.StringContext.apply(&quot;Trying to bind to port &quot;, &quot;&quot;).s(CoreSprayServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2628
+          -
+          2629
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2596
+          -
+          2629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Trying to bind to port &quot;, &quot;&quot;).s(CoreSprayServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2598
+          -
+          2622
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Trying to bind to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2623
+          -
+          2627
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2766
+          -
+          2766
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2770
+          -
+          2825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context.child(CoreSprayServer.ParamChildWorker).isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          2766
+          -
+          2766
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2784
+          -
+          2816
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.ParamChildWorker
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.ParamChildWorker
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2847
+          -
+          2847
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2836
+          -
+          2846
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.httpServer
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.httpServer
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2854
+          -
+          2854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.Bind.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2879
+          -
+          2879
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2858
+          -
+          2858
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.io.SSLContextProvider.forContext
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2858
+          -
+          2858
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.io.SSLContextProvider.forContext$default$1
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.SSLContextProvider.forContext$default$1
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2870
+          -
+          2956
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.AkkaUtil.initActorFromConfig(akka.actor.Props.apply[com.webtrends.harness.component.spray.CoreSprayWorker]()((ClassTag.apply[com.webtrends.harness.component.spray.CoreSprayWorker](classOf[com.webtrends.harness.component.spray.CoreSprayWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.spray.CoreSprayWorker])), CoreSprayServer.ParamChildWorker, com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3)(CoreSprayServer.this.context)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2849
+          -
+          3022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.Http.Bind.apply
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply(x$1, x$2, x$3, x$5, x$6, x$4)(io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2923
+          -
+          2955
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.ParamChildWorker
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.ParamChildWorker
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2854
+          -
+          2854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.Bind.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2899
+          -
+          2921
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.component.spray.CoreSprayWorker]()((ClassTag.apply[com.webtrends.harness.component.spray.CoreSprayWorker](classOf[com.webtrends.harness.component.spray.CoreSprayWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.spray.CoreSprayWorker]))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2858
+          -
+          2858
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.io.SSLEngineProviderCompanion.default
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2898
+          -
+          2898
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.context
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2978
+          -
+          2987
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0.0.0.0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          3013
+          -
+          3021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.settings
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.settings
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2996
+          -
+          3000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          3044
+          -
+          3044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          2836
+          -
+          3283
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(CoreSprayServer.this.httpServer).?({
+  &lt;artifact&gt; val x$1: akka.actor.ActorRef = com.webtrends.harness.utils.AkkaUtil.initActorFromConfig(akka.actor.Props.apply[com.webtrends.harness.component.spray.CoreSprayWorker]()((ClassTag.apply[com.webtrends.harness.component.spray.CoreSprayWorker](classOf[com.webtrends.harness.component.spray.CoreSprayWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.spray.CoreSprayWorker])), CoreSprayServer.ParamChildWorker, com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3)(CoreSprayServer.this.context);
+  &lt;artifact&gt; val x$2: String = &quot;0.0.0.0&quot;;
+  &lt;artifact&gt; val x$3: Int = CoreSprayServer.this.port;
+  &lt;artifact&gt; val x$4: Option[spray.can.server.ServerSettings] @scala.reflect.internal.annotations.uncheckedBounds = CoreSprayServer.this.settings;
+  &lt;artifact&gt; val x$5: Int = spray.can.Http.Bind.apply$default$4;
+  &lt;artifact&gt; val x$6: scala.collection.immutable.Traversable[akka.io.Inet.SocketOption] @scala.reflect.internal.annotations.uncheckedBounds = spray.can.Http.Bind.apply$default$5;
+  spray.can.Http.Bind.apply(x$1, x$2, x$3, x$5, x$6, x$4)(io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)))
+})(CoreSprayServer.this.timeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (exception: Throwable)scala.util.Failure[Any]((e @ _)) =&gt; {
+    CoreSprayServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), e);
+    throw e
+  }
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; {
+    CoreSprayServer.this.context.become(CoreSprayServer.this.running);
+    akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.parent).!(HttpRunning)(CoreSprayServer.this.self)
+  }
+}))(CoreSprayServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          2836
+          -
+          3283
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(CoreSprayServer.this.httpServer).?({
+  &lt;artifact&gt; val x$1: akka.actor.ActorRef = com.webtrends.harness.utils.AkkaUtil.initActorFromConfig(akka.actor.Props.apply[com.webtrends.harness.component.spray.CoreSprayWorker]()((ClassTag.apply[com.webtrends.harness.component.spray.CoreSprayWorker](classOf[com.webtrends.harness.component.spray.CoreSprayWorker]): scala.reflect.ClassTag[com.webtrends.harness.component.spray.CoreSprayWorker])), CoreSprayServer.ParamChildWorker, com.webtrends.harness.utils.AkkaUtil.initActorFromConfig$default$3)(CoreSprayServer.this.context);
+  &lt;artifact&gt; val x$2: String = &quot;0.0.0.0&quot;;
+  &lt;artifact&gt; val x$3: Int = CoreSprayServer.this.port;
+  &lt;artifact&gt; val x$4: Option[spray.can.server.ServerSettings] @scala.reflect.internal.annotations.uncheckedBounds = CoreSprayServer.this.settings;
+  &lt;artifact&gt; val x$5: Int = spray.can.Http.Bind.apply$default$4;
+  &lt;artifact&gt; val x$6: scala.collection.immutable.Traversable[akka.io.Inet.SocketOption] @scala.reflect.internal.annotations.uncheckedBounds = spray.can.Http.Bind.apply$default$5;
+  spray.can.Http.Bind.apply(x$1, x$2, x$3, x$5, x$6, x$4)(io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)))
+})(CoreSprayServer.this.timeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (exception: Throwable)scala.util.Failure[Any]((e @ _)) =&gt; {
+    CoreSprayServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), e);
+    throw e
+  }
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; {
+    CoreSprayServer.this.context.become(CoreSprayServer.this.running);
+    akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.parent).!(HttpRunning)(CoreSprayServer.this.self)
+  }
+}))(CoreSprayServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          3139
+          -
+          3143
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          3087
+          -
+          3149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), e)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          3144
+          -
+          3145
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          3097
+          -
+          3145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Error trying to bind to the http port &quot;, &quot;&quot;).s(CoreSprayServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          3099
+          -
+          3138
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Error trying to bind to the http port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          3162
+          -
+          3169
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          3211
+          -
+          3234
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context.become(CoreSprayServer.this.running)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          3226
+          -
+          3233
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.running
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.running
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          3247
+          -
+          3261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          3247
+          -
+          3275
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.`package`.actorRef2Scala(CoreSprayServer.this.context.parent).!(HttpRunning)(CoreSprayServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          3262
+          -
+          3262
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreSprayServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          3391
+          -
+          3401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.metricsJob
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.metricsJob
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          3442
+          -
+          3492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.info(&quot;Cancelling the http server metrics job&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          3501
+          -
+          3511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Cancellable.cancel
+        </td>
+        <td style="background: #F0ADAD">
+          job.cancel()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          3528
+          -
+          3530
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          3562
+          -
+          3665
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.info(scala.StringContext.apply(&quot;Trying to shutdown the http server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreSprayServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          3573
+          -
+          3609
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Trying to shutdown the http server &quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          3610
+          -
+          3646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostName
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          3663
+          -
+          3664
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          3571
+          -
+          3664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Trying to shutdown the http server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreSprayServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          3647
+          -
+          3657
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          3658
+          -
+          3662
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          3689
+          -
+          3689
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          3691
+          -
+          3704
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.CloseAll
+        </td>
+        <td style="background: #F0ADAD">
+          spray.can.Http.CloseAll
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          3678
+          -
+          3688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.httpServer
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.httpServer
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          3678
+          -
+          3704
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreSprayServer.this.httpServer).?(spray.can.Http.CloseAll)(CoreSprayServer.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          3729
+          -
+          3737
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.second
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(1).second
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          3709
+          -
+          3875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Any](scala.concurrent.Await.result[Any](f, scala.concurrent.duration.`package`.DurationInt(1).second)).recover[Any](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; CoreSprayServer.this.log.warning(&quot;we were unable to properly shutdown the HttpServer: {}&quot;, e.getMessage())
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: Throwable): Boolean = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          3729
+          -
+          3730
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          3748
+          -
+          3748
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          3713
+          -
+          3738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Await.result[Any](f, scala.concurrent.duration.`package`.DurationInt(1).second)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          3855
+          -
+          3867
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          3797
+          -
+          3853
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;we were unable to properly shutdown the HttpServer: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          3785
+          -
+          3868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warning
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.warning(&quot;we were unable to properly shutdown the HttpServer: {}&quot;, e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          3881
+          -
+          3922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.log.info(&quot;Http server shutdown complete&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          3927
+          -
+          3950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.context.become(CoreSprayServer.this.binding)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          3942
+          -
+          3949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.binding
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          4489
+          -
+          4502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.GetStats
+        </td>
+        <td style="background: #F0ADAD">
+          spray.can.Http.GetStats
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          4417
+          -
+          4486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.context.system.actorSelection(CoreSprayServer.this.httpServer.path.toString().concat(&quot;/listener-0&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          4417
+          -
+          4502
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorSelection.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreSprayServer.this.context.system.actorSelection(CoreSprayServer.this.httpServer.path.toString().concat(&quot;/listener-0&quot;))).?(spray.can.Http.GetStats)(CoreSprayServer.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          4487
+          -
+          4487
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          4439
+          -
+          4485
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.httpServer.path.toString().concat(&quot;/listener-0&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          4515
+          -
+          4541
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          4547
+          -
+          5061
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Any]) =&gt; x0$2 match {
+  case (f @ (_: scala.util.Failure[_])) =&gt; p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal http server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)))
+  case (s @ (_: scala.util.Success[_])) =&gt; p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal http server is running on port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)))
+}))(CoreSprayServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          4565
+          -
+          4565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          4614
+          -
+          4804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal http server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          4622
+          -
+          4794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal http server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          4622
+          -
+          4622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          4603
+          -
+          4804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.complete
+        </td>
+        <td style="background: #F0ADAD">
+          p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal http server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          4649
+          -
+          4662
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;http-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          4674
+          -
+          4697
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          4709
+          -
+          4752
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal http server is not running: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          4709
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal http server is not running: &quot;.+(f.exception.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          4755
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.exception.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          4789
+          -
+          4793
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4852
+          -
+          5055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal http server is running on port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          4860
+          -
+          5045
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal http server is running on port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4841
+          -
+          5055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.complete
+        </td>
+        <td style="background: #F0ADAD">
+          p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;http-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal http server is running on port &quot;, &quot;&quot;).s(CoreSprayServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          4860
+          -
+          4860
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          4887
+          -
+          4900
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;http-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          4912
+          -
+          4933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          4993
+          -
+          4997
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.CoreSprayServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreSprayServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          4998
+          -
+          4999
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          4945
+          -
+          4999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;The internal http server is running on port &quot;, &quot;&quot;).s(CoreSprayServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          4947
+          -
+          4992
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal http server is running on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          5011
+          -
+          5044
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats])
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          5016
+          -
+          5043
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          s.value.asInstanceOf[spray.can.server.Stats]
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          5067
+          -
+          5075
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

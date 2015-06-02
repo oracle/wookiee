@@ -1,0 +1,1222 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/spray/websocket/CoreWebSocketWorker.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.spray.websocket
+</span>2 <span style=''>
+</span>3 <span style=''>import java.net.URLEncoder
+</span>4 <span style=''>
+</span>5 <span style=''>import akka.actor.{ActorRef, Props}
+</span>6 <span style=''>import com.webtrends.harness.health.ActorHealth
+</span>7 <span style=''>import spray.can.server.UHttp
+</span>8 <span style=''>import spray.can.websocket.frame.TextFrame
+</span>9 <span style=''>import spray.can.{Http, websocket}
+</span>10 <span style=''>import spray.routing.HttpServiceActor
+</span>11 <span style=''>
+</span>12 <span style=''>/**
+</span>13 <span style=''> * Created by wallinm on 3/27/15.
+</span>14 <span style=''> */
+</span>15 <span style=''>class CoreWebSocketWorker(val serverConnection: ActorRef) extends HttpServiceActor with ActorHealth with websocket.WebSocketServerWorker {
+</span>16 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>health orElse handshaking orElse closeLogic</span><span style=''>
+</span>17 <span style=''>
+</span>18 <span style=''>  var worker: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>19 <span style=''>
+</span>20 <span style=''>  override def handshaking: Receive = {
+</span>21 <span style=''>    // when a client request for upgrading to websocket comes in, we send
+</span>22 <span style=''>    // UHttp.Upgrade to upgrade to websocket pipelines with an accepting response.
+</span>23 <span style=''>    case websocket.HandshakeRequest(state) =>
+</span>24 <span style=''>      // Check to see if the uri has a registered worker
+</span>25 <span style=''>      // if not close the connection
+</span>26 <span style=''>      val path = </span><span style='background: #AEF1AE'>state.request.uri.path.tail</span><span style=''>
+</span>27 <span style=''>      val props = </span><span style='background: #AEF1AE'>WebSocketManager.getWorker(path.toString())</span><span style=''>
+</span>28 <span style=''>      props match {
+</span>29 <span style=''>        case Some(p) =>
+</span>30 <span style=''>          </span><span style='background: #AEF1AE'>worker = Some(context.actorOf(p, URLEncoder.encode(path.toString(), "UTF-8")))</span><span style=''>
+</span>31 <span style=''>          state match {
+</span>32 <span style=''>            case wsFailure: websocket.HandshakeFailure => </span><span style='background: #F0ADAD'>sender() ! wsFailure.response</span><span style=''>
+</span>33 <span style=''>            case wsContext: websocket.HandshakeContext => </span><span style='background: #AEF1AE'>sender() ! UHttp.UpgradeServer(websocket.pipelineStage(self, wsContext), wsContext.response)</span><span style=''>
+</span>34 <span style=''>          }
+</span>35 <span style=''>        case None =>
+</span>36 <span style=''>          </span><span style='background: #F0ADAD'>log.info(s"Received unsupported websocket connection request on [$path]")</span><span style=''>
+</span>37 <span style=''>          </span><span style='background: #F0ADAD'>context.stop(self)</span><span style=''>
+</span>38 <span style=''>      }
+</span>39 <span style=''>
+</span>40 <span style=''>    // upgraded successfully
+</span>41 <span style=''>    case UHttp.Upgraded =>
+</span>42 <span style=''>      </span><span style='background: #AEF1AE'>context.become(health orElse businessLogic orElse closeLogic)</span><span style=''>
+</span>43 <span style=''>      </span><span style='background: #AEF1AE'>self ! websocket.UpgradedToWebSocket</span><span style=''> // notify Upgraded to WebSocket protocol
+</span>44 <span style=''>  }
+</span>45 <span style=''>
+</span>46 <span style=''>  def businessLogic: Receive = {
+</span>47 <span style=''>    case Push(msg) =>
+</span>48 <span style=''>      </span><span style='background: #F0ADAD'>send(TextFrame(msg))</span><span style=''>
+</span>49 <span style=''>    case ev: Http.ConnectionClosed =>
+</span>50 <span style=''>      </span><span style='background: #AEF1AE'>worker</span><span style=''> match {
+</span>51 <span style=''>        case Some(w) =>
+</span>52 <span style=''>          </span><span style='background: #AEF1AE'>w ! ev</span><span style=''>
+</span>53 <span style=''>        case None </span><span style='background: #F0ADAD'>=></span><span style=''>  // Error
+</span>54 <span style=''>      }
+</span>55 <span style=''>      </span><span style='background: #AEF1AE'>context.stop(self)</span><span style=''>
+</span>56 <span style=''>    case x =>
+</span>57 <span style=''>      </span><span style='background: #AEF1AE'>worker</span><span style=''> match {
+</span>58 <span style=''>        case Some(w) =>
+</span>59 <span style=''>          </span><span style='background: #AEF1AE'>w.tell(x, sender)</span><span style=''>
+</span>60 <span style=''>        case None </span><span style='background: #F0ADAD'>=></span><span style=''>   // Error
+</span>61 <span style=''>      }
+</span>62 <span style=''>  }
+</span>63 <span style=''>}
+</span>64 <span style=''>
+</span>65 <span style=''>object CoreWebSocketWorker {
+</span>66 <span style=''>  def props(serverConnection: ActorRef) = </span><span style='background: #AEF1AE'>Props(classOf[CoreWebSocketWorker], serverConnection)</span><span style=''>
+</span>67 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          1348
+        </td>
+        <td>
+          555
+          -
+          565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.WebSocketServerWorker.closeLogic
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.closeLogic
+        </td>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          1347
+        </td>
+        <td>
+          536
+          -
+          547
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.handshaking
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.handshaking
+        </td>
+      </tr><tr>
+        <td>
+          16
+        </td>
+        <td>
+          1349
+        </td>
+        <td>
+          522
+          -
+          565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.health.orElse[Any, Unit](CoreWebSocketWorker.this.handshaking).orElse[Any, Unit](CoreWebSocketWorker.this.closeLogic)
+        </td>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          1350
+        </td>
+        <td>
+          600
+          -
+          604
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          1385
+        </td>
+        <td>
+          644
+          -
+          644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1351
+        </td>
+        <td>
+          960
+          -
+          987
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.http.Uri.Path.tail
+        </td>
+        <td style="background: #AEF1AE">
+          state.request.uri.path.tail
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1353
+        </td>
+        <td>
+          1006
+          -
+          1049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.WebSocketManager.getWorker
+        </td>
+        <td style="background: #AEF1AE">
+          WebSocketManager.getWorker(path.toString())
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1352
+        </td>
+        <td>
+          1033
+          -
+          1048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.http.ToStringRenderable.toString
+        </td>
+        <td style="background: #AEF1AE">
+          path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1357
+        </td>
+        <td>
+          1118
+          -
+          1181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.context.actorOf(p, java.net.URLEncoder.encode(path.toString(), &quot;UTF-8&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1354
+        </td>
+        <td>
+          1155
+          -
+          1170
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.http.ToStringRenderable.toString
+        </td>
+        <td style="background: #AEF1AE">
+          path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1356
+        </td>
+        <td>
+          1137
+          -
+          1180
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URLEncoder.encode
+        </td>
+        <td style="background: #AEF1AE">
+          java.net.URLEncoder.encode(path.toString(), &quot;UTF-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1359
+        </td>
+        <td>
+          1104
+          -
+          1182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.worker_=
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.worker_=(scala.Some.apply[akka.actor.ActorRef](CoreWebSocketWorker.this.context.actorOf(p, java.net.URLEncoder.encode(path.toString(), &quot;UTF-8&quot;))))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1355
+        </td>
+        <td>
+          1172
+          -
+          1179
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;UTF-8&quot;
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1358
+        </td>
+        <td>
+          1113
+          -
+          1182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](CoreWebSocketWorker.this.context.actorOf(p, java.net.URLEncoder.encode(path.toString(), &quot;UTF-8&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1360
+        </td>
+        <td>
+          1265
+          -
+          1273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          1265
+          -
+          1294
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoreWebSocketWorker.this.sender()).!(wsFailure.response)(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1362
+        </td>
+        <td>
+          1274
+          -
+          1274
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1361
+        </td>
+        <td>
+          1276
+          -
+          1294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.HandshakeFailure.response
+        </td>
+        <td style="background: #F0ADAD">
+          wsFailure.response
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1366
+        </td>
+        <td>
+          1394
+          -
+          1394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.pipelineStage$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.websocket.`package`.pipelineStage$default$3
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1369
+        </td>
+        <td>
+          1426
+          -
+          1444
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.HandshakeContext.response
+        </td>
+        <td style="background: #AEF1AE">
+          wsContext.response
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1372
+        </td>
+        <td>
+          1353
+          -
+          1445
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(CoreWebSocketWorker.this.sender()).!(spray.can.server.UHttp.UpgradeServer.apply(spray.can.websocket.`package`.pipelineStage(CoreWebSocketWorker.this.self, wsContext, spray.can.websocket.`package`.pipelineStage$default$3, spray.can.websocket.`package`.pipelineStage$default$4), wsContext.response))(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1365
+        </td>
+        <td>
+          1408
+          -
+          1412
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1368
+        </td>
+        <td>
+          1384
+          -
+          1424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.websocket.pipelineStage
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.websocket.`package`.pipelineStage(CoreWebSocketWorker.this.self, wsContext, spray.can.websocket.`package`.pipelineStage$default$3, spray.can.websocket.`package`.pipelineStage$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1371
+        </td>
+        <td>
+          1362
+          -
+          1362
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1370
+        </td>
+        <td>
+          1364
+          -
+          1445
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.server.UHttp.UpgradeServer.apply
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.server.UHttp.UpgradeServer.apply(spray.can.websocket.`package`.pipelineStage(CoreWebSocketWorker.this.self, wsContext, spray.can.websocket.`package`.pipelineStage$default$3, spray.can.websocket.`package`.pipelineStage$default$4), wsContext.response)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1364
+        </td>
+        <td>
+          1353
+          -
+          1361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          1394
+          -
+          1394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.pipelineStage$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.websocket.`package`.pipelineStage$default$4
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          1489
+          -
+          1562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.event.LoggingAdapter.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.log.info(scala.StringContext.apply(&quot;Received unsupported websocket connection request on [&quot;, &quot;]&quot;).s(path))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1373
+        </td>
+        <td>
+          1498
+          -
+          1561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Received unsupported websocket connection request on [&quot;, &quot;]&quot;).s(path)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1375
+        </td>
+        <td>
+          1586
+          -
+          1590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1376
+        </td>
+        <td>
+          1573
+          -
+          1591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.context.stop(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1378
+        </td>
+        <td>
+          1713
+          -
+          1723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.WebSocketServerWorker.closeLogic
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.closeLogic
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          1663
+          -
+          1724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.context.become(CoreWebSocketWorker.this.health.orElse[Any, Unit](CoreWebSocketWorker.this.businessLogic).orElse[Any, Unit](CoreWebSocketWorker.this.closeLogic))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1377
+        </td>
+        <td>
+          1692
+          -
+          1705
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.businessLogic
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.businessLogic
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          1678
+          -
+          1723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.health.orElse[Any, Unit](CoreWebSocketWorker.this.businessLogic).orElse[Any, Unit](CoreWebSocketWorker.this.closeLogic)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1384
+        </td>
+        <td>
+          1731
+          -
+          1767
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(CoreWebSocketWorker.this.self).!(spray.can.websocket.`package`.UpgradedToWebSocket)(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1381
+        </td>
+        <td>
+          1731
+          -
+          1735
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1383
+        </td>
+        <td>
+          1736
+          -
+          1736
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1382
+        </td>
+        <td>
+          1738
+          -
+          1767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.websocket.UpgradedToWebSocket
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.websocket.`package`.UpgradedToWebSocket
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1398
+        </td>
+        <td>
+          1845
+          -
+          1845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1387
+        </td>
+        <td>
+          1875
+          -
+          1895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.websocket.WebSocketServerWorker.send
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketWorker.this.send(spray.can.websocket.frame.TextFrame.apply(msg))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1386
+        </td>
+        <td>
+          1880
+          -
+          1894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.websocket.frame.TextFrame.apply
+        </td>
+        <td style="background: #F0ADAD">
+          spray.can.websocket.frame.TextFrame.apply(msg)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1388
+        </td>
+        <td>
+          1940
+          -
+          1946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.worker
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1390
+        </td>
+        <td>
+          1989
+          -
+          1995
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(w).!(ev)(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          1991
+          -
+          1991
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1391
+        </td>
+        <td>
+          2014
+          -
+          2016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1393
+        </td>
+        <td>
+          2041
+          -
+          2059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.context.stop(CoreWebSocketWorker.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1392
+        </td>
+        <td>
+          2054
+          -
+          2058
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.self
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1394
+        </td>
+        <td>
+          2080
+          -
+          2086
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.worker
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.worker
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1396
+        </td>
+        <td>
+          2129
+          -
+          2146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRef.tell
+        </td>
+        <td style="background: #AEF1AE">
+          w.tell(x, CoreWebSocketWorker.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1395
+        </td>
+        <td>
+          2139
+          -
+          2145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1397
+        </td>
+        <td>
+          2165
+          -
+          2167
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1399
+        </td>
+        <td>
+          2265
+          -
+          2318
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker], serverConnection)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,2351 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/spray/websocket/CoreWebSocketServer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.spray.websocket
+</span>2 <span style=''>
+</span>3 <span style=''>import java.net.InetAddress
+</span>4 <span style=''>
+</span>5 <span style=''>import akka.actor.Props
+</span>6 <span style=''>import akka.io.IO
+</span>7 <span style=''>import akka.pattern.ask
+</span>8 <span style=''>import com.webtrends.harness.app.HActor
+</span>9 <span style=''>import com.webtrends.harness.component.spray.WebSocketRunning
+</span>10 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>11 <span style=''>import spray.can.Http
+</span>12 <span style=''>import spray.can.server.{Stats, ServerSettings, UHttp}
+</span>13 <span style=''>import scala.concurrent.{Await, Promise, Future}
+</span>14 <span style=''>import scala.util.{Try, Success, Failure}
+</span>15 <span style=''>import scala.concurrent.duration._
+</span>16 <span style=''>
+</span>17 <span style=''>@SerialVersionUID(1L) case class WebSocketBindServer()
+</span>18 <span style=''>@SerialVersionUID(1L) case class WebSocketShutdownServer()
+</span>19 <span style=''>
+</span>20 <span style=''>/**
+</span>21 <span style=''> * Created by wallinm on 3/27/15.
+</span>22 <span style=''> */
+</span>23 <span style=''>class CoreWebSocketServer(port:Int, settings:Option[ServerSettings]=None) extends HActor {
+</span>24 <span style=''>  import context.system
+</span>25 <span style=''>
+</span>26 <span style=''>  override def receive: Receive = </span><span style='background: #AEF1AE'>binding</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>  def binding: Receive = {
+</span>29 <span style=''>    case WebSocketBindServer => </span><span style='background: #AEF1AE'>bindWebSocketServer()</span><span style=''>
+</span>30 <span style=''>  }
+</span>31 <span style=''>
+</span>32 <span style=''>  def running: Receive = </span><span style='background: #AEF1AE'>health orElse {
+</span>33 <span style=''></span><span style='background: #AEF1AE'>    // when a new connection comes in we register a WebSocketConnection actor as the per connection handler
+</span>34 <span style=''></span><span style='background: #AEF1AE'>    case Http.Connected(remoteAddress, localAddress) =>
+</span>35 <span style=''></span><span style='background: #AEF1AE'>      log.debug("WebSocket connected")
+</span>36 <span style=''></span><span style='background: #AEF1AE'>      val serverConnection = sender()
+</span>37 <span style=''></span><span style='background: #AEF1AE'>      val worker = context.actorOf(CoreWebSocketWorker.props(serverConnection))
+</span>38 <span style=''></span><span style='background: #AEF1AE'>      serverConnection ! Http.Register(worker)
+</span>39 <span style=''></span><span style='background: #AEF1AE'>    case WebSocketShutdownServer =>
+</span>40 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>shutdownWebSocketServer()</span><span style='background: #AEF1AE'>
+</span>41 <span style=''></span><span style='background: #AEF1AE'>    case x =>
+</span>42 <span style=''></span><span style='background: #AEF1AE'>      </span><span style='background: #F0ADAD'>log.debug("Unkown message: " + x)</span><span style='background: #AEF1AE'>
+</span>43 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  val server = </span><span style='background: #AEF1AE'>IO(UHttp)</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  def bindWebSocketServer(): Unit = {
+</span>48 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>49 <span style=''>
+</span>50 <span style=''>    </span><span style='background: #AEF1AE'>log.info(s"Trying to bind websocket server to port $port")</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>    </span><span style='background: #AEF1AE'>(server ? Http.Bind(self, interface = "0.0.0.0", port = port, settings = settings)) onComplete {
+</span>53 <span style=''></span><span style='background: #AEF1AE'>      case Failure(e) =>
+</span>54 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.error(s"Error trying to bind websocket server to port $port", e)</span><span style='background: #AEF1AE'>
+</span>55 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>throw e</span><span style='background: #AEF1AE'>
+</span>56 <span style=''></span><span style='background: #AEF1AE'>      case Success(s) =>
+</span>57 <span style=''></span><span style='background: #AEF1AE'>        context.become(running)
+</span>58 <span style=''></span><span style='background: #AEF1AE'>        context.parent ! WebSocketRunning
+</span>59 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>60 <span style=''>  }
+</span>61 <span style=''>
+</span>62 <span style=''>  /**
+</span>63 <span style=''>   * Unbind from the http service
+</span>64 <span style=''>   */
+</span>65 <span style=''>  protected def shutdownWebSocketServer(): Unit = {
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Trying to shutdown the websocket server ${InetAddress.getLocalHost.getHostName} on port $port")</span><span style=''>
+</span>67 <span style=''>    val f = </span><span style='background: #F0ADAD'>server ? Http.CloseAll</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #F0ADAD'>Try(Await.result(f, 1 second)).recover({
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      case e: Throwable =>
+</span>70 <span style=''></span><span style='background: #F0ADAD'>        log.warning("we were unable to properly shutdown the websocket server: {}", e.getMessage)
+</span>71 <span style=''></span><span style='background: #F0ADAD'>    })</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    </span><span style='background: #F0ADAD'>log.info("WebSocket server shutdown complete")</span><span style=''>
+</span>74 <span style=''>    </span><span style='background: #F0ADAD'>context.become(binding)</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>78 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>79 <span style=''>
+</span>80 <span style=''>    val future = </span><span style='background: #F0ADAD'>system.actorSelection(server.path.toString.concat("/listener-0")) ? Http.GetStats</span><span style=''>
+</span>81 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]()</span><span style=''>
+</span>82 <span style=''>
+</span>83 <span style=''>    </span><span style='background: #F0ADAD'>future.onComplete {
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      case f: Failure[_] =>
+</span>85 <span style=''></span><span style='background: #F0ADAD'>        p complete Success(HealthComponent(
+</span>86 <span style=''></span><span style='background: #F0ADAD'>          "websocket-server",
+</span>87 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.CRITICAL,
+</span>88 <span style=''></span><span style='background: #F0ADAD'>          "The internal websocket server is not running: " + f.exception.getMessage,
+</span>89 <span style=''></span><span style='background: #F0ADAD'>          None)
+</span>90 <span style=''></span><span style='background: #F0ADAD'>        )
+</span>91 <span style=''></span><span style='background: #F0ADAD'>      case s: Success[_] =>
+</span>92 <span style=''></span><span style='background: #F0ADAD'>        p complete Success(HealthComponent(
+</span>93 <span style=''></span><span style='background: #F0ADAD'>          "websocket-server",
+</span>94 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.NORMAL,
+</span>95 <span style=''></span><span style='background: #F0ADAD'>          s"The internal websocket server is running on port $port",
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          Some(s.value.asInstanceOf[Stats]))
+</span>97 <span style=''></span><span style='background: #F0ADAD'>        )
+</span>98 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>99 <span style=''>
+</span>100 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>101 <span style=''>  }
+</span>102 <span style=''>}
+</span>103 <span style=''>
+</span>104 <span style=''>object CoreWebSocketServer {
+</span>105 <span style=''>  def props(port:Int, settings:Option[ServerSettings]=None) = </span><span style='background: #AEF1AE'>Props(classOf[CoreWebSocketServer], port, settings)</span><span style=''>
+</span>106 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1245
+        </td>
+        <td>
+          835
+          -
+          842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.binding
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1247
+        </td>
+        <td>
+          869
+          -
+          869
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1246
+        </td>
+        <td>
+          903
+          -
+          924
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.bindWebSocketServer
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.bindWebSocketServer()
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1260
+        </td>
+        <td>
+          955
+          -
+          1464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (remoteAddress: java.net.InetSocketAddress, localAddress: java.net.InetSocketAddress)akka.io.Tcp.Connected((remoteAddress @ _), (localAddress @ _)) =&gt; {
+        CoreWebSocketServer.this.log.debug(&quot;WebSocket connected&quot;);
+        val serverConnection: akka.actor.ActorRef = CoreWebSocketServer.this.sender();
+        val worker: akka.actor.ActorRef = CoreWebSocketServer.this.context.actorOf(CoreWebSocketWorker.props(serverConnection));
+        akka.this.actor.`package`.actorRef2Scala(serverConnection).!(spray.can.Http.Register.apply(worker, spray.can.Http.Register.apply$default$2))(CoreWebSocketServer.this.self)
+      }
+      case WebSocketShutdownServer =&gt; CoreWebSocketServer.this.shutdownWebSocketServer()
+      case (x @ _) =&gt; CoreWebSocketServer.this.log.debug(&quot;Unkown message: &quot;.+(x))
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Any): Boolean = ((x2.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (remoteAddress: java.net.InetSocketAddress, localAddress: java.net.InetSocketAddress)akka.io.Tcp.Connected((remoteAddress @ _), (localAddress @ _)) =&gt; true
+      case WebSocketShutdownServer =&gt; true
+      case (x @ _) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1259
+        </td>
+        <td>
+          969
+          -
+          969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1248
+        </td>
+        <td>
+          1141
+          -
+          1173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.log.debug(&quot;WebSocket connected&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1249
+        </td>
+        <td>
+          1203
+          -
+          1211
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1251
+        </td>
+        <td>
+          1231
+          -
+          1291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.context.actorOf(CoreWebSocketWorker.props(serverConnection))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1250
+        </td>
+        <td>
+          1247
+          -
+          1290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketWorker.props
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketWorker.props(serverConnection)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1255
+        </td>
+        <td>
+          1298
+          -
+          1338
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(serverConnection).!(spray.can.Http.Register.apply(worker, spray.can.Http.Register.apply$default$2))(CoreWebSocketServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1252
+        </td>
+        <td>
+          1322
+          -
+          1322
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.Register.apply$default$2
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Register.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1254
+        </td>
+        <td>
+          1315
+          -
+          1315
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1253
+        </td>
+        <td>
+          1317
+          -
+          1338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.Http.Register.apply
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Register.apply(worker, spray.can.Http.Register.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1256
+        </td>
+        <td>
+          1381
+          -
+          1406
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.shutdownWebSocketServer
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.shutdownWebSocketServer()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1258
+        </td>
+        <td>
+          1427
+          -
+          1460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.log.debug(&quot;Unkown message: &quot;.+(x))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1257
+        </td>
+        <td>
+          1437
+          -
+          1459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unkown message: &quot;.+(x)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1261
+        </td>
+        <td>
+          1484
+          -
+          1489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.server.UHttp
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.server.UHttp
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1263
+        </td>
+        <td>
+          1481
+          -
+          1490
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.io.IO.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.io.IO.apply[spray.can.server.UHttpExt](spray.can.server.UHttp)(CoreWebSocketServer.this.context.system)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1262
+        </td>
+        <td>
+          1483
+          -
+          1483
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1264
+        </td>
+        <td>
+          1608
+          -
+          1649
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Trying to bind websocket server to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1267
+        </td>
+        <td>
+          1606
+          -
+          1654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Trying to bind websocket server to port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1266
+        </td>
+        <td>
+          1649
+          -
+          1653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1268
+        </td>
+        <td>
+          1597
+          -
+          1655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.log.info(scala.StringContext.apply(&quot;Trying to bind websocket server to port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1265
+        </td>
+        <td>
+          1653
+          -
+          1654
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1273
+        </td>
+        <td>
+          1734
+          -
+          1742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.settings
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.settings
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1276
+        </td>
+        <td>
+          1680
+          -
+          1680
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.io.SSLContextProvider.forContext$default$1
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.SSLContextProvider.forContext$default$1
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1279
+        </td>
+        <td>
+          1671
+          -
+          1743
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          spray.can.Http.Bind.apply
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply(x$1, x$2, x$3, x$5, x$6, x$4)(io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1270
+        </td>
+        <td>
+          1681
+          -
+          1685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1278
+        </td>
+        <td>
+          1680
+          -
+          1680
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.io.SSLEngineProviderCompanion.default
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1269
+        </td>
+        <td>
+          1662
+          -
+          1668
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.server
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.server
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1272
+        </td>
+        <td>
+          1717
+          -
+          1721
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1293
+        </td>
+        <td>
+          1661
+          -
+          1980
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(CoreWebSocketServer.this.server).?({
+  &lt;artifact&gt; val x$1: akka.actor.ActorRef = CoreWebSocketServer.this.self;
+  &lt;artifact&gt; val x$2: String = &quot;0.0.0.0&quot;;
+  &lt;artifact&gt; val x$3: Int = CoreWebSocketServer.this.port;
+  &lt;artifact&gt; val x$4: Option[spray.can.server.ServerSettings] @scala.reflect.internal.annotations.uncheckedBounds = CoreWebSocketServer.this.settings;
+  &lt;artifact&gt; val x$5: Int = spray.can.Http.Bind.apply$default$4;
+  &lt;artifact&gt; val x$6: scala.collection.immutable.Traversable[akka.io.Inet.SocketOption] @scala.reflect.internal.annotations.uncheckedBounds = spray.can.Http.Bind.apply$default$5;
+  spray.can.Http.Bind.apply(x$1, x$2, x$3, x$5, x$6, x$4)(io.this.ServerSSLEngineProvider.default(io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)))
+})(CoreWebSocketServer.this.checkTimeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (exception: Throwable)scala.util.Failure[Any]((e @ _)) =&gt; {
+    CoreWebSocketServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind websocket server to port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), e);
+    throw e
+  }
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; {
+    CoreWebSocketServer.this.context.become(CoreWebSocketServer.this.running);
+    akka.this.actor.`package`.actorRef2Scala(CoreWebSocketServer.this.context.parent).!(com.webtrends.harness.component.spray.WebSocketRunning)(CoreWebSocketServer.this.self)
+  }
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1275
+        </td>
+        <td>
+          1676
+          -
+          1676
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.Bind.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1277
+        </td>
+        <td>
+          1680
+          -
+          1680
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          spray.io.SSLContextProvider.forContext
+        </td>
+        <td style="background: #AEF1AE">
+          io.this.SSLContextProvider.forContext(io.this.SSLContextProvider.forContext$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1271
+        </td>
+        <td>
+          1699
+          -
+          1708
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;0.0.0.0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1280
+        </td>
+        <td>
+          1669
+          -
+          1669
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1274
+        </td>
+        <td>
+          1676
+          -
+          1676
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.Bind.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          spray.can.Http.Bind.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1282
+        </td>
+        <td>
+          1854
+          -
+          1855
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1285
+        </td>
+        <td>
+          1791
+          -
+          1859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.log.error(scala.StringContext.apply(&quot;Error trying to bind websocket server to port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), e)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1281
+        </td>
+        <td>
+          1803
+          -
+          1850
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Error trying to bind websocket server to port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1284
+        </td>
+        <td>
+          1801
+          -
+          1855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Error trying to bind websocket server to port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1283
+        </td>
+        <td>
+          1850
+          -
+          1854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1286
+        </td>
+        <td>
+          1868
+          -
+          1875
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1288
+        </td>
+        <td>
+          1909
+          -
+          1932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.context.become(CoreWebSocketServer.this.running)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1287
+        </td>
+        <td>
+          1924
+          -
+          1931
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.running
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.running
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1291
+        </td>
+        <td>
+          1956
+          -
+          1956
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.self
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1290
+        </td>
+        <td>
+          1958
+          -
+          1974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.WebSocketRunning
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.component.spray.WebSocketRunning
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1292
+        </td>
+        <td>
+          1941
+          -
+          1974
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(CoreWebSocketServer.this.context.parent).!(com.webtrends.harness.component.spray.WebSocketRunning)(CoreWebSocketServer.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1289
+        </td>
+        <td>
+          1941
+          -
+          1955
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          CoreWebSocketServer.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1297
+        </td>
+        <td>
+          2141
+          -
+          2177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.getHostName
+        </td>
+        <td style="background: #F0ADAD">
+          java.net.InetAddress.getLocalHost().getHostName()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1300
+        </td>
+        <td>
+          2088
+          -
+          2194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.log.info(scala.StringContext.apply(&quot;Trying to shutdown the websocket server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreWebSocketServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1294
+        </td>
+        <td>
+          2099
+          -
+          2140
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Trying to shutdown the websocket server &quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1296
+        </td>
+        <td>
+          2192
+          -
+          2193
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1299
+        </td>
+        <td>
+          2097
+          -
+          2193
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Trying to shutdown the websocket server &quot;, &quot; on port &quot;, &quot;&quot;).s(java.net.InetAddress.getLocalHost().getHostName(), CoreWebSocketServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          2178
+          -
+          2188
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1298
+        </td>
+        <td>
+          2188
+          -
+          2192
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1303
+        </td>
+        <td>
+          2214
+          -
+          2214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1302
+        </td>
+        <td>
+          2216
+          -
+          2229
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.CloseAll
+        </td>
+        <td style="background: #F0ADAD">
+          spray.can.Http.CloseAll
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1301
+        </td>
+        <td>
+          2207
+          -
+          2213
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.server
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.server
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1304
+        </td>
+        <td>
+          2207
+          -
+          2229
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreWebSocketServer.this.server).?(spray.can.Http.CloseAll)(CoreWebSocketServer.this.checkTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1306
+        </td>
+        <td>
+          2254
+          -
+          2262
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.second
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(1).second
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1312
+        </td>
+        <td>
+          2234
+          -
+          2406
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.recover
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Any](scala.concurrent.Await.result[Any](f, scala.concurrent.duration.`package`.DurationInt(1).second)).recover[Any](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; CoreWebSocketServer.this.log.warning(&quot;we were unable to properly shutdown the websocket server: {}&quot;, e.getMessage())
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: Throwable): Boolean = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Throwable)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1305
+        </td>
+        <td>
+          2254
+          -
+          2255
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1311
+        </td>
+        <td>
+          2273
+          -
+          2273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1307
+        </td>
+        <td>
+          2238
+          -
+          2263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Await.result
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Await.result[Any](f, scala.concurrent.duration.`package`.DurationInt(1).second)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1309
+        </td>
+        <td>
+          2386
+          -
+          2398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1308
+        </td>
+        <td>
+          2322
+          -
+          2384
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;we were unable to properly shutdown the websocket server: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1310
+        </td>
+        <td>
+          2310
+          -
+          2399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warning
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.log.warning(&quot;we were unable to properly shutdown the websocket server: {}&quot;, e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1313
+        </td>
+        <td>
+          2412
+          -
+          2458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.log.info(&quot;WebSocket server shutdown complete&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1315
+        </td>
+        <td>
+          2463
+          -
+          2486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.context.become(CoreWebSocketServer.this.binding)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1314
+        </td>
+        <td>
+          2478
+          -
+          2485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.binding
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.binding
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1318
+        </td>
+        <td>
+          2704
+          -
+          2717
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.can.Http.GetStats
+        </td>
+        <td style="background: #F0ADAD">
+          spray.can.Http.GetStats
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1320
+        </td>
+        <td>
+          2636
+          -
+          2717
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.AskableActorSelection.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(CoreWebSocketServer.this.context.system.actorSelection(CoreWebSocketServer.this.server.path.toString().concat(&quot;/listener-0&quot;))).?(spray.can.Http.GetStats)(CoreWebSocketServer.this.checkTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1317
+        </td>
+        <td>
+          2636
+          -
+          2701
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.context.system.actorSelection(CoreWebSocketServer.this.server.path.toString().concat(&quot;/listener-0&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1319
+        </td>
+        <td>
+          2702
+          -
+          2702
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1316
+        </td>
+        <td>
+          2658
+          -
+          2700
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.server.path.toString().concat(&quot;/listener-0&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1321
+        </td>
+        <td>
+          2730
+          -
+          2756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1344
+        </td>
+        <td>
+          2762
+          -
+          3294
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Any]) =&gt; x0$2 match {
+  case (f @ (_: scala.util.Failure[_])) =&gt; p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal websocket server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)))
+  case (s @ (_: scala.util.Success[_])) =&gt; p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal websocket server is running on port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)))
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1330
+        </td>
+        <td>
+          2829
+          -
+          3029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal websocket server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1329
+        </td>
+        <td>
+          2837
+          -
+          3019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal websocket server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1328
+        </td>
+        <td>
+          2837
+          -
+          2837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1331
+        </td>
+        <td>
+          2818
+          -
+          3029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.complete
+        </td>
+        <td style="background: #F0ADAD">
+          p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;The internal websocket server is not running: &quot;.+(f.exception.getMessage()), scala.None, com.webtrends.harness.health.HealthComponent.apply$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1322
+        </td>
+        <td>
+          2864
+          -
+          2882
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;websocket-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1323
+        </td>
+        <td>
+          2894
+          -
+          2917
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1324
+        </td>
+        <td>
+          2929
+          -
+          2977
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal websocket server is not running: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1326
+        </td>
+        <td>
+          2929
+          -
+          3002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal websocket server is not running: &quot;.+(f.exception.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1325
+        </td>
+        <td>
+          2980
+          -
+          3002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.exception.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1327
+        </td>
+        <td>
+          3014
+          -
+          3018
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1342
+        </td>
+        <td>
+          3077
+          -
+          3288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal websocket server is running on port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1341
+        </td>
+        <td>
+          3085
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal websocket server is running on port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1343
+        </td>
+        <td>
+          3066
+          -
+          3288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.complete
+        </td>
+        <td style="background: #F0ADAD">
+          p.complete(scala.util.Success.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;websocket-server&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;The internal websocket server is running on port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port), scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats]), com.webtrends.harness.health.HealthComponent.apply$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1340
+        </td>
+        <td>
+          3085
+          -
+          3085
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1332
+        </td>
+        <td>
+          3112
+          -
+          3130
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;websocket-server&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1333
+        </td>
+        <td>
+          3142
+          -
+          3163
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1336
+        </td>
+        <td>
+          3227
+          -
+          3231
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.CoreWebSocketServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          CoreWebSocketServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1335
+        </td>
+        <td>
+          3231
+          -
+          3232
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1334
+        </td>
+        <td>
+          3177
+          -
+          3227
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;The internal websocket server is running on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1337
+        </td>
+        <td>
+          3175
+          -
+          3232
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;The internal websocket server is running on port &quot;, &quot;&quot;).s(CoreWebSocketServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1339
+        </td>
+        <td>
+          3244
+          -
+          3277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[spray.can.server.Stats](s.value.asInstanceOf[spray.can.server.Stats])
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1338
+        </td>
+        <td>
+          3249
+          -
+          3276
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          s.value.asInstanceOf[spray.can.server.Stats]
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1345
+        </td>
+        <td>
+          3300
+          -
+          3308
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1346
+        </td>
+        <td>
+          3407
+          -
+          3458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.spray.websocket.CoreWebSocketServer], port, settings)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
