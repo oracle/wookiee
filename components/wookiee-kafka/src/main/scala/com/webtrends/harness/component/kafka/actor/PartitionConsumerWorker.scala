@@ -23,10 +23,8 @@ package com.webtrends.harness.component.kafka.actor
 import java.util.concurrent.TimeUnit
 
 import akka.actor._
-import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
-import com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.FetchConsumer
 import com.webtrends.harness.component.kafka.actor.OffsetManager.{GetOffsetData, OffsetData, OffsetDataResponse, StoreOffsetData}
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
 import com.webtrends.harness.component.kafka.health.KafkaHealthState
@@ -38,7 +36,6 @@ import kafka.common.{ErrorMapping, InvalidMessageSizeException, OffsetOutOfRange
 import kafka.consumer.SimpleConsumer
 import org.apache.curator.framework.recipes.locks.{InterProcessSemaphoreV2, Lease}
 
-import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.util.Try
 
@@ -80,15 +77,11 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   import ConsumptionFetchMode._
   import context._
 
-  val decoder = utf8.newDecoder
-
   val topic = assign.topic
   val partition = assign.partition
   val host = assign.host
-  val cluster = assign.cluster
   val name = assign.assignmentName
-  val consumerWait = Try { kafkaConfig.getLong("consumer-wait-millis") } getOrElse 20000L
-  val lockPath = s"$appRootPath/locks/${cluster}_${topic}_$partition"
+  val lockPath = s"$appRootPath/locks/${assign.cluster}_${topic}_$partition"
 
   // Harness 3.0 does not provide distributed lock support. Need to pull the curator instance and create our own
   val curator = Curator(zkConf.get).client
@@ -163,31 +156,12 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
       offsetManager ! GetOffsetData(partitionName(assign))
 
     case Starting -> Consuming =>
-      fetchConsumer()
-      if (consumer.isDefined) {
-        context.parent ! KafkaHealthState(name, healthy = true, s"Worker started", topic)
-        fetchRequest(ackedOffset)
-        scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
-          zkCommitRate milliseconds, self, CommitOffset)
-        log.info(s"$name: We are transitioned to Consuming")
-      }
-  }
-
-  protected def fetchConsumer() {
-    log.debug(s"$name: Consumer closed, fetching new one")
-    Try { consumer = Await.result(kafkaProxy.ask(FetchConsumer(host))(Timeout(consumerWait, TimeUnit.MILLISECONDS)), consumerWait milliseconds) match {
-      case Some(con) => Some(con.asInstanceOf[SimpleConsumer])
-      case None =>
-        log.error(s"No consumer found for $host")
-        context.parent ! KafkaHealthState(name, healthy = false, s"Could not get consumer", topic)
-        self ! Stop
-        None
-    }} recover {
-      case ex: Exception =>
-        log.error(s"Consumer request for $host timed out, stopping and will retry")
-        consumer = None
-        self ! Stop
-    }
+      consumer = Some(new SimpleConsumer(host, Try { kafkaSources(host).port } getOrElse 9092, 15000, bufferSize, clientId))
+      context.parent ! KafkaHealthState(name, healthy = true, s"Worker started", topic)
+      fetchRequest(ackedOffset)
+      scheduler = scheduler :+ context.system.scheduler.schedule(zkCommitRate milliseconds,
+        zkCommitRate milliseconds, self, CommitOffset)
+      log.info(s"$name: We are transitioned to Consuming")
   }
 
   when(Stopped) {
@@ -207,7 +181,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
       stay()
   }
 
-  when(Starting, stateTimeout = 5 seconds) {
+  when(Starting, stateTimeout = offsetGetExpiration) {
     case Event(msg: OffsetDataResponse, aq: Acquired) =>
       msg.data match {
         case Left(data) =>
@@ -300,6 +274,8 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
         log.debug(s"$name: Released lock")
       case _ => // No lock
     }
+    consumer.foreach(_.close())
+    consumer = None
     context.parent ! KafkaHealthState(name, healthy = true, "", "")
   }
 
