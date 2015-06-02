@@ -1,20 +1,20 @@
 # Rest Example
 
-This is an example project that uses a lot of the concepts in the harness to build out a very basic REST client. This rest client will use Create, Read, Update and Delete actions against a case class called Person ```case class Person(name:String, age:Int) extends Cacheable```. It will leverage the Command design pattern built into the harness and use the components wookie-http and wookie-cache-memcache. There are various things in the example that are done in a very non-production type of way. For example the handling of exceptions. However the core of the example is simply to show how easy it is to create a restful project with the command, component and service design patterns. And to validate some of the features of the wookie-http using Spray.
+This is an example project that uses a lot of the concepts in the harness to build out a very basic REST client. This rest client will use Create, Read, Update and Delete actions against a case class called Person ```case class Person(name:String, age:Int) extends Cacheable```. It will leverage the Command design pattern built into the harness and use the components wookiee-http and wookiee-cache-memcache. There are various things in the example that are done in a very non-production type of way. For example the handling of exceptions. However the core of the example is simply to show how easy it is to create a restful project with the command, component and service design patterns. And to validate some of the features of the wookiee-http using Spray.
 
 In this document I will describe how you would go about creating this service. To build this service from scratch should take very quick if you use all the defaults. In this example I have extended it somewhat to use things like custom marshalling and unmarshalling to show how to do it. But if you ignore that it would be quicker.
 
 ### Creating Service
-Creating the service is fairly straight forward and one can use the service archetype to build a base very very quickly. You can read the document on building a service using the archetype [Here](../../archetypes/wookie-service-archetypes). Let's call our service "Person" so when building the service from the archetype don't forget to add the property "service-name" = "Person". Once you have built a service archetype we need to add some of the depencies to our POM file. For this example we will be using the wookie-cache-memcache component for storage and the wookie-http component for our transport protocol. You can add those to your POM using the dependencies below:
+Creating the service is fairly straight forward and one can use the service archetype to build a base very very quickly. You can read the document on building a service using the archetype [Here](../../archetypes/wookiee-service-archetypes). Let's call our service "Person" so when building the service from the archetype don't forget to add the property "service-name" = "Person". Once you have built a service archetype we need to add some of the depencies to our POM file. For this example we will be using the wookiee-cache-memcache component for storage and the wookiee-http component for our transport protocol. You can add those to your POM using the dependencies below:
 ```
    <dependency>
        <groupId>com.webtrends</groupId>
-       <artifactId>wookie-http</artifactId>
+       <artifactId>wookiee-http</artifactId>
        <version>${platform.version}</version>
    </dependency>
    <dependency>
        <groupId>com.webtrends</groupId>
-       <artifactId>wookie-cache-memcache</artifactId>
+       <artifactId>wookiee-cache-memcache</artifactId>
        <version>${platform.version}</version>
    </dependency>
 ```
@@ -22,14 +22,14 @@ Creating the service is fairly straight forward and one can use the service arch
 
 We need to modify the default state of the object PersonService to do the following things:
 
-1. Add an implicit timeout for the initialization of our cache. This could be configurable if you wanted but not necessary at the moment. If you wanted to make it configurable you would modify the resources/wookie-person.conf file with the following:
+1. Add an implicit timeout for the initialization of our cache. This could be configurable if you wanted but not necessary at the moment. If you wanted to make it configurable you would modify the resources/wookiee-person.conf file with the following:
    ```
-	 wookie-person {
+	 wookiee-person {
 	 	cache-timeout = 2s
 	 }
    ```
    However adding the line ```implicit val timeout = Timeout(2 seconds)``` is acceptable for the example.
-2. Override the actor's preStart function to initialize the cache. Because this is not really part of the tutorial and more related to memcache and the memcache component I will simply say reference the code in the [PersonService](src/main/scala/com/webtrends/service/PersonService.scala) and for more information see the [Memcache Component](../../components/wookie-cache-memcache)
+2. Override the actor's preStart function to initialize the cache. Because this is not really part of the tutorial and more related to memcache and the memcache component I will simply say reference the code in the [PersonService](src/main/scala/com/webtrends/service/PersonService.scala) and for more information see the [Memcache Component](../../components/wookiee-cache-memcache)
 3. Create our case class Person object which in our example will be Cacheable so that we can easily shove it into Memcache and get it out.
 
    ```
@@ -77,7 +77,7 @@ For each command we create, in the simple example three commands, we would repla
 	val p = Promise[CommandResponse[T]]
     bean match {
       case Some(b) =>
-        getComponent("wookie-cache-memcache") onComplete {
+        getComponent("wookiee-cache-memcache") onComplete {
           case Success(actor) =>
             val person = b(CommandBean.KeyEntity).asInstanceOf[Person]
             person.writeInCache(actor) onComplete {
@@ -102,7 +102,7 @@ For each command we create, in the simple example three commands, we would repla
 	val p = Promise[CommandResponse[T]]
     bean match {
       case Some(b) =>
-        getComponent("wookie-cache-memcache") onComplete {
+        getComponent("wookiee-cache-memcache") onComplete {
           case Success(actor) =>
             val personName = b("name").asInstanceOf[String]
             Person(personName).readFromCache(actor) onComplete {
@@ -129,7 +129,7 @@ For each command we create, in the simple example three commands, we would repla
 	val p = Promise[CommandResponse[T]]
     bean match {
       case Some(b) =>
-        getComponent("wookie-cache-memcache") onComplete {
+        getComponent("wookiee-cache-memcache") onComplete {
           case Success(actor) =>
             // If we were doing a real API we might want to check the cache to see if it
             // exists first and if it does then throw some sort of exception, but this is just an example
@@ -149,7 +149,7 @@ For each command we create, in the simple example three commands, we would repla
 * Simply delete the person based on the name from Memcache and return a 204. By setting None in the CommandResponse it will automatically return a 204 when we extend it with Spray.
 
 ### Extending with Spray Routes
-At this point we have simply created the business logic for the commands. And currently we could access them only through Akka and the CommandManager, which in some cases would be sufficient, however this example is specifically about creating a Restful service using our wookie-http component. So below I will detail the couple things that you would be required to do for each command. This is really the easiest part, as all the heavy lifting is done behind the scenes.
+At this point we have simply created the business logic for the commands. And currently we could access them only through Akka and the CommandManager, which in some cases would be sufficient, however this example is specifically about creating a Restful service using our wookiee-http component. So below I will detail the couple things that you would be required to do for each command. This is really the easiest part, as all the heavy lifting is done behind the scenes.
 
 ##### Create
 
