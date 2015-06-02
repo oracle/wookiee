@@ -1,0 +1,3545 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/KafkaManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.kafka
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor.{ActorRef, Props}
+</span>23 <span style=''>import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
+</span>24 <span style=''>import com.webtrends.harness.component.Component
+</span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.{KafkaConsumerManager, KafkaProducer}
+</span>26 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
+</span>27 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>28 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>29 <span style=''>import akka.pattern._
+</span>30 <span style=''>
+</span>31 <span style=''>import scala.concurrent.{Promise, Future}
+</span>32 <span style=''>import scala.util.{Failure, Success}
+</span>33 <span style=''>
+</span>34 <span style=''>/**
+</span>35 <span style=''> * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
+</span>36 <span style=''> * and the KafkaWriter (if 'producer' is configured). One can retrieve either of these actors by
+</span>37 <span style=''> * making a call to GetCoordinator or GetWriters
+</span>38 <span style=''> */
+</span>39 <span style=''>object KafkaManager {
+</span>40 <span style=''>  // User this to retrieve the coordinator in charge of managing Workers
+</span>41 <span style=''>  case object GetCoordinator
+</span>42 <span style=''>  //Will return the distributor
+</span>43 <span style=''>  case object GetDistributor
+</span>44 <span style=''>  // Kafka producer started up if 'producer' is configured
+</span>45 <span style=''>  var producer: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>46 <span style=''>}
+</span>47 <span style=''>
+</span>48 <span style=''>class KafkaManager(name: String) extends Component(name) with KafkaSettings {
+</span>49 <span style=''>  import KafkaManager._
+</span>50 <span style=''>
+</span>51 <span style=''>  import context.dispatcher
+</span>52 <span style=''>  // Consumer coordinator started up if 'consumer' is configured
+</span>53 <span style=''>  var coordinator: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  // Consumer proxy, started up if 'consumer' is configured. Used to retrieve topic
+</span>56 <span style=''>  // information and the data to consume
+</span>57 <span style=''>  var consumerManager: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  //Distributor actor will start up if a 'consumer' is configured
+</span>60 <span style=''>  var distributor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  var consumerManagerHealth: Option[HealthComponent] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>63 <span style=''>
+</span>64 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse configReceive orElse {
+</span>65 <span style=''></span><span style='background: #F0ADAD'>    // Use this call to get the Kafka Consumer Coordinator, if configured
+</span>66 <span style=''></span><span style='background: #F0ADAD'>    case GetCoordinator =>
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      sender ! coordinator
+</span>68 <span style=''></span><span style='background: #F0ADAD'>
+</span>69 <span style=''></span><span style='background: #F0ADAD'>    case GetDistributor =>
+</span>70 <span style=''></span><span style='background: #F0ADAD'>      sender ! distributor
+</span>71 <span style=''></span><span style='background: #F0ADAD'>
+</span>72 <span style=''></span><span style='background: #F0ADAD'>    case SystemReady =>
+</span>73 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("producer")) {
+</span>74 <span style=''></span><span style='background: #F0ADAD'>        startProducer()
+</span>75 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>76 <span style=''></span><span style='background: #F0ADAD'>      if (kafkaConfig.hasPath("consumer")) {
+</span>77 <span style=''></span><span style='background: #F0ADAD'>        startCoordinator()
+</span>78 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>79 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
+</span>80 <span style=''></span><span style='background: #F0ADAD'>      coordinator.foreach(_ ! PrepareForShutdown)
+</span>81 <span style=''></span><span style='background: #F0ADAD'>      distributor.foreach(_ ! PrepareForShutdown)
+</span>82 <span style=''></span><span style='background: #F0ADAD'>
+</span>83 <span style=''></span><span style='background: #F0ADAD'>    case h: HealthComponent =>
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      consumerManagerHealth = Some(h)
+</span>85 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>  def startProducer() {
+</span>88 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Starting producer as wookiee-kafka config contained 'producer' config")</span><span style=''>
+</span>89 <span style=''>    </span><span style='background: #F0ADAD'>producer = Some(context.actorOf(KafkaProducer.props(), "producer"))</span><span style=''>
+</span>90 <span style=''>  }
+</span>91 <span style=''>
+</span>92 <span style=''>  override def checkHealth: Future[HealthComponent] = {
+</span>93 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]()</span><span style=''>
+</span>94 <span style=''>    val children = </span><span style='background: #F0ADAD'>Seq(distributor, coordinator, producer)</span><span style=''>
+</span>95 <span style=''>
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>getHealth.onComplete {
+</span>97 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        val healthFutures = children.flatten map { ref =>
+</span>99 <span style=''></span><span style='background: #F0ADAD'>          (ref ? CheckHealth).mapTo[HealthComponent] recover {
+</span>100 <span style=''></span><span style='background: #F0ADAD'>            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+</span>101 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>102 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>103 <span style=''></span><span style='background: #F0ADAD'>
+</span>104 <span style=''></span><span style='background: #F0ADAD'>        Future.sequence(healthFutures) onComplete {
+</span>105 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) =>
+</span>106 <span style=''></span><span style='background: #F0ADAD'>            log.debug(f, "Failed to retrieve health of children objects")
+</span>107 <span style=''></span><span style='background: #F0ADAD'>            p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+</span>108 <span style=''></span><span style='background: #F0ADAD'>          case Success(healths) =>
+</span>109 <span style=''></span><span style='background: #F0ADAD'>            healths foreach { it => s.addComponent(it) }
+</span>110 <span style=''></span><span style='background: #F0ADAD'>            p success s
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>112 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) =>
+</span>113 <span style=''></span><span style='background: #F0ADAD'>        log.debug(f, "Failed to get health from component")
+</span>114 <span style=''></span><span style='background: #F0ADAD'>        p success HealthComponent(self.path.toString, ComponentState.CRITICAL, f.getMessage)
+</span>115 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>116 <span style=''>
+</span>117 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>121 <span style=''>    val h = </span><span style='background: #F0ADAD'>HealthComponent(self.path.toString, ComponentState.NORMAL, "Healthy")</span><span style=''>
+</span>122 <span style=''>    </span><span style='background: #F0ADAD'>consumerManagerHealth.foreach(h.addComponent)</span><span style=''>
+</span>123 <span style=''>    </span><span style='background: #F0ADAD'>Future.successful(h)</span><span style=''>
+</span>124 <span style=''>  }
+</span>125 <span style=''>
+</span>126 <span style=''>  /**
+</span>127 <span style=''>   * Start up all necessary actors
+</span>128 <span style=''>   */
+</span>129 <span style=''>  def startCoordinator() {
+</span>130 <span style=''>    if(</span><span style='background: #F0ADAD'>coordinator.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>131 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Starting coordinator class")
+</span>132 <span style=''></span><span style='background: #F0ADAD'>      consumerManager = Some(context.actorOf(KafkaConsumerManager.props(), "consumer-manager"))
+</span>133 <span style=''></span><span style='background: #F0ADAD'>      coordinator = Some(context.actorOf(Props(leader, consumerManager.get), "consumer-coordinator"))
+</span>134 <span style=''></span><span style='background: #F0ADAD'>      distributor = Some(context.actorOf(KafkaConsumerDistributor.props(consumerManager.get), "consumer-distributor"))
+</span>135 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>136 <span style=''>  }
+</span>137 <span style=''>
+</span>138 <span style=''>  override def renewConfiguration() {
+</span>139 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Received config change message, checking hosts for changes...")</span><span style=''>
+</span>140 <span style=''>    </span><span style='background: #F0ADAD'>super.renewConfiguration()</span><span style=''>
+</span>141 <span style=''>    if (</span><span style='background: #F0ADAD'>coordinator.isDefined</span><span style=''>) {
+</span>142 <span style=''>      </span><span style='background: #F0ADAD'>coordinator.get ! ConfigChange()</span><span style=''>
+</span>143 <span style=''>    }
+</span>144 <span style=''>  }
+</span>145 <span style=''>
+</span>146 <span style=''>  override def postStop() {
+</span>147 <span style=''>    </span><span style='background: #F0ADAD'>stop</span><span style=''>
+</span>148 <span style=''>  }
+</span>149 <span style=''>
+</span>150 <span style=''>  // Stops the coordinator, unregistering this node from zookeeper
+</span>151 <span style=''>  override def stop {
+</span>152 <span style=''>    </span><span style='background: #F0ADAD'>context.children foreach { child ⇒
+</span>153 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Stopping child [${child.path}]")
+</span>154 <span style=''></span><span style='background: #F0ADAD'>      context.stop(child)</span><span style=''>
+</span>155 <span style=''>    }
+</span>156 <span style=''>    </span><span style='background: #F0ADAD'>coordinator = None</span><span style=''>
+</span>157 <span style=''>    </span><span style='background: #F0ADAD'>consumerManager = None</span><span style=''>
+</span>158 <span style=''>    </span><span style='background: #F0ADAD'>distributor = None</span><span style=''>
+</span>159 <span style=''>    </span><span style='background: #F0ADAD'>producer = None</span><span style=''>
+</span>160 <span style=''>  }
+</span>161 <span style=''>}
+</span>162 <span style=''>
+</span>163 <span style=''>object Kafka {
+</span>164 <span style=''>  val ComponentName = </span><span style='background: #F0ADAD'>"wookiee-kafka"</span><span style=''>
+</span>165 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          428
+        </td>
+        <td>
+          1885
+          -
+          1889
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          429
+        </td>
+        <td>
+          2127
+          -
+          2131
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          2300
+          -
+          2304
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          431
+        </td>
+        <td>
+          2410
+          -
+          2414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          432
+        </td>
+        <td>
+          2471
+          -
+          2475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          433
+        </td>
+        <td>
+          2523
+          -
+          2536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigHelper.configReceive
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.configReceive
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          2502
+          -
+          3115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.super.receive.orElse[Any, Unit](KafkaManager.this.configReceive).orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case KafkaManager.GetCoordinator =&gt; akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.coordinator)(KafkaManager.this.self)
+      case KafkaManager.GetDistributor =&gt; akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.distributor)(KafkaManager.this.self)
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; {
+        if (KafkaManager.this.kafkaConfig.hasPath(&quot;producer&quot;))
+          KafkaManager.this.startProducer()
+        else
+          ();
+        if (KafkaManager.this.kafkaConfig.hasPath(&quot;consumer&quot;))
+          KafkaManager.this.startCoordinator()
+        else
+          ()
+      }
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; {
+        KafkaManager.this.coordinator.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)));
+        KafkaManager.this.distributor.foreach[Unit](((x$2: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+      }
+      case (h @ (_: com.webtrends.harness.health.HealthComponent)) =&gt; KafkaManager.this.consumerManagerHealth_=(scala.Some.apply[com.webtrends.harness.health.HealthComponent](h))
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case KafkaManager.GetCoordinator =&gt; true
+      case KafkaManager.GetDistributor =&gt; true
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; true
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; true
+      case (h @ (_: com.webtrends.harness.health.HealthComponent)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          2544
+          -
+          2544
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          436
+        </td>
+        <td>
+          2660
+          -
+          2660
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          2662
+          -
+          2673
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.coordinator
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          2653
+          -
+          2673
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.coordinator)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          434
+        </td>
+        <td>
+          2653
+          -
+          2659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          2717
+          -
+          2728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.distributor
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          438
+        </td>
+        <td>
+          2708
+          -
+          2714
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          2708
+          -
+          2728
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.sender()).!(KafkaManager.this.distributor)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          2715
+          -
+          2715
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          442
+        </td>
+        <td>
+          2764
+          -
+          2795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.kafkaConfig.hasPath(&quot;producer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          2760
+          -
+          2760
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          2760
+          -
+          2760
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          2807
+          -
+          2822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.startProducer
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.startProducer()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          2807
+          -
+          2822
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.startProducer
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.startProducer()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          2837
+          -
+          2837
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          2841
+          -
+          2872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.kafkaConfig.hasPath(&quot;consumer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          2837
+          -
+          2837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          2884
+          -
+          2902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.startCoordinator
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.startCoordinator()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          2884
+          -
+          2902
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.startCoordinator
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.startCoordinator()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          2968
+          -
+          2990
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          453
+        </td>
+        <td>
+          2970
+          -
+          2970
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          2972
+          -
+          2990
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          2948
+          -
+          2991
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          457
+        </td>
+        <td>
+          3020
+          -
+          3020
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          3022
+          -
+          3040
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          2998
+          -
+          3041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor.foreach[Unit](((x$2: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          3018
+          -
+          3040
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(x$2).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          3104
+          -
+          3111
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.health.HealthComponent](h)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          3080
+          -
+          3111
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.consumerManagerHealth_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManagerHealth_=(scala.Some.apply[com.webtrends.harness.health.HealthComponent](h))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          3145
+          -
+          3226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.info(&quot;Starting producer as wookiee-kafka config contained \'producer\' config&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          3231
+          -
+          3298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.producer_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.producer_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          3263
+          -
+          3284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaProducer.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaProducer.props()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          468
+        </td>
+        <td>
+          3242
+          -
+          3298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          3247
+          -
+          3297
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaProducer.props(), &quot;producer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          3286
+          -
+          3296
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;producer&quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          3372
+          -
+          3398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          3435
+          -
+          3446
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.coordinator
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          3418
+          -
+          3457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.apply[Option[akka.actor.ActorRef]](KafkaManager.this.distributor, KafkaManager.this.coordinator, KafkaManager.producer)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          3422
+          -
+          3433
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.distributor
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          3448
+          -
+          3456
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.producer
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.producer
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          3463
+          -
+          4406
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.getHealth.onComplete[Any](((x0$1: scala.util.Try[com.webtrends.harness.health.HealthComponent]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.health.HealthComponent)scala.util.Success[com.webtrends.harness.health.HealthComponent]((s @ _)) =&gt; {
+    val healthFutures: Seq[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]] = children.flatten[akka.actor.ActorRef]({
+  ((xo: Option[akka.actor.ActorRef]) =&gt; scala.this.Option.option2Iterable[akka.actor.ActorRef](xo))
+}).map[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent], Seq[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]](((ref: akka.actor.ActorRef) =&gt; akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(KafkaManager.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ (_: Exception)) =&gt; com.webtrends.harness.health.HealthComponent.apply(ref.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+          case (defaultCase$ @ _) =&gt; default.apply(x2)
+        };
+        final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ (_: Exception)) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(KafkaManager.this.context.dispatcher)))(collection.this.Seq.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]);
+    scala.concurrent.Future.sequence[com.webtrends.harness.health.HealthComponent, Seq](healthFutures)(collection.this.Seq.canBuildFrom[com.webtrends.harness.health.HealthComponent], KafkaManager.this.context.dispatcher).onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Seq[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$2 match {
+      case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+        KafkaManager.this.log.debug(f, &quot;Failed to retrieve health of children objects&quot;);
+        p.success(com.webtrends.harness.health.HealthComponent.apply(s.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+      }
+      case (value: Seq[com.webtrends.harness.health.HealthComponent])scala.util.Success[Seq[com.webtrends.harness.health.HealthComponent]]((healths @ _)) =&gt; {
+        healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)));
+        p.success(s)
+      }
+    }))(KafkaManager.this.context.dispatcher)
+  }
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.health.HealthComponent]((f @ _)) =&gt; {
+    KafkaManager.this.log.debug(f, &quot;Failed to get health from component&quot;);
+    p.success(com.webtrends.harness.health.HealthComponent.apply(KafkaManager.this.self.path.toString(), com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+  }
+}))(KafkaManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          3484
+          -
+          3484
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          3556
+          -
+          3556
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          3539
+          -
+          3796
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          children.flatten[akka.actor.ActorRef]({
+  ((xo: Option[akka.actor.ActorRef]) =&gt; scala.this.Option.option2Iterable[akka.actor.ActorRef](xo))
+}).map[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent], Seq[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]](((ref: akka.actor.ActorRef) =&gt; akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(KafkaManager.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; com.webtrends.harness.health.HealthComponent.apply(ref.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(KafkaManager.this.context.dispatcher)))(collection.this.Seq.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]])
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          3548
+          -
+          3548
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[akka.actor.ActorRef](xo)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          3630
+          -
+          3630
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          3580
+          -
+          3796
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.recover
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(KafkaManager.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; com.webtrends.harness.health.HealthComponent.apply(ref.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(KafkaManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          3584
+          -
+          3584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          3622
+          -
+          3622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          3586
+          -
+          3597
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          3682
+          -
+          3695
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          ref.path.name
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          3782
+          -
+          3783
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          480
+        </td>
+        <td>
+          3724
+          -
+          3767
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure to get health of child component. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          3722
+          -
+          3783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3666
+          -
+          3784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(ref.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          3697
+          -
+          3720
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          3768
+          -
+          3781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          3847
+          -
+          3847
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          3831
+          -
+          3831
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.webtrends.harness.health.HealthComponent]
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          3816
+          -
+          4222
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.sequence[com.webtrends.harness.health.HealthComponent, Seq](healthFutures)(collection.this.Seq.canBuildFrom[com.webtrends.harness.health.HealthComponent], KafkaManager.this.context.dispatcher).onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Seq[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$2 match {
+  case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+    KafkaManager.this.log.debug(f, &quot;Failed to retrieve health of children objects&quot;);
+    p.success(com.webtrends.harness.health.HealthComponent.apply(s.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+  }
+  case (value: Seq[com.webtrends.harness.health.HealthComponent])scala.util.Success[Seq[com.webtrends.harness.health.HealthComponent]]((healths @ _)) =&gt; {
+    healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)));
+    p.success(s)
+  }
+}))(KafkaManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          3831
+          -
+          3831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          3901
+          -
+          3962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.debug(f, &quot;Failed to retrieve health of children objects&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          4009
+          -
+          4032
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          4081
+          -
+          4093
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          4094
+          -
+          4095
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          3985
+          -
+          3985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          4001
+          -
+          4007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.name
+        </td>
+        <td style="background: #F0ADAD">
+          s.name
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          3975
+          -
+          4096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(s.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          3985
+          -
+          4096
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(s.name, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          4036
+          -
+          4080
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure to get health of child components. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          4034
+          -
+          4095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          3985
+          -
+          3985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          4168
+          -
+          4186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.addComponent
+        </td>
+        <td style="background: #F0ADAD">
+          s.addComponent(it)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          4144
+          -
+          4186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          4201
+          -
+          4212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          4256
+          -
+          4307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.debug(f, &quot;Failed to get health from component&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          4326
+          -
+          4326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          4316
+          -
+          4400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(KafkaManager.this.self.path.toString(), com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          4326
+          -
+          4400
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaManager.this.self.path.toString(), com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          4387
+          -
+          4399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          4362
+          -
+          4385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          4326
+          -
+          4326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          4342
+          -
+          4360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          4412
+          -
+          4420
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          4561
+          -
+          4570
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Healthy&quot;
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          4502
+          -
+          4502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          4538
+          -
+          4559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          4518
+          -
+          4536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          4502
+          -
+          4502
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          4502
+          -
+          4571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaManager.this.self.path.toString(), com.webtrends.harness.health.ComponentState.NORMAL, &quot;Healthy&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          4576
+          -
+          4621
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManagerHealth.foreach[Unit]({
+  ((component: com.webtrends.harness.health.HealthComponent) =&gt; h.addComponent(component))
+})
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          4606
+          -
+          4620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.addComponent
+        </td>
+        <td style="background: #F0ADAD">
+          h.addComponent(component)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          4626
+          -
+          4646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.successful
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.successful[com.webtrends.harness.health.HealthComponent](h)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          4730
+          -
+          4730
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          4733
+          -
+          4752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          4754
+          -
+          5124
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  KafkaManager.this.log.info(scala.StringContext.apply(&quot;Starting coordinator class&quot;).s());
+  KafkaManager.this.consumerManager_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props(), &quot;consumer-manager&quot;)));
+  KafkaManager.this.coordinator_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.consumerManager.get), &quot;consumer-coordinator&quot;)));
+  KafkaManager.this.distributor_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.consumerManager.get), &quot;consumer-distributor&quot;)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          4730
+          -
+          4730
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          4762
+          -
+          4801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.info(scala.StringContext.apply(&quot;Starting coordinator class&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          4771
+          -
+          4800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Starting coordinator class&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          4877
+          -
+          4895
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;consumer-manager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          4808
+          -
+          4897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.consumerManager_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManager_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props(), &quot;consumer-manager&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          4847
+          -
+          4875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          4826
+          -
+          4897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props(), &quot;consumer-manager&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          4831
+          -
+          4896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.props(), &quot;consumer-manager&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          4975
+          -
+          4997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;consumer-coordinator&quot;
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          4939
+          -
+          4973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.consumerManager.get)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          4918
+          -
+          4999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.consumerManager.get), &quot;consumer-coordinator&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          4953
+          -
+          4972
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManager.get
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          4923
+          -
+          4998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.consumerManager.get), &quot;consumer-coordinator&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          4904
+          -
+          4999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.coordinator_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(akka.actor.Props.apply(KafkaManager.this.leader, KafkaManager.this.consumerManager.get), &quot;consumer-coordinator&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          4945
+          -
+          4951
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.leader
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.leader
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          5006
+          -
+          5118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.distributor_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor_=(scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.consumerManager.get), &quot;consumer-distributor&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          5020
+          -
+          5118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.consumerManager.get), &quot;consumer-distributor&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          5041
+          -
+          5092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerDistributor.props
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerDistributor.props(KafkaManager.this.consumerManager.get)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          5025
+          -
+          5117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.actorOf(KafkaConsumerDistributor.props(KafkaManager.this.consumerManager.get), &quot;consumer-distributor&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          5072
+          -
+          5091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManager.get
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          5094
+          -
+          5116
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;consumer-distributor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          5172
+          -
+          5245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.info(&quot;Received config change message, checking hosts for changes...&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          5250
+          -
+          5276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.renewConfiguration
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.super.renewConfiguration()
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          5281
+          -
+          5281
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          5281
+          -
+          5281
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          5285
+          -
+          5306
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator.isDefined
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          5332
+          -
+          5332
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          5334
+          -
+          5348
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply()
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          5316
+          -
+          5348
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          5316
+          -
+          5331
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator.get
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          5316
+          -
+          5348
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaManager.this.coordinator.get).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(KafkaManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          5392
+          -
+          5396
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.stop
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.stop
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          5495
+          -
+          5605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.children.foreach[Unit](((child: akka.actor.ActorRef) =&gt; {
+  KafkaManager.this.log.info(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path));
+  KafkaManager.this.context.stop(child)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          5545
+          -
+          5578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          5565
+          -
+          5575
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          child.path
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          5576
+          -
+          5578
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          5536
+          -
+          5579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.log.info(scala.StringContext.apply(&quot;Stopping child [&quot;, &quot;]&quot;).s(child.path))
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          5547
+          -
+          5564
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Stopping child [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          5586
+          -
+          5605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.context.stop(child)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          5616
+          -
+          5634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.coordinator_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.coordinator_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          572
+        </td>
+        <td>
+          5630
+          -
+          5634
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          5639
+          -
+          5661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.consumerManager_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.consumerManager_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          5657
+          -
+          5661
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          5666
+          -
+          5684
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.distributor_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.this.distributor_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          5680
+          -
+          5684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          5689
+          -
+          5704
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaManager.producer_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaManager.producer_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          5700
+          -
+          5704
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          5749
+          -
+          5764
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-kafka&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

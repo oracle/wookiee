@@ -1,0 +1,5940 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/actor/AssignmentDistributorLeader.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.kafka.actor
+</span>2 <span style=''>
+</span>3 <span style=''>
+</span>4 <span style=''>import akka.actor._
+</span>5 <span style=''>import akka.util.Timeout
+</span>6 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
+</span>7 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
+</span>8 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
+</span>9 <span style=''>import com.webtrends.harness.component.zookeeper.{ZookeeperAdapter, ZookeeperEventAdapter}
+</span>10 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>11 <span style=''>import net.liftweb.json.{FieldSerializer, NoTypeHints, Serialization}
+</span>12 <span style=''>
+</span>13 <span style=''>import scala.concurrent.Future
+</span>14 <span style=''>import scala.concurrent.duration._
+</span>15 <span style=''>import scala.util.{Failure, Success, Try}
+</span>16 <span style=''>
+</span>17 <span style=''>object AssignmentDistributorLeader {
+</span>18 <span style=''>  case class PartitionAssignment(topic: String, partition: Int, cluster: String, host: String) {
+</span>19 <span style=''>    def assignmentName: String = {
+</span>20 <span style=''>      </span><span style='background: #F0ADAD'>s"$host-$topic-$partition"</span><span style=''>
+</span>21 <span style=''>    }
+</span>22 <span style=''>  }
+</span>23 <span style=''>
+</span>24 <span style=''>  implicit val formats = </span><span style='background: #F0ADAD'>Serialization.formats(NoTypeHints) +
+</span>25 <span style=''></span><span style='background: #F0ADAD'>                                              FieldSerializer[PartitionAssignment]()</span><span style=''>
+</span>26 <span style=''>  implicit val partsManifest = </span><span style='background: #F0ADAD'>manifest[List[PartitionAssignment]]</span><span style=''>
+</span>27 <span style=''>
+</span>28 <span style=''>  // Node data refresh
+</span>29 <span style=''>  case class DistributeAssignments(nodes: List[String], topicResp:TopicPartitionResp)
+</span>30 <span style=''>
+</span>31 <span style=''>  //Tell the leader to refresh assignments
+</span>32 <span style=''>  case object RefreshNodeAssignments
+</span>33 <span style=''>
+</span>34 <span style=''>  def props(sourceProxy: ActorRef) =
+</span>35 <span style=''>    </span><span style='background: #F0ADAD'>Props(new AssignmentDistributorLeader(sourceProxy))</span><span style=''>
+</span>36 <span style=''>}
+</span>37 <span style=''>/**
+</span>38 <span style=''> *
+</span>39 <span style=''> */
+</span>40 <span style=''>class AssignmentDistributorLeader(sourceProxy: ActorRef)
+</span>41 <span style=''>  extends Actor
+</span>42 <span style=''>  with KafkaSettings
+</span>43 <span style=''>  with ActorLoggingAdapter
+</span>44 <span style=''>  with ZookeeperAdapter
+</span>45 <span style=''>  with ZookeeperEventAdapter {
+</span>46 <span style=''>
+</span>47 <span style=''>  import AssignmentDistributorLeader._
+</span>48 <span style=''>  import AssignmentFetcher._
+</span>49 <span style=''>  import context.dispatcher
+</span>50 <span style=''>
+</span>51 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(10 seconds)</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  val paths = </span><span style='background: #F0ADAD'>distributorPaths</span><span style=''>
+</span>54 <span style=''>  var scheduler: Option[Cancellable] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>55 <span style=''>  //log.debug(kafkaConfig.root().render())
+</span>56 <span style=''>  val refresh = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getInt("consumer.assignment-distributor.assignment-refresh-seconds")
+</span>57 <span style=''></span><span style='background: #F0ADAD'>                    } getOrElse 20</span><span style=''>
+</span>58 <span style=''>
+</span>59 <span style=''>  val nodeName = </span><span style='background: #F0ADAD'>self.path.name</span><span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>  val fetcherActorName = </span><span style='background: #F0ADAD'>s"$nodeName-fetcher"</span><span style=''>
+</span>62 <span style=''>
+</span>63 <span style=''>  </span><span style='background: #F0ADAD'>log.info(s"$nodeName Leader has started and will refresh assignments at $refresh sec(s)")</span><span style=''>
+</span>64 <span style=''>
+</span>65 <span style=''>  override def postStop(): Unit = {
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"AssignmentDistributor $nodeName stopping")</span><span style=''>
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>scheduler.foreach(_.cancel())</span><span style=''>
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  override def receive: Receive = {
+</span>71 <span style=''>    case RefreshNodeAssignments => </span><span style='background: #F0ADAD'>refreshNodeAssignments()</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    case da: DistributeAssignments => </span><span style='background: #F0ADAD'>distributeAssignments(da)</span><span style=''>
+</span>74 <span style=''>
+</span>75 <span style=''>    case FetchTimeout  => </span><span style='background: #F0ADAD'>log.error(s"${self.path.name} Fetch timeout!")</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>
+</span>79 <span style=''>  def refreshNodeAssignments() = {
+</span>80 <span style=''>    if(</span><span style='background: #F0ADAD'>scheduler.isEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>scheduler =
+</span>81 <span style=''></span><span style='background: #F0ADAD'>      Some(context.system.scheduler.schedule( refresh seconds,
+</span>82 <span style=''></span><span style='background: #F0ADAD'>                                              refresh seconds, self, RefreshNodeAssignments))</span><span style=''>
+</span>83 <span style=''>
+</span>84 <span style=''>    </span><span style='background: #F0ADAD'>context.child(fetcherActorName)</span><span style=''> match {
+</span>85 <span style=''>      case None => </span><span style='background: #F0ADAD'>context.actorOf(AssignmentFetcher.props(self, sourceProxy), fetcherActorName)</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>      case _ => </span><span style='background: #F0ADAD'>log.warn(s"Can't fetch data because fetcher is active!")</span><span style=''>
+</span>88 <span style=''>    }
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  def distributeAssignments(assignmentInfo: DistributeAssignments) = {
+</span>92 <span style=''>    val nodes = </span><span style='background: #F0ADAD'>assignmentInfo.nodes</span><span style=''>
+</span>93 <span style=''>    val assignsWithIndex = </span><span style='background: #F0ADAD'>assignmentInfo.topicResp.partitionsByTopic.zipWithIndex</span><span style=''>
+</span>94 <span style=''>    val assignsByNode = (</span><span style='background: #F0ADAD'>for (
+</span>95 <span style=''></span><span style='background: #F0ADAD'>      node <- nodes.zipWithIndex
+</span>96 <span style=''></span><span style='background: #F0ADAD'>    ) yield {
+</span>97 <span style=''></span><span style='background: #F0ADAD'>      node._1 -> assignsWithIndex.filter { assign =>
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        (assign._2 >= node._2) && (assign._2 - node._2) % nodes.length == 0 }.map { x => x._1 }
+</span>99 <span style=''></span><span style='background: #F0ADAD'>    }).toMap</span><span style=''>
+</span>100 <span style=''>
+</span>101 <span style=''>    </span><span style='background: #F0ADAD'>log.debug(s"Setting new node assignments: ${assignsByNode.toString()}")</span><span style=''>
+</span>102 <span style=''>    </span><span style='background: #F0ADAD'>setAssignmentsForNodes(assignsByNode.map { case (nodeId, partitionsByTopic) =>
+</span>103 <span style=''></span><span style='background: #F0ADAD'>      nodeId -> Serialization.write(partitionsByTopic)(formats)
+</span>104 <span style=''></span><span style='background: #F0ADAD'>    })</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  def setAssignmentsForNodes(data: Map[String, String]) = {
+</span>108 <span style=''>    // Delete data for nodes which aren't specified in the updated data
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>getChildren(s"${paths.assignmentPath}", includeData = true).onComplete {
+</span>110 <span style=''></span><span style='background: #F0ADAD'>      case Success(existingData) =>
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        // Delete any entries that don't have new data
+</span>112 <span style=''></span><span style='background: #F0ADAD'>        val nodesToDelete = existingData.filter{ case (nodeId, existingData) => !data.contains(nodeId)}
+</span>113 <span style=''></span><span style='background: #F0ADAD'>
+</span>114 <span style=''></span><span style='background: #F0ADAD'>        Future.traverse(nodesToDelete) { case (nodeId, _) =>
+</span>115 <span style=''></span><span style='background: #F0ADAD'>          deleteNode(s"${paths.assignmentPath}/$nodeId")
+</span>116 <span style=''></span><span style='background: #F0ADAD'>        }.onFailure {
+</span>117 <span style=''></span><span style='background: #F0ADAD'>          case ex => log.error(s"Unable to delete assignment nodes - ${nodesToDelete.map(_._1)}", ex)
+</span>118 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>119 <span style=''></span><span style='background: #F0ADAD'>      case Failure(fail) =>
+</span>120 <span style=''></span><span style='background: #F0ADAD'>        log.error(s"Unable to get list of nodes at ${paths.assignmentPath} " +
+</span>121 <span style=''></span><span style='background: #F0ADAD'>                  s"while attempting to delete stale node data. ${fail.getMessage()}")
+</span>122 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>    </span><span style='background: #F0ADAD'>Future.traverse(data) { case (nodeId, nodeData) =>
+</span>125 <span style=''></span><span style='background: #F0ADAD'>      setData(s"${paths.assignmentPath}/$nodeId", nodeData.getBytes(utf8), create = true, ephemeral = false)
+</span>126 <span style=''></span><span style='background: #F0ADAD'>    }.onComplete {
+</span>127 <span style=''></span><span style='background: #F0ADAD'>      case Success(path) =>
+</span>128 <span style=''></span><span style='background: #F0ADAD'>        log.debug(s"Successfully set node data")
+</span>129 <span style=''></span><span style='background: #F0ADAD'>      case Failure(fail) =>
+</span>130 <span style=''></span><span style='background: #F0ADAD'>        log.error(s"Unable to set node data. ${fail.getMessage()}")
+</span>131 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>132 <span style=''>  }
+</span>133 <span style=''>}
+</span>134 <span style=''>
+</span>135 <span style=''>object AssignmentFetcher {
+</span>136 <span style=''>  def props(receiver: ActorRef, sourceProxy: ActorRef) =
+</span>137 <span style=''>    </span><span style='background: #F0ADAD'>Props(new AssignmentFetcher(receiver, sourceProxy))</span><span style=''>
+</span>138 <span style=''>
+</span>139 <span style=''>  case object Fetch
+</span>140 <span style=''>
+</span>141 <span style=''>  case class ConsumerNodes(nodes: List[String])
+</span>142 <span style=''>
+</span>143 <span style=''>  case object FetchTimeout
+</span>144 <span style=''>}
+</span>145 <span style=''>
+</span>146 <span style=''>/**
+</span>147 <span style=''> * Actor is responsible for making requests to dependent services,
+</span>148 <span style=''> * required for assignment distribution
+</span>149 <span style=''> * @param receiver
+</span>150 <span style=''> * @param sourceProxy
+</span>151 <span style=''> */
+</span>152 <span style=''>class AssignmentFetcher(receiver: ActorRef, sourceProxy: ActorRef) extends Actor
+</span>153 <span style=''>  with ActorLoggingAdapter
+</span>154 <span style=''>  with ZookeeperAdapter
+</span>155 <span style=''>  with KafkaSettings
+</span>156 <span style=''>{
+</span>157 <span style=''>  import AssignmentDistributorLeader._
+</span>158 <span style=''>  import AssignmentFetcher._
+</span>159 <span style=''>  import KafkaConsumerManager._
+</span>160 <span style=''>  import context.dispatcher
+</span>161 <span style=''>
+</span>162 <span style=''>  val configRoot = </span><span style='background: #F0ADAD'>"wookiee-kafka.consumer.assignment-distributor"</span><span style=''>
+</span>163 <span style=''>
+</span>164 <span style=''>  val c = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
+</span>165 <span style=''>
+</span>166 <span style=''>  implicit val zkTimeout = </span><span style='background: #F0ADAD'>Try { Timeout(c.getLong(s"$configRoot.zk-fetch-timeout-millis") milliseconds)}
+</span>167 <span style=''></span><span style='background: #F0ADAD'>    .getOrElse[Timeout](5 seconds)</span><span style=''>
+</span>168 <span style=''>
+</span>169 <span style=''>  val fetchTimeout = </span><span style='background: #F0ADAD'>Try {c.getLong(s"$configRoot.fetch-timeout-millis")
+</span>170 <span style=''></span><span style='background: #F0ADAD'>                         } getOrElse 2000L</span><span style=''>
+</span>171 <span style=''>
+</span>172 <span style=''>  </span><span style='background: #F0ADAD'>log.debug(s"Fetching with timeout $fetchTimeout")</span><span style=''>
+</span>173 <span style=''>
+</span>174 <span style=''>  var nodes: Option[List[String]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>175 <span style=''>  var topicPartitions: Option[TopicPartitionResp] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>176 <span style=''>
+</span>177 <span style=''>  val paths = </span><span style='background: #F0ADAD'>distributorPaths</span><span style=''>
+</span>178 <span style=''>
+</span>179 <span style=''>  </span><span style='background: #F0ADAD'>self ! Fetch</span><span style=''>
+</span>180 <span style=''>
+</span>181 <span style=''>  </span><span style='background: #F0ADAD'>context.system.scheduler.scheduleOnce(fetchTimeout milliseconds) {
+</span>182 <span style=''></span><span style='background: #F0ADAD'>    self ! FetchTimeout
+</span>183 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>184 <span style=''>
+</span>185 <span style=''>  def receive: Actor.Receive = {
+</span>186 <span style=''>    case Fetch => </span><span style='background: #F0ADAD'>fetch()</span><span style=''>
+</span>187 <span style=''>
+</span>188 <span style=''>    case cn: ConsumerNodes =>
+</span>189 <span style=''>      </span><span style='background: #F0ADAD'>nodes = Some(cn.nodes)</span><span style=''>
+</span>190 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
+</span>191 <span style=''>
+</span>192 <span style=''>    case tr: TopicPartitionResp =>
+</span>193 <span style=''>      </span><span style='background: #F0ADAD'>topicPartitions = Some(tr)</span><span style=''>
+</span>194 <span style=''>      </span><span style='background: #F0ADAD'>isDone</span><span style=''>
+</span>195 <span style=''>
+</span>196 <span style=''>    case FetchTimeout =>
+</span>197 <span style=''>      if(</span><span style='background: #F0ADAD'>nodes.isEmpty</span><span style=''>) {
+</span>198 <span style=''>        </span><span style='background: #F0ADAD'>log.warn(s"Zookeeper node request has timed out")</span><span style=''>
+</span>199 <span style=''>      }
+</span>200 <span style=''>
+</span>201 <span style=''>      if(</span><span style='background: #F0ADAD'>topicPartitions.isEmpty</span><span style=''>) {
+</span>202 <span style=''>        </span><span style='background: #F0ADAD'>log.warn(s"Topic Partitions request has timed out")</span><span style=''>
+</span>203 <span style=''>      }
+</span>204 <span style=''>      </span><span style='background: #F0ADAD'>sendAndShutdown(FetchTimeout)</span><span style=''>
+</span>205 <span style=''>  }
+</span>206 <span style=''>
+</span>207 <span style=''>  def isDone = (nodes, topicPartitions) match {
+</span>208 <span style=''>    case (Some(n), Some(tp)) =>
+</span>209 <span style=''>      </span><span style='background: #F0ADAD'>log.debug(s"Got $nodes and $tp")</span><span style=''>
+</span>210 <span style=''>
+</span>211 <span style=''>      </span><span style='background: #F0ADAD'>sendAndShutdown(DistributeAssignments(n,tp))</span><span style=''>
+</span>212 <span style=''>    case _ </span><span style='background: #F0ADAD'>=></span><span style=''>
+</span>213 <span style=''>  }
+</span>214 <span style=''>
+</span>215 <span style=''>
+</span>216 <span style=''>  def sendAndShutdown(resp: Any): Unit = {
+</span>217 <span style=''>    </span><span style='background: #F0ADAD'>receiver ! resp</span><span style=''>
+</span>218 <span style=''>    </span><span style='background: #F0ADAD'>log.debug("Stopping Fetcher")</span><span style=''>
+</span>219 <span style=''>    </span><span style='background: #F0ADAD'>context.stop(self)</span><span style=''>
+</span>220 <span style=''>  }
+</span>221 <span style=''>
+</span>222 <span style=''>  def fetch() = {
+</span>223 <span style=''>    </span><span style='background: #F0ADAD'>getChildren(s"${paths.nodePath}", includeData = false).onComplete {
+</span>224 <span style=''></span><span style='background: #F0ADAD'>      case Success(nodes) =>
+</span>225 <span style=''></span><span style='background: #F0ADAD'>        self ! ConsumerNodes(nodes.map{node => node._1}.toList)
+</span>226 <span style=''></span><span style='background: #F0ADAD'>      case Failure(fail) =>
+</span>227 <span style=''></span><span style='background: #F0ADAD'>        log.error(s"Not requesting node data update because " +
+</span>228 <span style=''></span><span style='background: #F0ADAD'>          s"I am unable to get list of nodes at ${paths.nodePath}. ${fail.getMessage()}")
+</span>229 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>230 <span style=''>
+</span>231 <span style=''>    </span><span style='background: #F0ADAD'>sourceProxy ! TopicPartitionReq</span><span style=''>
+</span>232 <span style=''>  }
+</span>233 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          828
+          -
+          832
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.host
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionAssignment.this.host
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          825
+          -
+          851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-&quot;, &quot;-&quot;, &quot;&quot;).s(PartitionAssignment.this.host, PartitionAssignment.this.topic, PartitionAssignment.this.partition)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          832
+          -
+          834
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          827
+          -
+          828
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          850
+          -
+          851
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          841
+          -
+          850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.partition
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionAssignment.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          834
+          -
+          839
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.topic
+        </td>
+        <td style="background: #F0ADAD">
+          PartitionAssignment.this.topic
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          839
+          -
+          841
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-&quot;
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          923
+          -
+          923
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          888
+          -
+          1009
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.Formats.+
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Serialization.formats(net.liftweb.json.NoTypeHints).+[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](net.liftweb.json.FieldSerializer.apply[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](net.liftweb.json.FieldSerializer.apply$default$1[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment], net.liftweb.json.FieldSerializer.apply$default$2[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])))(reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment]))
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          910
+          -
+          921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.liftweb.json.NoTypeHints
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.NoTypeHints
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          986
+          -
+          986
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          net.liftweb.json.FieldSerializer.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.FieldSerializer.apply$default$2[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          986
+          -
+          986
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          net.liftweb.json.FieldSerializer.apply$default$1
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.FieldSerializer.apply$default$1[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          971
+          -
+          1009
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          net.liftweb.json.FieldSerializer.apply
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.FieldSerializer.apply[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](net.liftweb.json.FieldSerializer.apply$default$1[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment], net.liftweb.json.FieldSerializer.apply$default$2[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment]))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          1007
+          -
+          1007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          1049
+          -
+          1049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          1041
+          -
+          1076
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Predef.manifest
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.manifest[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](reflect.this.ManifestFactory.classType[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](classOf[scala.collection.immutable.List], reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment])))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          1049
+          -
+          1049
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          classOf[scala.collection.immutable.List]
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          1049
+          -
+          1049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.reflect.ManifestFactory.classType
+        </td>
+        <td style="background: #F0ADAD">
+          reflect.this.ManifestFactory.classType[List[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](classOf[scala.collection.immutable.List], reflect.this.ManifestFactory.classType[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader$$PartitionAssignment]))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          1316
+          -
+          1360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new AssignmentDistributorLeader(sourceProxy)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          1310
+          -
+          1361
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader](new AssignmentDistributorLeader(sourceProxy))((ClassTag.apply[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader](classOf[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader]): scala.reflect.ClassTag[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader]))
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          1682
+          -
+          1692
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          1682
+          -
+          1684
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          1674
+          -
+          1693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(10).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          1709
+          -
+          1725
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributorPaths
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.distributorPaths
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          1765
+          -
+          1769
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          1829
+          -
+          1950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Int](AssignmentDistributorLeader.this.kafkaConfig.getInt(&quot;consumer.assignment-distributor.assignment-refresh-seconds&quot;)).getOrElse[Int](20)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          1969
+          -
+          1983
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          2012
+          -
+          2013
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          2010
+          -
+          2030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;-fetcher&quot;).s(AssignmentDistributorLeader.this.nodeName)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          2013
+          -
+          2021
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.nodeName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.nodeName
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          2021
+          -
+          2030
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;-fetcher&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          618
+        </td>
+        <td>
+          2043
+          -
+          2122
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; Leader has started and will refresh assignments at &quot;, &quot; sec(s)&quot;).s(AssignmentDistributorLeader.this.nodeName, AssignmentDistributorLeader.this.refresh)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          615
+        </td>
+        <td>
+          2114
+          -
+          2122
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; sec(s)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          617
+        </td>
+        <td>
+          2107
+          -
+          2114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refresh
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.refresh
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          2054
+          -
+          2107
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; Leader has started and will refresh assignments at &quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          2045
+          -
+          2046
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          2046
+          -
+          2054
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.nodeName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.nodeName
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          2034
+          -
+          2123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.info(scala.StringContext.apply(&quot;&quot;, &quot; Leader has started and will refresh assignments at &quot;, &quot; sec(s)&quot;).s(AssignmentDistributorLeader.this.nodeName, AssignmentDistributorLeader.this.refresh))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          2207
+          -
+          2217
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; stopping&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          2165
+          -
+          2218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.info(scala.StringContext.apply(&quot;AssignmentDistributor &quot;, &quot; stopping&quot;).s(AssignmentDistributorLeader.this.nodeName))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          623
+        </td>
+        <td>
+          2174
+          -
+          2217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;AssignmentDistributor &quot;, &quot; stopping&quot;).s(AssignmentDistributorLeader.this.nodeName)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          2176
+          -
+          2199
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;AssignmentDistributor &quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          2199
+          -
+          2207
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.nodeName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.nodeName
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          2223
+          -
+          2252
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.scheduler.foreach[Boolean](((x$1: akka.actor.Cancellable) =&gt; x$1.cancel()))
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          2241
+          -
+          2251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Cancellable.cancel
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.cancel()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          2292
+          -
+          2292
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          2329
+          -
+          2353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refreshNodeAssignments
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.refreshNodeAssignments()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          2351
+          -
+          2351
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          2393
+          -
+          2418
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.distributeAssignments
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.distributeAssignments(da)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          2458
+          -
+          2459
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          2456
+          -
+          2491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; Fetch timeout!&quot;).s(AssignmentDistributorLeader.this.self.path.name)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          2460
+          -
+          2474
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          2475
+          -
+          2491
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; Fetch timeout!&quot;
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          2446
+          -
+          2492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;&quot;, &quot; Fetch timeout!&quot;).s(AssignmentDistributorLeader.this.self.path.name))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          636
+        </td>
+        <td>
+          2541
+          -
+          2558
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.scheduler.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          2560
+          -
+          2728
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.scheduler_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.scheduler_=(scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          650
+        </td>
+        <td>
+          2538
+          -
+          2538
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          2560
+          -
+          2728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.scheduler_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.scheduler_=(scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          2538
+          -
+          2538
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          2583
+          -
+          2727
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          2616
+          -
+          2616
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          2618
+          -
+          2633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          2578
+          -
+          2728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.Cancellable](AssignmentDistributorLeader.this.context.system.scheduler.schedule(scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds, AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.RefreshNodeAssignments)(AssignmentDistributorLeader.this.context.dispatcher, AssignmentDistributorLeader.this.self))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          2616
+          -
+          2616
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          2618
+          -
+          2625
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refresh
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.refresh
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          2681
+          -
+          2688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.refresh
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.refresh
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          2704
+          -
+          2726
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.RefreshNodeAssignments
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.RefreshNodeAssignments
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          2698
+          -
+          2702
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          2681
+          -
+          2696
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(AssignmentDistributorLeader.this.refresh).seconds
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          2748
+          -
+          2764
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.fetcherActorName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.fetcherActorName
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          2734
+          -
+          2765
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.child
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.child(AssignmentDistributorLeader.this.fetcherActorName)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          2839
+          -
+          2850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.sourceProxy
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.sourceProxy
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          2793
+          -
+          2870
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.actorOf(AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy), AssignmentDistributorLeader.this.fetcherActorName)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          2833
+          -
+          2837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.self
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          2853
+          -
+          2869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.fetcherActorName
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.fetcherActorName
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          2809
+          -
+          2851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.props
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.props(AssignmentDistributorLeader.this.self, AssignmentDistributorLeader.this.sourceProxy)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          2888
+          -
+          2944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.warn(scala.StringContext.apply(&quot;Can\'t fetch data because fetcher is active!&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          2897
+          -
+          2943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Can\'t fetch data because fetcher is active!&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          3043
+          -
+          3063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.DistributeAssignments.nodes
+        </td>
+        <td style="background: #F0ADAD">
+          assignmentInfo.nodes
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          3091
+          -
+          3146
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IterableLike.zipWithIndex
+        </td>
+        <td style="background: #F0ADAD">
+          assignmentInfo.topicResp.partitionsByTopic.zipWithIndex[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)]](immutable.this.Set.canBuildFrom[(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)])
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          3134
+          -
+          3134
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Set.canBuildFrom[(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          3189
+          -
+          3189
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])]
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          3198
+          -
+          3198
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[(String, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          3231
+          -
+          3373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](node._1).-&gt;[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](assignsWithIndex.filter(((assign: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0)))).map[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](((x: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; x._1))(immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          3231
+          -
+          3238
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          node._1
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          3360
+          -
+          3360
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Set.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          3312
+          -
+          3353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          assign._2.-(node._2).%(nodes.length).==(0)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          3367
+          -
+          3371
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          x._1
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          3300
+          -
+          3307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #F0ADAD">
+          node._2
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          667
+        </td>
+        <td>
+          3286
+          -
+          3353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          670
+        </td>
+        <td>
+          3242
+          -
+          3373
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SetLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          assignsWithIndex.filter(((assign: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0)))).map[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](((x: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; x._1))(immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          3172
+          -
+          3386
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          nodes.zipWithIndex[String, List[(String, Int)]](immutable.this.List.canBuildFrom[(String, Int)]).map[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]), List[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])]](((node: (String, Int)) =&gt; scala.this.Predef.ArrowAssoc[String](node._1).-&gt;[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](assignsWithIndex.filter(((assign: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; assign._2.&gt;=(node._2).&amp;&amp;(assign._2.-(node._2).%(nodes.length).==(0)))).map[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](((x: (com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment, Int)) =&gt; x._1))(immutable.this.Set.canBuildFrom[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]))))(immutable.this.List.canBuildFrom[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])]).toMap[String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](scala.this.Predef.$conforms[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])])
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          3381
+          -
+          3381
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])]
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          3402
+          -
+          3462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Setting new node assignments: &quot;, &quot;&quot;).s(assignsByNode.toString())
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          3404
+          -
+          3435
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Setting new node assignments: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          3436
+          -
+          3460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.toString
+        </td>
+        <td style="background: #F0ADAD">
+          assignsByNode.toString()
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          676
+        </td>
+        <td>
+          3461
+          -
+          3462
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          3392
+          -
+          3463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.debug(scala.StringContext.apply(&quot;Setting new node assignments: &quot;, &quot;&quot;).s(assignsByNode.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          3491
+          -
+          3616
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          assignsByNode.map[(String, String), Map[String,String]](((x0$6: (String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])) =&gt; x0$6 match {
+  case (_1: String, _2: scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])((nodeId @ _), (partitionsByTopic @ _)) =&gt; scala.this.Predef.ArrowAssoc[String](nodeId).-&gt;[String](net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats))
+}))(immutable.this.Map.canBuildFrom[String, String])
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          3509
+          -
+          3509
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Map.canBuildFrom[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          3468
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.setAssignmentsForNodes
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.setAssignmentsForNodes(assignsByNode.map[(String, String), Map[String,String]](((x0$6: (String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])) =&gt; x0$6 match {
+  case (_1: String, _2: scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])(String, scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment])((nodeId @ _), (partitionsByTopic @ _)) =&gt; scala.this.Predef.ArrowAssoc[String](nodeId).-&gt;[String](net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats))
+}))(immutable.this.Map.canBuildFrom[String, String]))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          681
+        </td>
+        <td>
+          3563
+          -
+          3610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.liftweb.json.Serialization.write
+        </td>
+        <td style="background: #F0ADAD">
+          net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          3602
+          -
+          3609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.formats
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.formats
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          682
+        </td>
+        <td>
+          3553
+          -
+          3610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](nodeId).-&gt;[String](net.liftweb.json.Serialization.write[scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment]](partitionsByTopic)(AssignmentDistributorLeader.formats))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          3759
+          -
+          4479
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.getChildren(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath), true)(AssignmentDistributorLeader.this.timeout).onComplete[Unit](((x0$1: scala.util.Try[Seq[(String, Option[Array[Byte]])]]) =&gt; x0$1 match {
+  case (value: Seq[(String, Option[Array[Byte]])])scala.util.Success[Seq[(String, Option[Array[Byte]])]]((existingData @ _)) =&gt; {
+    val nodesToDelete: Seq[(String, Option[Array[Byte]])] = existingData.filter(((x0$2: (String, Option[Array[Byte]])) =&gt; x0$2 match {
+      case (_1: String, _2: Option[Array[Byte]])(String, Option[Array[Byte]])((nodeId @ _), (existingData @ _)) =&gt; data.contains(nodeId).unary_!
+    }));
+    scala.concurrent.Future.traverse[(String, Option[Array[Byte]]), String, Seq](nodesToDelete)(((x0$3: (String, Option[Array[Byte]])) =&gt; x0$3 match {
+  case (_1: String, _2: Option[Array[Byte]])(String, Option[Array[Byte]])((nodeId @ _), _) =&gt; AssignmentDistributorLeader.this.deleteNode(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId))(AssignmentDistributorLeader.this.timeout)
+}))(collection.this.Seq.canBuildFrom[String], AssignmentDistributorLeader.this.context.dispatcher).onFailure[Unit](({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ _) =&gt; AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])), ex)
+          case (defaultCase$ @ _) =&gt; default.apply(x2)
+        };
+        final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ _) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[Throwable,Unit]))(AssignmentDistributorLeader.this.context.dispatcher)
+  }
+  case (exception: Throwable)scala.util.Failure[Seq[(String, Option[Array[Byte]])]]((fail @ _)) =&gt; AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())))
+}))(AssignmentDistributorLeader.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          3796
+          -
+          3797
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          3813
+          -
+          3817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          3773
+          -
+          3774
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          722
+        </td>
+        <td>
+          3830
+          -
+          3830
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          3771
+          -
+          3797
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          3770
+          -
+          3770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          3775
+          -
+          3795
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          3951
+          -
+          4026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #F0ADAD">
+          existingData.filter(((x0$2: (String, Option[Array[Byte]])) =&gt; x0$2 match {
+  case (_1: String, _2: Option[Array[Byte]])(String, Option[Array[Byte]])((nodeId @ _), (existingData @ _)) =&gt; data.contains(nodeId).unary_!
+}))
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          4003
+          -
+          4025
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          data.contains(nodeId).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          702
+        </td>
+        <td>
+          4067
+          -
+          4067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          4067
+          -
+          4067
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          4143
+          -
+          4144
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          4109
+          -
+          4109
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          4135
+          -
+          4137
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          4110
+          -
+          4144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          4114
+          -
+          4134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          700
+        </td>
+        <td>
+          4099
+          -
+          4145
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.deleteNode
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.deleteNode(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId))(AssignmentDistributorLeader.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          4112
+          -
+          4113
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          4166
+          -
+          4166
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          710
+        </td>
+        <td>
+          4166
+          -
+          4166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          712
+        </td>
+        <td>
+          4036
+          -
+          4279
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.traverse[(String, Option[Array[Byte]]), String, Seq](nodesToDelete)(((x0$3: (String, Option[Array[Byte]])) =&gt; x0$3 match {
+  case (_1: String, _2: Option[Array[Byte]])(String, Option[Array[Byte]])((nodeId @ _), _) =&gt; AssignmentDistributorLeader.this.deleteNode(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId))(AssignmentDistributorLeader.this.timeout)
+}))(collection.this.Seq.canBuildFrom[String], AssignmentDistributorLeader.this.context.dispatcher).onFailure[Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: Unit](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ _) =&gt; AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])), ex)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ _) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,Unit]))(AssignmentDistributorLeader.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          4257
+          -
+          4261
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          4199
+          -
+          4264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String]))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          4263
+          -
+          4264
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          4239
+          -
+          4262
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          706
+        </td>
+        <td>
+          4256
+          -
+          4256
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          4189
+          -
+          4269
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to delete assignment nodes - &quot;, &quot;&quot;).s(nodesToDelete.map[String, Any](((x$2: (String, Option[Array[Byte]])) =&gt; x$2._1))(collection.this.Seq.canBuildFrom[String])), ex)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          4201
+          -
+          4238
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unable to delete assignment nodes - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          720
+        </td>
+        <td>
+          4326
+          -
+          4472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          714
+        </td>
+        <td>
+          4382
+          -
+          4384
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          713
+        </td>
+        <td>
+          4328
+          -
+          4360
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unable to get list of nodes at &quot;
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          4361
+          -
+          4381
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          4316
+          -
+          4473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to get list of nodes at &quot;, &quot; &quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath).+(scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          4471
+          -
+          4472
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          4405
+          -
+          4472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;while attempting to delete stale node data. &quot;, &quot;&quot;).s(fail.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          716
+        </td>
+        <td>
+          4407
+          -
+          4452
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;while attempting to delete stale node data. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          718
+        </td>
+        <td>
+          4453
+          -
+          4470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          fail.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          4507
+          -
+          4507
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[Int]
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          4507
+          -
+          4507
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          4604
+          -
+          4608
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.utf8
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.utf8
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          732
+        </td>
+        <td>
+          4638
+          -
+          4643
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          726
+        </td>
+        <td>
+          4583
+          -
+          4584
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          4550
+          -
+          4584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          4620
+          -
+          4624
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          4542
+          -
+          4644
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperAdapter.setData
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.setData(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId), nodeData.getBytes(AssignmentDistributorLeader.this.utf8), true, false)(AssignmentDistributorLeader.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          4575
+          -
+          4577
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          4552
+          -
+          4553
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          4549
+          -
+          4549
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          727
+        </td>
+        <td>
+          4554
+          -
+          4574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.assignmentPath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.paths.assignmentPath
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          4586
+          -
+          4609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          nodeData.getBytes(AssignmentDistributorLeader.this.utf8)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          4662
+          -
+          4662
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          4485
+          -
+          4842
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.traverse[(String, String), Int, scala.collection.immutable.Iterable](data)(((x0$4: (String, String)) =&gt; x0$4 match {
+  case (_1: String, _2: String)(String, String)((nodeId @ _), (nodeData @ _)) =&gt; AssignmentDistributorLeader.this.setData(scala.StringContext.apply(&quot;&quot;, &quot;/&quot;, &quot;&quot;).s(AssignmentDistributorLeader.this.paths.assignmentPath, nodeId), nodeData.getBytes(AssignmentDistributorLeader.this.utf8), true, false)(AssignmentDistributorLeader.this.timeout)
+}))(immutable.this.Iterable.canBuildFrom[Int], AssignmentDistributorLeader.this.context.dispatcher).onComplete[Unit](((x0$5: scala.util.Try[scala.collection.immutable.Iterable[Int]]) =&gt; x0$5 match {
+  case (value: scala.collection.immutable.Iterable[Int])scala.util.Success[scala.collection.immutable.Iterable[Int]]((path @ _)) =&gt; AssignmentDistributorLeader.this.log.debug(scala.StringContext.apply(&quot;Successfully set node data&quot;).s())
+  case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Int]]((fail @ _)) =&gt; AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to set node data. &quot;, &quot;&quot;).s(fail.getMessage()))
+}))(AssignmentDistributorLeader.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          4700
+          -
+          4740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.debug(scala.StringContext.apply(&quot;Successfully set node data&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          4710
+          -
+          4739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Successfully set node data&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          4816
+          -
+          4833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          fail.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          4777
+          -
+          4836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.this.log.error(scala.StringContext.apply(&quot;Unable to set node data. &quot;, &quot;&quot;).s(fail.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          4834
+          -
+          4835
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          4787
+          -
+          4835
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unable to set node data. &quot;, &quot;&quot;).s(fail.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          4789
+          -
+          4815
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unable to set node data. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          747
+        </td>
+        <td>
+          4938
+          -
+          4989
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.component.kafka.actor.AssignmentFetcher](new AssignmentFetcher(receiver, sourceProxy))((ClassTag.apply[com.webtrends.harness.component.kafka.actor.AssignmentFetcher](classOf[com.webtrends.harness.component.kafka.actor.AssignmentFetcher]): scala.reflect.ClassTag[com.webtrends.harness.component.kafka.actor.AssignmentFetcher]))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          4944
+          -
+          4988
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new AssignmentFetcher(receiver, sourceProxy)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          5550
+          -
+          5597
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-kafka.consumer.assignment-distributor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          5609
+          -
+          5639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          5674
+          -
+          5745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          5694
+          -
+          5695
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          5692
+          -
+          5730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          5695
+          -
+          5705
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.configRoot
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.configRoot
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          5682
+          -
+          5744
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.milliseconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          751
+        </td>
+        <td>
+          5705
+          -
+          5730
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.zk-fetch-timeout-millis&quot;
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          5682
+          -
+          5731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getLong
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          5771
+          -
+          5780
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          5771
+          -
+          5780
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          5771
+          -
+          5772
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          5668
+          -
+          5781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[akka.util.Timeout](akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.zk-fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).milliseconds)).getOrElse[akka.util.Timeout](util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(5).seconds))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          5804
+          -
+          5898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Long](AssignmentFetcher.this.c.getLong(scala.StringContext.apply(&quot;&quot;, &quot;.fetch-timeout-millis&quot;).s(AssignmentFetcher.this.configRoot))).getOrElse[Long](2000L)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          5912
+          -
+          5950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Fetching with timeout &quot;, &quot;&quot;).s(AssignmentFetcher.this.fetchTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          5914
+          -
+          5937
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Fetching with timeout &quot;
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          5937
+          -
+          5949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.fetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.fetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          5902
+          -
+          5951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Fetching with timeout &quot;, &quot;&quot;).s(AssignmentFetcher.this.fetchTimeout))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          5949
+          -
+          5950
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          5989
+          -
+          5993
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          6046
+          -
+          6050
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          6066
+          -
+          6082
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.distributorPaths
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.distributorPaths
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          6093
+          -
+          6098
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.Fetch
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.Fetch
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          6086
+          -
+          6090
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          6086
+          -
+          6098
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.Fetch)(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          6091
+          -
+          6091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          6140
+          -
+          6152
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.fetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.fetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          6140
+          -
+          6165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.milliseconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.fetchTimeout).milliseconds
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          6102
+          -
+          6196
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Scheduler.scheduleOnce
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.system.scheduler.scheduleOnce(scala.concurrent.duration.`package`.DurationLong(AssignmentFetcher.this.fetchTimeout).milliseconds)(akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.FetchTimeout)(AssignmentFetcher.this.self))(AssignmentFetcher.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          6167
+          -
+          6167
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          6180
+          -
+          6192
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.FetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.FetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          6173
+          -
+          6192
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.FetchTimeout)(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          6173
+          -
+          6177
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          6178
+          -
+          6178
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          6229
+          -
+          6229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          6249
+          -
+          6256
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.fetch
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.fetch()
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          6307
+          -
+          6315
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.nodes
+        </td>
+        <td style="background: #F0ADAD">
+          cn.nodes
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          6294
+          -
+          6316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.nodes_=(scala.Some.apply[List[String]](cn.nodes))
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          6302
+          -
+          6316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[List[String]](cn.nodes)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          6323
+          -
+          6329
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.isDone
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.isDone
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          6372
+          -
+          6398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.topicPartitions_=
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.topicPartitions_=(scala.Some.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp](tr))
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          6390
+          -
+          6398
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp](tr)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          6405
+          -
+          6411
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.isDone
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.isDone
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          795
+        </td>
+        <td>
+          6444
+          -
+          6444
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          6444
+          -
+          6444
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          790
+        </td>
+        <td>
+          6447
+          -
+          6460
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.nodes.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          6472
+          -
+          6521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          6481
+          -
+          6520
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          793
+        </td>
+        <td>
+          6472
+          -
+          6521
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Zookeeper node request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          6537
+          -
+          6537
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          6537
+          -
+          6537
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          6540
+          -
+          6563
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.topicPartitions.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          6584
+          -
+          6625
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          6575
+          -
+          6626
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          6575
+          -
+          6626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.warn(scala.StringContext.apply(&quot;Topic Partitions request has timed out&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          6641
+          -
+          6670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sendAndShutdown(AssignmentFetcher.FetchTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          6657
+          -
+          6669
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.FetchTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.FetchTimeout
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          810
+        </td>
+        <td>
+          6762
+          -
+          6794
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.debug(scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp))
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          6784
+          -
+          6790
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; and &quot;
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          809
+        </td>
+        <td>
+          6772
+          -
+          6793
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Got &quot;, &quot; and &quot;, &quot;&quot;).s(AssignmentFetcher.this.nodes, tp)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          6774
+          -
+          6779
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Got &quot;
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          6779
+          -
+          6784
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.nodes
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.nodes
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          6792
+          -
+          6793
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          6802
+          -
+          6846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sendAndShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sendAndShutdown(AssignmentDistributorLeader.DistributeAssignments.apply(n, tp))
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          6818
+          -
+          6845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.DistributeAssignments.apply
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentDistributorLeader.DistributeAssignments.apply(n, tp)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          6858
+          -
+          6860
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          6923
+          -
+          6923
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          814
+        </td>
+        <td>
+          6914
+          -
+          6922
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.receiver
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.receiver
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          816
+        </td>
+        <td>
+          6914
+          -
+          6929
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.receiver).!(resp)(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          6934
+          -
+          6963
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.debug(&quot;Stopping Fetcher&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          6968
+          -
+          6986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.stop(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          6981
+          -
+          6985
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          822
+        </td>
+        <td>
+          7030
+          -
+          7044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.nodePath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.paths.nodePath
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          7045
+          -
+          7046
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          7062
+          -
+          7067
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          842
+        </td>
+        <td>
+          7080
+          -
+          7080
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          7028
+          -
+          7029
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          823
+        </td>
+        <td>
+          7026
+          -
+          7046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath)
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          7025
+          -
+          7025
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.zkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.zkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          223
+        </td>
+        <td>
+          843
+        </td>
+        <td>
+          7014
+          -
+          7362
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.getChildren(scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath), false)(AssignmentFetcher.this.zkTimeout).onComplete[Unit](((x0$7: scala.util.Try[Seq[(String, Option[Array[Byte]])]]) =&gt; x0$7 match {
+  case (value: Seq[(String, Option[Array[Byte]])])scala.util.Success[Seq[(String, Option[Array[Byte]])]]((nodes @ _)) =&gt; akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
+  case (exception: Throwable)scala.util.Failure[Seq[(String, Option[Array[Byte]])]]((fail @ _)) =&gt; AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
+}))(AssignmentFetcher.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          828
+        </td>
+        <td>
+          7149
+          -
+          7149
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          831
+        </td>
+        <td>
+          7124
+          -
+          7124
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          830
+        </td>
+        <td>
+          7126
+          -
+          7174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.ConsumerNodes.apply
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          7158
+          -
+          7165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          node._1
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          7119
+          -
+          7123
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          7140
+          -
+          7173
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #F0ADAD">
+          nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          7119
+          -
+          7174
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.self).!(AssignmentFetcher.ConsumerNodes.apply(nodes.map[String, Seq[String]](((node: (String, Option[Array[Byte]])) =&gt; node._1))(collection.this.Seq.canBuildFrom[String]).toList))(AssignmentFetcher.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          7223
+          -
+          7264
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Not requesting node data update because &quot;
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          7211
+          -
+          7356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.log.error(scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          840
+        </td>
+        <td>
+          7221
+          -
+          7355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Not requesting node data update because &quot;).s().+(scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          7317
+          -
+          7331
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.DistributorPaths.nodePath
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.paths.nodePath
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          839
+        </td>
+        <td>
+          7277
+          -
+          7355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;I am unable to get list of nodes at &quot;, &quot;. &quot;, &quot;&quot;).s(AssignmentFetcher.this.paths.nodePath, fail.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          836
+        </td>
+        <td>
+          7354
+          -
+          7355
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          7332
+          -
+          7335
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          7336
+          -
+          7353
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          fail.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          7279
+          -
+          7316
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;I am unable to get list of nodes at &quot;
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          7380
+          -
+          7380
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.self
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          845
+        </td>
+        <td>
+          7382
+          -
+          7399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaConsumerManager.TopicPartitionReq
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaConsumerManager.TopicPartitionReq
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          844
+        </td>
+        <td>
+          7368
+          -
+          7379
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentFetcher.sourceProxy
+        </td>
+        <td style="background: #F0ADAD">
+          AssignmentFetcher.this.sourceProxy
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          847
+        </td>
+        <td>
+          7368
+          -
+          7399
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(AssignmentFetcher.this.sourceProxy).!(KafkaConsumerManager.TopicPartitionReq)(AssignmentFetcher.this.self)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
