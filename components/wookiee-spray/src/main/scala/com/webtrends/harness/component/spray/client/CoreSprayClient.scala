@@ -19,6 +19,8 @@
 package com.webtrends.harness.component.spray.client
 
 import com.webtrends.harness.app.HActor
+import com.webtrends.harness.component.spray.SprayManager
+import com.webtrends.harness.utils.ConfigUtil
 import spray.can.server.UHttp
 import spray.http._
 import akka.util.Timeout
@@ -50,6 +52,9 @@ object CoreSprayClient {
 class CoreSprayClient extends HActor with HttpLiftSupport {
   import context.dispatcher
   implicit val system:ActorSystem = context.system
+
+  // 60 seconds is the default that spray uses, so if the config value is not set we won't change the default
+  implicit val futureTimeout = ConfigUtil.getDefaultTimeout(context.system.settings.config, SprayManager.KeyHttpClientTimeout, 60 seconds)
 
   val pipeline:HttpRequest => Future[HttpResponse] = (
     encode(Gzip)
