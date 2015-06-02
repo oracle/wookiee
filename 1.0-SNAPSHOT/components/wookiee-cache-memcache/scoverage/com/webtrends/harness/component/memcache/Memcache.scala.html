@@ -1,0 +1,1735 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/memcache/Memcache.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.memcache
+</span>20 <span style=''>
+</span>21 <span style=''>import com.twitter.finagle.memcached.Client
+</span>22 <span style=''>import com.twitter.util.{Promise, Future}
+</span>23 <span style=''>import com.webtrends.harness.component.cache.CacheConfig
+</span>24 <span style=''>import org.jboss.netty.buffer.ChannelBuffer
+</span>25 <span style=''>
+</span>26 <span style=''>case class Memcache(client:Client, config:CacheConfig) {
+</span>27 <span style=''>
+</span>28 <span style=''>  def get(key:String) : Future[Option[ChannelBuffer]] = {
+</span>29 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Option[ChannelBuffer]]</span><span style=''>
+</span>30 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(key)</span><span style=''>
+</span>31 <span style=''>    </span><span style='background: #F0ADAD'>ck onSuccess { cKey =>
+</span>32 <span style=''></span><span style='background: #F0ADAD'>      val f = client.get(cKey)
+</span>33 <span style=''></span><span style='background: #F0ADAD'>      f onSuccess { data =>
+</span>34 <span style=''></span><span style='background: #F0ADAD'>        p.setValue(data)
+</span>35 <span style=''></span><span style='background: #F0ADAD'>      } onFailure { ex =>
+</span>36 <span style=''></span><span style='background: #F0ADAD'>        p.setException(ex)
+</span>37 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>38 <span style=''>    }
+</span>39 <span style=''>    p
+</span>40 <span style=''>  }
+</span>41 <span style=''>
+</span>42 <span style=''>  def set(key:String, value:ChannelBuffer) : Future[Boolean] = {
+</span>43 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Boolean]</span><span style=''>
+</span>44 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(key)</span><span style=''>
+</span>45 <span style=''>    </span><span style='background: #F0ADAD'>ck onSuccess { cKey =>
+</span>46 <span style=''></span><span style='background: #F0ADAD'>      client.set(cKey, value)
+</span>47 <span style=''></span><span style='background: #F0ADAD'>      p.setValue(true)
+</span>48 <span style=''></span><span style='background: #F0ADAD'>    } onFailure { ex =>
+</span>49 <span style=''></span><span style='background: #F0ADAD'>      p.setException(ex)</span><span style=''>
+</span>50 <span style=''>    }
+</span>51 <span style=''>    p
+</span>52 <span style=''>  }
+</span>53 <span style=''>
+</span>54 <span style=''>  def delete(key:String) : Future[Boolean] = {
+</span>55 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Boolean]</span><span style=''>
+</span>56 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(key)</span><span style=''>
+</span>57 <span style=''>    </span><span style='background: #F0ADAD'>ck onSuccess { cKey =>
+</span>58 <span style=''></span><span style='background: #F0ADAD'>      val result = client.delete(cKey)
+</span>59 <span style=''></span><span style='background: #F0ADAD'>      result onSuccess { data =>
+</span>60 <span style=''></span><span style='background: #F0ADAD'>        p.setValue(data)
+</span>61 <span style=''></span><span style='background: #F0ADAD'>      } onFailure { ex =>
+</span>62 <span style=''></span><span style='background: #F0ADAD'>        p.setException(ex)
+</span>63 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>64 <span style=''>    }
+</span>65 <span style=''>    p
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>  def increment(key:String, delta:Long) : Future[Option[Long]] = {
+</span>69 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Option[Long]]</span><span style=''>
+</span>70 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(key)</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #F0ADAD'>ck onSuccess { cKey =>
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      val result = client.incr(cKey, delta)
+</span>73 <span style=''></span><span style='background: #F0ADAD'>      result onSuccess { res =>
+</span>74 <span style=''></span><span style='background: #F0ADAD'>        p.setValue(Some(Long.unbox(res)))
+</span>75 <span style=''></span><span style='background: #F0ADAD'>      } onFailure { ex =>
+</span>76 <span style=''></span><span style='background: #F0ADAD'>        p.setException(ex)
+</span>77 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>78 <span style=''>    }
+</span>79 <span style=''>    p
+</span>80 <span style=''>  }
+</span>81 <span style=''>
+</span>82 <span style=''>  def decrement(key:String, delta:Long) : Future[Option[Long]] = {
+</span>83 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Option[Long]]</span><span style=''>
+</span>84 <span style=''>    val ck = </span><span style='background: #F0ADAD'>getCacheKey(key)</span><span style=''>
+</span>85 <span style=''>    </span><span style='background: #F0ADAD'>ck onSuccess { cKey =>
+</span>86 <span style=''></span><span style='background: #F0ADAD'>      val result = client.decr(cKey, delta)
+</span>87 <span style=''></span><span style='background: #F0ADAD'>      result onSuccess { res =>
+</span>88 <span style=''></span><span style='background: #F0ADAD'>        p.setValue(Some(Long.unbox(res)))
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      } onFailure { ex =>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>        p.setException(ex)
+</span>91 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>92 <span style=''>    }
+</span>93 <span style=''>    p
+</span>94 <span style=''>  }
+</span>95 <span style=''>
+</span>96 <span style=''>  def getCacheKey(key:String) : Future[String] = {
+</span>97 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[String]</span><span style=''>
+</span>98 <span style=''>    val currentSet = </span><span style='background: #F0ADAD'>_getCurrentSet</span><span style=''>
+</span>99 <span style=''>    </span><span style='background: #F0ADAD'>currentSet onSuccess { cKey =>
+</span>100 <span style=''></span><span style='background: #F0ADAD'>      p.setValue(_getKey(key, cKey))
+</span>101 <span style=''></span><span style='background: #F0ADAD'>    } onFailure { ex =>
+</span>102 <span style=''></span><span style='background: #F0ADAD'>      p.setValue(_getKey(key, -1))</span><span style=''>
+</span>103 <span style=''>    }
+</span>104 <span style=''>    p
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  private def _getKey(key:String, set:Int) : String = {
+</span>108 <span style=''>    val setKeyPrefix = if (</span><span style='background: #F0ADAD'>set > -1</span><span style=''>) </span><span style='background: #F0ADAD'>set.toString</span><span style=''> else </span><span style='background: #F0ADAD'>""</span><span style=''>
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>setKeyPrefix + "." + config.namespace + "." + key</span><span style=''>
+</span>110 <span style=''>  }
+</span>111 <span style=''>
+</span>112 <span style=''>  private def _getCurrentSet : Future[Int] = {
+</span>113 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[Int]</span><span style=''>
+</span>114 <span style=''>    if (</span><span style='background: #F0ADAD'>config.setKey.isEmpty</span><span style=''>) {
+</span>115 <span style=''>      </span><span style='background: #F0ADAD'>p.setValue(-1)</span><span style=''>
+</span>116 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>117 <span style=''></span><span style='background: #F0ADAD'>      val f = client.get(config.setKey)
+</span>118 <span style=''></span><span style='background: #F0ADAD'>      f onSuccess { reply =>
+</span>119 <span style=''></span><span style='background: #F0ADAD'>        reply match {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>          case Some(buffer) => p.setValue(buffer.readInt())
+</span>121 <span style=''></span><span style='background: #F0ADAD'>          case None => p.setValue(-1)
+</span>122 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>123 <span style=''></span><span style='background: #F0ADAD'>      } onFailure { reply =>
+</span>124 <span style=''></span><span style='background: #F0ADAD'>        p.setValue(-1)
+</span>125 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>126 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>127 <span style=''>    p
+</span>128 <span style=''>  }
+</span>129 <span style=''>
+</span>130 <span style=''>  def checkHealth() : Future[CacheStatus] = {
+</span>131 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[CacheStatus]</span><span style=''>
+</span>132 <span style=''>    /*val future = client.stats()
+</span>133 <span style=''>    future onSuccess { reply =>
+</span>134 <span style=''>      p.setValue(CacheStatus(true, "Cache looking good %s".format(reply.toString)))
+</span>135 <span style=''>    } onFailure { fail =>
+</span>136 <span style=''>      p.setValue(CacheStatus(false, fail.getMessage))
+</span>137 <span style=''>    }*/
+</span>138 <span style=''>    </span><span style='background: #F0ADAD'>p.setValue(CacheStatus(true, "Cache Looking good"))</span><span style=''>
+</span>139 <span style=''>    p
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>  def close = {
+</span>143 <span style=''>    </span><span style='background: #F0ADAD'>client.quit</span><span style=''>
+</span>144 <span style=''>  }
+</span>145 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          1105
+          -
+          1135
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Option[org.jboss.netty.buffer.ChannelBuffer]]()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          1149
+          -
+          1165
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.getCacheKey(key)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          1170
+          -
+          1337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onSuccess
+        </td>
+        <td style="background: #F0ADAD">
+          ck.onSuccess(((cKey: String) =&gt; {
+  val f: com.twitter.util.Future[Option[org.jboss.netty.buffer.ChannelBuffer]] = Memcache.this.client.get(cKey);
+  {
+    f.onSuccess(((data: Option[org.jboss.netty.buffer.ChannelBuffer]) =&gt; p.setValue(data))).onFailure(((ex: Throwable) =&gt; p.setException(ex)));
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1207
+          -
+          1223
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.get
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.get(cKey)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          1260
+          -
+          1276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(data)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          1285
+          -
+          1285
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1230
+          -
+          1329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          f.onSuccess(((data: Option[org.jboss.netty.buffer.ChannelBuffer]) =&gt; p.setValue(data))).onFailure(((ex: Throwable) =&gt; p.setException(ex)))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          1311
+          -
+          1329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setException
+        </td>
+        <td style="background: #F0ADAD">
+          p.setException(ex)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          1432
+          -
+          1448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          1462
+          -
+          1478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.getCacheKey(key)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          1512
+          -
+          1535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.set
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.set(cKey, value)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          1542
+          -
+          1558
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(true)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          1483
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          ck.onSuccess(((cKey: String) =&gt; {
+  Memcache.this.client.set(cKey, value);
+  p.setValue(true)
+})).onFailure(((ex: Throwable) =&gt; p.setException(ex)))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          1589
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setException
+        </td>
+        <td style="background: #F0ADAD">
+          p.setException(ex)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          1684
+          -
+          1700
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          1714
+          -
+          1730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.getCacheKey(key)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          1735
+          -
+          1915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onSuccess
+        </td>
+        <td style="background: #F0ADAD">
+          ck.onSuccess(((cKey: String) =&gt; {
+  val result: com.twitter.util.Future[Boolean] = Memcache.this.client.delete(cKey);
+  {
+    result.onSuccess(((data: Boolean) =&gt; p.setValue(scala.this.Predef.Boolean2boolean(data)))).onFailure(((ex: Throwable) =&gt; p.setException(ex)));
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          1777
+          -
+          1796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.delete
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.delete(cKey)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          1838
+          -
+          1854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(scala.this.Predef.Boolean2boolean(data))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          1849
+          -
+          1853
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.Boolean2boolean
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Boolean2boolean(data)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1863
+          -
+          1863
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          1803
+          -
+          1907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          result.onSuccess(((data: Boolean) =&gt; p.setValue(scala.this.Predef.Boolean2boolean(data)))).onFailure(((ex: Throwable) =&gt; p.setException(ex)))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          1889
+          -
+          1907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setException
+        </td>
+        <td style="background: #F0ADAD">
+          p.setException(ex)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2012
+          -
+          2033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Option[Long]]()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          2047
+          -
+          2063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.getCacheKey(key)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          2068
+          -
+          2269
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onSuccess
+        </td>
+        <td style="background: #F0ADAD">
+          ck.onSuccess(((cKey: String) =&gt; {
+  val result: com.twitter.util.Future[Option[Long]] = Memcache.this.client.incr(cKey, delta);
+  {
+    result.onSuccess(((res: Option[Long]) =&gt; p.setValue(scala.Some.apply[Long](scala.Long.unbox(res))))).onFailure(((ex: Throwable) =&gt; p.setException(ex)));
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          2110
+          -
+          2134
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.incr
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.incr(cKey, delta)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2175
+          -
+          2208
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(scala.Some.apply[Long](scala.Long.unbox(res)))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2186
+          -
+          2207
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](scala.Long.unbox(res))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2191
+          -
+          2206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.unbox
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Long.unbox(res)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          2217
+          -
+          2217
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          2141
+          -
+          2261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          result.onSuccess(((res: Option[Long]) =&gt; p.setValue(scala.Some.apply[Long](scala.Long.unbox(res))))).onFailure(((ex: Throwable) =&gt; p.setException(ex)))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2243
+          -
+          2261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setException
+        </td>
+        <td style="background: #F0ADAD">
+          p.setException(ex)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2366
+          -
+          2387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Option[Long]]()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2401
+          -
+          2417
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache.getCacheKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.getCacheKey(key)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          2422
+          -
+          2623
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onSuccess
+        </td>
+        <td style="background: #F0ADAD">
+          ck.onSuccess(((cKey: String) =&gt; {
+  val result: com.twitter.util.Future[Option[Long]] = Memcache.this.client.decr(cKey, delta);
+  {
+    result.onSuccess(((res: Option[Long]) =&gt; p.setValue(scala.Some.apply[Long](scala.Long.unbox(res))))).onFailure(((ex: Throwable) =&gt; p.setException(ex)));
+    ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          2464
+          -
+          2488
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.decr
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.decr(cKey, delta)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          2540
+          -
+          2561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](scala.Long.unbox(res))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          2545
+          -
+          2560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.unbox
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Long.unbox(res)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          2529
+          -
+          2562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(scala.Some.apply[Long](scala.Long.unbox(res)))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2495
+          -
+          2615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          result.onSuccess(((res: Option[Long]) =&gt; p.setValue(scala.Some.apply[Long](scala.Long.unbox(res))))).onFailure(((ex: Throwable) =&gt; p.setException(ex)))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          2571
+          -
+          2571
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2597
+          -
+          2615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setException
+        </td>
+        <td style="background: #F0ADAD">
+          p.setException(ex)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          2704
+          -
+          2719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          2741
+          -
+          2755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache._getCurrentSet
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this._getCurrentSet
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          2797
+          -
+          2827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(Memcache.this._getKey(key, cKey))
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          2808
+          -
+          2826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache._getKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this._getKey(key, cKey)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          2760
+          -
+          2886
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          currentSet.onSuccess(((cKey: Int) =&gt; p.setValue(Memcache.this._getKey(key, cKey)))).onFailure(((ex: Throwable) =&gt; p.setValue(Memcache.this._getKey(key, -1))))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          2858
+          -
+          2886
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(Memcache.this._getKey(key, -1))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          2869
+          -
+          2885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.Memcache._getKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this._getKey(key, -1)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          2997
+          -
+          3009
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #F0ADAD">
+          set.toString()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          3015
+          -
+          3017
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          2997
+          -
+          3009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #F0ADAD">
+          set.toString()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          3015
+          -
+          3017
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          2987
+          -
+          2995
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          set.&gt;(-1)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          3022
+          -
+          3071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          setKeyPrefix.+(&quot;.&quot;).+(Memcache.this.config.namespace).+(&quot;.&quot;).+(key)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          3136
+          -
+          3148
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[Int]()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          3157
+          -
+          3178
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.config.setKey.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          3188
+          -
+          3202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(-1)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          3188
+          -
+          3202
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(-1)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          3214
+          -
+          3480
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val f: com.twitter.util.Future[Option[org.jboss.netty.buffer.ChannelBuffer]] = Memcache.this.client.get(Memcache.this.config.setKey);
+  f.onSuccess(((reply: Option[org.jboss.netty.buffer.ChannelBuffer]) =&gt; reply match {
+  case (x: org.jboss.netty.buffer.ChannelBuffer)Some[org.jboss.netty.buffer.ChannelBuffer]((buffer @ _)) =&gt; p.setValue(buffer.readInt())
+  case scala.None =&gt; p.setValue(-1)
+})).onFailure(((reply: Throwable) =&gt; p.setValue(-1)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          3230
+          -
+          3255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.get
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.get(Memcache.this.config.setKey)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          3241
+          -
+          3254
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.cache.CacheConfig.setKey
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.config.setKey
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          3338
+          -
+          3366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(buffer.readInt())
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          3349
+          -
+          3365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.jboss.netty.buffer.ChannelBuffer.readInt
+        </td>
+        <td style="background: #F0ADAD">
+          buffer.readInt()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          3390
+          -
+          3404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(-1)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          3262
+          -
+          3466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Future.onFailure
+        </td>
+        <td style="background: #F0ADAD">
+          f.onSuccess(((reply: Option[org.jboss.netty.buffer.ChannelBuffer]) =&gt; reply match {
+  case (x: org.jboss.netty.buffer.ChannelBuffer)Some[org.jboss.netty.buffer.ChannelBuffer]((buffer @ _)) =&gt; p.setValue(buffer.readInt())
+  case scala.None =&gt; p.setValue(-1)
+})).onFailure(((reply: Throwable) =&gt; p.setValue(-1)))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          3452
+          -
+          3466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(-1)
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          3550
+          -
+          3570
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.twitter.util.Promise.apply[com.webtrends.harness.component.memcache.CacheStatus]()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          3813
+          -
+          3864
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.util.Promise.setValue
+        </td>
+        <td style="background: #F0ADAD">
+          p.setValue(CacheStatus.apply(true, &quot;Cache Looking good&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          3824
+          -
+          3863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.memcache.CacheStatus.apply
+        </td>
+        <td style="background: #F0ADAD">
+          CacheStatus.apply(true, &quot;Cache Looking good&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          3896
+          -
+          3907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.twitter.finagle.memcached.BaseClient.quit
+        </td>
+        <td style="background: #F0ADAD">
+          Memcache.this.client.quit()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
