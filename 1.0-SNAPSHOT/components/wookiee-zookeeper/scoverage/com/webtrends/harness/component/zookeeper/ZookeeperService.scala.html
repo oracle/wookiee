@@ -43,300 +43,326 @@
 </span>18 <span style=''> */
 </span>19 <span style=''>package com.webtrends.harness.component.zookeeper
 </span>20 <span style=''>
-</span>21 <span style=''>import akka.actor.{Actor, ActorRef, ActorSystem}
-</span>22 <span style=''>import akka.event.Logging
-</span>23 <span style=''>import akka.pattern.ask
-</span>24 <span style=''>import akka.util.Timeout
-</span>25 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.{UnregisterZookeeperEvent, RegisterZookeeperEvent}
-</span>26 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperEventRegistration
-</span>27 <span style=''>import scala.concurrent.Future
-</span>28 <span style=''>import java.util.concurrent.TimeUnit
+</span>21 <span style=''>import java.util.concurrent.TimeUnit
+</span>22 <span style=''>
+</span>23 <span style=''>import akka.actor.{Actor, ActorRef, ActorSystem}
+</span>24 <span style=''>import akka.event.Logging
+</span>25 <span style=''>import akka.pattern.ask
+</span>26 <span style=''>import akka.util.Timeout
+</span>27 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.{RegisterZookeeperEvent, UnregisterZookeeperEvent}
+</span>28 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperEventRegistration
 </span>29 <span style=''>
-</span>30 <span style=''>private[harness] class ZookeeperService()(implicit system: ActorSystem) {
+</span>30 <span style=''>import scala.concurrent.Future
 </span>31 <span style=''>
-</span>32 <span style=''>  import ZookeeperService._
+</span>32 <span style=''>private[harness] class ZookeeperService()(implicit system: ActorSystem) {
 </span>33 <span style=''>
-</span>34 <span style=''>  private[zookeeper] val defaultTimeout = </span><span style='background: #AEF1AE'>Timeout(system.settings.config.getDuration("message-processor.default-send-timeout", TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)</span><span style=''>
-</span>35 <span style=''>  private val log = </span><span style='background: #AEF1AE'>Logging(system, this.getClass)</span><span style=''>
-</span>36 <span style=''>
-</span>37 <span style=''>  /**
-</span>38 <span style=''>   * Register for subscription events. This is not used for maintaining
-</span>39 <span style=''>   * subscriptions, but can be used more for testing subscription events.
-</span>40 <span style=''>   * @param registrar the actor that is to receive the events
-</span>41 <span style=''>   * @param to the class to register for
-</span>42 <span style=''>   */
-</span>43 <span style=''>  def register(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
-</span>44 <span style=''>    </span><span style='background: #F0ADAD'>mediator.get ! RegisterZookeeperEvent(registrar, to)</span><span style=''>
-</span>45 <span style=''>
-</span>46 <span style=''>  /**
-</span>47 <span style=''>   * Unregister for subscription events. This is not used for maintaining
-</span>48 <span style=''>   * subscriptions, but can be used more for testing subscription events.
-</span>49 <span style=''>   * @param registrar the actor that is to receive the events
-</span>50 <span style=''>   * @param to the class to register for
-</span>51 <span style=''>   */
-</span>52 <span style=''>  def unregister(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
-</span>53 <span style=''>    </span><span style='background: #F0ADAD'>mediator.foreach( _ ! UnregisterZookeeperEvent(registrar, to))</span><span style=''>
-</span>54 <span style=''>
-</span>55 <span style=''>  /**
-</span>56 <span style=''>   * Set data in Zookeeper for the given path
-</span>57 <span style=''>   * @param path the path to set data in
-</span>58 <span style=''>   * @param data the data to set
-</span>59 <span style=''>   * @param create should the node be created if it does not exist
-</span>60 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>61 <span style=''>   * @param namespace an optional name space
-</span>62 <span style=''>   * @return the length of data that was written
-</span>63 <span style=''>   */
-</span>64 <span style=''>  def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
-</span>65 <span style=''>             (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Int] =
-</span>66 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? SetPathData(path, data, create, ephemeral, namespace)).mapTo[Int]</span><span style=''>
-</span>67 <span style=''>
-</span>68 <span style=''>  /**
-</span>69 <span style=''>   * Get Zookeeper data for the given path
-</span>70 <span style=''>   * @param path the path to get data from
-</span>71 <span style=''>   * @param namespace an optional name space
-</span>72 <span style=''>   * @return An instance of Array[Byte] or an empty array
-</span>73 <span style=''>   */
-</span>74 <span style=''>  def getData(path: String, namespace: Option[String] = None)(implicit timeout: akka.util.Timeout = defaultTimeout): Future[Array[Byte]] = {
-</span>75 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? GetPathData(path, namespace)).mapTo[Array[Byte]]</span><span style=''>
-</span>76 <span style=''>  }
-</span>77 <span style=''>
-</span>78 <span style=''>  /**
-</span>79 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
-</span>80 <span style=''>   * @param path the path to set data in
-</span>81 <span style=''>   * @param data the data to set
-</span>82 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>83 <span style=''>   * @param namespace an optional name space
-</span>84 <span style=''>   * @return An instance of Array[Byte] or an empty array
-</span>85 <span style=''>   */
-</span>86 <span style=''>  def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean = false, namespace: Option[String] = None)
-</span>87 <span style=''>                  (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Array[Byte]] =
-</span>88 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetOrSetPathData(path, data, ephemeral, namespace)).mapTo[Array[Byte]]</span><span style=''>
-</span>89 <span style=''>
-</span>90 <span style=''>  /**
-</span>91 <span style=''>   * Get the child nodes for the given path
-</span>92 <span style=''>   * @param path the path to get the children of
-</span>93 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
-</span>94 <span style=''>   * @param namespace an optional name space
-</span>95 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
-</span>96 <span style=''>   */
-</span>97 <span style=''>  def getChildren(path: String, includeData: Boolean = false, namespace: Option[String] = None)
-</span>98 <span style=''>                 (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Seq[(String, Option[Array[Byte]])]] = {
-</span>99 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? GetPathChildren(path, includeData, namespace)).mapTo[Seq[(String, Option[Array[Byte]])]]</span><span style=''>
-</span>100 <span style=''>  }
-</span>101 <span style=''>
-</span>102 <span style=''>  /**
-</span>103 <span style=''>   * Create a node at the given path
-</span>104 <span style=''>   * @param path the path to create the node at
-</span>105 <span style=''>   * @param ephemeral is the node ephemeral
-</span>106 <span style=''>   * @param data the data to set in the node
-</span>107 <span style=''>   * @param namespace an optional name space
-</span>108 <span style=''>   * @return the full path to the newly created node or an empty string if an error occurred
-</span>109 <span style=''>   */
-</span>110 <span style=''>  def createNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]], namespace: Option[String] = None)
-</span>111 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[String] = {
-</span>112 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? CreateNode(path, ephemeral, data, namespace)).mapTo[String]</span><span style=''>
-</span>113 <span style=''>  }
-</span>114 <span style=''>
-</span>115 <span style=''>  /**
-</span>116 <span style=''>   * Delete a node at the given path
-</span>117 <span style=''>   * @param path the path to delete the node at
-</span>118 <span style=''>   * @param namespace an optional name space
-</span>119 <span style=''>   * @return the full path to the newly created node or an empty string if an error occurred
-</span>120 <span style=''>   */
-</span>121 <span style=''>  def deleteNode(path: String, namespace: Option[String] = None)
-</span>122 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[String] = {
-</span>123 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? DeleteNode(path, namespace)).mapTo[String]</span><span style=''>
-</span>124 <span style=''>  }
-</span>125 <span style=''>
-</span>126 <span style=''>  /**
-</span>127 <span style=''>   * Does the node exist
-</span>128 <span style=''>   * @param path the path to check
-</span>129 <span style=''>   * @param namespace an optional name space
-</span>130 <span style=''>   * @return true or false
-</span>131 <span style=''>   */
-</span>132 <span style=''>  def nodeExists(path: String, namespace: Option[String] = None)
-</span>133 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Boolean] = {
-</span>134 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetNodeExists(path, namespace)).mapTo[Boolean]</span><span style=''>
-</span>135 <span style=''>  }
-</span>136 <span style=''>}
-</span>137 <span style=''>
-</span>138 <span style=''>object ZookeeperService {
+</span>34 <span style=''>  import ZookeeperService._
+</span>35 <span style=''>
+</span>36 <span style=''>  private[zookeeper] val defaultTimeout = </span><span style='background: #AEF1AE'>Timeout(system.settings.config.getDuration("message-processor.default-send-timeout", TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)</span><span style=''>
+</span>37 <span style=''>  private val log = </span><span style='background: #AEF1AE'>Logging(system, this.getClass)</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>  /**
+</span>40 <span style=''>   * Register for subscription events. This is not used for maintaining
+</span>41 <span style=''>   * subscriptions, but can be used more for testing subscription events.
+</span>42 <span style=''>   * @param registrar the actor that is to receive the events
+</span>43 <span style=''>   * @param to the class to register for
+</span>44 <span style=''>   */
+</span>45 <span style=''>  def register(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
+</span>46 <span style=''>    </span><span style='background: #F0ADAD'>mediator.get ! RegisterZookeeperEvent(registrar, to)</span><span style=''>
+</span>47 <span style=''>
+</span>48 <span style=''>  /**
+</span>49 <span style=''>   * Unregister for subscription events. This is not used for maintaining
+</span>50 <span style=''>   * subscriptions, but can be used more for testing subscription events.
+</span>51 <span style=''>   * @param registrar the actor that is to receive the events
+</span>52 <span style=''>   * @param to the class to register for
+</span>53 <span style=''>   */
+</span>54 <span style=''>  def unregister(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
+</span>55 <span style=''>    </span><span style='background: #F0ADAD'>mediator.foreach( _ ! UnregisterZookeeperEvent(registrar, to))</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>  /**
+</span>58 <span style=''>   * Set data in Zookeeper for the given path
+</span>59 <span style=''>   * @param path the path to set data in
+</span>60 <span style=''>   * @param data the data to set
+</span>61 <span style=''>   * @param create should the node be created if it does not exist
+</span>62 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>63 <span style=''>   * @param namespace an optional name space
+</span>64 <span style=''>   * @return the length of data that was written
+</span>65 <span style=''>   */
+</span>66 <span style=''>  def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+</span>67 <span style=''>             (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Int] =
+</span>68 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? SetPathData(path, data, create, ephemeral, namespace)).mapTo[Int]</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>  /**
+</span>71 <span style=''>   * Set data in Zookeeper for the given path async, does not return anything
+</span>72 <span style=''>   * @param path the path to set data in
+</span>73 <span style=''>   * @param data the data to set
+</span>74 <span style=''>   * @param create should the node be created if it does not exist
+</span>75 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>76 <span style=''>   * @param namespace an optional name space
+</span>77 <span style=''>   */
+</span>78 <span style=''>  def setDataAsync(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+</span>79 <span style=''>                  (implicit timeout: akka.util.Timeout = defaultTimeout) =
+</span>80 <span style=''>    </span><span style='background: #F0ADAD'>mediator.get ! SetPathData(path, data, create, ephemeral, namespace, true)</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>  /**
+</span>83 <span style=''>   * Get Zookeeper data for the given path
+</span>84 <span style=''>   * @param path the path to get data from
+</span>85 <span style=''>   * @param namespace an optional name space
+</span>86 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>87 <span style=''>   */
+</span>88 <span style=''>  def getData(path: String, namespace: Option[String] = None)(implicit timeout: akka.util.Timeout = defaultTimeout): Future[Array[Byte]] = {
+</span>89 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? GetPathData(path, namespace)).mapTo[Array[Byte]]</span><span style=''>
+</span>90 <span style=''>  }
+</span>91 <span style=''>
+</span>92 <span style=''>  /**
+</span>93 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
+</span>94 <span style=''>   * @param path the path to set data in
+</span>95 <span style=''>   * @param data the data to set
+</span>96 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>97 <span style=''>   * @param namespace an optional name space
+</span>98 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>99 <span style=''>   */
+</span>100 <span style=''>  def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean = false, namespace: Option[String] = None)
+</span>101 <span style=''>                  (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Array[Byte]] =
+</span>102 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetOrSetPathData(path, data, ephemeral, namespace)).mapTo[Array[Byte]]</span><span style=''>
+</span>103 <span style=''>
+</span>104 <span style=''>  /**
+</span>105 <span style=''>   * Get the child nodes for the given path
+</span>106 <span style=''>   * @param path the path to get the children of
+</span>107 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
+</span>108 <span style=''>   * @param namespace an optional name space
+</span>109 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
+</span>110 <span style=''>   */
+</span>111 <span style=''>  def getChildren(path: String, includeData: Boolean = false, namespace: Option[String] = None)
+</span>112 <span style=''>                 (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Seq[(String, Option[Array[Byte]])]] = {
+</span>113 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? GetPathChildren(path, includeData, namespace)).mapTo[Seq[(String, Option[Array[Byte]])]]</span><span style=''>
+</span>114 <span style=''>  }
+</span>115 <span style=''>
+</span>116 <span style=''>  /**
+</span>117 <span style=''>   * Create a node at the given path
+</span>118 <span style=''>   * @param path the path to create the node at
+</span>119 <span style=''>   * @param ephemeral is the node ephemeral
+</span>120 <span style=''>   * @param data the data to set in the node
+</span>121 <span style=''>   * @param namespace an optional name space
+</span>122 <span style=''>   * @return the full path to the newly created node or an empty string if an error occurred
+</span>123 <span style=''>   */
+</span>124 <span style=''>  def createNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]], namespace: Option[String] = None)
+</span>125 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[String] = {
+</span>126 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? CreateNode(path, ephemeral, data, namespace)).mapTo[String]</span><span style=''>
+</span>127 <span style=''>  }
+</span>128 <span style=''>
+</span>129 <span style=''>  /**
+</span>130 <span style=''>   * Delete a node at the given path
+</span>131 <span style=''>   * @param path the path to delete the node at
+</span>132 <span style=''>   * @param namespace an optional name space
+</span>133 <span style=''>   * @return the full path to the newly created node or an empty string if an error occurred
+</span>134 <span style=''>   */
+</span>135 <span style=''>  def deleteNode(path: String, namespace: Option[String] = None)
+</span>136 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[String] = {
+</span>137 <span style=''>    (</span><span style='background: #AEF1AE'>mediator.get ? DeleteNode(path, namespace)).mapTo[String]</span><span style=''>
+</span>138 <span style=''>  }
 </span>139 <span style=''>
-</span>140 <span style=''>  def apply()(implicit system: ActorSystem): ZookeeperService = </span><span style='background: #AEF1AE'>new ZookeeperService</span><span style=''>
-</span>141 <span style=''>
-</span>142 <span style=''>  private var mediator: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
-</span>143 <span style=''>
-</span>144 <span style=''>  private[harness] def registerMediator(actor: ActorRef) = {
-</span>145 <span style=''>    </span><span style='background: #AEF1AE'>mediator = Some(actor)</span><span style=''>
-</span>146 <span style=''>  }
-</span>147 <span style=''>
-</span>148 <span style=''>  private[harness] def unregisterMediator(actor: ActorRef) = {
-</span>149 <span style=''>    </span><span style='background: #AEF1AE'>mediator = None</span><span style=''>
-</span>150 <span style=''>  }
+</span>140 <span style=''>  /**
+</span>141 <span style=''>   * Does the node exist
+</span>142 <span style=''>   * @param path the path to check
+</span>143 <span style=''>   * @param namespace an optional name space
+</span>144 <span style=''>   * @return true or false
+</span>145 <span style=''>   */
+</span>146 <span style=''>  def nodeExists(path: String, namespace: Option[String] = None)
+</span>147 <span style=''>                (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Boolean] = {
+</span>148 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetNodeExists(path, namespace)).mapTo[Boolean]</span><span style=''>
+</span>149 <span style=''>  }
+</span>150 <span style=''>}
 </span>151 <span style=''>
-</span>152 <span style=''>  @SerialVersionUID(1L) private[harness] case class SetPathData(path: String, data: Array[Byte],
-</span>153 <span style=''>                                                                  create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
-</span>154 <span style=''>
-</span>155 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetPathData(path: String, namespace: Option[String] = None)
-</span>156 <span style=''>
-</span>157 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetOrSetPathData(path: String, data: Array[Byte],
-</span>158 <span style=''>                                                                       ephemeral: Boolean = false, namespace: Option[String] = None)
-</span>159 <span style=''>
-</span>160 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetPathChildren(path: String, includeData: Boolean, namespace: Option[String] = None)
+</span>152 <span style=''>object ZookeeperService {
+</span>153 <span style=''>
+</span>154 <span style=''>  def apply()(implicit system: ActorSystem): ZookeeperService = </span><span style='background: #AEF1AE'>new ZookeeperService</span><span style=''>
+</span>155 <span style=''>
+</span>156 <span style=''>  private var mediator: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>157 <span style=''>
+</span>158 <span style=''>  private[harness] def registerMediator(actor: ActorRef) = {
+</span>159 <span style=''>    </span><span style='background: #AEF1AE'>mediator = Some(actor)</span><span style=''>
+</span>160 <span style=''>  }
 </span>161 <span style=''>
-</span>162 <span style=''>  @SerialVersionUID(1L) private[harness] case class CreateNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]], namespace: Option[String] = None)
-</span>163 <span style=''>
-</span>164 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetNodeExists(path: String, namespace: Option[String] = None)
+</span>162 <span style=''>  private[harness] def unregisterMediator(actor: ActorRef) = {
+</span>163 <span style=''>    </span><span style='background: #AEF1AE'>mediator = None</span><span style=''>
+</span>164 <span style=''>  }
 </span>165 <span style=''>
-</span>166 <span style=''>  @SerialVersionUID(1L) private[harness] case class DeleteNode(path: String, namespace: Option[String] = None)
-</span>167 <span style=''>
-</span>168 <span style=''>}
-</span>169 <span style=''>
-</span>170 <span style=''>trait ZookeeperAdapter {
-</span>171 <span style=''>  this: Actor =>
-</span>172 <span style=''>
-</span>173 <span style=''>  import this.context.system
-</span>174 <span style=''>
-</span>175 <span style=''>  private lazy val zkService = </span><span style='background: #AEF1AE'>ZookeeperService()</span><span style=''>
-</span>176 <span style=''>
-</span>177 <span style=''>  /**
-</span>178 <span style=''>   * Set data in Zookeeper for the given path
-</span>179 <span style=''>   * @param path the path to set data in
-</span>180 <span style=''>   * @param data the data to set
-</span>181 <span style=''>   * @param create should the node be created if it does not exist
-</span>182 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>183 <span style=''>   * @return the length of data that was written
-</span>184 <span style=''>   */
-</span>185 <span style=''>  def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false)
-</span>186 <span style=''>             (implicit timeout: akka.util.Timeout): Future[Int] = </span><span style='background: #F0ADAD'>zkService.setData(path, data, create, ephemeral)</span><span style=''>
-</span>187 <span style=''>
-</span>188 <span style=''>  /**
-</span>189 <span style=''>   * Set data in Zookeeper for the given path and namespace
-</span>190 <span style=''>   * @param namespace the name space
-</span>191 <span style=''>   * @param path the path to set data in
-</span>192 <span style=''>   * @param data the data to set
-</span>193 <span style=''>   * @param create should the node be created if it does not exist
-</span>194 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>195 <span style=''>   * @return the length of data that was written
-</span>196 <span style=''>   */
-</span>197 <span style=''>  def setDataWithNamespace(namespace: String, path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false)
-</span>198 <span style=''>                          (implicit timeout: akka.util.Timeout): Future[Int] = </span><span style='background: #F0ADAD'>zkService.setData(path, data, create, ephemeral, Some(namespace))</span><span style=''>
-</span>199 <span style=''>
-</span>200 <span style=''>  /**
-</span>201 <span style=''>   * Get Zookeeper data for the given path
-</span>202 <span style=''>   * @param path the path to get data from
-</span>203 <span style=''>   * @return An instance of Array[Byte] or an empty array
-</span>204 <span style=''>   */
-</span>205 <span style=''>  def getData(path: String)(implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getData(path)</span><span style=''>
-</span>206 <span style=''>
-</span>207 <span style=''>  /**
-</span>208 <span style=''>   * Get Zookeeper data for the given path
-</span>209 <span style=''>   * @param namespace the name space
-</span>210 <span style=''>   * @param path the path to get data from
-</span>211 <span style=''>   * @return An instance of Array[Byte] or an empty array
-</span>212 <span style=''>   */
-</span>213 <span style=''>  def getDataWithNamespace(namespace: String, path: String)(implicit timeout: akka.util.Timeout): Future[Array[Byte]] =
-</span>214 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getData(path, Some(namespace))</span><span style=''>
-</span>215 <span style=''>
-</span>216 <span style=''>  /**
-</span>217 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
-</span>218 <span style=''>   * @param path the path to set data in
-</span>219 <span style=''>   * @param data the data to set
+</span>166 <span style=''>  @SerialVersionUID(1L) private[harness] case class SetPathData(path: String, data: Array[Byte],
+</span>167 <span style=''>                                                                create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None, async: Boolean = false)
+</span>168 <span style=''>
+</span>169 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetPathData(path: String, namespace: Option[String] = None)
+</span>170 <span style=''>
+</span>171 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetOrSetPathData(path: String, data: Array[Byte],
+</span>172 <span style=''>                                                                       ephemeral: Boolean = false, namespace: Option[String] = None)
+</span>173 <span style=''>
+</span>174 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetPathChildren(path: String, includeData: Boolean, namespace: Option[String] = None)
+</span>175 <span style=''>
+</span>176 <span style=''>  @SerialVersionUID(1L) private[harness] case class CreateNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]], namespace: Option[String] = None)
+</span>177 <span style=''>
+</span>178 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetNodeExists(path: String, namespace: Option[String] = None)
+</span>179 <span style=''>
+</span>180 <span style=''>  @SerialVersionUID(1L) private[harness] case class DeleteNode(path: String, namespace: Option[String] = None)
+</span>181 <span style=''>
+</span>182 <span style=''>}
+</span>183 <span style=''>
+</span>184 <span style=''>trait ZookeeperAdapter {
+</span>185 <span style=''>  this: Actor =>
+</span>186 <span style=''>
+</span>187 <span style=''>  import this.context.system
+</span>188 <span style=''>
+</span>189 <span style=''>  private lazy val zkService = </span><span style='background: #AEF1AE'>ZookeeperService()</span><span style=''>
+</span>190 <span style=''>
+</span>191 <span style=''>  /**
+</span>192 <span style=''>   * Set data in Zookeeper for the given path
+</span>193 <span style=''>   * @param path the path to set data in
+</span>194 <span style=''>   * @param data the data to set
+</span>195 <span style=''>   * @param create should the node be created if it does not exist
+</span>196 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>197 <span style=''>   * @return the length of data that was written
+</span>198 <span style=''>   */
+</span>199 <span style=''>  def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false)
+</span>200 <span style=''>             (implicit timeout: akka.util.Timeout): Future[Int] = </span><span style='background: #F0ADAD'>zkService.setData(path, data, create, ephemeral)</span><span style=''>
+</span>201 <span style=''>
+</span>202 <span style=''>  /**
+</span>203 <span style=''>   * Set data in Zookeeper for the given path async, does not return anything
+</span>204 <span style=''>   * @param path the path to set data in
+</span>205 <span style=''>   * @param data the data to set
+</span>206 <span style=''>   * @param create should the node be created if it does not exist
+</span>207 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>208 <span style=''>   * @param namespace an optional name space
+</span>209 <span style=''>   */
+</span>210 <span style=''>  def setDataAsync(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+</span>211 <span style=''>                  (implicit timeout: akka.util.Timeout) =
+</span>212 <span style=''>    </span><span style='background: #F0ADAD'>zkService.setDataAsync(path, data, create, ephemeral, namespace)</span><span style=''>
+</span>213 <span style=''>
+</span>214 <span style=''>  /**
+</span>215 <span style=''>   * Set data in Zookeeper for the given path and namespace
+</span>216 <span style=''>   * @param namespace the name space
+</span>217 <span style=''>   * @param path the path to set data in
+</span>218 <span style=''>   * @param data the data to set
+</span>219 <span style=''>   * @param create should the node be created if it does not exist
 </span>220 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>221 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>221 <span style=''>   * @return the length of data that was written
 </span>222 <span style=''>   */
-</span>223 <span style=''>  def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean = false)
-</span>224 <span style=''>                  (implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getOrSetData(path, data, ephemeral)</span><span style=''>
+</span>223 <span style=''>  def setDataWithNamespace(namespace: String, path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false)
+</span>224 <span style=''>                          (implicit timeout: akka.util.Timeout): Future[Int] = </span><span style='background: #F0ADAD'>zkService.setData(path, data, create, ephemeral, Some(namespace))</span><span style=''>
 </span>225 <span style=''>
 </span>226 <span style=''>  /**
-</span>227 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
-</span>228 <span style=''>   * @param namespace the name space
-</span>229 <span style=''>   * @param path the path to set data in
-</span>230 <span style=''>   * @param data the data to set
-</span>231 <span style=''>   * @param ephemeral should the created node be ephemeral
-</span>232 <span style=''>   * @return An instance of Array[Byte] or an empty array
-</span>233 <span style=''>   */
-</span>234 <span style=''>  def getOrSetDataWithNamespace(namespace: String, path: String, data: Array[Byte], ephemeral: Boolean = false)
-</span>235 <span style=''>                               (implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getOrSetData(path, data, ephemeral, Some(namespace))</span><span style=''>
-</span>236 <span style=''>
-</span>237 <span style=''>  /**
-</span>238 <span style=''>   * Get the child nodes for the given path
-</span>239 <span style=''>   * @param path the path to get the children of
-</span>240 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
-</span>241 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
-</span>242 <span style=''>   */
-</span>243 <span style=''>  def getChildren(path: String, includeData: Boolean = false)
-</span>244 <span style=''>                 (implicit timeout: akka.util.Timeout): Future[Seq[(String, Option[Array[Byte]])]] =
-</span>245 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getChildren(path, includeData)</span><span style=''>
-</span>246 <span style=''>
-</span>247 <span style=''>  /**
-</span>248 <span style=''>   * Get the child nodes for the given path
-</span>249 <span style=''>   * @param namespace the name space
-</span>250 <span style=''>   * @param path the path to get the children of
-</span>251 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
-</span>252 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
-</span>253 <span style=''>   */
-</span>254 <span style=''>  def getChildrenWithNamespace(namespace: String, path: String, includeData: Boolean = false)
-</span>255 <span style=''>                              (implicit timeout: akka.util.Timeout): Future[Seq[(String, Option[Array[Byte]])]] =
-</span>256 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getChildren(path, includeData, Some(namespace))</span><span style=''>
-</span>257 <span style=''>
-</span>258 <span style=''>  /**
-</span>259 <span style=''>   * Does the node exist
-</span>260 <span style=''>   * @param path the path to check
-</span>261 <span style=''>   * @return true or false
-</span>262 <span style=''>   */
-</span>263 <span style=''>  def nodeExists(path: String)
-</span>264 <span style=''>                (implicit timeout: akka.util.Timeout): Future[Boolean] =
-</span>265 <span style=''>    </span><span style='background: #F0ADAD'>zkService.nodeExists(path, None)</span><span style=''>
-</span>266 <span style=''>
-</span>267 <span style=''>  /**
-</span>268 <span style=''>   * Does the node exist
-</span>269 <span style=''>   * @param namespace the name space
-</span>270 <span style=''>   * @param path the path to check
-</span>271 <span style=''>   * @return true or false
-</span>272 <span style=''>   */
-</span>273 <span style=''>  def nodeExistsWithNamespace(namespace: String, path: String)
-</span>274 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[Boolean] =
-</span>275 <span style=''>    </span><span style='background: #F0ADAD'>zkService.nodeExists(path, Some(namespace))</span><span style=''>
-</span>276 <span style=''>
-</span>277 <span style=''>  /**
-</span>278 <span style=''>   * Create a node at the given path
-</span>279 <span style=''>   * @param path the path to create the node at
-</span>280 <span style=''>   * @param ephemeral is the node ephemeral
-</span>281 <span style=''>   * @param data the data to set in the node
-</span>282 <span style=''>   * @return the full path to the newly created node
-</span>283 <span style=''>   */
-</span>284 <span style=''>  def createNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]])
-</span>285 <span style=''>                (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #AEF1AE'>zkService.createNode(path, ephemeral, data)</span><span style=''>
-</span>286 <span style=''>
-</span>287 <span style=''>  /**
-</span>288 <span style=''>   * Create a node at the given path
-</span>289 <span style=''>   * @param namespace the name space
-</span>290 <span style=''>   * @param path the path to create the node at
-</span>291 <span style=''>   * @param ephemeral is the node ephemeral
-</span>292 <span style=''>   * @param data the data to set in the node
-</span>293 <span style=''>   * @return the full path to the newly created node
-</span>294 <span style=''>   */
-</span>295 <span style=''>  def createNodeWithNamespace(namespace: String, path: String, ephemeral: Boolean, data: Option[Array[Byte]])
-</span>296 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #F0ADAD'>zkService.createNode(path, ephemeral, data, Some(namespace))</span><span style=''>
-</span>297 <span style=''>
-</span>298 <span style=''>  /**
-</span>299 <span style=''>   * Delete a node at the given path
-</span>300 <span style=''>   * @param path the path to create the node at
-</span>301 <span style=''>   * @return the full path to the newly created node
-</span>302 <span style=''>   */
-</span>303 <span style=''>  def deleteNode(path: String)
-</span>304 <span style=''>                (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #AEF1AE'>zkService.deleteNode(path)</span><span style=''>
-</span>305 <span style=''>
-</span>306 <span style=''>  /**
-</span>307 <span style=''>   * Delete a node at the given path
-</span>308 <span style=''>   * @param namespace the name space
-</span>309 <span style=''>   * @param path the path to delete the node at
-</span>310 <span style=''>   * @return the full path to the newly created node
-</span>311 <span style=''>   */
-</span>312 <span style=''>  def deleteNodeWithNamespace(namespace: String, path: String)
-</span>313 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #F0ADAD'>zkService.deleteNode(path, Some(namespace))</span><span style=''>
-</span>314 <span style=''>}
+</span>227 <span style=''>   * Get Zookeeper data for the given path
+</span>228 <span style=''>   * @param path the path to get data from
+</span>229 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>230 <span style=''>   */
+</span>231 <span style=''>  def getData(path: String)(implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getData(path)</span><span style=''>
+</span>232 <span style=''>
+</span>233 <span style=''>  /**
+</span>234 <span style=''>   * Get Zookeeper data for the given path
+</span>235 <span style=''>   * @param namespace the name space
+</span>236 <span style=''>   * @param path the path to get data from
+</span>237 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>238 <span style=''>   */
+</span>239 <span style=''>  def getDataWithNamespace(namespace: String, path: String)(implicit timeout: akka.util.Timeout): Future[Array[Byte]] =
+</span>240 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getData(path, Some(namespace))</span><span style=''>
+</span>241 <span style=''>
+</span>242 <span style=''>  /**
+</span>243 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
+</span>244 <span style=''>   * @param path the path to set data in
+</span>245 <span style=''>   * @param data the data to set
+</span>246 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>247 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>248 <span style=''>   */
+</span>249 <span style=''>  def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean = false)
+</span>250 <span style=''>                  (implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getOrSetData(path, data, ephemeral)</span><span style=''>
+</span>251 <span style=''>
+</span>252 <span style=''>  /**
+</span>253 <span style=''>   * Get the data in Zookeeper for the given path or set it if the path does not exist
+</span>254 <span style=''>   * @param namespace the name space
+</span>255 <span style=''>   * @param path the path to set data in
+</span>256 <span style=''>   * @param data the data to set
+</span>257 <span style=''>   * @param ephemeral should the created node be ephemeral
+</span>258 <span style=''>   * @return An instance of Array[Byte] or an empty array
+</span>259 <span style=''>   */
+</span>260 <span style=''>  def getOrSetDataWithNamespace(namespace: String, path: String, data: Array[Byte], ephemeral: Boolean = false)
+</span>261 <span style=''>                               (implicit timeout: akka.util.Timeout): Future[Array[Byte]] = </span><span style='background: #F0ADAD'>zkService.getOrSetData(path, data, ephemeral, Some(namespace))</span><span style=''>
+</span>262 <span style=''>
+</span>263 <span style=''>  /**
+</span>264 <span style=''>   * Get the child nodes for the given path
+</span>265 <span style=''>   * @param path the path to get the children of
+</span>266 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
+</span>267 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
+</span>268 <span style=''>   */
+</span>269 <span style=''>  def getChildren(path: String, includeData: Boolean = false)
+</span>270 <span style=''>                 (implicit timeout: akka.util.Timeout): Future[Seq[(String, Option[Array[Byte]])]] =
+</span>271 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getChildren(path, includeData)</span><span style=''>
+</span>272 <span style=''>
+</span>273 <span style=''>  /**
+</span>274 <span style=''>   * Get the child nodes for the given path
+</span>275 <span style=''>   * @param namespace the name space
+</span>276 <span style=''>   * @param path the path to get the children of
+</span>277 <span style=''>   * @param includeData should the children's data be returned. Defaults to false.
+</span>278 <span style=''>   * @return A Seq[String] or Nil is an error occurs or if there no children
+</span>279 <span style=''>   */
+</span>280 <span style=''>  def getChildrenWithNamespace(namespace: String, path: String, includeData: Boolean = false)
+</span>281 <span style=''>                              (implicit timeout: akka.util.Timeout): Future[Seq[(String, Option[Array[Byte]])]] =
+</span>282 <span style=''>    </span><span style='background: #F0ADAD'>zkService.getChildren(path, includeData, Some(namespace))</span><span style=''>
+</span>283 <span style=''>
+</span>284 <span style=''>  /**
+</span>285 <span style=''>   * Does the node exist
+</span>286 <span style=''>   * @param path the path to check
+</span>287 <span style=''>   * @return true or false
+</span>288 <span style=''>   */
+</span>289 <span style=''>  def nodeExists(path: String)
+</span>290 <span style=''>                (implicit timeout: akka.util.Timeout): Future[Boolean] =
+</span>291 <span style=''>    </span><span style='background: #F0ADAD'>zkService.nodeExists(path, None)</span><span style=''>
+</span>292 <span style=''>
+</span>293 <span style=''>  /**
+</span>294 <span style=''>   * Does the node exist
+</span>295 <span style=''>   * @param namespace the name space
+</span>296 <span style=''>   * @param path the path to check
+</span>297 <span style=''>   * @return true or false
+</span>298 <span style=''>   */
+</span>299 <span style=''>  def nodeExistsWithNamespace(namespace: String, path: String)
+</span>300 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[Boolean] =
+</span>301 <span style=''>    </span><span style='background: #F0ADAD'>zkService.nodeExists(path, Some(namespace))</span><span style=''>
+</span>302 <span style=''>
+</span>303 <span style=''>  /**
+</span>304 <span style=''>   * Create a node at the given path
+</span>305 <span style=''>   * @param path the path to create the node at
+</span>306 <span style=''>   * @param ephemeral is the node ephemeral
+</span>307 <span style=''>   * @param data the data to set in the node
+</span>308 <span style=''>   * @return the full path to the newly created node
+</span>309 <span style=''>   */
+</span>310 <span style=''>  def createNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]])
+</span>311 <span style=''>                (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #AEF1AE'>zkService.createNode(path, ephemeral, data)</span><span style=''>
+</span>312 <span style=''>
+</span>313 <span style=''>  /**
+</span>314 <span style=''>   * Create a node at the given path
+</span>315 <span style=''>   * @param namespace the name space
+</span>316 <span style=''>   * @param path the path to create the node at
+</span>317 <span style=''>   * @param ephemeral is the node ephemeral
+</span>318 <span style=''>   * @param data the data to set in the node
+</span>319 <span style=''>   * @return the full path to the newly created node
+</span>320 <span style=''>   */
+</span>321 <span style=''>  def createNodeWithNamespace(namespace: String, path: String, ephemeral: Boolean, data: Option[Array[Byte]])
+</span>322 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #F0ADAD'>zkService.createNode(path, ephemeral, data, Some(namespace))</span><span style=''>
+</span>323 <span style=''>
+</span>324 <span style=''>  /**
+</span>325 <span style=''>   * Delete a node at the given path
+</span>326 <span style=''>   * @param path the path to create the node at
+</span>327 <span style=''>   * @return the full path to the newly created node
+</span>328 <span style=''>   */
+</span>329 <span style=''>  def deleteNode(path: String)
+</span>330 <span style=''>                (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #AEF1AE'>zkService.deleteNode(path)</span><span style=''>
+</span>331 <span style=''>
+</span>332 <span style=''>  /**
+</span>333 <span style=''>   * Delete a node at the given path
+</span>334 <span style=''>   * @param namespace the name space
+</span>335 <span style=''>   * @param path the path to delete the node at
+</span>336 <span style=''>   * @return the full path to the newly created node
+</span>337 <span style=''>   */
+</span>338 <span style=''>  def deleteNodeWithNamespace(namespace: String, path: String)
+</span>339 <span style=''>                             (implicit timeout: akka.util.Timeout): Future[String] = </span><span style='background: #F0ADAD'>zkService.deleteNode(path, Some(namespace))</span><span style=''>
+</span>340 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -350,15 +376,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          34
+          36
         </td>
         <td>
-          555
+          573
         </td>
         <td>
-          1352
+          1354
           -
-          1451
+          1453
         </td>
         <td>
           Apply
@@ -371,15 +397,15 @@
         </td>
       </tr><tr>
         <td>
-          34
+          36
         </td>
         <td>
-          557
+          575
         </td>
         <td>
-          1344
+          1346
           -
-          1475
+          1477
         </td>
         <td>
           Apply
@@ -392,15 +418,15 @@
         </td>
       </tr><tr>
         <td>
-          34
+          36
         </td>
         <td>
-          556
+          574
         </td>
         <td>
-          1453
+          1455
           -
-          1474
+          1476
         </td>
         <td>
           Literal
@@ -413,15 +439,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          37
         </td>
         <td>
-          559
+          577
         </td>
         <td>
-          1512
+          1514
           -
-          1525
+          1527
         </td>
         <td>
           Apply
@@ -434,15 +460,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          37
         </td>
         <td>
-          558
+          576
         </td>
         <td>
-          1504
+          1506
           -
-          1510
+          1512
         </td>
         <td>
           Select
@@ -455,15 +481,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          37
         </td>
         <td>
-          561
+          579
         </td>
         <td>
-          1496
+          1498
           -
-          1526
+          1528
         </td>
         <td>
           ApplyToImplicitArgs
@@ -476,15 +502,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          37
         </td>
         <td>
-          560
+          578
         </td>
         <td>
-          1503
+          1505
           -
-          1503
+          1505
         </td>
         <td>
           TypeApply
@@ -497,15 +523,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
-          564
+          582
         </td>
         <td>
-          1884
+          1886
           -
-          1921
+          1923
         </td>
         <td>
           Apply
@@ -518,15 +544,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
-          563
+          581
         </td>
         <td>
-          1869
+          1871
           -
-          1881
+          1883
         </td>
         <td>
           ApplyImplicitView
@@ -539,15 +565,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
-          566
+          584
         </td>
         <td>
-          1869
+          1871
           -
-          1921
+          1923
         </td>
         <td>
           ApplyToImplicitArgs
@@ -560,15 +586,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
-          562
+          580
         </td>
         <td>
-          1869
+          1871
           -
-          1881
+          1883
         </td>
         <td>
           Select
@@ -581,15 +607,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          46
         </td>
         <td>
-          565
+          583
         </td>
         <td>
-          1882
+          1884
           -
-          1882
+          1884
         </td>
         <td>
           Apply
@@ -602,36 +628,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          55
         </td>
         <td>
-          568
+          585
         </td>
         <td>
-          2290
+          2288
           -
-          2329
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.UnregisterZookeeperEvent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.UnregisterZookeeperEvent.apply(registrar, to)
-        </td>
-      </tr><tr>
-        <td>
-          53
-        </td>
-        <td>
-          567
-        </td>
-        <td>
-          2286
-          -
-          2287
+          2289
         </td>
         <td>
           ApplyImplicitView
@@ -644,15 +649,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          55
         </td>
         <td>
-          570
+          588
         </td>
         <td>
-          2286
+          2288
           -
-          2329
+          2331
         </td>
         <td>
           ApplyToImplicitArgs
@@ -665,15 +670,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          55
         </td>
         <td>
-          569
+          587
         </td>
         <td>
-          2288
+          2290
           -
-          2288
+          2290
         </td>
         <td>
           Apply
@@ -686,15 +691,36 @@
         </td>
       </tr><tr>
         <td>
-          53
+          55
         </td>
         <td>
-          571
+          586
         </td>
         <td>
-          2268
+          2292
           -
-          2330
+          2331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.UnregisterZookeeperEvent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.UnregisterZookeeperEvent.apply(registrar, to)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          2270
+          -
+          2332
         </td>
         <td>
           Apply
@@ -712,36 +738,36 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          573
+          591
         </td>
         <td>
-          2921
+          2923
           -
-          2974
+          2923
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.zookeeper.ZookeeperService.SetPathData.apply
+          com.webtrends.harness.component.zookeeper.ZookeeperService.SetPathData.apply$default$6
         </td>
         <td style="background: #AEF1AE">
-          ZookeeperService.SetPathData.apply(path, data, create, ephemeral, namespace)
+          ZookeeperService.SetPathData.apply$default$6
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          572
+          590
         </td>
         <td>
-          2906
+          2908
           -
-          2918
+          2920
         </td>
         <td>
           Select
@@ -754,15 +780,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          574
+          593
         </td>
         <td>
-          2906
+          2908
           -
-          2986
+          2988
         </td>
         <td>
           ApplyToImplicitArgs
@@ -771,40 +797,145 @@
           scala.concurrent.Future.mapTo
         </td>
         <td style="background: #AEF1AE">
-          akka.pattern.`package`.ask(ZookeeperService.mediator.get).?(ZookeeperService.SetPathData.apply(path, data, create, ephemeral, namespace))(timeout).mapTo[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
+          akka.pattern.`package`.ask(ZookeeperService.mediator.get).?(ZookeeperService.SetPathData.apply(path, data, create, ephemeral, namespace, ZookeeperService.SetPathData.apply$default$6))(timeout).mapTo[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
         </td>
       </tr><tr>
         <td>
-          75
+          68
         </td>
         <td>
-          577
+          592
         </td>
         <td>
-          3335
+          2923
           -
-          3398
+          2976
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperService.SetPathData.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ZookeeperService.SetPathData.apply(path, data, create, ephemeral, namespace, ZookeeperService.SetPathData.apply$default$6)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          3543
+          -
+          3555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          ZookeeperService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          3556
+          -
+          3556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          qual$3.!$default$2(x$6)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          596
+        </td>
+        <td>
+          3558
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperService.SetPathData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ZookeeperService.SetPathData.apply(path, data, create, ephemeral, namespace, true)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          3543
+          -
+          3555
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(ZookeeperService.mediator.get)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          3543
+          -
+          3617
         </td>
         <td>
           ApplyToImplicitArgs
         </td>
         <td>
-          scala.concurrent.Future.mapTo
+          akka.actor.ScalaActorRef.!
         </td>
-        <td style="background: #AEF1AE">
-          akka.pattern.`package`.ask(ZookeeperService.mediator.get).?(ZookeeperService.GetPathData.apply(path, namespace))(timeout).mapTo[Array[Byte]]((ClassTag.apply[Array[Byte]](ScalaRunTime.this.arrayClass(classOf[scala.Byte])): scala.reflect.ClassTag[Array[Byte]]))
+        <td style="background: #F0ADAD">
+          qual$3.!(x$6)(x$7)
         </td>
       </tr><tr>
         <td>
-          75
+          89
         </td>
         <td>
-          576
+          600
         </td>
         <td>
-          3350
+          3981
           -
-          3378
+          4009
         </td>
         <td>
           Apply
@@ -817,15 +948,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          89
         </td>
         <td>
-          575
+          599
         </td>
         <td>
-          3335
+          3966
           -
-          3347
+          3978
         </td>
         <td>
           Select
@@ -838,15 +969,36 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
-          579
+          601
         </td>
         <td>
-          3969
+          3966
           -
-          4019
+          4029
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(ZookeeperService.mediator.get).?(ZookeeperService.GetPathData.apply(path, namespace))(timeout).mapTo[Array[Byte]]((ClassTag.apply[Array[Byte]](ScalaRunTime.this.arrayClass(classOf[scala.Byte])): scala.reflect.ClassTag[Array[Byte]]))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          4600
+          -
+          4650
         </td>
         <td>
           Apply
@@ -859,15 +1011,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          102
         </td>
         <td>
-          578
+          602
         </td>
         <td>
-          3954
+          4585
           -
-          3966
+          4597
         </td>
         <td>
           Select
@@ -880,15 +1032,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          102
         </td>
         <td>
-          580
+          604
         </td>
         <td>
-          3954
+          4585
           -
-          4039
+          4670
         </td>
         <td>
           ApplyToImplicitArgs
@@ -901,15 +1053,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          113
         </td>
         <td>
-          582
+          606
         </td>
         <td>
-          4587
+          5218
           -
-          4632
+          5263
         </td>
         <td>
           Apply
@@ -922,15 +1074,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          113
         </td>
         <td>
-          581
+          605
         </td>
         <td>
-          4572
+          5203
           -
-          4584
+          5215
         </td>
         <td>
           Select
@@ -943,15 +1095,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          113
         </td>
         <td>
-          583
+          607
         </td>
         <td>
-          4572
+          5203
           -
-          4675
+          5306
         </td>
         <td>
           ApplyToImplicitArgs
@@ -964,15 +1116,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          126
         </td>
         <td>
-          585
+          609
         </td>
         <td>
-          5228
+          5859
           -
-          5272
+          5903
         </td>
         <td>
           Apply
@@ -985,15 +1137,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          126
         </td>
         <td>
-          584
+          608
         </td>
         <td>
-          5213
+          5844
           -
-          5225
+          5856
         </td>
         <td>
           Select
@@ -1006,15 +1158,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          126
         </td>
         <td>
-          586
+          610
         </td>
         <td>
-          5213
+          5844
           -
-          5287
+          5918
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1027,15 +1179,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          137
         </td>
         <td>
-          588
+          612
         </td>
         <td>
-          5704
+          6335
           -
-          5731
+          6362
         </td>
         <td>
           Apply
@@ -1048,15 +1200,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          137
         </td>
         <td>
-          587
+          611
         </td>
         <td>
-          5689
+          6320
           -
-          5701
+          6332
         </td>
         <td>
           Select
@@ -1069,15 +1221,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          137
         </td>
         <td>
-          589
+          613
         </td>
         <td>
-          5689
+          6320
           -
-          5746
+          6377
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1090,15 +1242,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          148
         </td>
         <td>
-          591
+          615
         </td>
         <td>
-          6073
+          6704
           -
-          6103
+          6734
         </td>
         <td>
           Apply
@@ -1111,15 +1263,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          148
         </td>
         <td>
-          590
+          614
         </td>
         <td>
-          6058
+          6689
           -
-          6070
+          6701
         </td>
         <td>
           Select
@@ -1132,15 +1284,15 @@
         </td>
       </tr><tr>
         <td>
-          134
+          148
         </td>
         <td>
-          592
+          616
         </td>
         <td>
-          6058
+          6689
           -
-          6119
+          6750
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1153,15 +1305,15 @@
         </td>
       </tr><tr>
         <td>
-          140
+          154
         </td>
         <td>
-          593
+          617
         </td>
         <td>
-          6218
+          6849
           -
-          6238
+          6869
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1174,15 +1326,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          156
         </td>
         <td>
-          594
+          618
         </td>
         <td>
-          6283
+          6914
           -
-          6287
+          6918
         </td>
         <td>
           Select
@@ -1195,15 +1347,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          159
         </td>
         <td>
-          596
+          620
         </td>
         <td>
-          6354
+          6985
           -
-          6376
+          7007
         </td>
         <td>
           Apply
@@ -1216,15 +1368,15 @@
         </td>
       </tr><tr>
         <td>
-          145
+          159
         </td>
         <td>
-          595
+          619
         </td>
         <td>
-          6365
+          6996
           -
-          6376
+          7007
         </td>
         <td>
           Apply
@@ -1237,15 +1389,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          163
         </td>
         <td>
-          597
+          621
         </td>
         <td>
-          6460
+          7091
           -
-          6464
+          7095
         </td>
         <td>
           Select
@@ -1258,15 +1410,15 @@
         </td>
       </tr><tr>
         <td>
-          149
+          163
         </td>
         <td>
-          598
+          622
         </td>
         <td>
-          6449
+          7080
           -
-          6464
+          7095
         </td>
         <td>
           Apply
@@ -1279,15 +1431,15 @@
         </td>
       </tr><tr>
         <td>
-          175
+          189
         </td>
         <td>
-          600
+          624
         </td>
         <td>
-          7702
+          8355
           -
-          7720
+          8373
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1300,15 +1452,15 @@
         </td>
       </tr><tr>
         <td>
-          175
+          189
         </td>
         <td>
-          599
+          623
         </td>
         <td>
-          7718
+          8371
           -
-          7718
+          8371
         </td>
         <td>
           Select
@@ -1321,15 +1473,15 @@
         </td>
       </tr><tr>
         <td>
-          186
+          200
         </td>
         <td>
-          601
+          625
         </td>
         <td>
-          8195
+          8848
           -
-          8243
+          8896
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1342,15 +1494,36 @@
         </td>
       </tr><tr>
         <td>
-          198
+          212
         </td>
         <td>
-          602
+          626
         </td>
         <td>
-          8814
+          9434
           -
-          8879
+          9498
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.ZookeeperService.setDataAsync
+        </td>
+        <td style="background: #F0ADAD">
+          ZookeeperAdapter.this.zkService.setDataAsync(path, data, create, ephemeral, namespace)(timeout)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          10069
+          -
+          10134
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1363,15 +1536,15 @@
         </td>
       </tr><tr>
         <td>
-          205
+          231
         </td>
         <td>
-          603
+          628
         </td>
         <td>
-          9125
+          10380
           -
-          9148
+          10403
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1384,15 +1557,15 @@
         </td>
       </tr><tr>
         <td>
-          214
+          240
         </td>
         <td>
-          604
+          629
         </td>
         <td>
-          9467
+          10722
           -
-          9507
+          10762
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1405,15 +1578,15 @@
         </td>
       </tr><tr>
         <td>
-          224
+          250
         </td>
         <td>
-          605
+          630
         </td>
         <td>
-          9958
+          11213
           -
-          10003
+          11258
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1426,15 +1599,15 @@
         </td>
       </tr><tr>
         <td>
-          235
+          261
         </td>
         <td>
-          606
+          631
         </td>
         <td>
-          10536
+          11791
           -
-          10598
+          11853
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1447,15 +1620,15 @@
         </td>
       </tr><tr>
         <td>
-          245
+          271
         </td>
         <td>
-          607
+          632
         </td>
         <td>
-          11032
+          12287
           -
-          11072
+          12327
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1468,15 +1641,15 @@
         </td>
       </tr><tr>
         <td>
-          256
+          282
         </td>
         <td>
-          608
+          633
         </td>
         <td>
-          11588
+          12843
           -
-          11645
+          12900
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1489,15 +1662,15 @@
         </td>
       </tr><tr>
         <td>
-          265
+          291
         </td>
         <td>
-          609
+          634
         </td>
         <td>
-          11854
+          13109
           -
-          11886
+          13141
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1510,15 +1683,15 @@
         </td>
       </tr><tr>
         <td>
-          275
+          301
         </td>
         <td>
-          610
+          635
         </td>
         <td>
-          12177
+          13432
           -
-          12220
+          13475
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1531,15 +1704,15 @@
         </td>
       </tr><tr>
         <td>
-          285
+          311
         </td>
         <td>
-          611
+          636
         </td>
         <td>
-          12611
+          13866
           -
-          12654
+          13909
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1552,15 +1725,15 @@
         </td>
       </tr><tr>
         <td>
-          296
+          322
         </td>
         <td>
-          612
+          637
         </td>
         <td>
-          13127
+          14382
           -
-          13187
+          14442
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1573,15 +1746,15 @@
         </td>
       </tr><tr>
         <td>
-          304
+          330
         </td>
         <td>
-          613
+          638
         </td>
         <td>
-          13442
+          14697
           -
-          13468
+          14723
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1594,15 +1767,15 @@
         </td>
       </tr><tr>
         <td>
-          313
+          339
         </td>
         <td>
-          614
+          639
         </td>
         <td>
-          13805
+          15060
           -
-          13848
+          15103
         </td>
         <td>
           ApplyToImplicitArgs
