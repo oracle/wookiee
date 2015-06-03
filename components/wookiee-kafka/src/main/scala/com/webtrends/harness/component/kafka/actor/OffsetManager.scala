@@ -74,22 +74,11 @@ with ActorLoggingAdapter with ZookeeperAdapter {
 
   def storeOffsetState(req: StoreOffsetData, create: Boolean = false): Unit = {
     val path = s"$offsetPath/${req.path}"
-    val originalSender = sender()
-    val parent = context.parent
-    // ZNode should be create and not be ephemeral
-    setData(path, req.offsetData.data, create = create || !createPaths.contains(path), ephemeral = false).onComplete {
-      case Success(bytesWritten) =>
-        originalSender ! OffsetDataResponse(Left(OffsetData(req.offsetData.data)))
-        parent ! healthy(path)
-      case Failure(ex) =>
-        ex match {
-          case ex: NoNodeException => storeOffsetState(req, create = true)
-          case ex: Exception =>
-            log.error("Unable to write zk state", ex)
-            originalSender ! OffsetDataResponse(Right(ex))
-            parent ! unhealthy(path)
-        }
-    }
+
+    // ZNode should be create if new and not be ephemeral
+    setDataAsync(path, req.offsetData.data, create = create || !createPaths.contains(path), ephemeral = false)
+    sender() ! OffsetDataResponse(Left(OffsetData(req.offsetData.data)))
+    context.parent ! healthy(path)
     createPaths.add(path)
   }
 

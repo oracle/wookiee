@@ -18,14 +18,16 @@
  */
 package com.webtrends.harness.component.zookeeper
 
+import java.util.concurrent.TimeUnit
+
 import akka.actor.{Actor, ActorRef, ActorSystem}
 import akka.event.Logging
 import akka.pattern.ask
 import akka.util.Timeout
-import com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.{UnregisterZookeeperEvent, RegisterZookeeperEvent}
+import com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.{RegisterZookeeperEvent, UnregisterZookeeperEvent}
 import com.webtrends.harness.component.zookeeper.ZookeeperEvent.ZookeeperEventRegistration
+
 import scala.concurrent.Future
-import java.util.concurrent.TimeUnit
 
 private[harness] class ZookeeperService()(implicit system: ActorSystem) {
 
@@ -64,6 +66,18 @@ private[harness] class ZookeeperService()(implicit system: ActorSystem) {
   def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
              (implicit timeout: akka.util.Timeout = defaultTimeout): Future[Int] =
     (mediator.get ? SetPathData(path, data, create, ephemeral, namespace)).mapTo[Int]
+
+  /**
+   * Set data in Zookeeper for the given path async, does not return anything
+   * @param path the path to set data in
+   * @param data the data to set
+   * @param create should the node be created if it does not exist
+   * @param ephemeral should the created node be ephemeral
+   * @param namespace an optional name space
+   */
+  def setDataAsync(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+                  (implicit timeout: akka.util.Timeout = defaultTimeout) =
+    mediator.get ! SetPathData(path, data, create, ephemeral, namespace, true)
 
   /**
    * Get Zookeeper data for the given path
@@ -150,7 +164,7 @@ object ZookeeperService {
   }
 
   @SerialVersionUID(1L) private[harness] case class SetPathData(path: String, data: Array[Byte],
-                                                                  create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+                                                                create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None, async: Boolean = false)
 
   @SerialVersionUID(1L) private[harness] case class GetPathData(path: String, namespace: Option[String] = None)
 
@@ -184,6 +198,18 @@ trait ZookeeperAdapter {
    */
   def setData(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false)
              (implicit timeout: akka.util.Timeout): Future[Int] = zkService.setData(path, data, create, ephemeral)
+
+  /**
+   * Set data in Zookeeper for the given path async, does not return anything
+   * @param path the path to set data in
+   * @param data the data to set
+   * @param create should the node be created if it does not exist
+   * @param ephemeral should the created node be ephemeral
+   * @param namespace an optional name space
+   */
+  def setDataAsync(path: String, data: Array[Byte], create: Boolean = false, ephemeral: Boolean = false, namespace: Option[String] = None)
+                  (implicit timeout: akka.util.Timeout) =
+    zkService.setDataAsync(path, data, create, ephemeral, namespace)
 
   /**
    * Set data in Zookeeper for the given path and namespace
