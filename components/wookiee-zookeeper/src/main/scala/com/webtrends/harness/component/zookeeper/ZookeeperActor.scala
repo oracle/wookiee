@@ -30,6 +30,7 @@ import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
 import com.webtrends.harness.health.{ComponentState, HealthComponent, ActorHealth}
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import org.apache.curator.framework.CuratorFramework
+import org.apache.curator.framework.api.{CuratorEvent, BackgroundCallback}
 import org.apache.curator.framework.recipes.cache.PathChildrenCache.StartMode
 import org.apache.curator.framework.recipes.cache.{PathChildrenCacheEvent, PathChildrenCache, PathChildrenCacheListener}
 import org.apache.curator.framework.recipes.leader.{LeaderLatchListener, LeaderLatch}
@@ -48,9 +49,6 @@ object ZookeeperActor {
     Props(classOf[ZookeeperActor], settings, clusterEnabled)
 }
 
-/**
- * @author Michael Cuthbert on 11/20/14.
- */
 class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) extends Actor
     with ActorLoggingAdapter
     with ActorHealth
@@ -65,7 +63,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
 
   protected val curator = Curator(settings)
   private var currentState = ConnectionState.LOST
-
+  protected val callback = new DefaultCallback
   private var stateRegistrars: Set[ActorRef] = Set.empty
   private var childRegistrars: Map[(String, Option[String]), CacheEntry] = Map.empty
   private var leadershipRegistrars: Map[(String, Option[String]), LeaderEntry] = Map.empty
@@ -116,7 +114,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
    */
   def processing: Receive = baseProcessing orElse {
     // Set the data for the given path
-    case SetPathData(path, data, create, ephemeral, optNamespace) => setData(path, data, create, ephemeral, optNamespace)
+    case SetPathData(path, data, create, ephemeral, optNamespace, async) => setData(path, data, create, ephemeral, optNamespace, async)
     // Get data for the given path
     case GetPathData(path, optNamespace) => getData(path, optNamespace)
     // Get data for the given path
@@ -175,7 +173,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     }
   }
 
-  private def setData(path: String, data: Array[Byte], create: Boolean, ephemeral: Boolean, namespace: Option[String]) = {
+  private def setData(path: String, data: Array[Byte], create: Boolean, ephemeral: Boolean, namespace: Option[String], async: Boolean) = {
     def nodeCreate: String = {
       try {
         val mode = if (ephemeral) CreateMode.EPHEMERAL else CreateMode.PERSISTENT
@@ -191,13 +189,16 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     val dataPath = if (create) nodeCreate else path
 
     try {
-      getClientContext(namespace).setData.forPath(dataPath, data)
-      sender() ! data.length
-    }
-    catch {
+      if (async) {
+        getClientContext(namespace).setData().inBackground(callback).forPath(dataPath, data)
+      } else {
+        getClientContext(namespace).setData().forPath(dataPath, data)
+        sender() ! data.length
+      }
+    } catch {
       case e: Exception =>
         log.error(e, "An error occurred trying to set data for the path {}", path)
-        sender() ! Status.Failure(e)
+        if (!async) sender() ! Status.Failure(e)
     }
   }
 
@@ -463,6 +464,14 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
           // Notify the registered listeners
           for (act <- entry._2.registrars) act ! ZookeeperChildEvent(event)
         }
+      }
+    }
+  }
+
+  protected class DefaultCallback extends BackgroundCallback {
+    override def processResult(client: CuratorFramework, event: CuratorEvent): Unit = {
+      if (event.getResultCode != 0) {
+        log.error(s"Setting data on path ${event.getPath} failed")
       }
     }
   }
