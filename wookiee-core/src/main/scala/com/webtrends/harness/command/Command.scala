@@ -37,7 +37,6 @@ trait Command extends HActor {
 
   override def receive = health orElse ({
     case ExecuteCommand(name, bean) => pipe(execute(bean)) to sender
-    case _ => // ignore all other messages to this actor
   } : Receive)
 
   def path : String = s"_wt_internal/${commandName.toLowerCase}"
