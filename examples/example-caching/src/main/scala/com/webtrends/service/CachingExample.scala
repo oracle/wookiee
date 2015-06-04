@@ -46,7 +46,7 @@ class CachingExample extends Service {
 
   override def preStart = {
     super.preStart
-    getComponent("wookie-cache-memcache") onComplete {
+    getComponent("wookiee-cache-memcache") onComplete {
       case Success(actor) =>
         cacheManager = Some(actor)
         val config = CacheConfig(

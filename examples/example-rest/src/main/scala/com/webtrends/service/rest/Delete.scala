@@ -53,7 +53,7 @@ class Delete extends Command
     val p = Promise[CommandResponse[T]]
     bean match {
       case Some(b) =>
-        getComponent("wookie-cache-memcache") onComplete {
+        getComponent("wookiee-cache-memcache") onComplete {
           case Success(actor) =>
             // If we were doing a real API we might want to check the cache to see if it
             // exists first and if it does then throw some sort of exception, but this is just an example
