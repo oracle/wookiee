@@ -1,0 +1,1920 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/netty/route/NettyRoutes.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.netty.route
+</span>2 <span style=''>
+</span>3 <span style=''>import akka.actor.ActorRef
+</span>4 <span style=''>import com.webtrends.harness.command.{CommandBean, CommandResponse, Command}
+</span>5 <span style=''>import com.webtrends.harness.component.netty.BaseInboundHandler
+</span>6 <span style=''>import com.webtrends.harness.component.netty.handler.HandlerManager
+</span>7 <span style=''>import com.webtrends.harness.component.netty.route.NettyCommand.HandleHttpRequest
+</span>8 <span style=''>import io.netty.channel.ChannelHandler.Sharable
+</span>9 <span style=''>import io.netty.channel.ChannelHandlerContext
+</span>10 <span style=''>import io.netty.handler.codec.http.{FullHttpRequest, HttpMethod}
+</span>11 <span style=''>import io.netty.handler.codec.http.HttpMethod._
+</span>12 <span style=''>
+</span>13 <span style=''>import scala.util.{Success, Failure}
+</span>14 <span style=''>
+</span>15 <span style=''>/**
+</span>16 <span style=''> * @author Michael Cuthbert on 6/2/15.
+</span>17 <span style=''> */
+</span>18 <span style=''>@Sharable
+</span>19 <span style=''>private[route] class NettyHandler(commandRef:ActorRef, paths:Map[String, String], method:HttpMethod) extends BaseInboundHandler {
+</span>20 <span style=''>  /**
+</span>21 <span style=''>   * Override this function in order to process http requests.
+</span>22 <span style=''>   * @param ctx
+</span>23 <span style=''>   * @param req
+</span>24 <span style=''>   * @return true if this function handled the request; otherwise, false
+</span>25 <span style=''>   */
+</span>26 <span style=''>  override def handleHttpRequest(ctx: ChannelHandlerContext, req: FullHttpRequest): Boolean = {
+</span>27 <span style=''>    (req.getMethod, req.getUri) match {
+</span>28 <span style=''>      case (this.method, path) =>
+</span>29 <span style=''>        </span><span style='background: #F0ADAD'>paths.foreach {
+</span>30 <span style=''></span><span style='background: #F0ADAD'>          case (name, testPath) =>
+</span>31 <span style=''></span><span style='background: #F0ADAD'>            Command.matchPath(testPath, path.substring(1)) match {
+</span>32 <span style=''></span><span style='background: #F0ADAD'>              case Some(bean) =>
+</span>33 <span style=''></span><span style='background: #F0ADAD'>                commandRef ! HandleHttpRequest(ctx, req, Some(bean))
+</span>34 <span style=''></span><span style='background: #F0ADAD'>                return true
+</span>35 <span style=''></span><span style='background: #F0ADAD'>              case None => // ignore and go on to the next path to match
+</span>36 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>37 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>38 <span style=''>
+</span>39 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore and we will leave this as unhandled
+</span>40 <span style=''>    }
+</span>41 <span style=''>    return </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>42 <span style=''>  }
+</span>43 <span style=''>}
+</span>44 <span style=''>
+</span>45 <span style=''>private[route] trait NettyRoutes extends HandlerFunctions {
+</span>46 <span style=''>  this:Command =>
+</span>47 <span style=''>  import context.dispatcher
+</span>48 <span style=''>
+</span>49 <span style=''>  def innerExecute[T<:AnyRef:Manifest](ctx:ChannelHandlerContext, req:FullHttpRequest, bean:Option[CommandBean]) = {
+</span>50 <span style=''>    </span><span style='background: #F0ADAD'>execute(bean).mapTo[CommandResponse[T]] onComplete {
+</span>51 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>52 <span style=''></span><span style='background: #F0ADAD'>        s.data match {
+</span>53 <span style=''></span><span style='background: #F0ADAD'>          case Some(value) => sendContent(ctx, req, value.toString, s.responseType)
+</span>54 <span style=''></span><span style='background: #F0ADAD'>          case None => sendNoContent(ctx, req)
+</span>55 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>56 <span style=''></span><span style='background: #F0ADAD'>
+</span>57 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => sendFailure(ctx, req, f)
+</span>58 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>59 <span style=''>  }
+</span>60 <span style=''>}
+</span>61 <span style=''>
+</span>62 <span style=''>trait NettyGet extends NettyRoutes {
+</span>63 <span style=''>  this:NettyCommand =>
+</span>64 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_GET", new NettyHandler(self, paths, GET))</span><span style=''>
+</span>65 <span style=''>}
+</span>66 <span style=''>
+</span>67 <span style=''>trait NettyPut extends NettyRoutes {
+</span>68 <span style=''>  this:NettyCommand =>
+</span>69 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_PUT", new NettyHandler(self, paths, PUT))</span><span style=''>
+</span>70 <span style=''>}
+</span>71 <span style=''>
+</span>72 <span style=''>trait NettyPost extends NettyRoutes {
+</span>73 <span style=''>  this:NettyCommand =>
+</span>74 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_POST", new NettyHandler(self, paths, POST))</span><span style=''>
+</span>75 <span style=''>}
+</span>76 <span style=''>
+</span>77 <span style=''>trait NettyOptions extends NettyRoutes {
+</span>78 <span style=''>  this:NettyCommand =>
+</span>79 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_OPTIONS", new NettyHandler(self, paths, OPTIONS))</span><span style=''>
+</span>80 <span style=''>}
+</span>81 <span style=''>
+</span>82 <span style=''>trait NettyHead extends NettyRoutes {
+</span>83 <span style=''>  this:NettyCommand =>
+</span>84 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_HEAD", new NettyHandler(self, paths, HEAD))</span><span style=''>
+</span>85 <span style=''>}
+</span>86 <span style=''>
+</span>87 <span style=''>trait NettyPatch extends NettyRoutes {
+</span>88 <span style=''>  this:NettyCommand =>
+</span>89 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_PATCH", new NettyHandler(self, paths, PATCH))</span><span style=''>
+</span>90 <span style=''>}
+</span>91 <span style=''>
+</span>92 <span style=''>trait NettyDelete extends NettyRoutes {
+</span>93 <span style=''>  this:NettyCommand =>
+</span>94 <span style=''>  </span><span style='background: #F0ADAD'>HandlerManager.addGetHandler(s"${commandName}_DELETE", new NettyHandler(self, paths, DELETE))</span><span style=''>
+</span>95 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          1162
+          -
+          1506
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          NettyHandler.this.paths.foreach[Unit](((x0$2: (String, String)) =&gt; x0$2 match {
+  case (_1: String, _2: String)(String, String)((name @ _), (testPath @ _)) =&gt; com.webtrends.harness.command.Command.matchPath(testPath, path.substring(1)) match {
+    case (x: com.webtrends.harness.command.CommandBean)Some[com.webtrends.harness.command.CommandBean]((bean @ _)) =&gt; {
+      {
+        &lt;artifact&gt; val qual$1: akka.actor.ScalaActorRef = akka.this.actor.`package`.actorRef2Scala(NettyHandler.this.commandRef);
+        &lt;artifact&gt; val x$1: com.webtrends.harness.component.netty.route.NettyCommand.HandleHttpRequest = com.webtrends.harness.component.netty.route.NettyCommand.HandleHttpRequest.apply(ctx, req, scala.Some.apply[com.webtrends.harness.command.CommandBean](bean));
+        &lt;artifact&gt; val x$2: akka.actor.ActorRef = qual$1.!$default$2(x$1);
+        qual$1.!(x$1)(x$2)
+      };
+      return true
+    }
+    case scala.None =&gt; ()
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          1225
+          -
+          1271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.matchPath
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.command.Command.matchPath(testPath, path.substring(1))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          1253
+          -
+          1270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td style="background: #F0ADAD">
+          path.substring(1)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          1342
+          -
+          1381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyCommand.HandleHttpRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.route.NettyCommand.HandleHttpRequest.apply(ctx, req, scala.Some.apply[com.webtrends.harness.command.CommandBean](bean))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          489
+        </td>
+        <td>
+          1329
+          -
+          1381
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.!(x$1)(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          1370
+          -
+          1380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.command.CommandBean](bean)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          1340
+          -
+          1340
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.!$default$2(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          1329
+          -
+          1339
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.actor.actorRef2Scala
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(NettyHandler.this.commandRef)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          484
+        </td>
+        <td>
+          1329
+          -
+          1339
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.commandRef
+        </td>
+        <td style="background: #F0ADAD">
+          NettyHandler.this.commandRef
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          1405
+          -
+          1409
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          1434
+          -
+          1436
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          1521
+          -
+          1523
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          1587
+          -
+          1592
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          1868
+          -
+          1868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          NettyRoutes.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          1828
+          -
+          2126
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          NettyRoutes.this.execute[Nothing](bean).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[Unit](((x0$1: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; s.data match {
+    case (x: T)Some[T]((value @ _)) =&gt; NettyRoutes.this.sendContent(ctx, req, value.toString(), s.responseType)
+    case scala.None =&gt; NettyRoutes.this.sendNoContent(ctx, req)
+  }
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; NettyRoutes.this.sendFailure(ctx, req, f)
+}))(NettyRoutes.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          1914
+          -
+          1920
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.data
+        </td>
+        <td style="background: #F0ADAD">
+          s.data
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          1981
+          -
+          1995
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          value.toString()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          1959
+          -
+          2012
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.HandlerFunctions.sendContent
+        </td>
+        <td style="background: #F0ADAD">
+          NettyRoutes.this.sendContent(ctx, req, value.toString(), s.responseType)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          1997
+          -
+          2011
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandResponse.responseType
+        </td>
+        <td style="background: #F0ADAD">
+          s.responseType
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          2036
+          -
+          2059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.HandlerFunctions.sendNoContent
+        </td>
+        <td style="background: #F0ADAD">
+          NettyRoutes.this.sendNoContent(ctx, req)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          2096
+          -
+          2120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.HandlerFunctions.sendFailure
+        </td>
+        <td style="background: #F0ADAD">
+          NettyRoutes.this.sendFailure(ctx, req, f)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          2229
+          -
+          2240
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyGet.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          508
+        </td>
+        <td>
+          2271
+          -
+          2276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyGet.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          2265
+          -
+          2269
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyGet.this.self
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          2248
+          -
+          2282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyGet.this.self, NettyGet.this.paths, io.netty.handler.codec.http.HttpMethod.GET)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          504
+        </td>
+        <td>
+          2241
+          -
+          2246
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_GET&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          2227
+          -
+          2228
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          2225
+          -
+          2246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_GET&quot;).s(NettyGet.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          2278
+          -
+          2281
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.GET
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.GET
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          2196
+          -
+          2283
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_GET&quot;).s(NettyGet.this.commandName), new NettyHandler(NettyGet.this.self, NettyGet.this.paths, io.netty.handler.codec.http.HttpMethod.GET))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          2382
+          -
+          2393
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPut.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          2424
+          -
+          2429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPut.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          2418
+          -
+          2422
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPut.this.self
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          2401
+          -
+          2435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyPut.this.self, NettyPut.this.paths, io.netty.handler.codec.http.HttpMethod.PUT)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          2394
+          -
+          2399
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_PUT&quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          2380
+          -
+          2381
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          2378
+          -
+          2399
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_PUT&quot;).s(NettyPut.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          2431
+          -
+          2434
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.PUT
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.PUT
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          2349
+          -
+          2436
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_PUT&quot;).s(NettyPut.this.commandName), new NettyHandler(NettyPut.this.self, NettyPut.this.paths, io.netty.handler.codec.http.HttpMethod.PUT))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          2536
+          -
+          2547
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPost.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          525
+        </td>
+        <td>
+          2573
+          -
+          2577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPost.this.self
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          528
+        </td>
+        <td>
+          2556
+          -
+          2591
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyPost.this.self, NettyPost.this.paths, io.netty.handler.codec.http.HttpMethod.POST)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          2548
+          -
+          2554
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_POST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          2534
+          -
+          2535
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          2532
+          -
+          2554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_POST&quot;).s(NettyPost.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          2586
+          -
+          2590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.POST
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.POST
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          2579
+          -
+          2584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPost.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          2503
+          -
+          2592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_POST&quot;).s(NettyPost.this.commandName), new NettyHandler(NettyPost.this.self, NettyPost.this.paths, io.netty.handler.codec.http.HttpMethod.POST))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          2695
+          -
+          2706
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyOptions.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          534
+        </td>
+        <td>
+          2735
+          -
+          2739
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyOptions.this.self
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          2718
+          -
+          2756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyOptions.this.self, NettyOptions.this.paths, io.netty.handler.codec.http.HttpMethod.OPTIONS)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          2707
+          -
+          2716
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_OPTIONS&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          2693
+          -
+          2694
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          2691
+          -
+          2716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_OPTIONS&quot;).s(NettyOptions.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          2748
+          -
+          2755
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.OPTIONS
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.OPTIONS
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          2741
+          -
+          2746
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyOptions.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          538
+        </td>
+        <td>
+          2662
+          -
+          2757
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_OPTIONS&quot;).s(NettyOptions.this.commandName), new NettyHandler(NettyOptions.this.self, NettyOptions.this.paths, io.netty.handler.codec.http.HttpMethod.OPTIONS))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          2857
+          -
+          2868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyHead.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          2869
+          -
+          2875
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_HEAD&quot;
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          2894
+          -
+          2898
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyHead.this.self
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          2877
+          -
+          2912
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyHead.this.self, NettyHead.this.paths, io.netty.handler.codec.http.HttpMethod.HEAD)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          2855
+          -
+          2856
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          2853
+          -
+          2875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_HEAD&quot;).s(NettyHead.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          2907
+          -
+          2911
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.HEAD
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.HEAD
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          2900
+          -
+          2905
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyHead.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          2824
+          -
+          2913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_HEAD&quot;).s(NettyHead.this.commandName), new NettyHandler(NettyHead.this.self, NettyHead.this.paths, io.netty.handler.codec.http.HttpMethod.HEAD))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          3014
+          -
+          3025
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPatch.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          3026
+          -
+          3033
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_PATCH&quot;
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          3052
+          -
+          3056
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPatch.this.self
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          3035
+          -
+          3071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyPatch.this.self, NettyPatch.this.paths, io.netty.handler.codec.http.HttpMethod.PATCH)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          3012
+          -
+          3013
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          3010
+          -
+          3033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_PATCH&quot;).s(NettyPatch.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          3065
+          -
+          3070
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.PATCH
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.PATCH
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          3058
+          -
+          3063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyPatch.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          2981
+          -
+          3072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_PATCH&quot;).s(NettyPatch.this.commandName), new NettyHandler(NettyPatch.this.self, NettyPatch.this.paths, io.netty.handler.codec.http.HttpMethod.PATCH))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          3174
+          -
+          3185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.commandName
+        </td>
+        <td style="background: #F0ADAD">
+          NettyDelete.this.commandName
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          3186
+          -
+          3194
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_DELETE&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          3213
+          -
+          3217
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          NettyDelete.this.self
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          3196
+          -
+          3233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.route.NettyHandler.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new NettyHandler(NettyDelete.this.self, NettyDelete.this.paths, io.netty.handler.codec.http.HttpMethod.DELETE)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          3226
+          -
+          3232
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          io.netty.handler.codec.http.HttpMethod.DELETE
+        </td>
+        <td style="background: #F0ADAD">
+          io.netty.handler.codec.http.HttpMethod.DELETE
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          3172
+          -
+          3173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          3170
+          -
+          3194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_DELETE&quot;).s(NettyDelete.this.commandName)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          3219
+          -
+          3224
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.paths
+        </td>
+        <td style="background: #F0ADAD">
+          NettyDelete.this.paths
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          3141
+          -
+          3234
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.netty.handler.HandlerManager.addGetHandler(scala.StringContext.apply(&quot;&quot;, &quot;_DELETE&quot;).s(NettyDelete.this.commandName), new NettyHandler(NettyDelete.this.self, NettyDelete.this.paths, io.netty.handler.codec.http.HttpMethod.DELETE))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
