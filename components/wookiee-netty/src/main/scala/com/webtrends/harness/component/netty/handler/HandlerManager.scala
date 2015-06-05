@@ -36,6 +36,11 @@ object HandlerManager {
     handlers += name -> handlerFunc
   }
 
+  def addGetHandler(name:String, channelHandler: ChannelHandler): Unit = {
+    val func = () => Map(name -> channelHandler)
+    handlers += name -> func
+  }
+
   def removeHandler(name: String, handler: ChannelHandler) = {
     log.debug(s"handler unregistered with handler manager [${handler.toString}]")
     handlers.remove(name)

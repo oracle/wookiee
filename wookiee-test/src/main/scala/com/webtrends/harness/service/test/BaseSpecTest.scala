@@ -16,5 +16,5 @@ trait BaseSpecTest extends SpecificationLike {
 
   TestHarness(config, servicesMap, componentMap, Level.ALL)
   Thread.sleep(1000)
-  implicit val actorSystem = TestHarness.system.get
+  implicit val system = TestHarness.system.get
 }
