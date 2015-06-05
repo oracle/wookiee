@@ -113,12 +113,14 @@ class ServerWorker extends WebSocketWorker {
 }```
 
 ### Adding a WebSocket endpoint to the websocket server
-Endpoints can be added to the WebSocket server by implementing the addWebSocketWorkers function in your service.  An actor will be created for each connection made to the endpoint.  
+Endpoints can be added to the WebSocket server by implementing the addWebSocketWorkers function in your service and mapping paths to workers.  An actor will be created for each connection made to the endpoint.  
+The endpoint path will be parsed allowing users to get parameters from the URL. A URL like '/account/1/user/2/obj/3' can be created with the string '/account/$accId/user/$userId/obj/$objId'. This will then match the URL and assume that any of the path elements starting with $ are variables. The variables will be placed in the CommandBean and can be retrieved in the WebSocketWorker' businessLogic using the keys accId, userId and objId. The variables will automatically be converted to Integers if it is not a String.
 ```Scala
 class MyService extends SprayService {
   override def addWebSocketWorkers = {
     addWebSocketWorker("test", classOf[ServerWorker])
     addWebSocketWorker("endpoint2", classOf[MyServerWorker2])
+    addWebSocketWorker("account/$accId/user/$userId/obj/$objId", classOf[MyServerWorker3])
   }
 }
 ```

@@ -44,6 +44,7 @@ class WebSocketSpec extends TestKitSpecificationWithJUnit(ActorSystem("test")) w
 
   addWebSocketWorker("test", classOf[ServerWorker])
   addWebSocketWorker("test/caps", classOf[ServerWorkerCaps])
+  addWebSocketWorker("$ver/api/account/$account", classOf[ServerWorkerBean])
   Thread.sleep(1000)
   sequential
   
@@ -57,6 +58,17 @@ class WebSocketSpec extends TestKitSpecificationWithJUnit(ActorSystem("test")) w
       val probe = TestProbe()
       probe.send(client, Send(TextFrame("Test 123")))
       TextFrame("Test 123") must be equalTo probe.expectMsg(TextFrame("Test 123"))
+      probe.send(client, Send(CloseFrame()))
+    }
+
+    "connect with keys " in {
+      val connect = Http.Connect("localhost", 9091, false)
+      val basicReq = websocket.basicHandshakeRepuset("/v1/api/account/35000")
+      val client = actorSystem.actorOf(Props(new ClientWorker(connect, basicReq)))
+
+      val probe = TestProbe()
+      probe.send(client, Send(TextFrame("Test 123")))
+      TextFrame("Test 123 ver:v1 account:35000") must be equalTo probe.expectMsg(TextFrame("Test 123 ver:v1 account:35000"))
       probe.send(client, Send(CloseFrame()))
     }
 
