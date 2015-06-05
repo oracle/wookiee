@@ -20,6 +20,7 @@
 package com.webtrends.harness.component.spray.websocket
 
 import akka.actor.Props
+import com.webtrends.harness.command.{CommandBean, Command}
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
@@ -49,7 +50,24 @@ object WebSocketManager {
     }
   }
 
-  def getWorker(path: String): Option[Props] = {
-    workers.get(path)
+  /**
+   * Gets a tuple containing the WebSocketWorker props and CommandBean for the given path.
+   *
+   * @param path The URI to match against
+   * @return If a match is found, a tuple contain the props and an optional CommandBean containing any parameters that
+   *         were part of the URI; otherwise None
+   */
+  def getWorker(path: String): Option[(Props, Option[CommandBean])] = {
+    workers.find({case (key,props) => matchPath(key,path)}) match {
+      case Some((key,props)) => Some(props, Command.matchPath(key, path))
+      case None => None
+    }
+  }
+
+  private def matchPath(test: String, path:String): Boolean = {
+    Command.matchPath(test, path) match {
+      case Some(b) => true
+      case None => false
+    }
   }
 }
