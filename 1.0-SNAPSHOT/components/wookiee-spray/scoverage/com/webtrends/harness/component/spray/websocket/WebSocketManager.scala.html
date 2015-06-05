@@ -45,39 +45,57 @@
 </span>20 <span style=''>package com.webtrends.harness.component.spray.websocket
 </span>21 <span style=''>
 </span>22 <span style=''>import akka.actor.Props
-</span>23 <span style=''>import org.slf4j.LoggerFactory
-</span>24 <span style=''>
-</span>25 <span style=''>import scala.collection.mutable
-</span>26 <span style=''>
-</span>27 <span style=''>/**
-</span>28 <span style=''> * @author Michael Wallin on 4/16/15.
-</span>29 <span style=''> */
-</span>30 <span style=''>object WebSocketManager {
-</span>31 <span style=''>  val externalLogger = </span><span style='background: #AEF1AE'>LoggerFactory.getLogger(this.getClass)</span><span style=''>
-</span>32 <span style=''>
-</span>33 <span style=''>  private val workers = </span><span style='background: #AEF1AE'>mutable.Map[String, Props]()</span><span style=''>
-</span>34 <span style=''>
-</span>35 <span style=''>  def addWorker[T](path: String, actorClass:Class[T]): Unit = { </span><span style='background: #AEF1AE'>addWorker[T](path, Props(actorClass))</span><span style=''> }
-</span>36 <span style=''>
-</span>37 <span style=''>  def addWorker[T](path: String, props:Props): Unit = {
-</span>38 <span style=''>    </span><span style='background: #AEF1AE'>externalLogger.debug(s"new websocket worker [$path] registered with WebSocketManager")</span><span style=''>
-</span>39 <span style=''>    </span><span style='background: #AEF1AE'>workers += path -> props</span><span style=''>
-</span>40 <span style=''>  }
-</span>41 <span style=''>
-</span>42 <span style=''>  def removeCommand(path:String) : Boolean = {
-</span>43 <span style=''>    </span><span style='background: #F0ADAD'>workers.get(path)</span><span style=''> match {
-</span>44 <span style=''>      case Some(n) =>
-</span>45 <span style=''>        </span><span style='background: #F0ADAD'>externalLogger.debug(s"Websocket worker [$path] removed from WebSocketManager")</span><span style=''>
-</span>46 <span style=''>        </span><span style='background: #F0ADAD'>workers -= path</span><span style=''>
-</span>47 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
-</span>48 <span style=''>      case None => </span><span style='background: #F0ADAD'>false</span><span style=''>
-</span>49 <span style=''>    }
-</span>50 <span style=''>  }
-</span>51 <span style=''>
-</span>52 <span style=''>  def getWorker(path: String): Option[Props] = {
-</span>53 <span style=''>    </span><span style='background: #AEF1AE'>workers.get(path)</span><span style=''>
-</span>54 <span style=''>  }
-</span>55 <span style=''>}
+</span>23 <span style=''>import com.webtrends.harness.command.{CommandBean, Command}
+</span>24 <span style=''>import org.slf4j.LoggerFactory
+</span>25 <span style=''>
+</span>26 <span style=''>import scala.collection.mutable
+</span>27 <span style=''>
+</span>28 <span style=''>/**
+</span>29 <span style=''> * @author Michael Wallin on 4/16/15.
+</span>30 <span style=''> */
+</span>31 <span style=''>object WebSocketManager {
+</span>32 <span style=''>  val externalLogger = </span><span style='background: #AEF1AE'>LoggerFactory.getLogger(this.getClass)</span><span style=''>
+</span>33 <span style=''>
+</span>34 <span style=''>  private val workers = </span><span style='background: #AEF1AE'>mutable.Map[String, Props]()</span><span style=''>
+</span>35 <span style=''>
+</span>36 <span style=''>  def addWorker[T](path: String, actorClass:Class[T]): Unit = { </span><span style='background: #AEF1AE'>addWorker[T](path, Props(actorClass))</span><span style=''> }
+</span>37 <span style=''>
+</span>38 <span style=''>  def addWorker[T](path: String, props:Props): Unit = {
+</span>39 <span style=''>    </span><span style='background: #AEF1AE'>externalLogger.debug(s"new websocket worker [$path] registered with WebSocketManager")</span><span style=''>
+</span>40 <span style=''>    </span><span style='background: #AEF1AE'>workers += path -> props</span><span style=''>
+</span>41 <span style=''>  }
+</span>42 <span style=''>
+</span>43 <span style=''>  def removeCommand(path:String) : Boolean = {
+</span>44 <span style=''>    </span><span style='background: #F0ADAD'>workers.get(path)</span><span style=''> match {
+</span>45 <span style=''>      case Some(n) =>
+</span>46 <span style=''>        </span><span style='background: #F0ADAD'>externalLogger.debug(s"Websocket worker [$path] removed from WebSocketManager")</span><span style=''>
+</span>47 <span style=''>        </span><span style='background: #F0ADAD'>workers -= path</span><span style=''>
+</span>48 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>49 <span style=''>      case None => </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>50 <span style=''>    }
+</span>51 <span style=''>  }
+</span>52 <span style=''>
+</span>53 <span style=''>  /**
+</span>54 <span style=''>   * Gets a tuple containing the WebSocketWorker props and CommandBean for the given path.
+</span>55 <span style=''>   *
+</span>56 <span style=''>   * @param path The URI to match against
+</span>57 <span style=''>   * @return If a match is found, a tuple contain the props and an optional CommandBean containing any parameters that
+</span>58 <span style=''>   *         were part of the URI; otherwise None
+</span>59 <span style=''>   */
+</span>60 <span style=''>  def getWorker(path: String): Option[(Props, Option[CommandBean])] = {
+</span>61 <span style=''>    </span><span style='background: #AEF1AE'>workers.find({case (key,props) => matchPath(key,path)})</span><span style=''> match {
+</span>62 <span style=''>      case Some((key,props)) => </span><span style='background: #AEF1AE'>Some(props, Command.matchPath(key, path))</span><span style=''>
+</span>63 <span style=''>      case None => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>64 <span style=''>    }
+</span>65 <span style=''>  }
+</span>66 <span style=''>
+</span>67 <span style=''>  private def matchPath(test: String, path:String): Boolean = {
+</span>68 <span style=''>    </span><span style='background: #AEF1AE'>Command.matchPath(test, path)</span><span style=''> match {
+</span>69 <span style=''>      case Some(b) => </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>70 <span style=''>      case None => </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>71 <span style=''>    }
+</span>72 <span style=''>  }
+</span>73 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -91,15 +109,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          1418
+          1429
         </td>
         <td>
-          981
+          1041
           -
-          1019
+          1079
         </td>
         <td>
           Apply
@@ -112,15 +130,15 @@
         </td>
       </tr><tr>
         <td>
-          31
+          32
         </td>
         <td>
-          1417
+          1428
         </td>
         <td>
-          1005
+          1065
           -
-          1018
+          1078
         </td>
         <td>
           Apply
@@ -133,15 +151,15 @@
         </td>
       </tr><tr>
         <td>
-          33
+          34
         </td>
         <td>
-          1419
+          1430
         </td>
         <td>
-          1045
+          1105
           -
-          1073
+          1133
         </td>
         <td>
           Apply
@@ -154,36 +172,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          36
         </td>
         <td>
-          1420
+          1432
         </td>
         <td>
-          1158
+          1199
           -
-          1175
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Props.apply
-        </td>
-        <td style="background: #AEF1AE">
-          akka.actor.Props.apply(actorClass)
-        </td>
-      </tr><tr>
-        <td>
-          35
-        </td>
-        <td>
-          1421
-        </td>
-        <td>
-          1139
-          -
-          1176
+          1236
         </td>
         <td>
           Apply
@@ -196,15 +193,36 @@
         </td>
       </tr><tr>
         <td>
-          38
+          36
         </td>
         <td>
-          1423
+          1431
         </td>
         <td>
-          1240
+          1218
           -
-          1326
+          1235
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply(actorClass)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1434
+        </td>
+        <td>
+          1300
+          -
+          1386
         </td>
         <td>
           Apply
@@ -217,15 +235,15 @@
         </td>
       </tr><tr>
         <td>
-          38
+          39
         </td>
         <td>
-          1422
+          1433
         </td>
         <td>
-          1261
+          1321
           -
-          1325
+          1385
         </td>
         <td>
           Apply
@@ -238,57 +256,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          40
         </td>
         <td>
-          1425
+          1437
         </td>
         <td>
-          1331
+          1399
           -
-          1355
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.MapLike.+=
-        </td>
-        <td style="background: #AEF1AE">
-          WebSocketManager.this.workers.+=(scala.this.Predef.ArrowAssoc[String](path).-&gt;[akka.actor.Props](props))
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          1424
-        </td>
-        <td>
-          1342
-          -
-          1355
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          scala.this.Predef.ArrowAssoc[String](path).-&gt;[akka.actor.Props](props)
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          1426
-        </td>
-        <td>
-          1339
-          -
-          1339
+          1399
         </td>
         <td>
           Literal
@@ -301,15 +277,57 @@
         </td>
       </tr><tr>
         <td>
-          43
+          40
         </td>
         <td>
-          1427
+          1436
         </td>
         <td>
-          1412
+          1391
           -
-          1429
+          1415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #AEF1AE">
+          WebSocketManager.this.workers.+=(scala.this.Predef.ArrowAssoc[String](path).-&gt;[akka.actor.Props](props))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          1402
+          -
+          1415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.ArrowAssoc[String](path).-&gt;[akka.actor.Props](props)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          1472
+          -
+          1489
         </td>
         <td>
           Apply
@@ -322,15 +340,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          1429
+          1440
         </td>
         <td>
-          1468
+          1528
           -
-          1547
+          1607
         </td>
         <td>
           Apply
@@ -343,15 +361,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          1428
+          1439
         </td>
         <td>
-          1489
+          1549
           -
-          1546
+          1606
         </td>
         <td>
           Apply
@@ -364,15 +382,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          47
         </td>
         <td>
-          1430
+          1441
         </td>
         <td>
-          1556
+          1616
           -
-          1571
+          1631
         </td>
         <td>
           Apply
@@ -385,15 +403,15 @@
         </td>
       </tr><tr>
         <td>
-          47
+          48
         </td>
         <td>
-          1431
+          1442
         </td>
         <td>
-          1580
+          1640
           -
-          1584
+          1644
         </td>
         <td>
           Literal
@@ -406,15 +424,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          49
         </td>
         <td>
-          1432
+          1443
         </td>
         <td>
-          1604
+          1664
           -
-          1609
+          1669
         </td>
         <td>
           Literal
@@ -427,24 +445,194 @@
         </td>
       </tr><tr>
         <td>
-          53
+          61
         </td>
         <td>
-          1433
+          1445
         </td>
         <td>
-          1674
+          2076
           -
-          1691
+          2131
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.MapLike.get
+          scala.collection.IterableLike.find
         </td>
         <td style="background: #AEF1AE">
-          WebSocketManager.this.workers.get(path)
+          WebSocketManager.this.workers.find(((x0$1: (String, akka.actor.Props)) =&gt; x0$1 match {
+  case (_1: String, _2: akka.actor.Props)(String, akka.actor.Props)((key @ _), (props @ _)) =&gt; WebSocketManager.this.matchPath(key, path)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1444
+        </td>
+        <td>
+          2110
+          -
+          2129
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.spray.websocket.WebSocketManager.matchPath
+        </td>
+        <td style="background: #AEF1AE">
+          WebSocketManager.this.matchPath(key, path)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1447
+        </td>
+        <td>
+          2172
+          -
+          2213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[akka.actor.Props, Option[com.webtrends.harness.command.CommandBean]](props, com.webtrends.harness.command.Command.matchPath(key, path))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1446
+        </td>
+        <td>
+          2184
+          -
+          2212
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.matchPath
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.command.Command.matchPath(key, path)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1448
+        </td>
+        <td>
+          2172
+          -
+          2213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[(akka.actor.Props, Option[com.webtrends.harness.command.CommandBean])](scala.Tuple2.apply[akka.actor.Props, Option[com.webtrends.harness.command.CommandBean]](props, com.webtrends.harness.command.Command.matchPath(key, path)))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          2233
+          -
+          2237
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1450
+        </td>
+        <td>
+          2317
+          -
+          2346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.Command.matchPath
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.command.Command.matchPath(test, path)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1451
+        </td>
+        <td>
+          2377
+          -
+          2381
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1452
+        </td>
+        <td>
+          2401
+          -
+          2406
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
         </td>
       </tr>
     </table>
