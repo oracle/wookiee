@@ -18,6 +18,12 @@ trait WebSocketWorker extends HActor {
   override def receive = health orElse businessLogic orElse closeLogic
 
   var bean: Option[CommandBean] = None
+  def getCommndBean() = {
+    bean match {
+      case Some(b) => b
+      case None => new CommandBean()
+    }
+  }
 
   def businessLogic: Receive = {
     case Push(msg) =>
