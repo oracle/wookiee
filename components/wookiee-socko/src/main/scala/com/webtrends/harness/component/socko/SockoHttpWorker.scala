@@ -70,62 +70,59 @@ class SockoHttpWorker extends HActor with ComponentHelper {
    * @param event The http request
    */
   protected def handleSockoRoute(event: HttpRequestEvent) = {
-    var handled = true
     event match {
       case GET(Path("/favicon.ico")) =>
         event.response.write(HttpResponseStatus.NO_CONTENT)
       case GET(Path("/ping")) =>
         event.response.write("pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))
-      case req =>
-        req match {
-          case GET(Path("/healthcheck/lb")) =>
-            (healthActor ? HealthRequest(HealthResponseType.LB)).mapTo[String] onComplete {
-              case Success(h) => event.response.write(h)
-              case Failure(f) => messageFailure(f, event)
-            }
-          case GET(Path("/healthcheck/nagios")) =>
-            (healthActor ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
-              case Success(h) => event.response.write(h)
-              case Failure(f) => messageFailure(f, event)
-            }
-          case _ =>
-            var found = false
-            SockoRouteManager.getHandlers(event.nettyHttpRequest.getMethod.toString.toUpperCase) match {
-              case Some(handlers) =>
-                try {
-                  handlers.takeWhile { handler =>
-                    handler._2.matchSockoRoute(event) match {
-                      case Some(map) =>
-                        Future {
-                          handler._2.handleSockoRoute(event, map)
-                        }
-                        found = true
-                      case None =>
+      case GET(Path("/healthcheck/lb")) =>
+        (healthActor ? HealthRequest(HealthResponseType.LB)).mapTo[String] onComplete {
+          case Success(h) => event.response.write(h)
+          case Failure(f) => messageFailure(f, event)
+        }
+      case GET(Path("/healthcheck/nagios")) =>
+        (healthActor ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
+          case Success(h) => event.response.write(h)
+          case Failure(f) => messageFailure(f, event)
+        }
+      case _ =>
+        val allHandlers = SockoRouteManager.getHandlers(event.nettyHttpRequest.getMethod.toString.toUpperCase)
+        val matchedHandler = allHandlers match {
+          case Some(handlers) =>
+            try {
+              handlers.find { handler =>
+                handler._2.matchSockoRoute(event) match {
+                  case Some(map) =>
+                    Future {
+                      handler._2.handleSockoRoute(event, map)
                     }
-                    !found
-                  }
-                } catch {
-                  case ce: SockoCommandException => event.response.write(ce.code, s"Cause - ${ce.getMessage}")
-                  case ex: Exception => event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Cause - ${ex.getMessage}")
+                    true
+                  case None => false
                 }
-              case None =>
+              }
+            } catch {
+              case ex: Exception =>
+                log.error(s"Error matching path ${event.endPoint.path}", ex)
+                false
             }
-            handled = found
+          case None => None
         }
-    }
 
-    if (!handled) {
-      //if the static content handler was initialized then lets send the message out to the content handler
-      if (ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "").nonEmpty) {
-        context.actorSelection(s"${HarnessConstants.ComponentFullName}/wookiee-socko").resolveOne() onComplete {
-          case Success(s) => s ! SockoContentRequest(event)
-          case Failure(f) => event.response.write(HttpResponseStatus.NOT_FOUND)
+        matchedHandler match {
+          case Some(h) => // Handler already called
+          case None => // Fallback to static content if initialized
+            if (ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "").nonEmpty) {
+              context.actorSelection(s"${HarnessConstants.ComponentFullName}/harness-socko").resolveOne() onComplete {
+                case Success(s) => s ! SockoContentRequest(event)
+                case Failure(f) => event.response.write(HttpResponseStatus.NOT_FOUND)
+              }
+            } else {
+              event.response.write(HttpResponseStatus.NOT_FOUND)
+            }
         }
-      } else {
-        event.response.write(HttpResponseStatus.NOT_FOUND)
-      }
     }
   }
+
 
   def messageFailure(f:Throwable, event:HttpRequestEvent) = {
     f match {
