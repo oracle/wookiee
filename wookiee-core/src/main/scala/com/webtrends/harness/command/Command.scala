@@ -21,6 +21,7 @@ package com.webtrends.harness.command
 
 import akka.pattern.pipe
 import com.webtrends.harness.app.HActor
+import scala.util.Try
 
 import scala.concurrent.Future
 
@@ -37,6 +38,7 @@ trait Command extends HActor {
 
   override def receive = health orElse ({
     case ExecuteCommand(name, bean) => pipe(execute(bean)) to sender
+    case _ => // ignore all other messages to this actor
   } : Receive)
 
   def path : String = s"_wt_internal/${commandName.toLowerCase}"
@@ -88,9 +90,9 @@ object Command {
       case (x, y) if y.charAt(0) == '$' =>
         // try to normalize the segment into an INT or STRING
         val key = y.substring(1)
-        x forall {_.isDigit} match {
-          case true => bean.addValue(key, x.toInt.asInstanceOf[Integer])
-          case false => bean.addValue(key, x)
+        Try(x.toInt).toOption match {
+          case Some(v) => bean.addValue(key, v.asInstanceOf[Integer])
+          case None => bean.addValue(key, x)
         }
         true
       // case if you want optional path values
