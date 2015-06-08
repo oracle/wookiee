@@ -116,7 +116,7 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
       case Some(c) => fromTwitter(c.get(key))
       case None =>
         log.error("Failed to get key [%s] from cache [%s] as it does not exist".format(key, namespace))
-        future { None }
+        Future { None }
     }
   }
 
@@ -133,7 +133,7 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
       case Some(c) => fromTwitter(c.set(key, value))
       case None =>
         log.error("Failed to add key [%s] to cache [%s] as it does not exist".format(key, namespace))
-        future { false }
+        Future { false }
     }
   }
 
@@ -149,7 +149,7 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
       case Some(c) => fromTwitter(c.delete(key))
       case None =>
         log.error("Failed to delete key [%s] from cache [%s] as it does not exist".format(key, namespace))
-        future { false }
+        Future { false }
     }
   }
 
@@ -166,7 +166,7 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
       case Some(c) => fromTwitter(c.increment(key, incrementBy))
       case None =>
         log.error("Failed to increment key [%s] in cache [%s] as it does not exist".format(key, namespace))
-        future { None }
+        Future { None }
     }
   }
 
@@ -182,18 +182,18 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
       case Some(c) => fromTwitter(c.decrement(key, decrementBy))
       case None =>
         log.error("Failed to decrement key [%s] in cache [%s] as it does not exist".format(key, namespace))
-        future { None }
+        Future { None }
     }
   }
 
   // NOT IMPLEMENTED RETURN FALSE
   override protected def contains(namespace: String, key: String) : Future[Boolean] = {
-    future { false }
+    Future { false }
   }
 
   // NOT SUPPORTED BY MEMCACHE
   override protected def clear(namespace: String) : Future[Boolean] = {
-    future { false }
+    Future { false }
   }
 
   /**
@@ -220,9 +220,9 @@ class MemcacheManager(name:String) extends Cache(name) with MemcacheConstants {
   }
 
   // todo check connection to memcache
-  override def checkHealth(): Future[HealthComponent] = {
-    val p = Promise[HealthComponent]
-    if (caches.size == 0) {
+  override def checkHealth: Future[HealthComponent] = {
+    val p = Promise[HealthComponent]()
+    if (caches.isEmpty) {
       p success HealthComponent(self.path.name, ComponentState.NORMAL, "Managing %d caches".format(0))
     } else {
       val future = Future.traverse(caches) {
