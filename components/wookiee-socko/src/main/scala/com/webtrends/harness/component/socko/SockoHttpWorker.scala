@@ -24,7 +24,6 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HActor
 import com.webtrends.harness.component.socko.route.SockoRouteManager
-import com.webtrends.harness.component.socko.utils.SockoCommandException
 import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException}
 import com.webtrends.harness.health.{ComponentState, HealthRequest, HealthResponseType}
 import com.webtrends.harness.utils.ConfigUtil
@@ -103,7 +102,7 @@ class SockoHttpWorker extends HActor with ComponentHelper {
             } catch {
               case ex: Exception =>
                 log.error(s"Error matching path ${event.endPoint.path}", ex)
-                false
+                None
             }
           case None => None
         }

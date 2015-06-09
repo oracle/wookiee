@@ -21,7 +21,7 @@ package com.webtrends.harness.command
 
 import akka.pattern.pipe
 import com.webtrends.harness.app.HActor
-import scala.util.Try
+import scala.util.{Try, Success, Failure}
 
 import scala.concurrent.Future
 
@@ -90,9 +90,9 @@ object Command {
       case (x, y) if y.charAt(0) == '$' =>
         // try to normalize the segment into an INT or STRING
         val key = y.substring(1)
-        Try(x.toInt).toOption match {
-          case Some(v) => bean.addValue(key, v.asInstanceOf[Integer])
-          case None => bean.addValue(key, x)
+        Try(x.toInt) match {
+          case Success(v) => bean.addValue(key, v.asInstanceOf[Integer])
+          case Failure(_) => bean.addValue(key, x)
         }
         true
       // case if you want optional path values
