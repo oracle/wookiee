@@ -5,13 +5,13 @@ import akka.testkit.{TestProbe, TestActorRef}
 class EtcdActorIT extends EtcdTestBase {
 
   val probe = new TestProbe(actorSystem)
-  val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(actorSystem.settings.config.getConfig("wookie-etcd"))))
+  val actor = TestActorRef[EtcdActor] (EtcdActor.props(EtcdSettings(actorSystem.settings.config.getConfig("wookiee-etcd"))))
 
   Thread.sleep(2000)
 
   sequential
 
-  "wookie-etcd actor" should {
+  "wookiee-etcd actor" should {
 
     "be able to set key" in {
       probe.send(actor, SetKey("key1", "foo"))
