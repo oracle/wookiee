@@ -1,0 +1,1819 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/etcd/discovery/EtcdHelper.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.etcd.discovery
+</span>2 <span style=''>
+</span>3 <span style=''>import akka.actor.{Actor, ActorRef}
+</span>4 <span style=''>import akka.pattern._
+</span>5 <span style=''>import akka.util.Timeout
+</span>6 <span style=''>import com.webtrends.harness.component.ComponentException
+</span>7 <span style=''>import com.webtrends.harness.component.etcd._
+</span>8 <span style=''>
+</span>9 <span style=''>import scala.concurrent.duration._
+</span>10 <span style=''>import scala.concurrent.{Future, Promise}
+</span>11 <span style=''>import scala.util.{Failure, Success}
+</span>12 <span style=''>
+</span>13 <span style=''>trait EtcdHelper {
+</span>14 <span style=''>  this: Actor =>
+</span>15 <span style=''>
+</span>16 <span style=''>  import context.dispatcher
+</span>17 <span style=''>
+</span>18 <span style=''>  var etcdManager:Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>19 <span style=''>  var etcdManagerInitialized:Boolean = </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>20 <span style=''>
+</span>21 <span style=''>  implicit val timeout = </span><span style='background: #F0ADAD'>Timeout(5 seconds)</span><span style=''>
+</span>22 <span style=''>
+</span>23 <span style=''>  def initEtcdHelper : Future[ActorRef] = {
+</span>24 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[ActorRef]()</span><span style=''>
+</span>25 <span style=''>
+</span>26 <span style=''>    def awaitEtcdManager(timeOut: Deadline) {
+</span>27 <span style=''>      if (</span><span style='background: #F0ADAD'>timeOut.isOverdue() && !etcdManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>28 <span style=''></span><span style='background: #F0ADAD'>        etcdManagerInitialized = true
+</span>29 <span style=''></span><span style='background: #F0ADAD'>        p failure ComponentException("Etcd Component", "Failed to get etcd manager")
+</span>30 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>31 <span style=''>      </span><span style='background: #F0ADAD'>context.actorSelection(Etcd.EtcdName).resolveOne()(1 second) onComplete {
+</span>32 <span style=''></span><span style='background: #F0ADAD'>        case Success(s) =>
+</span>33 <span style=''></span><span style='background: #F0ADAD'>          etcdManager = Some(s)
+</span>34 <span style=''></span><span style='background: #F0ADAD'>          etcdManagerInitialized = true
+</span>35 <span style=''></span><span style='background: #F0ADAD'>          p success s
+</span>36 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) => awaitEtcdManager(timeOut)
+</span>37 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>38 <span style=''>    }
+</span>39 <span style=''>
+</span>40 <span style=''>   </span><span style='background: #F0ADAD'>etcdManager</span><span style=''> match {
+</span>41 <span style=''>      case Some(cm) => </span><span style='background: #F0ADAD'>p success cm</span><span style=''>
+</span>42 <span style=''>      case None =>
+</span>43 <span style=''>        if (</span><span style='background: #F0ADAD'>!etcdManagerInitialized</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>44 <span style=''></span><span style='background: #F0ADAD'>          val deadline = 5 seconds fromNow
+</span>45 <span style=''></span><span style='background: #F0ADAD'>          awaitEtcdManager(deadline)
+</span>46 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''> else {
+</span>47 <span style=''>          </span><span style='background: #F0ADAD'>p failure ComponentException("Etcd Component", "Etcd manager did not initialize")</span><span style=''>
+</span>48 <span style=''>        }
+</span>49 <span style=''>    }
+</span>50 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  }
+</span>53 <span style=''>
+</span>54 <span style=''>  def list(path:String, recursive:Boolean = false): Future[String] = {
+</span>55 <span style=''>    var f:Option[Future[String]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>56 <span style=''>    </span><span style='background: #F0ADAD'>initEtcdHelper onComplete {
+</span>57 <span style=''></span><span style='background: #F0ADAD'>      case Success(actor) =>
+</span>58 <span style=''></span><span style='background: #F0ADAD'>        val t:Future[String] = ask(actor, ListDir(path, recursive)).mapTo[String]
+</span>59 <span style=''></span><span style='background: #F0ADAD'>        f = Option(t)
+</span>60 <span style=''></span><span style='background: #F0ADAD'>      case Failure(e) =>
+</span>61 <span style=''></span><span style='background: #F0ADAD'>        f = Option(Future.failed(e))
+</span>62 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>63 <span style=''>    </span><span style='background: #F0ADAD'>f.get</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  def locate(path:String): Future[String] = {
+</span>67 <span style=''>    var f:Option[Future[String]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #F0ADAD'>initEtcdHelper onComplete {
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      case Success(actor) =>
+</span>70 <span style=''></span><span style='background: #F0ADAD'>        val t:Future[String] = ask(actor, GetKey(path)).mapTo[String]
+</span>71 <span style=''></span><span style='background: #F0ADAD'>        f = Option(t)
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      case Failure(e) =>
+</span>73 <span style=''></span><span style='background: #F0ADAD'>        f = Option(Future.failed(e))
+</span>74 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>75 <span style=''>    </span><span style='background: #F0ADAD'>f.get</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  def delete(path:String): Future[Boolean] = {
+</span>79 <span style=''>    var f:Option[Future[Boolean]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>80 <span style=''>    </span><span style='background: #F0ADAD'>initEtcdHelper onComplete {
+</span>81 <span style=''></span><span style='background: #F0ADAD'>      case Success(actor) =>
+</span>82 <span style=''></span><span style='background: #F0ADAD'>        val t:Future[Boolean] = ask(actor, RemoveKey(path)).mapTo[Boolean]
+</span>83 <span style=''></span><span style='background: #F0ADAD'>        f = Option(t)
+</span>84 <span style=''></span><span style='background: #F0ADAD'>      case Failure(e) =>
+</span>85 <span style=''></span><span style='background: #F0ADAD'>        f = Option(Future.failed(e))
+</span>86 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>87 <span style=''>    </span><span style='background: #F0ADAD'>f.get</span><span style=''>
+</span>88 <span style=''>  }
+</span>89 <span style=''>
+</span>90 <span style=''>  def publish(path:String, value:String): Future[Boolean] = {
+</span>91 <span style=''>    var f:Option[Future[Boolean]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>92 <span style=''>    </span><span style='background: #F0ADAD'>initEtcdHelper onComplete {
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      case Success(actor) =>
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        val t:Future[Boolean] = ask(actor, SetKey(path, value)).mapTo[Boolean]
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        f = Option(t)
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      case Failure(e) =>
+</span>97 <span style=''></span><span style='background: #F0ADAD'>        f = Option(Future.failed(e))
+</span>98 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>99 <span style=''>    </span><span style='background: #F0ADAD'>f.get</span><span style=''>
+</span>100 <span style=''>  }
+</span>101 <span style=''>
+</span>102 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          18
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          462
+          -
+          466
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          506
+          -
+          511
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          128
+        </td>
+        <td>
+          546
+          -
+          555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          546
+          -
+          547
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          538
+          -
+          556
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          614
+          -
+          633
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          687
+          -
+          687
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          714
+          -
+          737
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManagerInitialized.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          739
+          -
+          871
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  EtcdHelper.this.etcdManagerInitialized_=(true);
+  p.failure(com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Failed to get etcd manager&quot;))
+}
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          687
+          -
+          687
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          691
+          -
+          737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          timeOut.isOverdue().&amp;&amp;(EtcdHelper.this.etcdManagerInitialized.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          749
+          -
+          778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.etcdManagerInitialized_=
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManagerInitialized_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          797
+          -
+          863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Failed to get etcd manager&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          787
+          -
+          863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Failed to get etcd manager&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          929
+          -
+          930
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          878
+          -
+          1133
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.actorSelection(com.webtrends.harness.component.etcd.Etcd.EtcdName).resolveOne()(util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)).onComplete[Any](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; {
+    EtcdHelper.this.etcdManager_=(scala.Some.apply[akka.actor.ActorRef](s));
+    EtcdHelper.this.etcdManagerInitialized_=(true);
+    p.success(s)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; awaitEtcdManager(timeOut)
+}))(EtcdHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          929
+          -
+          937
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          akka.util.Timeout.durationToTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          util.this.Timeout.durationToTimeout(scala.concurrent.duration.`package`.DurationInt(1).second)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          901
+          -
+          914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.Etcd.EtcdName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.etcd.Etcd.EtcdName
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          939
+          -
+          939
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          929
+          -
+          937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.second
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(1).second
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          989
+          -
+          1010
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.etcdManager_=
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManager_=(scala.Some.apply[akka.actor.ActorRef](s))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          1003
+          -
+          1010
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](s)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          1021
+          -
+          1050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.etcdManagerInitialized_=
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManagerInitialized_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          1061
+          -
+          1072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          1100
+          -
+          1125
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.awaitEtcdManager
+        </td>
+        <td style="background: #F0ADAD">
+          awaitEtcdManager(timeOut)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          1144
+          -
+          1155
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.etcdManager
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManager
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          1187
+          -
+          1199
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(cm)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          1256
+          -
+          1347
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val deadline: scala.concurrent.duration.DurationConversions.fromNowConvert.R = scala.concurrent.duration.`package`.DurationInt(5).seconds[concurrent.duration.fromNow.type](scala.concurrent.duration.`package`.fromNow)(duration.this.DurationConversions.fromNowConvert);
+  awaitEtcdManager(deadline)
+}
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          1231
+          -
+          1254
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.etcdManagerInitialized.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          1285
+          -
+          1285
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.fromNowConvert
+        </td>
+        <td style="background: #F0ADAD">
+          duration.this.DurationConversions.fromNowConvert
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          1293
+          -
+          1300
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.fromNow
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.fromNow
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          1283
+          -
+          1300
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds[concurrent.duration.fromNow.type](scala.concurrent.duration.`package`.fromNow)(duration.this.DurationConversions.fromNowConvert)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          1283
+          -
+          1284
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          1311
+          -
+          1337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.awaitEtcdManager
+        </td>
+        <td style="background: #F0ADAD">
+          awaitEtcdManager(deadline)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          1365
+          -
+          1446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Etcd manager did not initialize&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          1375
+          -
+          1446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Etcd manager did not initialize&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          1365
+          -
+          1446
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(com.webtrends.harness.component.ComponentException.apply(&quot;Etcd Component&quot;, &quot;Etcd manager did not initialize&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          1467
+          -
+          1475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          1588
+          -
+          1592
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          1597
+          -
+          1825
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.initEtcdHelper.onComplete[Unit](((x0$2: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$2 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((actor @ _)) =&gt; {
+    val t: scala.concurrent.Future[String] = akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.ListDir.apply(path, recursive))(EtcdHelper.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]));
+    f = scala.Option.apply[scala.concurrent.Future[String]](t)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((e @ _)) =&gt; f = scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+}))(EtcdHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          1612
+          -
+          1612
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          1696
+          -
+          1720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.ListDir.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.etcd.ListDir.apply(path, recursive)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          1685
+          -
+          1735
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.ListDir.apply(path, recursive))(EtcdHelper.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          1688
+          -
+          1688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          1748
+          -
+          1757
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[String]](t)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          1795
+          -
+          1819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          1802
+          -
+          1818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.failed
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.failed[Nothing](e)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          1830
+          -
+          1835
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          f.get
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          1922
+          -
+          1926
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          1931
+          -
+          2147
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.initEtcdHelper.onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((actor @ _)) =&gt; {
+    val t: scala.concurrent.Future[String] = akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.GetKey.apply(path))(EtcdHelper.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]));
+    f = scala.Option.apply[scala.concurrent.Future[String]](t)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((e @ _)) =&gt; f = scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+}))(EtcdHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          1946
+          -
+          1946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          2019
+          -
+          2057
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.GetKey.apply(path))(EtcdHelper.this.timeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          2022
+          -
+          2022
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          2030
+          -
+          2042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.GetKey.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.etcd.GetKey.apply(path)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          2070
+          -
+          2079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[String]](t)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          2124
+          -
+          2140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.failed
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.failed[Nothing](e)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          2117
+          -
+          2141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          2152
+          -
+          2157
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          f.get
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          2246
+          -
+          2250
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          2255
+          -
+          2476
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.initEtcdHelper.onComplete[Unit](((x0$4: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$4 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((actor @ _)) =&gt; {
+    val t: scala.concurrent.Future[Boolean] = akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.RemoveKey.apply(path))(EtcdHelper.this.timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]));
+    f = scala.Option.apply[scala.concurrent.Future[Boolean]](t)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((e @ _)) =&gt; f = scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+}))(EtcdHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          2270
+          -
+          2270
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          2347
+          -
+          2347
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          2355
+          -
+          2370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.RemoveKey.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.etcd.RemoveKey.apply(path)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          2344
+          -
+          2386
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.RemoveKey.apply(path))(EtcdHelper.this.timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          2399
+          -
+          2408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Boolean]](t)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          2446
+          -
+          2470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          2453
+          -
+          2469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.failed
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.failed[Nothing](e)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          2481
+          -
+          2486
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          f.get
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          2590
+          -
+          2594
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          2614
+          -
+          2614
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          2599
+          -
+          2824
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.initEtcdHelper.onComplete[Unit](((x0$5: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$5 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((actor @ _)) =&gt; {
+    val t: scala.concurrent.Future[Boolean] = akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.SetKey.apply(path, value))(EtcdHelper.this.timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]));
+    f = scala.Option.apply[scala.concurrent.Future[Boolean]](t)
+  }
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((e @ _)) =&gt; f = scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+}))(EtcdHelper.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          2699
+          -
+          2718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.SetKey.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.etcd.SetKey.apply(path, value)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          2688
+          -
+          2734
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(actor, com.webtrends.harness.component.etcd.SetKey.apply(path, value))(EtcdHelper.this.timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          2691
+          -
+          2691
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.discovery.EtcdHelper.timeout
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdHelper.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          2747
+          -
+          2756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Boolean]](t)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          2794
+          -
+          2818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[scala.concurrent.Future[Nothing]](scala.concurrent.Future.failed[Nothing](e))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          2801
+          -
+          2817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.failed
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.failed[Nothing](e)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          2829
+          -
+          2834
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          f.get
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

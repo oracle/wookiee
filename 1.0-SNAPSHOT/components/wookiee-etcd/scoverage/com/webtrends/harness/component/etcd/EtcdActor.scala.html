@@ -1,0 +1,1478 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/etcd/EtcdActor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright (c) 2014. Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> * @author cuthbertm on 11/20/14 12:23 PM
+</span>4 <span style=''> */
+</span>5 <span style=''>package com.webtrends.harness.component.etcd
+</span>6 <span style=''>
+</span>7 <span style=''>import akka.actor._
+</span>8 <span style=''>import akka.pattern.pipe
+</span>9 <span style=''>import com.webtrends.harness.app.HActor
+</span>10 <span style=''>import com.webtrends.harness.component.ComponentHelper
+</span>11 <span style=''>import net.nikore.etcd.EtcdClient
+</span>12 <span style=''>import net.nikore.etcd.EtcdJsonProtocol.{EtcdListResponse, EtcdResponse}
+</span>13 <span style=''>
+</span>14 <span style=''>import scala.concurrent.Promise
+</span>15 <span style=''>import scala.util.{Failure, Success}
+</span>16 <span style=''>
+</span>17 <span style=''>
+</span>18 <span style=''>object EtcdActor {
+</span>19 <span style=''>  def props(settings:EtcdSettings): Props = </span><span style='background: #F0ADAD'>Props(classOf[EtcdActor], settings)</span><span style=''>
+</span>20 <span style=''>}
+</span>21 <span style=''>
+</span>22 <span style=''>class EtcdActor(settings:EtcdSettings) extends HActor with ComponentHelper{
+</span>23 <span style=''>  import context.dispatcher
+</span>24 <span style=''>
+</span>25 <span style=''>  var client:Option[EtcdClient] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>26 <span style=''>
+</span>27 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse {
+</span>28 <span style=''></span><span style='background: #F0ADAD'>
+</span>29 <span style=''></span><span style='background: #F0ADAD'>    case SetKey(key:String, value:String) =>
+</span>30 <span style=''></span><span style='background: #F0ADAD'>      val p = Promise[Boolean]
+</span>31 <span style=''></span><span style='background: #F0ADAD'>      client.get .setKey(key, value) onComplete {
+</span>32 <span style=''></span><span style='background: #F0ADAD'>        case Success(s:EtcdResponse) =>
+</span>33 <span style=''></span><span style='background: #F0ADAD'>          p success (s.node.value.get == value)
+</span>34 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>35 <span style=''></span><span style='background: #F0ADAD'>          p failure f
+</span>36 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>37 <span style=''></span><span style='background: #F0ADAD'>      p.future pipeTo sender
+</span>38 <span style=''></span><span style='background: #F0ADAD'>
+</span>39 <span style=''></span><span style='background: #F0ADAD'>
+</span>40 <span style=''></span><span style='background: #F0ADAD'>    case RemoveKey(key:String) =>
+</span>41 <span style=''></span><span style='background: #F0ADAD'>      val p = Promise[Boolean]
+</span>42 <span style=''></span><span style='background: #F0ADAD'>      client.get.deleteKey(key) onComplete {
+</span>43 <span style=''></span><span style='background: #F0ADAD'>        case Success(s:EtcdResponse) =>
+</span>44 <span style=''></span><span style='background: #F0ADAD'>          p success !s.node.value.isDefined
+</span>45 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>46 <span style=''></span><span style='background: #F0ADAD'>          p failure f
+</span>47 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>48 <span style=''></span><span style='background: #F0ADAD'>      p.future pipeTo sender
+</span>49 <span style=''></span><span style='background: #F0ADAD'>
+</span>50 <span style=''></span><span style='background: #F0ADAD'>    case GetKey(key:String) =>
+</span>51 <span style=''></span><span style='background: #F0ADAD'>      val p = Promise[String]
+</span>52 <span style=''></span><span style='background: #F0ADAD'>      client.get.getKey(key) onComplete {
+</span>53 <span style=''></span><span style='background: #F0ADAD'>        case Success(s:EtcdResponse) =>
+</span>54 <span style=''></span><span style='background: #F0ADAD'>          p success s.node.value.get
+</span>55 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>56 <span style=''></span><span style='background: #F0ADAD'>          p failure f
+</span>57 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>58 <span style=''></span><span style='background: #F0ADAD'>      p.future pipeTo sender
+</span>59 <span style=''></span><span style='background: #F0ADAD'>
+</span>60 <span style=''></span><span style='background: #F0ADAD'>    case ListDir(dir:String, recursive:Boolean) =>
+</span>61 <span style=''></span><span style='background: #F0ADAD'>      val p = Promise[String]
+</span>62 <span style=''></span><span style='background: #F0ADAD'>      client.get.listDir(dir, recursive) onComplete {
+</span>63 <span style=''></span><span style='background: #F0ADAD'>        case Success(s:EtcdListResponse) =>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>          p success s.node.toJson.compactPrint
+</span>65 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>66 <span style=''></span><span style='background: #F0ADAD'>          p failure f
+</span>67 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>68 <span style=''></span><span style='background: #F0ADAD'>      p.future pipeTo sender
+</span>69 <span style=''></span><span style='background: #F0ADAD'>
+</span>70 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>71 <span style=''>
+</span>72 <span style=''>  override def preStart(): Unit = {
+</span>73 <span style=''>    </span><span style='background: #F0ADAD'>client = Some(new EtcdClient(settings.EtcdEndpoint))</span><span style=''>
+</span>74 <span style=''>    </span><span style='background: #F0ADAD'>super.preStart()</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  override def postStop(): Unit = {
+</span>78 <span style=''>    </span><span style='background: #F0ADAD'>client.get.shutdown()</span><span style=''>
+</span>79 <span style=''>    </span><span style='background: #F0ADAD'>super.postStop()</span><span style=''>
+</span>80 <span style=''>  }
+</span>81 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          11
+        </td>
+        <td>
+          537
+          -
+          572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.etcd.EtcdActor], settings)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          715
+          -
+          719
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          746
+          -
+          1936
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (key: String, value: AnyRef)com.webtrends.harness.component.etcd.SetKey((key @ (_: String)), (value @ (_: String))) =&gt; {
+        val p: scala.concurrent.Promise[Boolean] = scala.concurrent.Promise.apply[Boolean]();
+        EtcdActor.this.client.get.setKey(key, value).onComplete[scala.concurrent.Promise[Boolean]](((x0$1: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$1 match {
+          case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.get.==(value))
+          case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+        }))(EtcdActor.this.context.dispatcher);
+        {
+          akka.pattern.`package`.pipe[Boolean](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self);
+          ()
+        }
+      }
+      case (key: String)com.webtrends.harness.component.etcd.RemoveKey((key @ (_: String))) =&gt; {
+        val p: scala.concurrent.Promise[Boolean] = scala.concurrent.Promise.apply[Boolean]();
+        EtcdActor.this.client.get.deleteKey(key).onComplete[scala.concurrent.Promise[Boolean]](((x0$2: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$2 match {
+          case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.isDefined.unary_!)
+          case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+        }))(EtcdActor.this.context.dispatcher);
+        {
+          akka.pattern.`package`.pipe[Boolean](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self);
+          ()
+        }
+      }
+      case (key: String)com.webtrends.harness.component.etcd.GetKey((key @ (_: String))) =&gt; {
+        val p: scala.concurrent.Promise[String] = scala.concurrent.Promise.apply[String]();
+        EtcdActor.this.client.get.getKey(key).onComplete[scala.concurrent.Promise[String]](((x0$3: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$3 match {
+          case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.get)
+          case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+        }))(EtcdActor.this.context.dispatcher);
+        {
+          akka.pattern.`package`.pipe[String](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self);
+          ()
+        }
+      }
+      case (key: String, recursive: Boolean)com.webtrends.harness.component.etcd.ListDir((dir @ (_: String)), (recursive @ (_: Boolean))) =&gt; {
+        val p: scala.concurrent.Promise[String] = scala.concurrent.Promise.apply[String]();
+        EtcdActor.this.client.get.listDir(dir, recursive).onComplete[scala.concurrent.Promise[String]](((x0$4: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]) =&gt; x0$4 match {
+          case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse))) =&gt; p.success(spray.this.json.`package`.pimpAny[net.nikore.etcd.EtcdJsonProtocol.NodeListElement](s.node).toJson(etcd.this.EtcdJsonProtocol.nodeListElementFormat).compactPrint)
+          case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]((f @ _)) =&gt; p.failure(f)
+        }))(EtcdActor.this.context.dispatcher);
+        {
+          akka.pattern.`package`.pipe[String](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self);
+          ()
+        }
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (key: String, value: AnyRef)com.webtrends.harness.component.etcd.SetKey((key @ (_: String)), (value @ (_: String))) =&gt; true
+      case (key: String)com.webtrends.harness.component.etcd.RemoveKey((key @ (_: String))) =&gt; true
+      case (key: String)com.webtrends.harness.component.etcd.GetKey((key @ (_: String))) =&gt; true
+      case (key: String, recursive: Boolean)com.webtrends.harness.component.etcd.ListDir((dir @ (_: String)), (recursive @ (_: Boolean))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          767
+          -
+          767
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.EtcdActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          829
+          -
+          845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          883
+          -
+          883
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          852
+          -
+          1040
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client.get.setKey(key, value).onComplete[scala.concurrent.Promise[Boolean]](((x0$1: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$1 match {
+  case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.get.==(value))
+  case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+}))(EtcdActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          957
+          -
+          982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          s.node.value.get.==(value)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          946
+          -
+          983
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s.node.value.get.==(value))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          1021
+          -
+          1032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          1047
+          -
+          1069
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.pipeTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          1049
+          -
+          1049
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1056
+          -
+          1056
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          1047
+          -
+          1055
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          1063
+          -
+          1069
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          1056
+          -
+          1056
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          1120
+          -
+          1136
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Boolean]()
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          1169
+          -
+          1169
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          1143
+          -
+          1322
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client.get.deleteKey(key).onComplete[scala.concurrent.Promise[Boolean]](((x0$2: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$2 match {
+  case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.isDefined.unary_!)
+  case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+}))(EtcdActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          1242
+          -
+          1265
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          s.node.value.isDefined.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          1232
+          -
+          1265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s.node.value.isDefined.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          1303
+          -
+          1314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          1331
+          -
+          1331
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          1329
+          -
+          1351
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.pipeTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Boolean](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          1329
+          -
+          1337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          1338
+          -
+          1338
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          36
+        </td>
+        <td>
+          1338
+          -
+          1338
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          1345
+          -
+          1351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          1398
+          -
+          1413
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          1443
+          -
+          1443
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          1420
+          -
+          1589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client.get.getKey(key).onComplete[scala.concurrent.Promise[String]](((x0$3: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]) =&gt; x0$3 match {
+  case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdResponse))) =&gt; p.success(s.node.value.get)
+  case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdResponse]((f @ _)) =&gt; p.failure(f)
+}))(EtcdActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          1516
+          -
+          1532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          s.node.value.get
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          1506
+          -
+          1532
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s.node.value.get)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          1570
+          -
+          1581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          1598
+          -
+          1598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          1596
+          -
+          1618
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.pipeTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[String](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          1605
+          -
+          1605
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          1596
+          -
+          1604
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          1612
+          -
+          1618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          1605
+          -
+          1605
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          1685
+          -
+          1700
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          1707
+          -
+          1902
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client.get.listDir(dir, recursive).onComplete[scala.concurrent.Promise[String]](((x0$4: scala.util.Try[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]) =&gt; x0$4 match {
+  case (value: net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse)scala.util.Success[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]((s @ (_: net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse))) =&gt; p.success(spray.this.json.`package`.pimpAny[net.nikore.etcd.EtcdJsonProtocol.NodeListElement](s.node).toJson(etcd.this.EtcdJsonProtocol.nodeListElementFormat).compactPrint)
+  case (exception: Throwable)scala.util.Failure[net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse]((f @ _)) =&gt; p.failure(f)
+}))(EtcdActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          1742
+          -
+          1742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          1819
+          -
+          1825
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.nikore.etcd.EtcdJsonProtocol.EtcdListResponse.node
+        </td>
+        <td style="background: #F0ADAD">
+          s.node
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          1809
+          -
+          1845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(spray.this.json.`package`.pimpAny[net.nikore.etcd.EtcdJsonProtocol.NodeListElement](s.node).toJson(etcd.this.EtcdJsonProtocol.nodeListElementFormat).compactPrint)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          1819
+          -
+          1845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          spray.json.JsValue.compactPrint
+        </td>
+        <td style="background: #F0ADAD">
+          spray.this.json.`package`.pimpAny[net.nikore.etcd.EtcdJsonProtocol.NodeListElement](s.node).toJson(etcd.this.EtcdJsonProtocol.nodeListElementFormat).compactPrint
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          1826
+          -
+          1826
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          net.nikore.etcd.EtcdJsonProtocol.nodeListElementFormat
+        </td>
+        <td style="background: #F0ADAD">
+          etcd.this.EtcdJsonProtocol.nodeListElementFormat
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          1883
+          -
+          1894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          1925
+          -
+          1931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          1918
+          -
+          1918
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          1911
+          -
+          1911
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          1909
+          -
+          1931
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.pipeTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[String](p.future)(EtcdActor.this.context.dispatcher).pipeTo(EtcdActor.this.sender())(EtcdActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          1918
+          -
+          1918
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          1909
+          -
+          1917
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          1978
+          -
+          2030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.EtcdActor.client_=
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client_=(scala.Some.apply[net.nikore.etcd.EtcdClient](new net.nikore.etcd.EtcdClient(EtcdActor.this.settings.EtcdEndpoint)))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          2007
+          -
+          2028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.EtcdSettings.EtcdEndpoint
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.settings.EtcdEndpoint
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          1987
+          -
+          2030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[net.nikore.etcd.EtcdClient](new net.nikore.etcd.EtcdClient(EtcdActor.this.settings.EtcdEndpoint))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          1992
+          -
+          2029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.nikore.etcd.EtcdClient.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new net.nikore.etcd.EtcdClient(EtcdActor.this.settings.EtcdEndpoint)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          2035
+          -
+          2051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.preStart
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.super.preStart()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          2097
+          -
+          2118
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          net.nikore.etcd.EtcdClient.shutdown
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.this.client.get.shutdown()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          2123
+          -
+          2139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.postStop
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdActor.super.postStop()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

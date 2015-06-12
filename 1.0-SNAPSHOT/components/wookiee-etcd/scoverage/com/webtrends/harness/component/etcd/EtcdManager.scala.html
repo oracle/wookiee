@@ -1,0 +1,1054 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/etcd/EtcdManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright (c) 2014. Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> * @author cuthbertm on 11/20/14 12:16 PM
+</span>4 <span style=''> */
+</span>5 <span style=''>package com.webtrends.harness.component.etcd
+</span>6 <span style=''>
+</span>7 <span style=''>import akka.pattern.ask
+</span>8 <span style=''>import com.webtrends.harness.component.Component
+</span>9 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>10 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>11 <span style=''>
+</span>12 <span style=''>import scala.concurrent._
+</span>13 <span style=''>import scala.util.{Failure, Success}
+</span>14 <span style=''>
+</span>15 <span style=''>class EtcdManager(name:String) extends Component(name) with Etcd {
+</span>16 <span style=''>
+</span>17 <span style=''>  implicit val etcdSettings = </span><span style='background: #F0ADAD'>EtcdSettings(ConfigUtil.prepareSubConfig(config, name))</span><span style=''>
+</span>18 <span style=''>
+</span>19 <span style=''>  override protected def defaultChildName: Option[String] = </span><span style='background: #F0ADAD'>Some(Etcd.EtcdName)</span><span style=''>
+</span>20 <span style=''>
+</span>21 <span style=''>
+</span>22 <span style=''>  /**
+</span>23 <span style=''>   * Start function will start any child actors that will be managed by the ComponentManager
+</span>24 <span style=''>   * @return
+</span>25 <span style=''>   */
+</span>26 <span style=''>  override def start = {
+</span>27 <span style=''>    </span><span style='background: #F0ADAD'>startEtcdComponent</span><span style=''>
+</span>28 <span style=''>    </span><span style='background: #F0ADAD'>super.start</span><span style=''>
+</span>29 <span style=''>  }
+</span>30 <span style=''>
+</span>31 <span style=''>  /**
+</span>32 <span style=''>   * Stop will execute any cleanup work to be done for the child actors
+</span>33 <span style=''>   * if not necessary this can be deleted
+</span>34 <span style=''>   * @return
+</span>35 <span style=''>   */
+</span>36 <span style=''>  override def stop = {
+</span>37 <span style=''>    </span><span style='background: #F0ADAD'>stopEtcd</span><span style=''>
+</span>38 <span style=''>    </span><span style='background: #F0ADAD'>super.stop</span><span style=''>
+</span>39 <span style=''>  }
+</span>40 <span style=''>
+</span>41 <span style=''>  object EtcdManager {
+</span>42 <span style=''>    val ComponentName = </span><span style='background: #F0ADAD'>"wookiee-etcd"</span><span style=''>
+</span>43 <span style=''>  }
+</span>44 <span style=''>
+</span>45 <span style=''>  /**
+</span>46 <span style=''>   * The actor has been asked to respond with some health information. It needs
+</span>47 <span style=''>   * to implement this function and provide a list of components used in this service
+</span>48 <span style=''>   * and their current state. By default the health check will simply run through all the
+</span>49 <span style=''>   * children for the actor and get their health. Should be overridden for any custom
+</span>50 <span style=''>   * behavior
+</span>51 <span style=''>   * @return An instance of a health component
+</span>52 <span style=''>   */
+</span>53 <span style=''>  override def checkHealth: Future[HealthComponent] = {
+</span>54 <span style=''>
+</span>55 <span style=''>    import scala.concurrent.ExecutionContext.Implicits.global
+</span>56 <span style=''>
+</span>57 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]</span><span style=''>
+</span>58 <span style=''>    if (</span><span style='background: #F0ADAD'>EtcdRef == None</span><span style=''>) {
+</span>59 <span style=''>      </span><span style='background: #F0ADAD'>p success HealthComponent(self.path.name, ComponentState.CRITICAL, "Etcd is not connected or started.")</span><span style=''>
+</span>60 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>61 <span style=''></span><span style='background: #F0ADAD'>
+</span>62 <span style=''></span><span style='background: #F0ADAD'>      val check: Future[String] = ask(EtcdRef.get, ListDir("/")).mapTo[String]
+</span>63 <span style=''></span><span style='background: #F0ADAD'>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>      check onComplete {
+</span>65 <span style=''></span><span style='background: #F0ADAD'>        case Success(result) =>
+</span>66 <span style=''></span><span style='background: #F0ADAD'>          val comp = HealthComponent(self.path.name, ComponentState.NORMAL, "Etcd is running.")
+</span>67 <span style=''></span><span style='background: #F0ADAD'>          p success comp
+</span>68 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) => p success HealthComponent(self.path.name, ComponentState.CRITICAL, f.getMessage)
+</span>69 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>70 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>71 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>72 <span style=''>  }
+</span>73 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          507
+          -
+          562
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.EtcdSettings.apply
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdSettings.apply(com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(EtcdManager.this.config, EtcdManager.this.name))
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          520
+          -
+          561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.prepareSubConfig(EtcdManager.this.config, EtcdManager.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          17
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          556
+          -
+          560
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.EtcdManager.name
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.name
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          624
+          -
+          643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](Etcd.EtcdName)
+        </td>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          629
+          -
+          642
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.Etcd.EtcdName
+        </td>
+        <td style="background: #F0ADAD">
+          Etcd.EtcdName
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          793
+          -
+          811
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.Etcd.startEtcdComponent
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.startEtcdComponent
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          816
+          -
+          827
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.start
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.super.start
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          1000
+          -
+          1008
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.Etcd.stopEtcd
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.stopEtcd
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          1013
+          -
+          1023
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.Component.stop
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.super.stop
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          1076
+          -
+          1090
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-etcd&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          1643
+          -
+          1667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          1687
+          -
+          1691
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          1676
+          -
+          1691
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.EtcdRef.==(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          92
+        </td>
+        <td>
+          1701
+          -
+          1804
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Etcd is not connected or started.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          1743
+          -
+          1766
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          1711
+          -
+          1711
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          1701
+          -
+          1804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Etcd is not connected or started.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          1727
+          -
+          1741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          1711
+          -
+          1711
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          1768
+          -
+          1803
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Etcd is not connected or started.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          1711
+          -
+          1804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Etcd is not connected or started.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          1816
+          -
+          2198
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val check: scala.concurrent.Future[String] = akka.pattern.`package`.ask(EtcdManager.this.EtcdRef.get, ListDir.apply(&quot;/&quot;, ListDir.apply$default$2))(EtcdManager.this.checkTimeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]));
+  check.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$1: scala.util.Try[String]) =&gt; x0$1 match {
+    case (value: String)scala.util.Success[String]((result @ _)) =&gt; {
+      val comp: com.webtrends.harness.health.HealthComponent = com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Etcd is running.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5);
+      p.success(comp)
+    }
+    case (exception: Throwable)scala.util.Failure[String]((f @ _)) =&gt; p.success(com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+  }))(scala.concurrent.ExecutionContext.Implicits.global)
+}
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          1870
+          -
+          1870
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.ListDir.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          ListDir.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          98
+        </td>
+        <td>
+          1853
+          -
+          1897
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(EtcdManager.this.EtcdRef.get, ListDir.apply(&quot;/&quot;, ListDir.apply$default$2))(EtcdManager.this.checkTimeout).mapTo[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          1878
+          -
+          1881
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          1856
+          -
+          1856
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          1870
+          -
+          1882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.etcd.ListDir.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ListDir.apply(&quot;/&quot;, ListDir.apply$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          1857
+          -
+          1868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.EtcdRef.get
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          1905
+          -
+          2192
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          check.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$1: scala.util.Try[String]) =&gt; x0$1 match {
+  case (value: String)scala.util.Success[String]((result @ _)) =&gt; {
+    val comp: com.webtrends.harness.health.HealthComponent = com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Etcd is running.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5);
+    p.success(comp)
+  }
+  case (exception: Throwable)scala.util.Failure[String]((f @ _)) =&gt; p.success(com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          2032
+          -
+          2050
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Etcd is running.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          1977
+          -
+          2051
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Etcd is running.&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          2009
+          -
+          2030
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          1977
+          -
+          1977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          1993
+          -
+          2007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          1977
+          -
+          1977
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          2062
+          -
+          2076
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(comp)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          2114
+          -
+          2114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          2146
+          -
+          2169
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          2130
+          -
+          2144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          EtcdManager.this.self.path.name
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          2114
+          -
+          2114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          2104
+          -
+          2184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          2171
+          -
+          2183
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          2114
+          -
+          2184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(EtcdManager.this.self.path.name, com.webtrends.harness.health.ComponentState.CRITICAL, f.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          2203
+          -
+          2211
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
