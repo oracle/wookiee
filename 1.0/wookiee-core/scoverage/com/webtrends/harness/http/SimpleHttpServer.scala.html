@@ -1,0 +1,4391 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/http/SimpleHttpServer.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.http
+</span>21 <span style=''>
+</span>22 <span style=''>import java.io.IOException
+</span>23 <span style=''>import java.net.InetSocketAddress
+</span>24 <span style=''>import java.util.concurrent.Executors
+</span>25 <span style=''>
+</span>26 <span style=''>import com.sun.net.httpserver.{HttpHandler, HttpExchange, HttpServer}
+</span>27 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>28 <span style=''>import com.webtrends.harness.app.HActor
+</span>29 <span style=''>import com.webtrends.harness.authentication.CIDRRules
+</span>30 <span style=''>import com.webtrends.harness.component.{ComponentRequest, ComponentHelper}
+</span>31 <span style=''>import com.webtrends.harness.component.messages.StatusRequest
+</span>32 <span style=''>import com.webtrends.harness.health.HealthResponseType.HealthResponseType
+</span>33 <span style=''>import com.webtrends.harness.health._
+</span>34 <span style=''>import akka.pattern.ask
+</span>35 <span style=''>import com.webtrends.harness.service.ServiceManager.GetMetaDataByName
+</span>36 <span style=''>import com.webtrends.harness.service.messages.GetMetaData
+</span>37 <span style=''>import com.webtrends.harness.service.meta.ServiceMetaData
+</span>38 <span style=''>import com.webtrends.harness.utils.Json
+</span>39 <span style=''>import org.joda.time.{DateTimeZone, DateTime}
+</span>40 <span style=''>import scala.concurrent.Future
+</span>41 <span style=''>import scala.util.{Failure, Success}
+</span>42 <span style=''>
+</span>43 <span style=''>case class Stop()
+</span>44 <span style=''>case class Start()
+</span>45 <span style=''>
+</span>46 <span style=''>/**
+</span>47 <span style=''> * This is a simple http server, which is primarily started for HealthChecks
+</span>48 <span style=''> * And will have basic CIDR rules applied to it by default, but will be configurable.
+</span>49 <span style=''> * This basic Http handler should not be extended to any functionality outside of
+</span>50 <span style=''> * base functionality for the core server. For that use one of the Http Components
+</span>51 <span style=''> * like Spray, Socko or Netty.
+</span>52 <span style=''> *
+</span>53 <span style=''> * @author Michael Cuthbert on 2/3/15.
+</span>54 <span style=''> */
+</span>55 <span style=''>class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
+</span>56 <span style=''>  import context.dispatcher
+</span>57 <span style=''>  var httpServer:Option[HttpServer] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>58 <span style=''>  val healthActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.HealthFullName)</span><span style=''>
+</span>59 <span style=''>  val servicesActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.ServicesFullName)</span><span style=''>
+</span>60 <span style=''>  val cidrRules = if (</span><span style='background: #AEF1AE'>context.system.settings.config.hasPath("cidr-rules")</span><span style=''>) {
+</span>61 <span style=''>    </span><span style='background: #F0ADAD'>Some(CIDRRules(context.system.settings.config))</span><span style=''>
+</span>62 <span style=''>  } else {
+</span>63 <span style=''>    </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  var portBound = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>  def respond(httpExchange: HttpExchange, response:String, responseStatus:Int=200, contentType:String="text/plain") = {
+</span>69 <span style=''>    </span><span style='background: #AEF1AE'>httpExchange.getResponseHeaders.set("Content-Type", contentType)</span><span style=''>
+</span>70 <span style=''>    </span><span style='background: #AEF1AE'>httpExchange.sendResponseHeaders(responseStatus, response.length())</span><span style=''>
+</span>71 <span style=''>    if (</span><span style='background: #AEF1AE'>response.length > 0</span><span style=''>) {
+</span>72 <span style=''>      </span><span style='background: #AEF1AE'>httpExchange.getResponseBody.write(response.getBytes)</span><span style=''>
+</span>73 <span style=''>    }
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>httpExchange.close()</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  def checkCidrRules(httpExchange: HttpExchange) : Boolean = {
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>cidrRules</span><span style=''> match {
+</span>79 <span style=''>      case Some(s) => </span><span style='background: #F0ADAD'>s.checkCidrRules(httpExchange.getRemoteAddress.getAddress)</span><span style=''>
+</span>80 <span style=''>      case None =>
+</span>81 <span style=''>        // no cidr rules, only allowing localhost to match
+</span>82 <span style=''>        val ip = </span><span style='background: #AEF1AE'>httpExchange.getRemoteAddress.getAddress</span><span style=''>
+</span>83 <span style=''>        </span><span style='background: #AEF1AE'>ip.isAnyLocalAddress || ip.isLoopbackAddress</span><span style=''>
+</span>84 <span style=''>    }
+</span>85 <span style=''>  }
+</span>86 <span style=''>
+</span>87 <span style=''>  def handleHealthMessage(httpExchange: HttpExchange, hType:HealthResponseType) = {
+</span>88 <span style=''>    </span><span style='background: #F0ADAD'>(healthActor ? HealthRequest(hType)) onComplete {
+</span>89 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>        s match {
+</span>91 <span style=''></span><span style='background: #F0ADAD'>          case ah:ApplicationHealth =>
+</span>92 <span style=''></span><span style='background: #F0ADAD'>            respond(httpExchange, Json.build(ah).toString)
+</span>93 <span style=''></span><span style='background: #F0ADAD'>          case resp:String => respond(httpExchange, resp)
+</span>94 <span style=''></span><span style='background: #F0ADAD'>          case _ => respond(httpExchange, "Failed to retrieve health", 500)
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => respond(httpExchange, f.getMessage, 500)
+</span>97 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>98 <span style=''>  }
+</span>99 <span style=''>
+</span>100 <span style=''>  def handleMetricsMessage(httpExchange: HttpExchange) = {
+</span>101 <span style=''>    </span><span style='background: #F0ADAD'>componentRequest[StatusRequest, String]("wookiee-metrics", ComponentRequest(StatusRequest("string"))) onComplete {
+</span>102 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => respond(httpExchange, s.resp)
+</span>103 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => respond(httpExchange, f.getMessage, 500)
+</span>104 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>105 <span style=''>  }
+</span>106 <span style=''>
+</span>107 <span style=''>  def handleServicesMessage(httpExchange: HttpExchange, path:Option[String]) = {
+</span>108 <span style=''>    val msg = path match {
+</span>109 <span style=''>      case None => </span><span style='background: #F0ADAD'>GetMetaData(None)</span><span style=''>
+</span>110 <span style=''>      case Some(x) => </span><span style='background: #F0ADAD'>GetMetaDataByName(x)</span><span style=''>
+</span>111 <span style=''>    }
+</span>112 <span style=''>    </span><span style='background: #F0ADAD'>(servicesActor ? msg) onComplete {
+</span>113 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) => respond(httpExchange, Json.build(s).toString, 200, "application/json")
+</span>114 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) => respond(httpExchange, f.getMessage, 500)
+</span>115 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>116 <span style=''>  }
+</span>117 <span style=''>
+</span>118 <span style=''>  def start() = {
+</span>119 <span style=''>    if (</span><span style='background: #AEF1AE'>!isStarted</span><span style=''>) {
+</span>120 <span style=''>      </span><span style='background: #AEF1AE'>try {
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        val server = HttpServer.create(new InetSocketAddress(port), 0)
+</span>122 <span style=''></span><span style='background: #AEF1AE'>        httpServer = Some(server)
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        val internalHandler = new HttpHandler() {
+</span>124 <span style=''></span><span style='background: #AEF1AE'>          override def handle(httpExchange: HttpExchange): Unit = {
+</span>125 <span style=''></span><span style='background: #AEF1AE'>            if (checkCidrRules(httpExchange)) {
+</span>126 <span style=''></span><span style='background: #AEF1AE'>              httpExchange.getRequestURI.getPath match {
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                case "/healthcheck" | "/healthcheck/full" =>
+</span>128 <span style=''></span><span style='background: #AEF1AE'>                  </span><span style='background: #F0ADAD'>httpExchange.getRequestURI.getQuery != null && httpExchange.getRequestURI.getQuery.contains("type=lb")</span><span style='background: #AEF1AE'> match {
+</span>129 <span style=''></span><span style='background: #AEF1AE'>                    case true => </span><span style='background: #F0ADAD'>handleHealthMessage(httpExchange, HealthResponseType.LB)</span><span style='background: #AEF1AE'>
+</span>130 <span style=''></span><span style='background: #AEF1AE'>                    case false => </span><span style='background: #F0ADAD'>handleHealthMessage(httpExchange, HealthResponseType.FULL)</span><span style='background: #AEF1AE'>
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>132 <span style=''></span><span style='background: #AEF1AE'>                case "/healthcheck/lb" => </span><span style='background: #F0ADAD'>handleHealthMessage(httpExchange, HealthResponseType.LB)</span><span style='background: #AEF1AE'>
+</span>133 <span style=''></span><span style='background: #AEF1AE'>                case "/healthcheck/nagios" => </span><span style='background: #F0ADAD'>handleHealthMessage(httpExchange, HealthResponseType.NAGIOS)</span><span style='background: #AEF1AE'>
+</span>134 <span style=''></span><span style='background: #AEF1AE'>                case "/ping" => respond(httpExchange, "pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))
+</span>135 <span style=''></span><span style='background: #AEF1AE'>                case "/metrics" => </span><span style='background: #F0ADAD'>handleMetricsMessage(httpExchange)</span><span style='background: #AEF1AE'>
+</span>136 <span style=''></span><span style='background: #AEF1AE'>                case x if </span><span style='background: #F0ADAD'>x.startsWith("/services")</span><span style='background: #AEF1AE'> =>
+</span>137 <span style=''></span><span style='background: #AEF1AE'>                  val p = </span><span style='background: #F0ADAD'>x.split("/")</span><span style='background: #AEF1AE'>
+</span>138 <span style=''></span><span style='background: #AEF1AE'>                  val path = if (</span><span style='background: #F0ADAD'>p.length == 3</span><span style='background: #AEF1AE'>) {
+</span>139 <span style=''></span><span style='background: #AEF1AE'>                    </span><span style='background: #F0ADAD'>Some(p(2))</span><span style='background: #AEF1AE'>
+</span>140 <span style=''></span><span style='background: #AEF1AE'>                  } else {
+</span>141 <span style=''></span><span style='background: #AEF1AE'>                    </span><span style='background: #F0ADAD'>None</span><span style='background: #AEF1AE'>
+</span>142 <span style=''></span><span style='background: #AEF1AE'>                  }
+</span>143 <span style=''></span><span style='background: #AEF1AE'>                  </span><span style='background: #F0ADAD'>handleServicesMessage(httpExchange, path)</span><span style='background: #AEF1AE'>
+</span>144 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>145 <span style=''></span><span style='background: #AEF1AE'>            } else {
+</span>146 <span style=''></span><span style='background: #AEF1AE'>              // Could be a 403 Forbidden, but obscurity is better
+</span>147 <span style=''></span><span style='background: #AEF1AE'>              </span><span style='background: #F0ADAD'>respond(httpExchange, "", 404)</span><span style='background: #AEF1AE'>
+</span>148 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>149 <span style=''></span><span style='background: #AEF1AE'>          }
+</span>150 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>151 <span style=''></span><span style='background: #AEF1AE'>
+</span>152 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/healthcheck/lb", internalHandler)
+</span>153 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/healthcheck", internalHandler)
+</span>154 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/healthcheck/full", internalHandler)
+</span>155 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/healthcheck/nagios", internalHandler)
+</span>156 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/ping", internalHandler)
+</span>157 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/metrics", internalHandler)
+</span>158 <span style=''></span><span style='background: #AEF1AE'>        server.createContext("/services", internalHandler)
+</span>159 <span style=''></span><span style='background: #AEF1AE'>        server.setExecutor(Executors.newCachedThreadPool())
+</span>160 <span style=''></span><span style='background: #AEF1AE'>        server.start()
+</span>161 <span style=''></span><span style='background: #AEF1AE'>        log.info(s"Internal Http started on port $port")
+</span>162 <span style=''></span><span style='background: #AEF1AE'>      } catch {
+</span>163 <span style=''></span><span style='background: #AEF1AE'>        case ioe:IOException =>
+</span>164 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>log.warn(s"Internal server failed to start, HTTP port $port already bound")</span><span style='background: #AEF1AE'>
+</span>165 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>log.trace(ioe.getMessage, ioe)</span><span style='background: #AEF1AE'>
+</span>166 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>portBound = true</span><span style='background: #AEF1AE'>
+</span>167 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>168 <span style=''>    }
+</span>169 <span style=''>  }
+</span>170 <span style=''>
+</span>171 <span style=''>  def isStarted : Boolean = {
+</span>172 <span style=''>    </span><span style='background: #AEF1AE'>httpServer</span><span style=''> match {
+</span>173 <span style=''>      case Some(s) => </span><span style='background: #AEF1AE'>true</span><span style=''>
+</span>174 <span style=''>      case None => </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>175 <span style=''>    }
+</span>176 <span style=''>  }
+</span>177 <span style=''>
+</span>178 <span style=''>  override def preStart() = {
+</span>179 <span style=''>    if (</span><span style='background: #AEF1AE'>!isStarted</span><span style=''>) {
+</span>180 <span style=''>      </span><span style='background: #AEF1AE'>start()</span><span style=''>
+</span>181 <span style=''>    }
+</span>182 <span style=''>  }
+</span>183 <span style=''>
+</span>184 <span style=''>  override def postStop() = {
+</span>185 <span style=''>    if (</span><span style='background: #AEF1AE'>isStarted</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>186 <span style=''></span><span style='background: #AEF1AE'>      log.info("Shutting down internal http server")
+</span>187 <span style=''></span><span style='background: #AEF1AE'>      httpServer.get.stop(0)
+</span>188 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>189 <span style=''>  }
+</span>190 <span style=''>
+</span>191 <span style=''>  /**
+</span>192 <span style=''>   * This is the health of the current object, by default will be NORMAL
+</span>193 <span style=''>   * In general this should be overridden to define the health of the current object
+</span>194 <span style=''>   * For objects that simply manage other objects you shouldn't need to do anything
+</span>195 <span style=''>   * else, as the health of the children components would be handled by their own
+</span>196 <span style=''>   * CheckHealth function
+</span>197 <span style=''>   *
+</span>198 <span style=''>   * @return
+</span>199 <span style=''>   */
+</span>200 <span style=''>  override protected def getHealth: Future[HealthComponent] = {
+</span>201 <span style=''>    </span><span style='background: #F0ADAD'>Future {
+</span>202 <span style=''></span><span style='background: #F0ADAD'>      httpServer match {
+</span>203 <span style=''></span><span style='background: #F0ADAD'>        case Some(s) => HealthComponent(self.path.toString, ComponentState.NORMAL, s"Internal HTTP Server started on port $port")
+</span>204 <span style=''></span><span style='background: #F0ADAD'>        case None if portBound => HealthComponent(self.path.toString, ComponentState.NORMAL, s"Internal HTTP server not started, port [$port] already bound by http component")
+</span>205 <span style=''></span><span style='background: #F0ADAD'>        case None => HealthComponent(self.path.toString, ComponentState.CRITICAL, "Internal HTTP Server not started")
+</span>206 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>207 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>208 <span style=''>  }
+</span>209 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1861
+        </td>
+        <td>
+          2289
+          -
+          2293
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1862
+        </td>
+        <td>
+          2337
+          -
+          2368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.HealthFullName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.HealthFullName
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1863
+        </td>
+        <td>
+          2314
+          -
+          2369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.context.actorSelection(com.webtrends.harness.HarnessConstants.HealthFullName)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1865
+        </td>
+        <td>
+          2392
+          -
+          2449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ServicesFullName)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1864
+        </td>
+        <td>
+          2415
+          -
+          2448
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ServicesFullName
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ServicesFullName
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1866
+        </td>
+        <td>
+          2472
+          -
+          2524
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.context.system.settings.config.hasPath(&quot;cidr-rules&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1868
+        </td>
+        <td>
+          2537
+          -
+          2578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.authentication.CIDRRules.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.authentication.CIDRRules.apply(SimpleHttpServer.this.context.system.settings.config)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1867
+        </td>
+        <td>
+          2547
+          -
+          2577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1870
+        </td>
+        <td>
+          2532
+          -
+          2579
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.authentication.CIDRRules](com.webtrends.harness.authentication.CIDRRules.apply(SimpleHttpServer.this.context.system.settings.config))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1869
+        </td>
+        <td>
+          2532
+          -
+          2579
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.authentication.CIDRRules](com.webtrends.harness.authentication.CIDRRules.apply(SimpleHttpServer.this.context.system.settings.config))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1871
+        </td>
+        <td>
+          2595
+          -
+          2599
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1872
+        </td>
+        <td>
+          2595
+          -
+          2599
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1873
+        </td>
+        <td>
+          2623
+          -
+          2628
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1874
+        </td>
+        <td>
+          2754
+          -
+          2818
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.Headers.set
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getResponseHeaders().set(&quot;Content-Type&quot;, contentType)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1876
+        </td>
+        <td>
+          2823
+          -
+          2890
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpExchange.sendResponseHeaders
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.sendResponseHeaders(responseStatus, response.length().toLong)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          2872
+          -
+          2889
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #AEF1AE">
+          response.length().toLong
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1877
+        </td>
+        <td>
+          2899
+          -
+          2918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          response.length().&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          2895
+          -
+          2895
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          2895
+          -
+          2895
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          2928
+          -
+          2981
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.io.OutputStream.write
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getResponseBody().write(response.getBytes())
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          2928
+          -
+          2981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.write
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getResponseBody().write(response.getBytes())
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          2963
+          -
+          2980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #AEF1AE">
+          response.getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          2992
+          -
+          3012
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpExchange.close
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.close()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1884
+        </td>
+        <td>
+          3085
+          -
+          3094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.cidrRules
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.cidrRules
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1886
+        </td>
+        <td>
+          3125
+          -
+          3183
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.authentication.CIDRRules.checkCidrRules
+        </td>
+        <td style="background: #F0ADAD">
+          s.checkCidrRules(httpExchange.getRemoteAddress().getAddress())
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1885
+        </td>
+        <td>
+          3142
+          -
+          3182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetSocketAddress.getAddress
+        </td>
+        <td style="background: #F0ADAD">
+          httpExchange.getRemoteAddress().getAddress()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1887
+        </td>
+        <td>
+          3279
+          -
+          3319
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetSocketAddress.getAddress
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getRemoteAddress().getAddress()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1889
+        </td>
+        <td>
+          3328
+          -
+          3372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          ip.isAnyLocalAddress().||(ip.isLoopbackAddress())
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1888
+        </td>
+        <td>
+          3352
+          -
+          3372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetAddress.isLoopbackAddress
+        </td>
+        <td style="background: #AEF1AE">
+          ip.isLoopbackAddress()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          3485
+          -
+          3485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1909
+        </td>
+        <td>
+          3472
+          -
+          3878
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(SimpleHttpServer.this.healthActor).?(com.webtrends.harness.health.HealthRequest.apply(hType))(SimpleHttpServer.this.checkTimeout).onComplete[Unit](((x0$1: scala.util.Try[Any]) =&gt; x0$1 match {
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; s match {
+    case (ah @ (_: com.webtrends.harness.health.ApplicationHealth)) =&gt; SimpleHttpServer.this.respond(httpExchange, com.webtrends.harness.utils.Json.build(ah).toString(), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+    case (resp @ (_: String)) =&gt; SimpleHttpServer.this.respond(httpExchange, resp, SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+    case _ =&gt; SimpleHttpServer.this.respond(httpExchange, &quot;Failed to retrieve health&quot;, 500, SimpleHttpServer.this.respond$default$4)
+  }
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+}))(SimpleHttpServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1891
+        </td>
+        <td>
+          3487
+          -
+          3507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthRequest.apply(hType)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          3473
+          -
+          3484
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.healthActor
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.healthActor
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1908
+        </td>
+        <td>
+          3509
+          -
+          3509
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          3616
+          -
+          3616
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1894
+        </td>
+        <td>
+          3616
+          -
+          3616
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$3
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1896
+        </td>
+        <td>
+          3616
+          -
+          3662
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, com.webtrends.harness.utils.Json.build(ah).toString(), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1893
+        </td>
+        <td>
+          3638
+          -
+          3661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.JsonQuoted.toString
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.Json.build(ah).toString()
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          3693
+          -
+          3693
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1897
+        </td>
+        <td>
+          3693
+          -
+          3693
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$3
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1899
+        </td>
+        <td>
+          3693
+          -
+          3720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, resp, SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          3792
+          -
+          3795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          500
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1900
+        </td>
+        <td>
+          3763
+          -
+          3790
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failed to retrieve health&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1903
+        </td>
+        <td>
+          3741
+          -
+          3796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, &quot;Failed to retrieve health&quot;, 500, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          3741
+          -
+          3741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1904
+        </td>
+        <td>
+          3854
+          -
+          3866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1907
+        </td>
+        <td>
+          3832
+          -
+          3872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          3832
+          -
+          3832
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1905
+        </td>
+        <td>
+          3868
+          -
+          3871
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          500
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1910
+        </td>
+        <td>
+          3987
+          -
+          4004
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;wookiee-metrics&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1913
+        </td>
+        <td>
+          4006
+          -
+          4006
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1924
+        </td>
+        <td>
+          3947
+          -
+          4188
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.componentRequest[com.webtrends.harness.component.messages.StatusRequest, String](&quot;wookiee-metrics&quot;, com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.StatusRequest](com.webtrends.harness.component.messages.StatusRequest.apply(&quot;string&quot;), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])).onComplete[Unit](((x0$2: scala.util.Try[com.webtrends.harness.component.ComponentResponse[String]]) =&gt; x0$2 match {
+  case (value: com.webtrends.harness.component.ComponentResponse[String])scala.util.Success[com.webtrends.harness.component.ComponentResponse[String]]((s @ _)) =&gt; SimpleHttpServer.this.respond(httpExchange, s.resp, SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.component.ComponentResponse[String]]((f @ _)) =&gt; SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+}))(SimpleHttpServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1912
+        </td>
+        <td>
+          4006
+          -
+          4006
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1914
+        </td>
+        <td>
+          4006
+          -
+          4047
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentRequest.apply[com.webtrends.harness.component.messages.StatusRequest](com.webtrends.harness.component.messages.StatusRequest.apply(&quot;string&quot;), com.webtrends.harness.component.ComponentRequest.apply$default$2[Nothing], com.webtrends.harness.component.ComponentRequest.apply$default$3[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1923
+        </td>
+        <td>
+          4049
+          -
+          4049
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1911
+        </td>
+        <td>
+          4023
+          -
+          4046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.messages.StatusRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.messages.StatusRequest.apply(&quot;string&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1916
+        </td>
+        <td>
+          4087
+          -
+          4087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$3
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1915
+        </td>
+        <td>
+          4109
+          -
+          4115
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentResponse.resp
+        </td>
+        <td style="background: #F0ADAD">
+          s.resp
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1918
+        </td>
+        <td>
+          4087
+          -
+          4116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, s.resp, SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1917
+        </td>
+        <td>
+          4087
+          -
+          4087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1919
+        </td>
+        <td>
+          4164
+          -
+          4176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1922
+        </td>
+        <td>
+          4142
+          -
+          4182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1921
+        </td>
+        <td>
+          4142
+          -
+          4142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1920
+        </td>
+        <td>
+          4178
+          -
+          4181
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          500
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1925
+        </td>
+        <td>
+          4333
+          -
+          4337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1926
+        </td>
+        <td>
+          4321
+          -
+          4338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.GetMetaData.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.messages.GetMetaData.apply(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1927
+        </td>
+        <td>
+          4361
+          -
+          4381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.GetMetaDataByName.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.ServiceManager.GetMetaDataByName.apply(x)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1928
+        </td>
+        <td>
+          4393
+          -
+          4406
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.servicesActor
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.servicesActor
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1939
+        </td>
+        <td>
+          4392
+          -
+          4594
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(SimpleHttpServer.this.servicesActor).?(msg)(SimpleHttpServer.this.checkTimeout).onComplete[Unit](((x0$3: scala.util.Try[Any]) =&gt; x0$3 match {
+  case (value: Any)scala.util.Success[Any]((s @ _)) =&gt; SimpleHttpServer.this.respond(httpExchange, com.webtrends.harness.utils.Json.build(s).toString(), 200, &quot;application/json&quot;)
+  case (exception: Throwable)scala.util.Failure[Any]((f @ _)) =&gt; SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+}))(SimpleHttpServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1938
+        </td>
+        <td>
+          4414
+          -
+          4414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1929
+        </td>
+        <td>
+          4407
+          -
+          4407
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1931
+        </td>
+        <td>
+          4498
+          -
+          4501
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          200
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1933
+        </td>
+        <td>
+          4452
+          -
+          4522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, com.webtrends.harness.utils.Json.build(s).toString(), 200, &quot;application/json&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1930
+        </td>
+        <td>
+          4474
+          -
+          4496
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.JsonQuoted.toString
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.Json.build(s).toString()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1932
+        </td>
+        <td>
+          4503
+          -
+          4521
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;application/json&quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          4570
+          -
+          4582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1937
+        </td>
+        <td>
+          4548
+          -
+          4588
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, f.getMessage(), 500, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1936
+        </td>
+        <td>
+          4548
+          -
+          4548
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1935
+        </td>
+        <td>
+          4584
+          -
+          4587
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          500
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          2009
+        </td>
+        <td>
+          4622
+          -
+          4622
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          4626
+          -
+          4636
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.isStarted.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          2008
+        </td>
+        <td>
+          4622
+          -
+          4622
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          2007
+        </td>
+        <td>
+          4646
+          -
+          7066
+        </td>
+        <td>
+          Try
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          try {
+  val server: com.sun.net.httpserver.HttpServer = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress(SimpleHttpServer.this.port), 0);
+  SimpleHttpServer.this.httpServer_=(scala.Some.apply[com.sun.net.httpserver.HttpServer](server));
+  val internalHandler: com.sun.net.httpserver.HttpHandler = {
+    final class $anon extends Object with com.sun.net.httpserver.HttpHandler {
+      def &lt;init&gt;(): &lt;$anon: com.sun.net.httpserver.HttpHandler&gt; = {
+        $anon.super.&lt;init&gt;();
+        ()
+      };
+      override def handle(httpExchange: com.sun.net.httpserver.HttpExchange): Unit = if (SimpleHttpServer.this.checkCidrRules(httpExchange))
+        httpExchange.getRequestURI().getPath() match {
+          case (&quot;/healthcheck&quot;| &quot;/healthcheck/full&quot;) =&gt; httpExchange.getRequestURI().getQuery().!=(null).&amp;&amp;(httpExchange.getRequestURI().getQuery().contains(&quot;type=lb&quot;)) match {
+            case true =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+            case false =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.FULL)
+          }
+          case &quot;/healthcheck/lb&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+          case &quot;/healthcheck/nagios&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.NAGIOS)
+          case &quot;/ping&quot; =&gt; SimpleHttpServer.this.respond(httpExchange, &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+          case &quot;/metrics&quot; =&gt; SimpleHttpServer.this.handleMetricsMessage(httpExchange)
+          case (x @ _) if x.startsWith(&quot;/services&quot;) =&gt; {
+            val p: Array[String] = x.split(&quot;/&quot;);
+            val path: Option[String] = if (p.length.==(3))
+              scala.Some.apply[String](p.apply(2))
+            else
+              scala.None;
+            SimpleHttpServer.this.handleServicesMessage(httpExchange, path)
+          }
+        }
+      else
+        SimpleHttpServer.this.respond(httpExchange, &quot;&quot;, 404, SimpleHttpServer.this.respond$default$4)
+    };
+    new $anon()
+  };
+  server.createContext(&quot;/healthcheck/lb&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck/full&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck/nagios&quot;, internalHandler);
+  server.createContext(&quot;/ping&quot;, internalHandler);
+  server.createContext(&quot;/metrics&quot;, internalHandler);
+  server.createContext(&quot;/services&quot;, internalHandler);
+  server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+  server.start();
+  SimpleHttpServer.this.log.info(scala.StringContext.apply(&quot;Internal Http started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port))
+} catch {
+  case (ioe @ (_: java.io.IOException)) =&gt; {
+    SimpleHttpServer.this.log.warn(scala.StringContext.apply(&quot;Internal server failed to start, HTTP port &quot;, &quot; already bound&quot;).s(SimpleHttpServer.this.port));
+    SimpleHttpServer.this.log.trace(ioe.getMessage(), ioe);
+    SimpleHttpServer.this.portBound_=(true)
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1998
+        </td>
+        <td>
+          4660
+          -
+          6856
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val server: com.sun.net.httpserver.HttpServer = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress(SimpleHttpServer.this.port), 0);
+  SimpleHttpServer.this.httpServer_=(scala.Some.apply[com.sun.net.httpserver.HttpServer](server));
+  val internalHandler: com.sun.net.httpserver.HttpHandler = {
+    final class $anon extends Object with com.sun.net.httpserver.HttpHandler {
+      def &lt;init&gt;(): &lt;$anon: com.sun.net.httpserver.HttpHandler&gt; = {
+        $anon.super.&lt;init&gt;();
+        ()
+      };
+      override def handle(httpExchange: com.sun.net.httpserver.HttpExchange): Unit = if (SimpleHttpServer.this.checkCidrRules(httpExchange))
+        httpExchange.getRequestURI().getPath() match {
+          case (&quot;/healthcheck&quot;| &quot;/healthcheck/full&quot;) =&gt; httpExchange.getRequestURI().getQuery().!=(null).&amp;&amp;(httpExchange.getRequestURI().getQuery().contains(&quot;type=lb&quot;)) match {
+            case true =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+            case false =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.FULL)
+          }
+          case &quot;/healthcheck/lb&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+          case &quot;/healthcheck/nagios&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.NAGIOS)
+          case &quot;/ping&quot; =&gt; SimpleHttpServer.this.respond(httpExchange, &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+          case &quot;/metrics&quot; =&gt; SimpleHttpServer.this.handleMetricsMessage(httpExchange)
+          case (x @ _) if x.startsWith(&quot;/services&quot;) =&gt; {
+            val p: Array[String] = x.split(&quot;/&quot;);
+            val path: Option[String] = if (p.length.==(3))
+              scala.Some.apply[String](p.apply(2))
+            else
+              scala.None;
+            SimpleHttpServer.this.handleServicesMessage(httpExchange, path)
+          }
+        }
+      else
+        SimpleHttpServer.this.respond(httpExchange, &quot;&quot;, 404, SimpleHttpServer.this.respond$default$4)
+    };
+    new $anon()
+  };
+  server.createContext(&quot;/healthcheck/lb&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck/full&quot;, internalHandler);
+  server.createContext(&quot;/healthcheck/nagios&quot;, internalHandler);
+  server.createContext(&quot;/ping&quot;, internalHandler);
+  server.createContext(&quot;/metrics&quot;, internalHandler);
+  server.createContext(&quot;/services&quot;, internalHandler);
+  server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+  server.start();
+  SimpleHttpServer.this.log.info(scala.StringContext.apply(&quot;Internal Http started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port))
+}
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1943
+        </td>
+        <td>
+          4720
+          -
+          4721
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1942
+        </td>
+        <td>
+          4691
+          -
+          4718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.InetSocketAddress.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.net.InetSocketAddress(SimpleHttpServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1941
+        </td>
+        <td>
+          4713
+          -
+          4717
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1944
+        </td>
+        <td>
+          4673
+          -
+          4722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.create
+        </td>
+        <td style="background: #AEF1AE">
+          com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress(SimpleHttpServer.this.port), 0)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1946
+        </td>
+        <td>
+          4731
+          -
+          4756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.httpServer_=
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.httpServer_=(scala.Some.apply[com.sun.net.httpserver.HttpServer](server))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1945
+        </td>
+        <td>
+          4744
+          -
+          4756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[com.sun.net.httpserver.HttpServer](server)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1982
+        </td>
+        <td>
+          4787
+          -
+          4790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.$anon.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1947
+        </td>
+        <td>
+          4891
+          -
+          4919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.checkCidrRules
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.checkCidrRules(httpExchange)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1976
+        </td>
+        <td>
+          4937
+          -
+          6111
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getRequestURI().getPath() match {
+  case (&quot;/healthcheck&quot;| &quot;/healthcheck/full&quot;) =&gt; httpExchange.getRequestURI().getQuery().!=(null).&amp;&amp;(httpExchange.getRequestURI().getQuery().contains(&quot;type=lb&quot;)) match {
+    case true =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+    case false =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.FULL)
+  }
+  case &quot;/healthcheck/lb&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+  case &quot;/healthcheck/nagios&quot; =&gt; SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.NAGIOS)
+  case &quot;/ping&quot; =&gt; SimpleHttpServer.this.respond(httpExchange, &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+  case &quot;/metrics&quot; =&gt; SimpleHttpServer.this.handleMetricsMessage(httpExchange)
+  case (x @ _) if x.startsWith(&quot;/services&quot;) =&gt; {
+    val p: Array[String] = x.split(&quot;/&quot;);
+    val path: Option[String] = if (p.length.==(3))
+      scala.Some.apply[String](p.apply(2))
+    else
+      scala.None;
+    SimpleHttpServer.this.handleServicesMessage(httpExchange, path)
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1948
+        </td>
+        <td>
+          4937
+          -
+          4971
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URI.getPath
+        </td>
+        <td style="background: #AEF1AE">
+          httpExchange.getRequestURI().getPath()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1949
+        </td>
+        <td>
+          5098
+          -
+          5102
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1951
+        </td>
+        <td>
+          5059
+          -
+          5161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          httpExchange.getRequestURI().getQuery().!=(null).&amp;&amp;(httpExchange.getRequestURI().getQuery().contains(&quot;type=lb&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1950
+        </td>
+        <td>
+          5106
+          -
+          5161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.contains
+        </td>
+        <td style="background: #F0ADAD">
+          httpExchange.getRequestURI().getQuery().contains(&quot;type=lb&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1952
+        </td>
+        <td>
+          5237
+          -
+          5258
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1953
+        </td>
+        <td>
+          5203
+          -
+          5259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleHealthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1955
+        </td>
+        <td>
+          5294
+          -
+          5352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleHealthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.FULL)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1954
+        </td>
+        <td>
+          5328
+          -
+          5351
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.FULL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.FULL
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1957
+        </td>
+        <td>
+          5415
+          -
+          5471
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleHealthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.LB)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1956
+        </td>
+        <td>
+          5449
+          -
+          5470
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.LB
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1958
+        </td>
+        <td>
+          5552
+          -
+          5577
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthResponseType.NAGIOS
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthResponseType.NAGIOS
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1959
+        </td>
+        <td>
+          5518
+          -
+          5578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleHealthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleHealthMessage(httpExchange, com.webtrends.harness.health.HealthResponseType.NAGIOS)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1961
+        </td>
+        <td>
+          5649
+          -
+          5716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.joda.time.base.AbstractDateTime.toString
+        </td>
+        <td style="background: #AEF1AE">
+          new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1964
+        </td>
+        <td>
+          5611
+          -
+          5611
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1960
+        </td>
+        <td>
+          5633
+          -
+          5641
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;pong: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1963
+        </td>
+        <td>
+          5611
+          -
+          5611
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$3
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.respond$default$3
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1965
+        </td>
+        <td>
+          5611
+          -
+          5718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.respond(httpExchange, &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()), SimpleHttpServer.this.respond$default$3, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1962
+        </td>
+        <td>
+          5633
+          -
+          5717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;pong: &quot;.concat(new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString())
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1966
+        </td>
+        <td>
+          5754
+          -
+          5788
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleMetricsMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleMetricsMessage(httpExchange)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          1967
+        </td>
+        <td>
+          5815
+          -
+          5840
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.startsWith
+        </td>
+        <td style="background: #F0ADAD">
+          x.startsWith(&quot;/services&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1968
+        </td>
+        <td>
+          5870
+          -
+          5882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.split
+        </td>
+        <td style="background: #F0ADAD">
+          x.split(&quot;/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1969
+        </td>
+        <td>
+          5916
+          -
+          5929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #F0ADAD">
+          p.length.==(3)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1970
+        </td>
+        <td>
+          5958
+          -
+          5962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          p.apply(2)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1972
+        </td>
+        <td>
+          5953
+          -
+          5963
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](p.apply(2))
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1971
+        </td>
+        <td>
+          5953
+          -
+          5963
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](p.apply(2))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1973
+        </td>
+        <td>
+          6011
+          -
+          6015
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1974
+        </td>
+        <td>
+          6011
+          -
+          6015
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          1975
+        </td>
+        <td>
+          6054
+          -
+          6095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.handleServicesMessage
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.handleServicesMessage(httpExchange, path)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1979
+        </td>
+        <td>
+          6214
+          -
+          6214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond$default$4
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1978
+        </td>
+        <td>
+          6240
+          -
+          6243
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          404
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1981
+        </td>
+        <td>
+          6214
+          -
+          6244
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, &quot;&quot;, 404, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1980
+        </td>
+        <td>
+          6214
+          -
+          6244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.respond
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.respond(httpExchange, &quot;&quot;, 404, SimpleHttpServer.this.respond$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1977
+        </td>
+        <td>
+          6236
+          -
+          6238
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1983
+        </td>
+        <td>
+          6290
+          -
+          6346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/healthcheck/lb&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1984
+        </td>
+        <td>
+          6355
+          -
+          6408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/healthcheck&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          1985
+        </td>
+        <td>
+          6417
+          -
+          6475
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/healthcheck/full&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1986
+        </td>
+        <td>
+          6484
+          -
+          6544
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/healthcheck/nagios&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1987
+        </td>
+        <td>
+          6553
+          -
+          6599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/ping&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1988
+        </td>
+        <td>
+          6608
+          -
+          6657
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/metrics&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          1989
+        </td>
+        <td>
+          6666
+          -
+          6716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.createContext
+        </td>
+        <td style="background: #AEF1AE">
+          server.createContext(&quot;/services&quot;, internalHandler)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1991
+        </td>
+        <td>
+          6725
+          -
+          6776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.setExecutor
+        </td>
+        <td style="background: #AEF1AE">
+          server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool())
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          1990
+        </td>
+        <td>
+          6744
+          -
+          6775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.Executors.newCachedThreadPool
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.concurrent.Executors.newCachedThreadPool()
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1992
+        </td>
+        <td>
+          6785
+          -
+          6799
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.start
+        </td>
+        <td style="background: #AEF1AE">
+          server.start()
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1994
+        </td>
+        <td>
+          6854
+          -
+          6855
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1997
+        </td>
+        <td>
+          6808
+          -
+          6856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.log.info(scala.StringContext.apply(&quot;Internal Http started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1993
+        </td>
+        <td>
+          6819
+          -
+          6850
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Internal Http started on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1996
+        </td>
+        <td>
+          6817
+          -
+          6855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Internal Http started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1995
+        </td>
+        <td>
+          6850
+          -
+          6854
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.port
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          2003
+        </td>
+        <td>
+          6915
+          -
+          6990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.log.warn(scala.StringContext.apply(&quot;Internal server failed to start, HTTP port &quot;, &quot; already bound&quot;).s(SimpleHttpServer.this.port))
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          2000
+        </td>
+        <td>
+          6974
+          -
+          6989
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; already bound&quot;
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          2002
+        </td>
+        <td>
+          6924
+          -
+          6989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Internal server failed to start, HTTP port &quot;, &quot; already bound&quot;).s(SimpleHttpServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          1999
+        </td>
+        <td>
+          6926
+          -
+          6970
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Internal server failed to start, HTTP port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          2001
+        </td>
+        <td>
+          6970
+          -
+          6974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          2005
+        </td>
+        <td>
+          7001
+          -
+          7031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.trace
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.log.trace(ioe.getMessage(), ioe)
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          2004
+        </td>
+        <td>
+          7011
+          -
+          7025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ioe.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          2006
+        </td>
+        <td>
+          7042
+          -
+          7058
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.portBound_=
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.portBound_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          2010
+        </td>
+        <td>
+          7112
+          -
+          7122
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.httpServer
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.httpServer
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          2011
+        </td>
+        <td>
+          7153
+          -
+          7157
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          2012
+        </td>
+        <td>
+          7177
+          -
+          7182
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          2017
+        </td>
+        <td>
+          7228
+          -
+          7228
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          2016
+        </td>
+        <td>
+          7228
+          -
+          7228
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          2013
+        </td>
+        <td>
+          7232
+          -
+          7242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.isStarted.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          2015
+        </td>
+        <td>
+          7252
+          -
+          7259
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.start
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.start()
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          2014
+        </td>
+        <td>
+          7252
+          -
+          7259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.start
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.start()
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          2021
+        </td>
+        <td>
+          7320
+          -
+          7409
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  SimpleHttpServer.this.log.info(&quot;Shutting down internal http server&quot;);
+  SimpleHttpServer.this.httpServer.get.stop(0)
+}
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          2018
+        </td>
+        <td>
+          7309
+          -
+          7318
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.isStarted
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.isStarted
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          2023
+        </td>
+        <td>
+          7305
+          -
+          7305
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          2022
+        </td>
+        <td>
+          7305
+          -
+          7305
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          2019
+        </td>
+        <td>
+          7328
+          -
+          7374
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.log.info(&quot;Shutting down internal http server&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          2020
+        </td>
+        <td>
+          7381
+          -
+          7403
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.sun.net.httpserver.HttpServer.stop
+        </td>
+        <td style="background: #AEF1AE">
+          SimpleHttpServer.this.httpServer.get.stop(0)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          2051
+        </td>
+        <td>
+          7863
+          -
+          8334
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](SimpleHttpServer.this.httpServer match {
+  case (x: com.sun.net.httpserver.HttpServer)Some[com.sun.net.httpserver.HttpServer]((s @ _)) =&gt; com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Internal HTTP Server started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  case scala.None if SimpleHttpServer.this.portBound =&gt; com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Internal HTTP server not started, port [&quot;, &quot;] already bound by http component&quot;).s(SimpleHttpServer.this.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  case scala.None =&gt; com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Internal HTTP Server not started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+})(SimpleHttpServer.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          2050
+        </td>
+        <td>
+          7870
+          -
+          7870
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          2024
+        </td>
+        <td>
+          7878
+          -
+          7888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.httpServer
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.httpServer
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2030
+        </td>
+        <td>
+          7980
+          -
+          8025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Internal HTTP Server started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2033
+        </td>
+        <td>
+          7921
+          -
+          8026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Internal HTTP Server started on port &quot;, &quot;&quot;).s(SimpleHttpServer.this.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2027
+        </td>
+        <td>
+          7982
+          -
+          8020
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Internal HTTP Server started on port &quot;
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2026
+        </td>
+        <td>
+          7957
+          -
+          7978
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2029
+        </td>
+        <td>
+          8020
+          -
+          8024
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2032
+        </td>
+        <td>
+          7921
+          -
+          7921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2031
+        </td>
+        <td>
+          7921
+          -
+          7921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2025
+        </td>
+        <td>
+          7937
+          -
+          7955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2028
+        </td>
+        <td>
+          8024
+          -
+          8025
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2039
+        </td>
+        <td>
+          8163
+          -
+          8167
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.port
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.port
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2042
+        </td>
+        <td>
+          8061
+          -
+          8061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2036
+        </td>
+        <td>
+          8097
+          -
+          8118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2035
+        </td>
+        <td>
+          8077
+          -
+          8095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2038
+        </td>
+        <td>
+          8167
+          -
+          8201
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;] already bound by http component&quot;
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2041
+        </td>
+        <td>
+          8061
+          -
+          8061
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2040
+        </td>
+        <td>
+          8120
+          -
+          8201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Internal HTTP server not started, port [&quot;, &quot;] already bound by http component&quot;).s(SimpleHttpServer.this.port)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2043
+        </td>
+        <td>
+          8061
+          -
+          8202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Internal HTTP server not started, port [&quot;, &quot;] already bound by http component&quot;).s(SimpleHttpServer.this.port), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2034
+        </td>
+        <td>
+          8048
+          -
+          8057
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.http.SimpleHttpServer.portBound
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.portBound
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2037
+        </td>
+        <td>
+          8122
+          -
+          8163
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Internal HTTP server not started, port [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2048
+        </td>
+        <td>
+          8224
+          -
+          8224
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2045
+        </td>
+        <td>
+          8260
+          -
+          8283
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2044
+        </td>
+        <td>
+          8240
+          -
+          8258
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          SimpleHttpServer.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2047
+        </td>
+        <td>
+          8224
+          -
+          8224
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2049
+        </td>
+        <td>
+          8224
+          -
+          8320
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(SimpleHttpServer.this.self.path.toString(), com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Internal HTTP Server not started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2046
+        </td>
+        <td>
+          8285
+          -
+          8319
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Internal HTTP Server not started&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

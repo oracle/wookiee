@@ -1,0 +1,2487 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/health/HealthCheckProvider.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.health
+</span>20 <span style=''>
+</span>21 <span style=''>import java.util.jar.Attributes.Name
+</span>22 <span style=''>import java.util.jar.{Attributes, JarFile}
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.actor.Actor
+</span>25 <span style=''>import akka.pattern._
+</span>26 <span style=''>import akka.util.Timeout
+</span>27 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>28 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>29 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>30 <span style=''>import org.joda.time.DateTime
+</span>31 <span style=''>
+</span>32 <span style=''>import scala.collection.mutable
+</span>33 <span style=''>import scala.concurrent.duration._
+</span>34 <span style=''>import scala.concurrent.{Future, Promise}
+</span>35 <span style=''>import scala.util.{Failure, Success}
+</span>36 <span style=''>
+</span>37 <span style=''>trait HealthCheckProvider {
+</span>38 <span style=''>  this: Actor with ActorLoggingAdapter =>
+</span>39 <span style=''>  val upTime = </span><span style='background: #AEF1AE'>DateTime.now</span><span style=''>
+</span>40 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(5 seconds)</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  val scalaVersion = </span><span style='background: #AEF1AE'>util.Properties.versionString</span><span style=''>
+</span>43 <span style=''>  val file = </span><span style='background: #AEF1AE'>getClass.getProtectionDomain.getCodeSource.getLocation.getFile</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  val manifest = </span><span style='background: #AEF1AE'>file</span><span style=''> match {
+</span>46 <span style=''>    case _ if </span><span style='background: #AEF1AE'>file.endsWith(".jar")</span><span style=''> =>
+</span>47 <span style=''>      </span><span style='background: #F0ADAD'>new JarFile(file).getManifest</span><span style=''>
+</span>48 <span style=''>    case _ =>
+</span>49 <span style=''>      val man = </span><span style='background: #AEF1AE'>new java.util.jar.Manifest()</span><span style=''>
+</span>50 <span style=''>      </span><span style='background: #AEF1AE'>man.getMainAttributes.put(Name.IMPLEMENTATION_TITLE, "Webtrends Harness Service")</span><span style=''>
+</span>51 <span style=''>      </span><span style='background: #AEF1AE'>man.getMainAttributes.put(Name.IMPLEMENTATION_VERSION, "develop-SNAPSHOT")</span><span style=''>
+</span>52 <span style=''>      </span><span style='background: #AEF1AE'>man.getMainAttributes.put(new Attributes.Name("Implementation-Build"), "N/A")</span><span style=''>
+</span>53 <span style=''>      man
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  val application = </span><span style='background: #AEF1AE'>manifest.getMainAttributes().getValue(Name.IMPLEMENTATION_TITLE)</span><span style=''>
+</span>57 <span style=''>  val version = </span><span style='background: #AEF1AE'>manifest.getMainAttributes().getValue("Implementation-Version") + "." + manifest.getMainAttributes().getValue("Implementation-Build")</span><span style=''>
+</span>58 <span style=''>  val alerts: mutable.Buffer[ComponentHealth] = </span><span style='background: #AEF1AE'>mutable.Buffer()</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  /**
+</span>61 <span style=''>   * Rollup the overall status and critical alerts for each component
+</span>62 <span style=''>   * @param checks
+</span>63 <span style=''>   * @return
+</span>64 <span style=''>   */
+</span>65 <span style=''>  private def rollupStatuses(checks: mutable.Buffer[ComponentHealth]): ComponentHealth = {
+</span>66 <span style=''>    // Check if all components are running normal
+</span>67 <span style=''>    if (</span><span style='background: #AEF1AE'>alerts.length == 0</span><span style=''>) {
+</span>68 <span style=''>      </span><span style='background: #AEF1AE'>ComponentHealth(ComponentState.NORMAL, "Thunderbirds are GO")</span><span style=''>
+</span>69 <span style=''>    }
+</span>70 <span style=''>    else </span><span style='background: #F0ADAD'>{
+</span>71 <span style=''></span><span style='background: #F0ADAD'>      val status = if (checks.forall(c => c.state == ComponentState.DEGRADED)) ComponentState.DEGRADED else ComponentState.CRITICAL
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      val details = for (c <- checks) yield c.details
+</span>73 <span style=''></span><span style='background: #F0ADAD'>
+</span>74 <span style=''></span><span style='background: #F0ADAD'>      ComponentHealth(status, details.mkString("; "))
+</span>75 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  /**
+</span>79 <span style=''>   * Rollup alerts for all components that have a CRITICAL or DEGRADED state
+</span>80 <span style=''>   * @param component
+</span>81 <span style=''>   */
+</span>82 <span style=''>  private def checkComponents(component: HealthComponent) {
+</span>83 <span style=''>    def alertComponent(state: ComponentState.ComponentState): Boolean = {
+</span>84 <span style=''>      if (</span><span style='background: #AEF1AE'>state == ComponentState.CRITICAL || state == ComponentState.DEGRADED</span><span style=''>) </span><span style='background: #F0ADAD'>true</span><span style=''> else </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>85 <span style=''>    }
+</span>86 <span style=''>
+</span>87 <span style=''>    def healthDetails(component: HealthComponent): String = {
+</span>88 <span style=''>      </span><span style='background: #F0ADAD'>component.name + "[" + component.state + "] - " + component.details</span><span style=''>
+</span>89 <span style=''>    }
+</span>90 <span style=''>
+</span>91 <span style=''>    if (</span><span style='background: #AEF1AE'>component.components.length == 0 && alertComponent(component.state)</span><span style=''>) {
+</span>92 <span style=''>      </span><span style='background: #F0ADAD'>alerts += ComponentHealth(component.state, healthDetails(component))</span><span style=''>
+</span>93 <span style=''>    }
+</span>94 <span style=''>    else </span><span style='background: #AEF1AE'>{
+</span>95 <span style=''></span><span style='background: #AEF1AE'>      if (alertComponent(component.state)) {
+</span>96 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>alerts += ComponentHealth(component.state, healthDetails(component))</span><span style='background: #AEF1AE'>
+</span>97 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>98 <span style=''></span><span style='background: #AEF1AE'>      component.components.foreach(</span><span style='background: #F0ADAD'>checkComponents(_)</span><span style='background: #AEF1AE'>)
+</span>99 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>100 <span style=''>  }
+</span>101 <span style=''>
+</span>102 <span style=''>  /**
+</span>103 <span style=''>   * Run the health checks and return the current system state
+</span>104 <span style=''>   * @return
+</span>105 <span style=''>   */
+</span>106 <span style=''>  def runChecks: Future[ApplicationHealth] = {
+</span>107 <span style=''>
+</span>108 <span style=''>    import context.dispatcher
+</span>109 <span style=''>
+</span>110 <span style=''>    // Ask for the health of each component
+</span>111 <span style=''>    val future = (</span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.ActorPrefix) ? CheckHealth).mapTo[Seq[HealthComponent]]</span><span style=''>
+</span>112 <span style=''>    val p = </span><span style='background: #AEF1AE'>Promise[ApplicationHealth]</span><span style=''>
+</span>113 <span style=''>
+</span>114 <span style=''>    </span><span style='background: #AEF1AE'>future.onComplete({
+</span>115 <span style=''></span><span style='background: #AEF1AE'>      case Success(checks) =>
+</span>116 <span style=''></span><span style='background: #AEF1AE'>        // Rollup alerts for any critical or degraded components
+</span>117 <span style=''></span><span style='background: #AEF1AE'>        checks.foreach(checkComponents(_))
+</span>118 <span style=''></span><span style='background: #AEF1AE'>        // Rollup the statuses
+</span>119 <span style=''></span><span style='background: #AEF1AE'>        val overallHealth = rollupStatuses(alerts)
+</span>120 <span style=''></span><span style='background: #AEF1AE'>        alerts.clear()
+</span>121 <span style=''></span><span style='background: #AEF1AE'>        p success new ApplicationHealth(application, version, upTime, overallHealth.state, overallHealth.details, checks)
+</span>122 <span style=''></span><span style='background: #AEF1AE'>      case Failure(e) =>
+</span>123 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>log.error("An error occurred while fetching the health request results", e)</span><span style='background: #AEF1AE'>
+</span>124 <span style=''></span><span style='background: #AEF1AE'>        </span><span style='background: #F0ADAD'>p success new ApplicationHealth(application, version, upTime, ComponentState.CRITICAL, e.getMessage, Nil)</span><span style='background: #AEF1AE'>
+</span>125 <span style=''></span><span style='background: #AEF1AE'>    })</span><span style=''>
+</span>126 <span style=''>
+</span>127 <span style=''>    </span><span style='background: #AEF1AE'>p.future</span><span style=''>
+</span>128 <span style=''>  }
+</span>129 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1617
+        </td>
+        <td>
+          1353
+          -
+          1365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.joda.time.DateTime.now
+        </td>
+        <td style="background: #AEF1AE">
+          org.joda.time.DateTime.now()
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1620
+        </td>
+        <td>
+          1391
+          -
+          1409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1619
+        </td>
+        <td>
+          1399
+          -
+          1408
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1618
+        </td>
+        <td>
+          1399
+          -
+          1400
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1621
+        </td>
+        <td>
+          1432
+          -
+          1461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.PropertiesTrait.versionString
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Properties.versionString
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1622
+        </td>
+        <td>
+          1475
+          -
+          1537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.getFile
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.getClass().getProtectionDomain().getCodeSource().getLocation().getFile()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1623
+        </td>
+        <td>
+          1556
+          -
+          1560
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.file
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.file
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1624
+        </td>
+        <td>
+          1583
+          -
+          1604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.endsWith
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.file.endsWith(&quot;.jar&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1625
+        </td>
+        <td>
+          1614
+          -
+          1643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.JarFile.getManifest
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.jar.JarFile(HealthCheckProvider.this.file).getManifest()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1626
+        </td>
+        <td>
+          1674
+          -
+          1702
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Manifest.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.jar.Manifest()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1629
+        </td>
+        <td>
+          1709
+          -
+          1790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.put
+        </td>
+        <td style="background: #AEF1AE">
+          man.getMainAttributes().put(java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE, &quot;Webtrends Harness Service&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1628
+        </td>
+        <td>
+          1762
+          -
+          1789
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Webtrends Harness Service&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1627
+        </td>
+        <td>
+          1735
+          -
+          1760
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1632
+        </td>
+        <td>
+          1797
+          -
+          1871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.put
+        </td>
+        <td style="background: #AEF1AE">
+          man.getMainAttributes().put(java.util.jar.Attributes.Name.IMPLEMENTATION_VERSION, &quot;develop-SNAPSHOT&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1631
+        </td>
+        <td>
+          1852
+          -
+          1870
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;develop-SNAPSHOT&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1630
+        </td>
+        <td>
+          1823
+          -
+          1850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.util.jar.Attributes.Name.IMPLEMENTATION_VERSION
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.jar.Attributes.Name.IMPLEMENTATION_VERSION
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1635
+        </td>
+        <td>
+          1878
+          -
+          1955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.put
+        </td>
+        <td style="background: #AEF1AE">
+          man.getMainAttributes().put(new java.util.jar.Attributes.Name(&quot;Implementation-Build&quot;), &quot;N/A&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1634
+        </td>
+        <td>
+          1949
+          -
+          1954
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;N/A&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1633
+        </td>
+        <td>
+          1904
+          -
+          1947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.Name.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.jar.Attributes.Name(&quot;Implementation-Build&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1637
+        </td>
+        <td>
+          1991
+          -
+          2055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.getValue
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.manifest.getMainAttributes().getValue(java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1636
+        </td>
+        <td>
+          2029
+          -
+          2054
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.jar.Attributes.Name.IMPLEMENTATION_TITLE
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1638
+        </td>
+        <td>
+          2110
+          -
+          2134
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Implementation-Version&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1641
+        </td>
+        <td>
+          2072
+          -
+          2205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.manifest.getMainAttributes().getValue(&quot;Implementation-Version&quot;).+(&quot;.&quot;).+(HealthCheckProvider.this.manifest.getMainAttributes().getValue(&quot;Implementation-Build&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1640
+        </td>
+        <td>
+          2144
+          -
+          2205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.jar.Attributes.getValue
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.manifest.getMainAttributes().getValue(&quot;Implementation-Build&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1639
+        </td>
+        <td>
+          2138
+          -
+          2141
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1642
+        </td>
+        <td>
+          2254
+          -
+          2270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Buffer.apply[com.webtrends.harness.health.ComponentHealth]()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1643
+        </td>
+        <td>
+          2535
+          -
+          2553
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.alerts.length.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1647
+        </td>
+        <td>
+          2563
+          -
+          2624
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHealth.apply(ComponentState.NORMAL, &quot;Thunderbirds are GO&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1644
+        </td>
+        <td>
+          2579
+          -
+          2600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1646
+        </td>
+        <td>
+          2563
+          -
+          2624
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.apply
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentHealth.apply(ComponentState.NORMAL, &quot;Thunderbirds are GO&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1645
+        </td>
+        <td>
+          2602
+          -
+          2623
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Thunderbirds are GO&quot;
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1660
+        </td>
+        <td>
+          2640
+          -
+          2888
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val status: com.webtrends.harness.health.ComponentState.Value = if (checks.forall(((c: com.webtrends.harness.health.ComponentHealth) =&gt; c.state.==(ComponentState.DEGRADED))))
+    ComponentState.DEGRADED
+  else
+    ComponentState.CRITICAL;
+  val details: scala.collection.mutable.Buffer[String] = checks.map[String, scala.collection.mutable.Buffer[String]](((c: com.webtrends.harness.health.ComponentHealth) =&gt; c.details))(mutable.this.Buffer.canBuildFrom[String]);
+  ComponentHealth.apply(status, details.mkString(&quot;; &quot;))
+}
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1650
+        </td>
+        <td>
+          2665
+          -
+          2719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.forall
+        </td>
+        <td style="background: #F0ADAD">
+          checks.forall(((c: com.webtrends.harness.health.ComponentHealth) =&gt; c.state.==(ComponentState.DEGRADED)))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1653
+        </td>
+        <td>
+          2750
+          -
+          2773
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1652
+        </td>
+        <td>
+          2721
+          -
+          2744
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1649
+        </td>
+        <td>
+          2684
+          -
+          2718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          c.state.==(ComponentState.DEGRADED)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1651
+        </td>
+        <td>
+          2721
+          -
+          2744
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1654
+        </td>
+        <td>
+          2750
+          -
+          2773
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1648
+        </td>
+        <td>
+          2695
+          -
+          2718
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1656
+        </td>
+        <td>
+          2801
+          -
+          2801
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Buffer.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Buffer.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1655
+        </td>
+        <td>
+          2818
+          -
+          2827
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.details
+        </td>
+        <td style="background: #F0ADAD">
+          c.details
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1657
+        </td>
+        <td>
+          2794
+          -
+          2827
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          checks.map[String, scala.collection.mutable.Buffer[String]](((c: com.webtrends.harness.health.ComponentHealth) =&gt; c.details))(mutable.this.Buffer.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1659
+        </td>
+        <td>
+          2835
+          -
+          2882
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHealth.apply(status, details.mkString(&quot;; &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1658
+        </td>
+        <td>
+          2859
+          -
+          2881
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #F0ADAD">
+          details.mkString(&quot;; &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1665
+        </td>
+        <td>
+          3219
+          -
+          3223
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1668
+        </td>
+        <td>
+          3229
+          -
+          3234
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1662
+        </td>
+        <td>
+          3194
+          -
+          3217
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1661
+        </td>
+        <td>
+          3158
+          -
+          3181
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #AEF1AE">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1664
+        </td>
+        <td>
+          3149
+          -
+          3217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          state.==(ComponentState.CRITICAL).||(state.==(ComponentState.DEGRADED))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1667
+        </td>
+        <td>
+          3229
+          -
+          3234
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1666
+        </td>
+        <td>
+          3219
+          -
+          3223
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1663
+        </td>
+        <td>
+          3185
+          -
+          3217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          state.==(ComponentState.DEGRADED)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1671
+        </td>
+        <td>
+          3351
+          -
+          3357
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;] - &quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1670
+        </td>
+        <td>
+          3333
+          -
+          3348
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.state
+        </td>
+        <td style="background: #F0ADAD">
+          component.state
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1673
+        </td>
+        <td>
+          3310
+          -
+          3377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #F0ADAD">
+          component.name.+(&quot;[&quot;).+(component.state).+(&quot;] - &quot;).+(component.details)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1669
+        </td>
+        <td>
+          3327
+          -
+          3330
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1672
+        </td>
+        <td>
+          3360
+          -
+          3377
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.details
+        </td>
+        <td style="background: #F0ADAD">
+          component.details
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1674
+        </td>
+        <td>
+          3424
+          -
+          3425
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1677
+        </td>
+        <td>
+          3393
+          -
+          3460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          component.components.length.==(0).&amp;&amp;(alertComponent(component.state))
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1676
+        </td>
+        <td>
+          3429
+          -
+          3460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.alertComponent
+        </td>
+        <td style="background: #AEF1AE">
+          alertComponent(component.state)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1675
+        </td>
+        <td>
+          3444
+          -
+          3459
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.state
+        </td>
+        <td style="background: #AEF1AE">
+          component.state
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1680
+        </td>
+        <td>
+          3480
+          -
+          3538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHealth.apply(component.state, healthDetails(component))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1683
+        </td>
+        <td>
+          3470
+          -
+          3538
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  HealthCheckProvider.this.alerts.+=(ComponentHealth.apply(component.state, healthDetails(component)));
+  ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1679
+        </td>
+        <td>
+          3513
+          -
+          3537
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.healthDetails
+        </td>
+        <td style="background: #F0ADAD">
+          healthDetails(component)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1682
+        </td>
+        <td>
+          3477
+          -
+          3477
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1678
+        </td>
+        <td>
+          3496
+          -
+          3511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.state
+        </td>
+        <td style="background: #F0ADAD">
+          component.state
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1681
+        </td>
+        <td>
+          3470
+          -
+          3538
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.alerts.+=(ComponentHealth.apply(component.state, healthDetails(component)))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1695
+        </td>
+        <td>
+          3554
+          -
+          3746
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  if (alertComponent(component.state))
+    HealthCheckProvider.this.alerts.+=(ComponentHealth.apply(component.state, healthDetails(component)))
+  else
+    ();
+  component.components.foreach[Unit](((x$1: com.webtrends.harness.health.HealthComponent) =&gt; HealthCheckProvider.this.checkComponents(x$1)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          3562
+          -
+          3562
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1691
+        </td>
+        <td>
+          3562
+          -
+          3562
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1685
+        </td>
+        <td>
+          3566
+          -
+          3597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.alertComponent
+        </td>
+        <td style="background: #AEF1AE">
+          alertComponent(component.state)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1684
+        </td>
+        <td>
+          3581
+          -
+          3596
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.state
+        </td>
+        <td style="background: #AEF1AE">
+          component.state
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1689
+        </td>
+        <td>
+          3609
+          -
+          3677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.alerts.+=(ComponentHealth.apply(component.state, healthDetails(component)))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1686
+        </td>
+        <td>
+          3635
+          -
+          3650
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.state
+        </td>
+        <td style="background: #F0ADAD">
+          component.state
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1688
+        </td>
+        <td>
+          3619
+          -
+          3677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentHealth.apply(component.state, healthDetails(component))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1687
+        </td>
+        <td>
+          3652
+          -
+          3676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.healthDetails
+        </td>
+        <td style="background: #F0ADAD">
+          healthDetails(component)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1690
+        </td>
+        <td>
+          3609
+          -
+          3677
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.alerts.+=(ComponentHealth.apply(component.state, healthDetails(component)))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1694
+        </td>
+        <td>
+          3692
+          -
+          3740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          component.components.foreach[Unit](((x$1: com.webtrends.harness.health.HealthComponent) =&gt; HealthCheckProvider.this.checkComponents(x$1)))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1693
+        </td>
+        <td>
+          3721
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.checkComponents
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.checkComponents(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1698
+        </td>
+        <td>
+          4036
+          -
+          4047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1697
+        </td>
+        <td>
+          3981
+          -
+          4033
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorSelection
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ActorPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1700
+        </td>
+        <td>
+          3981
+          -
+          4076
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.ask(HealthCheckProvider.this.context.actorSelection(com.webtrends.harness.HarnessConstants.ActorPrefix)).?(com.webtrends.harness.service.messages.CheckHealth)(HealthCheckProvider.this.timeout).mapTo[Seq[com.webtrends.harness.health.HealthComponent]]((ClassTag.apply[Seq[com.webtrends.harness.health.HealthComponent]](classOf[scala.collection.Seq]): scala.reflect.ClassTag[Seq[com.webtrends.harness.health.HealthComponent]]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1696
+        </td>
+        <td>
+          4004
+          -
+          4032
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ActorPrefix
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.ActorPrefix
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1699
+        </td>
+        <td>
+          4034
+          -
+          4034
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.timeout
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1701
+        </td>
+        <td>
+          4089
+          -
+          4115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.ApplicationHealth]()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1724
+        </td>
+        <td>
+          4121
+          -
+          4735
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #AEF1AE">
+          future.onComplete[scala.concurrent.Promise[com.webtrends.harness.health.ApplicationHealth]](((x0$1: scala.util.Try[Seq[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$1 match {
+  case (value: Seq[com.webtrends.harness.health.HealthComponent])scala.util.Success[Seq[com.webtrends.harness.health.HealthComponent]]((checks @ _)) =&gt; {
+    checks.foreach[Unit](((x$2: com.webtrends.harness.health.HealthComponent) =&gt; HealthCheckProvider.this.checkComponents(x$2)));
+    val overallHealth: com.webtrends.harness.health.ComponentHealth = HealthCheckProvider.this.rollupStatuses(HealthCheckProvider.this.alerts);
+    HealthCheckProvider.this.alerts.clear();
+    p.success(new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, overallHealth.state, overallHealth.details, checks))
+  }
+  case (exception: Throwable)scala.util.Failure[Seq[com.webtrends.harness.health.HealthComponent]]((e @ _)) =&gt; {
+    HealthCheckProvider.this.log.error(&quot;An error occurred while fetching the health request results&quot;, e);
+    p.success(new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, ComponentState.CRITICAL, e.getMessage(), immutable.this.Nil))
+  }
+}))(HealthCheckProvider.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1723
+        </td>
+        <td>
+          4138
+          -
+          4138
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1703
+        </td>
+        <td>
+          4244
+          -
+          4278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          checks.foreach[Unit](((x$2: com.webtrends.harness.health.HealthComponent) =&gt; HealthCheckProvider.this.checkComponents(x$2)))
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1702
+        </td>
+        <td>
+          4259
+          -
+          4277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.checkComponents
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.checkComponents(x$2)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1704
+        </td>
+        <td>
+          4353
+          -
+          4359
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.alerts
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.alerts
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1705
+        </td>
+        <td>
+          4338
+          -
+          4360
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.rollupStatuses
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.rollupStatuses(HealthCheckProvider.this.alerts)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1706
+        </td>
+        <td>
+          4369
+          -
+          4383
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.BufferLike.clear
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.alerts.clear()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1707
+        </td>
+        <td>
+          4424
+          -
+          4435
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.application
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.application
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1710
+        </td>
+        <td>
+          4454
+          -
+          4473
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.state
+        </td>
+        <td style="background: #AEF1AE">
+          overallHealth.state
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1713
+        </td>
+        <td>
+          4392
+          -
+          4505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #AEF1AE">
+          p.success(new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, overallHealth.state, overallHealth.details, checks))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1712
+        </td>
+        <td>
+          4402
+          -
+          4505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ApplicationHealth.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, overallHealth.state, overallHealth.details, checks)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1709
+        </td>
+        <td>
+          4446
+          -
+          4452
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.upTime
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.upTime
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1711
+        </td>
+        <td>
+          4475
+          -
+          4496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentHealth.details
+        </td>
+        <td style="background: #AEF1AE">
+          overallHealth.details
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1708
+        </td>
+        <td>
+          4437
+          -
+          4444
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.version
+        </td>
+        <td style="background: #AEF1AE">
+          HealthCheckProvider.this.version
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1714
+        </td>
+        <td>
+          4539
+          -
+          4614
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.log.error(&quot;An error occurred while fetching the health request results&quot;, e)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1716
+        </td>
+        <td>
+          4668
+          -
+          4675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.version
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.version
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1719
+        </td>
+        <td>
+          4710
+          -
+          4722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1722
+        </td>
+        <td>
+          4623
+          -
+          4728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, ComponentState.CRITICAL, e.getMessage(), immutable.this.Nil))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1721
+        </td>
+        <td>
+          4633
+          -
+          4728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ApplicationHealth.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new ApplicationHealth(HealthCheckProvider.this.application, HealthCheckProvider.this.version, HealthCheckProvider.this.upTime, ComponentState.CRITICAL, e.getMessage(), immutable.this.Nil)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1715
+        </td>
+        <td>
+          4655
+          -
+          4666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.application
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.application
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          4685
+          -
+          4708
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1717
+        </td>
+        <td>
+          4677
+          -
+          4683
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthCheckProvider.upTime
+        </td>
+        <td style="background: #F0ADAD">
+          HealthCheckProvider.this.upTime
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1720
+        </td>
+        <td>
+          4724
+          -
+          4727
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1725
+        </td>
+        <td>
+          4741
+          -
+          4749
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #AEF1AE">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
