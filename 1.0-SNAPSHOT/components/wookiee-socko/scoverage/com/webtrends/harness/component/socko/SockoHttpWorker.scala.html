@@ -49,116 +49,112 @@
 </span>24 <span style=''>import com.webtrends.harness.HarnessConstants
 </span>25 <span style=''>import com.webtrends.harness.app.HActor
 </span>26 <span style=''>import com.webtrends.harness.component.socko.route.SockoRouteManager
-</span>27 <span style=''>import com.webtrends.harness.component.socko.utils.SockoCommandException
-</span>28 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException}
-</span>29 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthRequest, HealthResponseType}
-</span>30 <span style=''>import com.webtrends.harness.utils.ConfigUtil
-</span>31 <span style=''>import net.liftweb.json._
-</span>32 <span style=''>import net.liftweb.json.ext.{EnumNameSerializer, JodaTimeSerializers}
-</span>33 <span style=''>import org.joda.time.{DateTime, DateTimeZone}
-</span>34 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus}
-</span>35 <span style=''>import org.mashupbots.socko.routes.{GET, Path}
-</span>36 <span style=''>
-</span>37 <span style=''>import scala.concurrent.Future
-</span>38 <span style=''>import scala.concurrent.duration._
-</span>39 <span style=''>import scala.util.{Failure, Success}
-</span>40 <span style=''>
-</span>41 <span style=''>case class SockoWorkerMessage(event:HttpRequestEvent)
-</span>42 <span style=''>
-</span>43 <span style=''>class SockoHttpWorker extends HActor with ComponentHelper {
-</span>44 <span style=''>  import context.dispatcher
-</span>45 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(10 seconds)</span><span style=''>
-</span>46 <span style=''>  val staticContent = </span><span style='background: #AEF1AE'>ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "")</span><span style=''>
-</span>47 <span style=''>
-</span>48 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>DefaultFormats + new EnumNameSerializer(ComponentState) ++ JodaTimeSerializers.all</span><span style=''>
-</span>49 <span style=''>
-</span>50 <span style=''>  val healthActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.HealthFullName)</span><span style=''>
-</span>51 <span style=''>  val serviceActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.ServicesFullName)</span><span style=''>
-</span>52 <span style=''>
-</span>53 <span style=''>  override def postRestart(reason: Throwable): Unit = {
-</span>54 <span style=''>    </span><span style='background: #F0ADAD'>super.postRestart(reason)</span><span style=''>
-</span>55 <span style=''>    </span><span style='background: #F0ADAD'>self ! HttpStartProcessing</span><span style=''>
-</span>56 <span style=''>  }
-</span>57 <span style=''>
-</span>58 <span style=''>  override def receive: Receive = {
-</span>59 <span style=''>    case HttpStartProcessing =>
-</span>60 <span style=''>      </span><span style='background: #AEF1AE'>log.debug("Worker beginning to process")</span><span style=''>
-</span>61 <span style=''>      </span><span style='background: #AEF1AE'>context.become(running)</span><span style=''>
-</span>62 <span style=''>  }
-</span>63 <span style=''>
-</span>64 <span style=''>  def running:Receive = </span><span style='background: #AEF1AE'>super.receive orElse {
-</span>65 <span style=''></span><span style='background: #AEF1AE'>    case SockoWorkerMessage(event) => handleSockoRoute(event)
-</span>66 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
-</span>67 <span style=''>
-</span>68 <span style=''>  /**
-</span>69 <span style=''>   * Attempts to handle the Socko route
-</span>70 <span style=''>   * @param event The http request
-</span>71 <span style=''>   */
-</span>72 <span style=''>  protected def handleSockoRoute(event: HttpRequestEvent) = {
-</span>73 <span style=''>    var handled = </span><span style='background: #AEF1AE'>true</span><span style=''>
-</span>74 <span style=''>    event match {
-</span>75 <span style=''>      case GET(Path("/favicon.ico")) =>
-</span>76 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NO_CONTENT)</span><span style=''>
-</span>77 <span style=''>      case GET(Path("/ping")) =>
-</span>78 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write("pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))</span><span style=''>
-</span>79 <span style=''>      case req =>
-</span>80 <span style=''>        req match {
-</span>81 <span style=''>          case GET(Path("/healthcheck/lb")) =>
-</span>82 <span style=''>            (</span><span style='background: #F0ADAD'>healthActor ? HealthRequest(HealthResponseType.LB)).mapTo[String] onComplete {
-</span>83 <span style=''></span><span style='background: #F0ADAD'>              case Success(h) => event.response.write(h)
-</span>84 <span style=''></span><span style='background: #F0ADAD'>              case Failure(f) => messageFailure(f, event)
-</span>85 <span style=''></span><span style='background: #F0ADAD'>            }</span><span style=''>
-</span>86 <span style=''>          case GET(Path("/healthcheck/nagios")) =>
-</span>87 <span style=''>            (</span><span style='background: #F0ADAD'>healthActor ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
-</span>88 <span style=''></span><span style='background: #F0ADAD'>              case Success(h) => event.response.write(h)
-</span>89 <span style=''></span><span style='background: #F0ADAD'>              case Failure(f) => messageFailure(f, event)
-</span>90 <span style=''></span><span style='background: #F0ADAD'>            }</span><span style=''>
-</span>91 <span style=''>          case _ =>
-</span>92 <span style=''>            var found = </span><span style='background: #AEF1AE'>false</span><span style=''>
-</span>93 <span style=''>            </span><span style='background: #AEF1AE'>SockoRouteManager.getHandlers(event.nettyHttpRequest.getMethod.toString.toUpperCase)</span><span style=''> match {
-</span>94 <span style=''>              case Some(handlers) =>
-</span>95 <span style=''>                try {
-</span>96 <span style=''>                  </span><span style='background: #AEF1AE'>handlers.takeWhile { handler =>
-</span>97 <span style=''></span><span style='background: #AEF1AE'>                    handler._2.matchSockoRoute(event) match {
-</span>98 <span style=''></span><span style='background: #AEF1AE'>                      case Some(map) =>
-</span>99 <span style=''></span><span style='background: #AEF1AE'>                        Future {
-</span>100 <span style=''></span><span style='background: #AEF1AE'>                          handler._2.handleSockoRoute(event, map)
-</span>101 <span style=''></span><span style='background: #AEF1AE'>                        }
-</span>102 <span style=''></span><span style='background: #AEF1AE'>                        found = true
-</span>103 <span style=''></span><span style='background: #AEF1AE'>                      case None =>
-</span>104 <span style=''></span><span style='background: #AEF1AE'>                    }
-</span>105 <span style=''></span><span style='background: #AEF1AE'>                    !found
-</span>106 <span style=''></span><span style='background: #AEF1AE'>                  }</span><span style=''>
-</span>107 <span style=''>                } catch {
-</span>108 <span style=''>                  case ce: SockoCommandException => </span><span style='background: #F0ADAD'>event.response.write(ce.code, s"Cause - ${ce.getMessage}")</span><span style=''>
-</span>109 <span style=''>                  case ex: Exception => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Cause - ${ex.getMessage}")</span><span style=''>
-</span>110 <span style=''>                }
-</span>111 <span style=''>              case None </span><span style='background: #F0ADAD'>=></span><span style=''>
-</span>112 <span style=''>            }
-</span>113 <span style=''>            handled = found
-</span>114 <span style=''>        }
-</span>115 <span style=''>    }
-</span>116 <span style=''>
-</span>117 <span style=''>    if (</span><span style='background: #AEF1AE'>!handled</span><span style=''>) {
-</span>118 <span style=''>      //if the static content handler was initialized then lets send the message out to the content handler
-</span>119 <span style=''>      </span><span style='background: #F0ADAD'>if (ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "").nonEmpty) {
-</span>120 <span style=''></span><span style='background: #F0ADAD'>        context.actorSelection(s"${HarnessConstants.ComponentFullName}/wookiee-socko").resolveOne() onComplete {
-</span>121 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => s ! SockoContentRequest(event)
-</span>122 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => event.response.write(HttpResponseStatus.NOT_FOUND)
-</span>123 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>124 <span style=''></span><span style='background: #F0ADAD'>      } else {
-</span>125 <span style=''></span><span style='background: #F0ADAD'>        event.response.write(HttpResponseStatus.NOT_FOUND)
-</span>126 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>127 <span style=''>    }
-</span>128 <span style=''>  }
-</span>129 <span style=''>
-</span>130 <span style=''>  def messageFailure(f:Throwable, event:HttpRequestEvent) = {
-</span>131 <span style=''>    f match {
-</span>132 <span style=''>      case notFound:ComponentNotFoundException => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NOT_FOUND, notFound.getMessage)</span><span style=''>
-</span>133 <span style=''>      case t => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, t.getMessage)</span><span style=''>
-</span>134 <span style=''>    }
-</span>135 <span style=''>  }
-</span>136 <span style=''>}
+</span>27 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException}
+</span>28 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthRequest, HealthResponseType}
+</span>29 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>30 <span style=''>import net.liftweb.json._
+</span>31 <span style=''>import net.liftweb.json.ext.{EnumNameSerializer, JodaTimeSerializers}
+</span>32 <span style=''>import org.joda.time.{DateTime, DateTimeZone}
+</span>33 <span style=''>import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus}
+</span>34 <span style=''>import org.mashupbots.socko.routes.{GET, Path}
+</span>35 <span style=''>
+</span>36 <span style=''>import scala.concurrent.Future
+</span>37 <span style=''>import scala.concurrent.duration._
+</span>38 <span style=''>import scala.util.{Failure, Success}
+</span>39 <span style=''>
+</span>40 <span style=''>case class SockoWorkerMessage(event:HttpRequestEvent)
+</span>41 <span style=''>
+</span>42 <span style=''>class SockoHttpWorker extends HActor with ComponentHelper {
+</span>43 <span style=''>  import context.dispatcher
+</span>44 <span style=''>  implicit val timeout = </span><span style='background: #AEF1AE'>Timeout(10 seconds)</span><span style=''>
+</span>45 <span style=''>  val staticContent = </span><span style='background: #AEF1AE'>ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "")</span><span style=''>
+</span>46 <span style=''>
+</span>47 <span style=''>  implicit val formats = </span><span style='background: #AEF1AE'>DefaultFormats + new EnumNameSerializer(ComponentState) ++ JodaTimeSerializers.all</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  val healthActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.HealthFullName)</span><span style=''>
+</span>50 <span style=''>  val serviceActor = </span><span style='background: #AEF1AE'>context.actorSelection(HarnessConstants.ServicesFullName)</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  override def postRestart(reason: Throwable): Unit = {
+</span>53 <span style=''>    </span><span style='background: #F0ADAD'>super.postRestart(reason)</span><span style=''>
+</span>54 <span style=''>    </span><span style='background: #F0ADAD'>self ! HttpStartProcessing</span><span style=''>
+</span>55 <span style=''>  }
+</span>56 <span style=''>
+</span>57 <span style=''>  override def receive: Receive = {
+</span>58 <span style=''>    case HttpStartProcessing =>
+</span>59 <span style=''>      </span><span style='background: #AEF1AE'>log.debug("Worker beginning to process")</span><span style=''>
+</span>60 <span style=''>      </span><span style='background: #AEF1AE'>context.become(running)</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  def running:Receive = </span><span style='background: #AEF1AE'>super.receive orElse {
+</span>64 <span style=''></span><span style='background: #AEF1AE'>    case SockoWorkerMessage(event) => handleSockoRoute(event)
+</span>65 <span style=''></span><span style='background: #AEF1AE'>  }</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  /**
+</span>68 <span style=''>   * Attempts to handle the Socko route
+</span>69 <span style=''>   * @param event The http request
+</span>70 <span style=''>   */
+</span>71 <span style=''>  protected def handleSockoRoute(event: HttpRequestEvent) = {
+</span>72 <span style=''>    event match {
+</span>73 <span style=''>      case GET(Path("/favicon.ico")) =>
+</span>74 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NO_CONTENT)</span><span style=''>
+</span>75 <span style=''>      case GET(Path("/ping")) =>
+</span>76 <span style=''>        </span><span style='background: #F0ADAD'>event.response.write("pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))</span><span style=''>
+</span>77 <span style=''>      case GET(Path("/healthcheck/lb")) =>
+</span>78 <span style=''>        (</span><span style='background: #F0ADAD'>healthActor ? HealthRequest(HealthResponseType.LB)).mapTo[String] onComplete {
+</span>79 <span style=''></span><span style='background: #F0ADAD'>          case Success(h) => event.response.write(h)
+</span>80 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => messageFailure(f, event)
+</span>81 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>82 <span style=''>      case GET(Path("/healthcheck/nagios")) =>
+</span>83 <span style=''>        (</span><span style='background: #F0ADAD'>healthActor ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String] onComplete {
+</span>84 <span style=''></span><span style='background: #F0ADAD'>          case Success(h) => event.response.write(h)
+</span>85 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => messageFailure(f, event)
+</span>86 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>87 <span style=''>      case _ =>
+</span>88 <span style=''>        val allHandlers = </span><span style='background: #AEF1AE'>SockoRouteManager.getHandlers(event.nettyHttpRequest.getMethod.toString.toUpperCase)</span><span style=''>
+</span>89 <span style=''>        val matchedHandler = allHandlers match {
+</span>90 <span style=''>          case Some(handlers) =>
+</span>91 <span style=''>            try {
+</span>92 <span style=''>              </span><span style='background: #AEF1AE'>handlers.find { handler =>
+</span>93 <span style=''></span><span style='background: #AEF1AE'>                handler._2.matchSockoRoute(event) match {
+</span>94 <span style=''></span><span style='background: #AEF1AE'>                  case Some(map) =>
+</span>95 <span style=''></span><span style='background: #AEF1AE'>                    Future {
+</span>96 <span style=''></span><span style='background: #AEF1AE'>                      handler._2.handleSockoRoute(event, map)
+</span>97 <span style=''></span><span style='background: #AEF1AE'>                    }
+</span>98 <span style=''></span><span style='background: #AEF1AE'>                    true
+</span>99 <span style=''></span><span style='background: #AEF1AE'>                  case None => false
+</span>100 <span style=''></span><span style='background: #AEF1AE'>                }
+</span>101 <span style=''></span><span style='background: #AEF1AE'>              }</span><span style=''>
+</span>102 <span style=''>            } catch {
+</span>103 <span style=''>              case ex: Exception =>
+</span>104 <span style=''>                </span><span style='background: #F0ADAD'>log.error(s"Error matching path ${event.endPoint.path}", ex)</span><span style=''>
+</span>105 <span style=''>                </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>106 <span style=''>            }
+</span>107 <span style=''>          case None => </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>108 <span style=''>        }
+</span>109 <span style=''>
+</span>110 <span style=''>        matchedHandler match {
+</span>111 <span style=''>          case Some(h) </span><span style='background: #AEF1AE'>=></span><span style=''> // Handler already called
+</span>112 <span style=''>          case None => // Fallback to static content if initialized
+</span>113 <span style=''>            if (</span><span style='background: #F0ADAD'>ConfigUtil.getDefaultValue(SockoManager.KeyRootPaths, context.system.settings.config.getString, "").nonEmpty</span><span style=''>) {
+</span>114 <span style=''>              </span><span style='background: #F0ADAD'>context.actorSelection(s"${HarnessConstants.ComponentFullName}/harness-socko").resolveOne() onComplete {
+</span>115 <span style=''></span><span style='background: #F0ADAD'>                case Success(s) => s ! SockoContentRequest(event)
+</span>116 <span style=''></span><span style='background: #F0ADAD'>                case Failure(f) => event.response.write(HttpResponseStatus.NOT_FOUND)
+</span>117 <span style=''></span><span style='background: #F0ADAD'>              }</span><span style=''>
+</span>118 <span style=''>            } else {
+</span>119 <span style=''>              </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NOT_FOUND)</span><span style=''>
+</span>120 <span style=''>            }
+</span>121 <span style=''>        }
+</span>122 <span style=''>    }
+</span>123 <span style=''>  }
+</span>124 <span style=''>
+</span>125 <span style=''>
+</span>126 <span style=''>  def messageFailure(f:Throwable, event:HttpRequestEvent) = {
+</span>127 <span style=''>    f match {
+</span>128 <span style=''>      case notFound:ComponentNotFoundException => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.NOT_FOUND, notFound.getMessage)</span><span style=''>
+</span>129 <span style=''>      case t => </span><span style='background: #F0ADAD'>event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, t.getMessage)</span><span style=''>
+</span>130 <span style=''>    }
+</span>131 <span style=''>  }
+</span>132 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -172,15 +168,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          45
+          44
         </td>
         <td>
           125
         </td>
         <td>
-          1827
+          1754
           -
-          1837
+          1764
         </td>
         <td>
           Select
@@ -193,15 +189,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          44
         </td>
         <td>
           124
         </td>
         <td>
-          1827
+          1754
           -
-          1829
+          1756
         </td>
         <td>
           Literal
@@ -214,15 +210,15 @@
         </td>
       </tr><tr>
         <td>
-          45
+          44
         </td>
         <td>
           126
         </td>
         <td>
-          1819
+          1746
           -
-          1838
+          1765
         </td>
         <td>
           Apply
@@ -235,15 +231,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          45
         </td>
         <td>
           128
         </td>
         <td>
-          1915
+          1842
           -
-          1955
+          1882
         </td>
         <td>
           Apply
@@ -256,15 +252,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          45
         </td>
         <td>
           127
         </td>
         <td>
-          1888
+          1815
           -
-          1913
+          1840
         </td>
         <td>
           Select
@@ -277,15 +273,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          45
         </td>
         <td>
           130
         </td>
         <td>
-          1861
+          1788
           -
-          1960
+          1887
         </td>
         <td>
           Apply
@@ -301,15 +297,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          45
         </td>
         <td>
           129
         </td>
         <td>
-          1957
+          1884
           -
-          1959
+          1886
         </td>
         <td>
           Literal
@@ -322,15 +318,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           131
         </td>
         <td>
-          2027
+          1954
           -
-          2041
+          1968
         </td>
         <td>
           Select
@@ -343,15 +339,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           134
         </td>
         <td>
-          2004
+          1931
           -
-          2042
+          1969
         </td>
         <td>
           ApplyToImplicitArgs
@@ -364,15 +360,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           133
         </td>
         <td>
-          2004
+          1931
           -
-          2004
+          1931
         </td>
         <td>
           Apply
@@ -385,15 +381,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           136
         </td>
         <td>
-          1987
+          1914
           -
-          2069
+          1996
         </td>
         <td>
           Apply
@@ -406,15 +402,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           132
         </td>
         <td>
-          2004
+          1931
           -
-          2004
+          1931
         </td>
         <td>
           Select
@@ -427,15 +423,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
           135
         </td>
         <td>
-          2046
+          1973
           -
-          2069
+          1996
         </td>
         <td>
           Select
@@ -448,15 +444,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          49
         </td>
         <td>
           137
         </td>
         <td>
-          2114
+          2041
           -
-          2145
+          2072
         </td>
         <td>
           Select
@@ -469,15 +465,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          49
         </td>
         <td>
           138
         </td>
         <td>
-          2091
+          2018
           -
-          2146
+          2073
         </td>
         <td>
           Apply
@@ -490,15 +486,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          50
         </td>
         <td>
           140
         </td>
         <td>
-          2168
+          2095
           -
-          2225
+          2152
         </td>
         <td>
           Apply
@@ -511,15 +507,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          50
         </td>
         <td>
           139
         </td>
         <td>
-          2191
+          2118
           -
-          2224
+          2151
         </td>
         <td>
           Select
@@ -532,15 +528,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          53
         </td>
         <td>
           141
         </td>
         <td>
-          2287
+          2214
           -
-          2312
+          2239
         </td>
         <td>
           Apply
@@ -553,15 +549,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          54
         </td>
         <td>
           142
         </td>
         <td>
-          2317
+          2244
           -
-          2321
+          2248
         </td>
         <td>
           Select
@@ -574,15 +570,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          54
         </td>
         <td>
           144
         </td>
         <td>
-          2317
+          2244
           -
-          2343
+          2270
         </td>
         <td>
           ApplyToImplicitArgs
@@ -595,15 +591,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          54
         </td>
         <td>
           143
         </td>
         <td>
-          2322
+          2249
           -
-          2322
+          2249
         </td>
         <td>
           Select
@@ -616,15 +612,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          57
         </td>
         <td>
           148
         </td>
         <td>
-          2383
+          2310
           -
-          2383
+          2310
         </td>
         <td>
           Apply
@@ -637,15 +633,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          59
         </td>
         <td>
           145
         </td>
         <td>
-          2423
+          2350
           -
-          2463
+          2390
         </td>
         <td>
           Apply
@@ -658,15 +654,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          60
         </td>
         <td>
           146
         </td>
         <td>
-          2485
+          2412
           -
-          2492
+          2419
         </td>
         <td>
           Select
@@ -679,15 +675,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          60
         </td>
         <td>
           147
         </td>
         <td>
-          2470
+          2397
           -
-          2493
+          2420
         </td>
         <td>
           Apply
@@ -700,15 +696,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          63
         </td>
         <td>
           151
         </td>
         <td>
-          2523
+          2450
           -
-          2611
+          2538
         </td>
         <td>
           Apply
@@ -737,15 +733,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          63
         </td>
         <td>
           150
         </td>
         <td>
-          2544
+          2471
           -
-          2544
+          2471
         </td>
         <td>
           Apply
@@ -758,15 +754,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          64
         </td>
         <td>
           149
         </td>
         <td>
-          2584
+          2511
           -
-          2607
+          2534
         </td>
         <td>
           Apply
@@ -779,36 +775,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          74
         </td>
         <td>
-          152
+          153
         </td>
         <td>
-          2780
+          2755
           -
-          2784
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          true
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          154
-        </td>
-        <td>
-          2851
-          -
-          2902
+          2806
         </td>
         <td>
           Apply
@@ -821,15 +796,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          74
         </td>
         <td>
-          153
+          152
         </td>
         <td>
-          2872
+          2776
           -
-          2901
+          2805
         </td>
         <td>
           Select
@@ -842,15 +817,36 @@
         </td>
       </tr><tr>
         <td>
-          78
+          76
         </td>
         <td>
           155
         </td>
         <td>
-          2965
+          2885
           -
-          2973
+          2952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.joda.time.base.AbstractDateTime.toString
+        </td>
+        <td style="background: #F0ADAD">
+          new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          2869
+          -
+          2877
         </td>
         <td>
           Literal
@@ -863,15 +859,15 @@
         </td>
       </tr><tr>
         <td>
-          78
+          76
         </td>
         <td>
-          158
+          157
         </td>
         <td>
-          2944
+          2848
           -
-          3050
+          2954
         </td>
         <td>
           Apply
@@ -884,15 +880,15 @@
         </td>
       </tr><tr>
         <td>
-          78
+          76
         </td>
         <td>
-          157
+          156
         </td>
         <td>
-          2965
+          2869
           -
-          3049
+          2953
         </td>
         <td>
           Apply
@@ -908,33 +904,75 @@
           78
         </td>
         <td>
-          156
+          164
         </td>
         <td>
-          2981
+          3073
           -
-          3048
+          3073
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          3007
+          -
+          3018
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpWorker.healthActor
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.healthActor
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          3021
+          -
+          3057
         </td>
         <td>
           Apply
         </td>
         <td>
-          org.joda.time.base.AbstractDateTime.toString
+          com.webtrends.harness.health.HealthRequest.apply
         </td>
         <td style="background: #F0ADAD">
-          new org.joda.time.DateTime(java.this.lang.System.currentTimeMillis(), org.joda.time.DateTimeZone.UTC).toString()
+          com.webtrends.harness.health.HealthRequest.apply(com.webtrends.harness.health.HealthResponseType.LB)
         </td>
       </tr><tr>
         <td>
-          82
+          78
         </td>
         <td>
-          166
+          165
         </td>
         <td>
-          3149
+          3007
           -
-          3356
+          3202
         </td>
         <td>
           ApplyToImplicitArgs
@@ -950,78 +988,36 @@
         </td>
       </tr><tr>
         <td>
-          82
-        </td>
-        <td>
-          160
-        </td>
-        <td>
-          3177
-          -
-          3198
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthResponseType.LB
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthResponseType.LB
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          165
-        </td>
-        <td>
-          3215
-          -
-          3215
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          SockoHttpWorker.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          82
+          78
         </td>
         <td>
           159
         </td>
         <td>
-          3149
+          3035
           -
-          3160
+          3056
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.socko.SockoHttpWorker.healthActor
+          com.webtrends.harness.health.HealthResponseType.LB
         </td>
         <td style="background: #F0ADAD">
-          SockoHttpWorker.this.healthActor
+          com.webtrends.harness.health.HealthResponseType.LB
         </td>
       </tr><tr>
         <td>
-          82
+          78
         </td>
         <td>
-          162
+          161
         </td>
         <td>
-          3161
+          3019
           -
-          3161
+          3019
         </td>
         <td>
           Select
@@ -1034,36 +1030,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          79
         </td>
         <td>
-          161
+          162
         </td>
         <td>
-          3163
+          3115
           -
-          3199
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthRequest.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthRequest.apply(com.webtrends.harness.health.HealthResponseType.LB)
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          163
-        </td>
-        <td>
-          3261
-          -
-          3284
+          3138
         </td>
         <td>
           Apply
@@ -1076,15 +1051,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          80
         </td>
         <td>
-          164
+          163
         </td>
         <td>
-          3318
+          3168
           -
-          3342
+          3192
         </td>
         <td>
           Apply
@@ -1097,78 +1072,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          83
         </td>
         <td>
           173
         </td>
         <td>
-          3491
+          3259
           -
-          3491
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.dispatcher
-        </td>
-        <td style="background: #F0ADAD">
-          SockoHttpWorker.this.context.dispatcher
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          167
-        </td>
-        <td>
-          3421
-          -
-          3432
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.SockoHttpWorker.healthActor
-        </td>
-        <td style="background: #F0ADAD">
-          SockoHttpWorker.this.healthActor
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          169
-        </td>
-        <td>
-          3435
-          -
-          3475
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthRequest.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthRequest.apply(com.webtrends.harness.health.HealthResponseType.NAGIOS)
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          174
-        </td>
-        <td>
-          3421
-          -
-          3632
+          3458
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1184,15 +1096,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          83
         </td>
         <td>
-          168
+          167
         </td>
         <td>
-          3449
+          3287
           -
-          3474
+          3312
         </td>
         <td>
           Select
@@ -1205,15 +1117,36 @@
         </td>
       </tr><tr>
         <td>
-          87
+          83
         </td>
         <td>
-          170
+          166
         </td>
         <td>
-          3433
+          3259
           -
-          3433
+          3270
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.socko.SockoHttpWorker.healthActor
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.healthActor
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          3271
+          -
+          3271
         </td>
         <td>
           Select
@@ -1226,15 +1159,57 @@
         </td>
       </tr><tr>
         <td>
-          88
+          83
         </td>
         <td>
-          171
+          172
         </td>
         <td>
-          3537
+          3329
           -
-          3560
+          3329
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          3273
+          -
+          3313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthRequest.apply(com.webtrends.harness.health.HealthResponseType.NAGIOS)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          3371
+          -
+          3394
         </td>
         <td>
           Apply
@@ -1247,15 +1222,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          85
         </td>
         <td>
-          172
+          171
         </td>
         <td>
-          3594
+          3424
           -
-          3618
+          3448
         </td>
         <td>
           Apply
@@ -1268,57 +1243,15 @@
         </td>
       </tr><tr>
         <td>
-          92
+          88
         </td>
         <td>
           175
         </td>
         <td>
-          3677
+          3501
           -
-          3682
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          false
-        </td>
-      </tr><tr>
-        <td>
-          93
-        </td>
-        <td>
-          176
-        </td>
-        <td>
-          3725
-          -
-          3778
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.toUpperCase
-        </td>
-        <td style="background: #AEF1AE">
-          event.nettyHttpRequest.getMethod().toString().toUpperCase()
-        </td>
-      </tr><tr>
-        <td>
-          93
-        </td>
-        <td>
-          177
-        </td>
-        <td>
-          3695
-          -
-          3779
+          3585
         </td>
         <td>
           Apply
@@ -1331,75 +1264,90 @@
         </td>
       </tr><tr>
         <td>
-          96
+          88
         </td>
         <td>
-          185
+          174
         </td>
         <td>
-          3865
+          3531
           -
-          4264
+          3584
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.immutable.List.takeWhile
+          java.lang.String.toUpperCase
         </td>
         <td style="background: #AEF1AE">
-          handlers.takeWhile(((handler: (String, com.webtrends.harness.component.socko.route.SockoRouteHandler)) =&gt; {
-  handler._2.matchSockoRoute(event) match {
-    case (x: scala.collection.mutable.HashMap[String,AnyRef])Some[scala.collection.mutable.HashMap[String,AnyRef]]((map @ _)) =&gt; {
-      scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher);
-      found = true
-    }
-    case scala.None =&gt; ()
-  };
-  found.unary_!
+          event.nettyHttpRequest.getMethod().toString().toUpperCase()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          3700
+          -
+          4029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.LinearSeqOptimized.find
+        </td>
+        <td style="background: #AEF1AE">
+          handlers.find(((handler: (String, com.webtrends.harness.component.socko.route.SockoRouteHandler)) =&gt; handler._2.matchSockoRoute(event) match {
+  case (x: scala.collection.mutable.HashMap[String,AnyRef])Some[scala.collection.mutable.HashMap[String,AnyRef]]((map @ _)) =&gt; {
+    scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher);
+    true
+  }
+  case scala.None =&gt; false
 }))
         </td>
       </tr><tr>
         <td>
-          96
+          92
         </td>
         <td>
-          186
+          183
         </td>
         <td>
-          3865
+          3700
           -
-          4264
+          4029
         </td>
         <td>
           Block
         </td>
         <td>
-          scala.collection.immutable.List.takeWhile
+          scala.collection.LinearSeqOptimized.find
         </td>
         <td style="background: #AEF1AE">
-          handlers.takeWhile(((handler: (String, com.webtrends.harness.component.socko.route.SockoRouteHandler)) =&gt; {
-  handler._2.matchSockoRoute(event) match {
-    case (x: scala.collection.mutable.HashMap[String,AnyRef])Some[scala.collection.mutable.HashMap[String,AnyRef]]((map @ _)) =&gt; {
-      scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher);
-      found = true
-    }
-    case scala.None =&gt; ()
-  };
-  found.unary_!
+          handlers.find(((handler: (String, com.webtrends.harness.component.socko.route.SockoRouteHandler)) =&gt; handler._2.matchSockoRoute(event) match {
+  case (x: scala.collection.mutable.HashMap[String,AnyRef])Some[scala.collection.mutable.HashMap[String,AnyRef]]((map @ _)) =&gt; {
+    scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher);
+    true
+  }
+  case scala.None =&gt; false
 }))
         </td>
       </tr><tr>
         <td>
-          97
+          93
         </td>
         <td>
-          178
+          176
         </td>
         <td>
-          3917
+          3743
           -
-          3950
+          3776
         </td>
         <td>
           Apply
@@ -1412,36 +1360,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          95
         </td>
         <td>
-          181
+          178
         </td>
         <td>
-          4023
+          3848
           -
-          4123
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.concurrent.Future.apply
-        </td>
-        <td style="background: #AEF1AE">
-          scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher)
-        </td>
-      </tr><tr>
-        <td>
-          99
-        </td>
-        <td>
-          180
-        </td>
-        <td>
-          4030
-          -
-          4030
+          3848
         </td>
         <td>
           Select
@@ -1454,15 +1381,36 @@
         </td>
       </tr><tr>
         <td>
-          100
+          95
         </td>
         <td>
           179
         </td>
         <td>
-          4058
+          3841
           -
-          4097
+          3933
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Future.apply[Unit](handler._2.handleSockoRoute(event, map))(SockoHttpWorker.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          3872
+          -
+          3911
         </td>
         <td>
           Apply
@@ -1475,15 +1423,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          98
         </td>
         <td>
-          182
+          180
         </td>
         <td>
-          4156
+          3954
           -
-          4160
+          3958
         </td>
         <td>
           Literal
@@ -1496,15 +1444,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          99
         </td>
         <td>
-          183
+          181
         </td>
         <td>
-          4193
+          3990
           -
-          4195
+          3995
         </td>
         <td>
           Literal
@@ -1513,292 +1461,187 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          ()
+          false
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          4158
+          -
+          4159
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          4116
+          -
+          4137
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Error matching path &quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          4114
+          -
+          4159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Error matching path &quot;, &quot;&quot;).s(event.endPoint.path)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          4138
+          -
+          4157
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.mashupbots.socko.events.EndPoint.path
+        </td>
+        <td style="background: #F0ADAD">
+          event.endPoint.path
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          4104
+          -
+          4164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.log.error(scala.StringContext.apply(&quot;Error matching path &quot;, &quot;&quot;).s(event.endPoint.path), ex)
         </td>
       </tr><tr>
         <td>
           105
         </td>
         <td>
-          184
+          189
         </td>
         <td>
-          4238
+          4181
           -
-          4244
+          4185
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.Boolean.unary_!
-        </td>
-        <td style="background: #AEF1AE">
-          found.unary_!
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          191
-        </td>
-        <td>
-          4373
-          -
-          4400
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
+          scala.None
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Cause - &quot;, &quot;&quot;).s(ce.getMessage())
+          scala.None
         </td>
       </tr><tr>
         <td>
-          108
-        </td>
-        <td>
-          187
-        </td>
-        <td>
-          4364
-          -
-          4371
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.socko.utils.SockoCommandException.code
-        </td>
-        <td style="background: #F0ADAD">
-          ce.code
-        </td>
-      </tr><tr>
-        <td>
-          108
+          107
         </td>
         <td>
           190
         </td>
         <td>
-          4385
+          4223
           -
-          4398
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          ce.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          189
-        </td>
-        <td>
-          4399
-          -
-          4400
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          192
-        </td>
-        <td>
-          4343
-          -
-          4401
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseMessage.write
-        </td>
-        <td style="background: #F0ADAD">
-          event.response.write(ce.code, scala.StringContext.apply(&quot;Cause - &quot;, &quot;&quot;).s(ce.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          188
-        </td>
-        <td>
-          4375
-          -
-          4384
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Cause - &quot;
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          194
-        </td>
-        <td>
-          4507
-          -
-          4516
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Cause - &quot;
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          193
-        </td>
-        <td>
-          4463
-          -
-          4503
+          4227
         </td>
         <td>
           Select
         </td>
         <td>
-          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
+          scala.None
         </td>
         <td style="background: #F0ADAD">
-          org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          196
-        </td>
-        <td>
-          4517
-          -
-          4530
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.Throwable.getMessage
-        </td>
-        <td style="background: #F0ADAD">
-          ex.getMessage()
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          198
-        </td>
-        <td>
-          4442
-          -
-          4533
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseMessage.write
-        </td>
-        <td style="background: #F0ADAD">
-          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, scala.StringContext.apply(&quot;Cause - &quot;, &quot;&quot;).s(ex.getMessage()))
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          195
-        </td>
-        <td>
-          4531
-          -
-          4532
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          197
-        </td>
-        <td>
-          4505
-          -
-          4532
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Cause - &quot;, &quot;&quot;).s(ex.getMessage())
+          scala.None
         </td>
       </tr><tr>
         <td>
           111
         </td>
         <td>
-          199
+          191
         </td>
         <td>
-          4576
+          4293
           -
-          4578
+          4295
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          4502
+          -
+          4504
         </td>
         <td>
           Literal
@@ -1807,82 +1650,19 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          ()
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          117
+          113
         </td>
         <td>
-          200
+          193
         </td>
         <td>
-          4646
+          4460
           -
-          4654
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Boolean.unary_!
-        </td>
-        <td style="background: #AEF1AE">
-          handled.unary_!
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          223
-        </td>
-        <td>
-          4642
-          -
-          4642
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          117
-        </td>
-        <td>
-          224
-        </td>
-        <td>
-          4642
-          -
-          4642
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          119
-        </td>
-        <td>
-          202
-        </td>
-        <td>
-          4830
-          -
-          4870
+          4500
         </td>
         <td>
           Apply
@@ -1895,15 +1675,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          113
         </td>
         <td>
-          205
+          196
         </td>
         <td>
-          4776
+          4406
           -
-          4884
+          4514
         </td>
         <td>
           Select
@@ -1919,15 +1699,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          113
         </td>
         <td>
-          201
+          192
         </td>
         <td>
-          4803
+          4433
           -
-          4828
+          4458
         </td>
         <td>
           Select
@@ -1940,45 +1720,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          113
         </td>
         <td>
-          222
+          195
         </td>
         <td>
-          4772
+          4406
           -
-          5232
-        </td>
-        <td>
-          If
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          if (scala.this.Predef.augmentString(com.webtrends.harness.utils.ConfigUtil.getDefaultValue[String](SockoManager.KeyRootPaths, {
-  &lt;synthetic&gt; val eta$0$2: com.typesafe.config.Config = SockoHttpWorker.this.context.system.settings.config;
-  ((x$1: String) =&gt; eta$0$2.getString(x$1))
-}, &quot;&quot;)).nonEmpty)
-  SockoHttpWorker.this.context.actorSelection(scala.StringContext.apply(&quot;&quot;, &quot;/wookiee-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)).resolveOne()(SockoHttpWorker.this.timeout).onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
-    case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(s).!(SockoContentRequest.apply(event))(SockoHttpWorker.this.self)
-    case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
-  }))(SockoHttpWorker.this.context.dispatcher)
-else
-  event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
-        </td>
-      </tr><tr>
-        <td>
-          119
-        </td>
-        <td>
-          204
-        </td>
-        <td>
-          4776
-          -
-          4875
+          4505
         </td>
         <td>
           Apply
@@ -1994,60 +1744,15 @@ else
         </td>
       </tr><tr>
         <td>
-          119
+          114
         </td>
         <td>
-          203
+          200
         </td>
         <td>
-          4872
+          4555
           -
-          4874
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          120
-        </td>
-        <td>
-          218
-        </td>
-        <td>
-          4896
-          -
-          5150
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.concurrent.Future.onComplete
-        </td>
-        <td style="background: #F0ADAD">
-          SockoHttpWorker.this.context.actorSelection(scala.StringContext.apply(&quot;&quot;, &quot;/wookiee-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)).resolveOne()(SockoHttpWorker.this.timeout).onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
-  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(s).!(SockoContentRequest.apply(event))(SockoHttpWorker.this.self)
-  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
-}))(SockoHttpWorker.this.context.dispatcher)
-        </td>
-      </tr><tr>
-        <td>
-          120
-        </td>
-        <td>
-          209
-        </td>
-        <td>
-          4919
-          -
-          4973
+          4609
         </td>
         <td>
           Apply
@@ -2056,19 +1761,43 @@ else
           scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;&quot;, &quot;/wookiee-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)
+          scala.StringContext.apply(&quot;&quot;, &quot;/harness-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)
         </td>
       </tr><tr>
         <td>
-          120
+          114
         </td>
         <td>
-          208
+          209
         </td>
         <td>
-          4923
+          4532
           -
-          4957
+          4804
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          SockoHttpWorker.this.context.actorSelection(scala.StringContext.apply(&quot;&quot;, &quot;/harness-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)).resolveOne()(SockoHttpWorker.this.timeout).onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(s).!(SockoContentRequest.apply(event))(SockoHttpWorker.this.self)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
+}))(SockoHttpWorker.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          4559
+          -
+          4593
         </td>
         <td>
           Select
@@ -2081,15 +1810,15 @@ else
         </td>
       </tr><tr>
         <td>
-          120
+          114
         </td>
         <td>
-          217
+          208
         </td>
         <td>
-          4896
+          4532
           -
-          5150
+          4804
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2098,43 +1827,22 @@ else
           scala.concurrent.Future.onComplete
         </td>
         <td style="background: #F0ADAD">
-          SockoHttpWorker.this.context.actorSelection(scala.StringContext.apply(&quot;&quot;, &quot;/wookiee-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)).resolveOne()(SockoHttpWorker.this.timeout).onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
+          SockoHttpWorker.this.context.actorSelection(scala.StringContext.apply(&quot;&quot;, &quot;/harness-socko&quot;).s(com.webtrends.harness.HarnessConstants.ComponentFullName)).resolveOne()(SockoHttpWorker.this.timeout).onComplete[Unit](((x0$3: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$3 match {
   case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((s @ _)) =&gt; akka.this.actor.`package`.actorRef2Scala(s).!(SockoContentRequest.apply(event))(SockoHttpWorker.this.self)
   case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND)
 }))(SockoHttpWorker.this.context.dispatcher)
         </td>
       </tr><tr>
         <td>
-          120
+          114
         </td>
         <td>
           207
         </td>
         <td>
-          4958
+          4624
           -
-          4973
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;/wookiee-socko&quot;
-        </td>
-      </tr><tr>
-        <td>
-          120
-        </td>
-        <td>
-          216
-        </td>
-        <td>
-          4988
-          -
-          4988
+          4624
         </td>
         <td>
           Select
@@ -2147,15 +1855,36 @@ else
         </td>
       </tr><tr>
         <td>
-          120
+          114
         </td>
         <td>
-          210
+          198
         </td>
         <td>
-          4985
+          4594
           -
-          4985
+          4609
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/harness-socko&quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          4621
+          -
+          4621
         </td>
         <td>
           Select
@@ -2168,15 +1897,15 @@ else
         </td>
       </tr><tr>
         <td>
-          120
+          114
         </td>
         <td>
-          206
+          197
         </td>
         <td>
-          4921
+          4557
           -
-          4922
+          4558
         </td>
         <td>
           Literal
@@ -2189,15 +1918,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          115
         </td>
         <td>
-          211
+          202
         </td>
         <td>
-          5034
+          4676
           -
-          5060
+          4702
         </td>
         <td>
           Apply
@@ -2210,15 +1939,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          115
         </td>
         <td>
-          213
+          204
         </td>
         <td>
-          5030
+          4672
           -
-          5060
+          4702
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2231,15 +1960,15 @@ else
         </td>
       </tr><tr>
         <td>
-          121
+          115
         </td>
         <td>
-          212
+          203
         </td>
         <td>
-          5032
+          4674
           -
-          5032
+          4674
         </td>
         <td>
           Select
@@ -2252,15 +1981,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          116
         </td>
         <td>
-          214
+          205
         </td>
         <td>
-          5111
+          4759
           -
-          5139
+          4787
         </td>
         <td>
           Select
@@ -2273,15 +2002,15 @@ else
         </td>
       </tr><tr>
         <td>
-          122
+          116
         </td>
         <td>
-          215
+          206
         </td>
         <td>
-          5090
+          4738
           -
-          5140
+          4788
         </td>
         <td>
           Apply
@@ -2294,15 +2023,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          119
         </td>
         <td>
-          220
+          211
         </td>
         <td>
-          5174
+          4840
           -
-          5224
+          4890
         </td>
         <td>
           Apply
@@ -2315,15 +2044,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          119
         </td>
         <td>
-          219
+          210
         </td>
         <td>
-          5195
+          4861
           -
-          5223
+          4889
         </td>
         <td>
           Select
@@ -2336,15 +2065,15 @@ else
         </td>
       </tr><tr>
         <td>
-          125
+          119
         </td>
         <td>
-          221
+          212
         </td>
         <td>
-          5174
+          4840
           -
-          5224
+          4890
         </td>
         <td>
           Block
@@ -2357,36 +2086,15 @@ else
         </td>
       </tr><tr>
         <td>
-          132
+          128
         </td>
         <td>
-          227
+          214
         </td>
         <td>
-          5370
+          5104
           -
-          5441
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseMessage.write
-        </td>
-        <td style="background: #F0ADAD">
-          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND, notFound.getMessage())
-        </td>
-      </tr><tr>
-        <td>
-          132
-        </td>
-        <td>
-          226
-        </td>
-        <td>
-          5421
-          -
-          5440
+          5123
         </td>
         <td>
           Apply
@@ -2399,15 +2107,15 @@ else
         </td>
       </tr><tr>
         <td>
-          132
+          128
         </td>
         <td>
-          225
+          213
         </td>
         <td>
-          5391
+          5074
           -
-          5419
+          5102
         </td>
         <td>
           Select
@@ -2420,15 +2128,57 @@ else
         </td>
       </tr><tr>
         <td>
-          133
+          128
         </td>
         <td>
-          229
+          215
         </td>
         <td>
-          5521
+          5053
           -
-          5533
+          5124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.NOT_FOUND, notFound.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          5141
+          -
+          5217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.mashupbots.socko.events.HttpResponseMessage.write
+        </td>
+        <td style="background: #F0ADAD">
+          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, t.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          5204
+          -
+          5216
         </td>
         <td>
           Apply
@@ -2441,15 +2191,15 @@ else
         </td>
       </tr><tr>
         <td>
-          133
+          129
         </td>
         <td>
-          228
+          216
         </td>
         <td>
-          5479
+          5162
           -
-          5519
+          5202
         </td>
         <td>
           Select
@@ -2459,27 +2209,6 @@ else
         </td>
         <td style="background: #F0ADAD">
           org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR
-        </td>
-      </tr><tr>
-        <td>
-          133
-        </td>
-        <td>
-          230
-        </td>
-        <td>
-          5458
-          -
-          5534
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.mashupbots.socko.events.HttpResponseMessage.write
-        </td>
-        <td style="background: #F0ADAD">
-          event.response.write(org.mashupbots.socko.events.HttpResponseStatus.INTERNAL_SERVER_ERROR, t.getMessage())
         </td>
       </tr>
     </table>
