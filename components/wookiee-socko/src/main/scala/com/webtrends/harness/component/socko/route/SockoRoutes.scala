@@ -22,7 +22,6 @@ package com.webtrends.harness.component.socko.route
 import java.io._
 import java.nio.charset.Charset
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
-
 import com.webtrends.harness.command.{Command, CommandBean, CommandException, CommandResponse}
 import com.webtrends.harness.component.socko.AddSockoHandler
 import com.webtrends.harness.component.socko.utils.{SockoCommandBean, SockoCommandException, SockoUtils}
@@ -35,7 +34,6 @@ import net.liftweb.json._
 import net.liftweb.json.ext.JodaTimeSerializers
 import org.mashupbots.socko.events.{HttpRequestEvent, HttpResponseStatus, ImmutableHttpHeaders}
 import org.mashupbots.socko.infrastructure.CharsetUtil
-
 import scala.collection.JavaConversions._
 import scala.collection.mutable
 import scala.io.Source
@@ -138,23 +136,32 @@ private[route] trait SockoRoutes extends ComponentHelper {
   }
 
   protected def getRejectionHandler(event:HttpRequestEvent, e:Throwable) = {
+
+    def writeErrorResponse(status: HttpResponseStatus, body: String = ""): Unit = {
+      event.response.write(status,
+        body.getBytes("utf-8"),
+        "text/plain; charset=UTF-8",
+        SockoUtils.toSockoHeaderFormat(event.nettyHttpRequest.getMethod.name(), getResponseHeaders(event.request.headers))
+      )
+    }
+
     log.debug(e.getMessage, e)
     e match {
       case ce: ParseException =>
-        event.response.write(HttpResponseStatus.BAD_REQUEST, s"Invalid JSON - ${ce.getMessage}")
+        writeErrorResponse(HttpResponseStatus.BAD_REQUEST, s"Invalid JSON - ${ce.getMessage}")
       case ce: SockoCommandException =>
         ce.msg == null || ce.msg == "" match {
-          case true => event.response.write(ce.code)
-          case false => event.response.write(ce.code, ce.msg)
+          case true => writeErrorResponse(ce.code)
+          case false => writeErrorResponse(ce.code, ce.msg)
         }
       case ce:CommandException =>
-        event.response.write(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")
+        writeErrorResponse(HttpResponseStatus.BAD_REQUEST, s"Command Exception - ${ce.getMessage}\n\t${ce.toString}")
       case arg:IllegalArgumentException =>
-        event.response.write(HttpResponseStatus.BAD_REQUEST, s"Illegal Arguments - ${arg.getMessage}\n\t${arg.toString}")
+        writeErrorResponse(HttpResponseStatus.BAD_REQUEST, s"Illegal Arguments - ${arg.getMessage}\n\t${arg.toString}")
       case me:MappingException =>
-        event.response.write(HttpResponseStatus.BAD_REQUEST, s"Mapping Exception - ${me.getMessage}\n\t${me.toString}")
+        writeErrorResponse(HttpResponseStatus.BAD_REQUEST, s"Mapping Exception - ${me.getMessage}\n\t${me.toString}")
       case ex:Exception =>
-        event.response.write(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Server Error - ${ex.getMessage}\n\t${ex.toString}")
+        writeErrorResponse(HttpResponseStatus.INTERNAL_SERVER_ERROR, s"Server Error - ${ex.getMessage}\n\t${ex.toString}")
     }
   }
 
