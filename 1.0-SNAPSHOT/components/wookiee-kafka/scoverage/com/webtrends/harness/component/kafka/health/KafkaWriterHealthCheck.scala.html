@@ -1,0 +1,1773 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/health/KafkaWriterHealthCheck.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.component.kafka.health
+</span>21 <span style=''>
+</span>22 <span style=''>import java.util.concurrent.TimeUnit
+</span>23 <span style=''>
+</span>24 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaWriter
+</span>25 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaWriter.EventToWrite
+</span>26 <span style=''>import com.webtrends.harness.health.ComponentState.ComponentState
+</span>27 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>28 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>29 <span style=''>import org.apache.kafka.clients.producer.RecordMetadata
+</span>30 <span style=''>import scala.concurrent.{blocking, Future}
+</span>31 <span style=''>import scala.concurrent.duration._
+</span>32 <span style=''>import scala.util.Try
+</span>33 <span style=''>
+</span>34 <span style=''>case object KafkaHealthRequest
+</span>35 <span style=''>
+</span>36 <span style=''>trait KafkaWriterHealthCheck { this: KafkaWriter =>
+</span>37 <span style=''>
+</span>38 <span style=''>  val healthName = </span><span style='background: #F0ADAD'>"Kafka Writer"</span><span style=''>
+</span>39 <span style=''>
+</span>40 <span style=''>  var currentHealth: Option[HealthComponent] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>41 <span style=''>
+</span>42 <span style=''>  var inProcessSend: Option[java.util.concurrent.Future[RecordMetadata]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  // Amount of time we allow an async produce to run for before we consider it unhealthy
+</span>45 <span style=''>  lazy val maxSendTimeMillis = </span><span style='background: #F0ADAD'>Try {
+</span>46 <span style=''></span><span style='background: #F0ADAD'>    kafkaConfig.getConfig("producer").getInt("linger.ms") + 2000
+</span>47 <span style=''></span><span style='background: #F0ADAD'>  }.getOrElse(5000)</span><span style=''>
+</span>48 <span style=''>
+</span>49 <span style=''>  // Schedule a regular send to detect changes even if no data is flowing through
+</span>50 <span style=''>  val healthMessage = </span><span style='background: #F0ADAD'>EventToWrite("producer_health", "Healthy".getBytes("utf-8"))</span><span style=''>
+</span>51 <span style=''>  val scheduledHealthProduce = </span><span style='background: #F0ADAD'>context.system.scheduler.schedule(0 seconds, 5 seconds, self, healthMessage)(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
+</span>52 <span style=''>
+</span>53 <span style=''>  def healthReceive: Receive = {
+</span>54 <span style=''>    case hc: HealthComponent =>
+</span>55 <span style=''>      </span><span style='background: #F0ADAD'>currentHealth = Some(hc)</span><span style=''>
+</span>56 <span style=''>
+</span>57 <span style=''>    case CheckHealth =>
+</span>58 <span style=''>      </span><span style='background: #F0ADAD'>sender ! currentHealth.getOrElse(HealthComponent(healthName, ComponentState.NORMAL, "No data has been written yet"))</span><span style=''>
+</span>59 <span style=''>  }
+</span>60 <span style=''>
+</span>61 <span style=''>  def setHealth(componentState: ComponentState, details: String) {
+</span>62 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = Some(HealthComponent("Kafka Writer", componentState, details))</span><span style=''>
+</span>63 <span style=''>  }
+</span>64 <span style=''>
+</span>65 <span style=''>  def stopHealthCheck: Unit = {
+</span>66 <span style=''>    </span><span style='background: #F0ADAD'>scheduledHealthProduce.cancel()</span><span style=''>
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = None</span><span style=''>
+</span>68 <span style=''>  }
+</span>69 <span style=''>
+</span>70 <span style=''>  // The Kafka API makes it difficult to identify the target kafka server being down. A provided callback will not
+</span>71 <span style=''>  // be called and calling get on the returned java Future will block indefinitely.
+</span>72 <span style=''>  //
+</span>73 <span style=''>  // Addressing this by wrapping the returned java Future and into a scala Future and blocking with defined timeout.
+</span>74 <span style=''>  // If it completes successfully, and we don't have a normal health, set it to NORMAL
+</span>75 <span style=''>  // If it throws an exception or times out, set our health to CRITICAL
+</span>76 <span style=''>  //
+</span>77 <span style=''>  // To limit performance impact, we are only monitoring a single send at at ime
+</span>78 <span style=''>  def monitorSendHealth(sendFuture: java.util.concurrent.Future[RecordMetadata]) {
+</span>79 <span style=''>    </span><span style='background: #F0ADAD'>inProcessSend</span><span style=''> match {
+</span>80 <span style=''>      case Some(f) </span><span style='background: #F0ADAD'>=></span><span style=''> // Don't do anything, already monitoring a send
+</span>81 <span style=''>      case None =>
+</span>82 <span style=''>        </span><span style='background: #F0ADAD'>inProcessSend = Some(sendFuture)</span><span style=''>
+</span>83 <span style=''>        </span><span style='background: #F0ADAD'>Future {
+</span>84 <span style=''></span><span style='background: #F0ADAD'>          blocking {
+</span>85 <span style=''></span><span style='background: #F0ADAD'>            try {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>              sendFuture.get(maxSendTimeMillis, TimeUnit.MILLISECONDS)
+</span>87 <span style=''></span><span style='background: #F0ADAD'>              if (currentHealth.isEmpty || currentHealth.get.state != ComponentState.NORMAL) {
+</span>88 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.NORMAL, "Write successful")
+</span>89 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>90 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>91 <span style=''></span><span style='background: #F0ADAD'>            catch {
+</span>92 <span style=''></span><span style='background: #F0ADAD'>              case ex: Exception =>
+</span>93 <span style=''></span><span style='background: #F0ADAD'>                log.error("Unable to produce data. Marking producer as unhealthy", ex)
+</span>94 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.CRITICAL, ex.getMessage)
+</span>95 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>96 <span style=''></span><span style='background: #F0ADAD'>            inProcessSend = None // Note that this may be executed in a different thread than the current message being processed
+</span>97 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        }(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
+</span>99 <span style=''>    }
+</span>100 <span style=''>  }
+</span>101 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1659
+        </td>
+        <td>
+          1426
+          -
+          1440
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Kafka Writer&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1660
+        </td>
+        <td>
+          1489
+          -
+          1493
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1661
+        </td>
+        <td>
+          1570
+          -
+          1574
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1662
+        </td>
+        <td>
+          1696
+          -
+          1786
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Int](KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;linger.ms&quot;).+(2000)).getOrElse[Int](5000)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1665
+        </td>
+        <td>
+          1892
+          -
+          1952
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventToWrite.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventToWrite.apply(&quot;producer_health&quot;, &quot;Healthy&quot;.getBytes(&quot;utf-8&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1664
+        </td>
+        <td>
+          1924
+          -
+          1951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.getBytes
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Healthy&quot;.getBytes(&quot;utf-8&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1663
+        </td>
+        <td>
+          1905
+          -
+          1922
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;producer_health&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1674
+        </td>
+        <td>
+          1984
+          -
+          2112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.schedule(x$1, x$2, x$3, x$4)(x$5, x$6)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1668
+        </td>
+        <td>
+          2018
+          -
+          2027
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(0).seconds
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1671
+        </td>
+        <td>
+          2040
+          -
+          2044
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1670
+        </td>
+        <td>
+          2029
+          -
+          2038
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1673
+        </td>
+        <td>
+          2017
+          -
+          2017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule$default$6
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.schedule$default$6(x$1, x$2, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1667
+        </td>
+        <td>
+          2018
+          -
+          2019
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1666
+        </td>
+        <td>
+          1984
+          -
+          2008
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.scheduler
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.context.system.scheduler
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1669
+        </td>
+        <td>
+          2029
+          -
+          2030
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1672
+        </td>
+        <td>
+          2046
+          -
+          2059
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthMessage
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1687
+        </td>
+        <td>
+          2145
+          -
+          2145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1676
+        </td>
+        <td>
+          2185
+          -
+          2209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.currentHealth_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth_=(scala.Some.apply[com.webtrends.harness.health.HealthComponent](hc))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1675
+        </td>
+        <td>
+          2201
+          -
+          2209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.health.HealthComponent](hc)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1680
+        </td>
+        <td>
+          2325
+          -
+          2355
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;No data has been written yet&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1683
+        </td>
+        <td>
+          2274
+          -
+          2356
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1677
+        </td>
+        <td>
+          2241
+          -
+          2247
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1686
+        </td>
+        <td>
+          2241
+          -
+          2357
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.sender()).!(KafkaWriterHealthCheck.this.currentHealth.getOrElse[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1679
+        </td>
+        <td>
+          2302
+          -
+          2323
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1682
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1685
+        </td>
+        <td>
+          2248
+          -
+          2248
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1684
+        </td>
+        <td>
+          2250
+          -
+          2357
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth.getOrElse[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1678
+        </td>
+        <td>
+          2290
+          -
+          2300
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthName
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1681
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1689
+        </td>
+        <td>
+          2455
+          -
+          2455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          2450
+          -
+          2512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;Kafka Writer&quot;, componentState, details, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1688
+        </td>
+        <td>
+          2471
+          -
+          2485
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Kafka Writer&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1691
+        </td>
+        <td>
+          2455
+          -
+          2511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;Kafka Writer&quot;, componentState, details, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1693
+        </td>
+        <td>
+          2434
+          -
+          2512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.currentHealth_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth_=(scala.Some.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;Kafka Writer&quot;, componentState, details, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1690
+        </td>
+        <td>
+          2455
+          -
+          2455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1694
+        </td>
+        <td>
+          2554
+          -
+          2585
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Cancellable.cancel
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.scheduledHealthProduce.cancel()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1695
+        </td>
+        <td>
+          2606
+          -
+          2610
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1696
+        </td>
+        <td>
+          2590
+          -
+          2610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.currentHealth_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1697
+        </td>
+        <td>
+          3269
+          -
+          3282
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.inProcessSend
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.inProcessSend
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1698
+        </td>
+        <td>
+          3310
+          -
+          3312
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1700
+        </td>
+        <td>
+          3388
+          -
+          3420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.inProcessSend_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.inProcessSend_=(scala.Some.apply[java.util.concurrent.Future[org.apache.kafka.clients.producer.RecordMetadata]](sendFuture))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1699
+        </td>
+        <td>
+          3404
+          -
+          3420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.Future[org.apache.kafka.clients.producer.RecordMetadata]](sendFuture)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1732
+        </td>
+        <td>
+          3448
+          -
+          4156
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.blocking
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.`package`.blocking[Unit]({
+  try {
+    sendFuture.get(KafkaWriterHealthCheck.this.maxSendTimeMillis.toLong, MILLISECONDS);
+    if (KafkaWriterHealthCheck.this.currentHealth.isEmpty.||(KafkaWriterHealthCheck.this.currentHealth.get.state.!=(com.webtrends.harness.health.ComponentState.NORMAL)))
+      akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+    else
+      ()
+  } catch {
+    case (ex @ (_: Exception)) =&gt; {
+      KafkaWriterHealthCheck.this.log.error(&quot;Unable to produce data. Marking producer as unhealthy&quot;, ex);
+      akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.CRITICAL, ex.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+    }
+  };
+  KafkaWriterHealthCheck.this.inProcessSend_=(scala.None)
+})
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1719
+        </td>
+        <td>
+          3491
+          -
+          3752
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  sendFuture.get(KafkaWriterHealthCheck.this.maxSendTimeMillis.toLong, MILLISECONDS);
+  if (KafkaWriterHealthCheck.this.currentHealth.isEmpty.||(KafkaWriterHealthCheck.this.currentHealth.get.state.!=(com.webtrends.harness.health.ComponentState.NORMAL)))
+    akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1701
+        </td>
+        <td>
+          3506
+          -
+          3523
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.maxSendTimeMillis.toLong
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1703
+        </td>
+        <td>
+          3491
+          -
+          3547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.Future.get
+        </td>
+        <td style="background: #F0ADAD">
+          sendFuture.get(KafkaWriterHealthCheck.this.maxSendTimeMillis.toLong, MILLISECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1702
+        </td>
+        <td>
+          3525
+          -
+          3546
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          MILLISECONDS
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1704
+        </td>
+        <td>
+          3618
+          -
+          3639
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1706
+        </td>
+        <td>
+          3566
+          -
+          3639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth.isEmpty.||(KafkaWriterHealthCheck.this.currentHealth.get.state.!=(com.webtrends.harness.health.ComponentState.NORMAL))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          3562
+          -
+          3562
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1717
+        </td>
+        <td>
+          3562
+          -
+          3562
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1705
+        </td>
+        <td>
+          3591
+          -
+          3639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.currentHealth.get.state.!=(com.webtrends.harness.health.ComponentState.NORMAL)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1707
+        </td>
+        <td>
+          3659
+          -
+          3663
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1716
+        </td>
+        <td>
+          3659
+          -
+          3736
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1710
+        </td>
+        <td>
+          3717
+          -
+          3735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Write successful&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1713
+        </td>
+        <td>
+          3666
+          -
+          3736
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1712
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1715
+        </td>
+        <td>
+          3659
+          -
+          3736
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1709
+        </td>
+        <td>
+          3694
+          -
+          3715
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1711
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1714
+        </td>
+        <td>
+          3664
+          -
+          3664
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1708
+        </td>
+        <td>
+          3682
+          -
+          3692
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthName
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1720
+        </td>
+        <td>
+          3839
+          -
+          3909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.log.error(&quot;Unable to produce data. Marking producer as unhealthy&quot;, ex)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1725
+        </td>
+        <td>
+          3933
+          -
+          3933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1728
+        </td>
+        <td>
+          3931
+          -
+          3931
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1722
+        </td>
+        <td>
+          3949
+          -
+          3959
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthName
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1721
+        </td>
+        <td>
+          3926
+          -
+          3930
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1724
+        </td>
+        <td>
+          3986
+          -
+          3999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1727
+        </td>
+        <td>
+          3933
+          -
+          4000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.CRITICAL, ex.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1726
+        </td>
+        <td>
+          3933
+          -
+          3933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1729
+        </td>
+        <td>
+          3926
+          -
+          4000
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.CRITICAL, ex.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1723
+        </td>
+        <td>
+          3961
+          -
+          3984
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1731
+        </td>
+        <td>
+          4027
+          -
+          4047
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.inProcessSend_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.inProcessSend_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1730
+        </td>
+        <td>
+          4043
+          -
+          4047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          4166
+          -
+          4166
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1733
+        </td>
+        <td>
+          3429
+          -
+          4218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Unit](scala.concurrent.`package`.blocking[Unit]({
+  try {
+    sendFuture.get(KafkaWriterHealthCheck.this.maxSendTimeMillis.toLong, MILLISECONDS);
+    if (KafkaWriterHealthCheck.this.currentHealth.isEmpty.||(KafkaWriterHealthCheck.this.currentHealth.get.state.!=(com.webtrends.harness.health.ComponentState.NORMAL)))
+      akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+    else
+      ()
+  } catch {
+    case (ex @ (_: Exception)) =&gt; {
+      KafkaWriterHealthCheck.this.log.error(&quot;Unable to produce data. Marking producer as unhealthy&quot;, ex);
+      akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.CRITICAL, ex.getMessage(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+    }
+  };
+  KafkaWriterHealthCheck.this.inProcessSend_=(scala.None)
+}))(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

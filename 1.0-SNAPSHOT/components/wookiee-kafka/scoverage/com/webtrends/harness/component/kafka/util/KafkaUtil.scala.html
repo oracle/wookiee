@@ -44,100 +44,120 @@
 </span>19 <span style=''>
 </span>20 <span style=''>package com.webtrends.harness.component.kafka.util
 </span>21 <span style=''>
-</span>22 <span style=''>import kafka.api.{PartitionOffsetRequestInfo, _}
-</span>23 <span style=''>import kafka.common.TopicAndPartition
-</span>24 <span style=''>import kafka.consumer.SimpleConsumer
-</span>25 <span style=''>
-</span>26 <span style=''>object KafkaUtil {
-</span>27 <span style=''>
-</span>28 <span style=''>  def getFetchRequest(clientName: String, topic: String, part: Int, offset: Long, fetchSize: Int): FetchRequest = {
-</span>29 <span style=''>    val req: FetchRequest = </span><span style='background: #F0ADAD'>new FetchRequestBuilder().clientId(clientName).addFetch(topic, part, offset, fetchSize).build()</span><span style=''>
-</span>30 <span style=''>    req
-</span>31 <span style=''>  }
-</span>32 <span style=''>
-</span>33 <span style=''>  def getDesiredAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int, desiredStartOffset: Long, clientName: String): Long = {
-</span>34 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
-</span>35 <span style=''>
-</span>36 <span style=''>    val startOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
-</span>37 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.EarliestTime, 1)),
-</span>38 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
-</span>39 <span style=''>
-</span>40 <span style=''>    val startResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(startOffsetRequest)</span><span style=''>
-</span>41 <span style=''>    if (</span><span style='background: #F0ADAD'>startResponse.hasError</span><span style=''>) {
-</span>42 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
-</span>43 <span style=''>    }
-</span>44 <span style=''>    val startOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>startResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
-</span>45 <span style=''>    if (</span><span style='background: #F0ADAD'>startOffsets.length != 1</span><span style=''>) {
-</span>46 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${startOffsets.length}]")</span><span style=''>
-</span>47 <span style=''>    }
-</span>48 <span style=''>
-</span>49 <span style=''>
-</span>50 <span style=''>    val endOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
-</span>51 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)),
-</span>52 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''>  //TODO: determine replicaId, if needed?
-</span>53 <span style=''>
-</span>54 <span style=''>    val endResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(endOffsetRequest)</span><span style=''>
-</span>55 <span style=''>    if (</span><span style='background: #F0ADAD'>endResponse.hasError</span><span style=''>) {
-</span>56 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting latest offsets" )</span><span style=''> //+ startResponse.error())
-</span>57 <span style=''>    }
-</span>58 <span style=''>    val endOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>endResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
-</span>59 <span style=''>    if (</span><span style='background: #F0ADAD'>endOffsets.length != 1</span><span style=''>) {
-</span>60 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one latest offset but got [${endOffsets.length}]")</span><span style=''>
-</span>61 <span style=''>    }
-</span>62 <span style=''>
-</span>63 <span style=''>    val range:Array[Long] = </span><span style='background: #F0ADAD'>new Array(2)</span><span style=''>
+</span>22 <span style=''>import java.util.Properties
+</span>23 <span style=''>
+</span>24 <span style=''>import com.typesafe.config.{Config, ConfigValueType}
+</span>25 <span style=''>import kafka.api.{PartitionOffsetRequestInfo, _}
+</span>26 <span style=''>import kafka.common.TopicAndPartition
+</span>27 <span style=''>import kafka.consumer.SimpleConsumer
+</span>28 <span style=''>
+</span>29 <span style=''>object KafkaUtil {
+</span>30 <span style=''>  def getFetchRequest(clientName: String, topic: String, part: Int, offset: Long, fetchSize: Int): FetchRequest = {
+</span>31 <span style=''>    val req: FetchRequest = </span><span style='background: #F0ADAD'>new FetchRequestBuilder().clientId(clientName).addFetch(topic, part, offset, fetchSize).build()</span><span style=''>
+</span>32 <span style=''>    req
+</span>33 <span style=''>  }
+</span>34 <span style=''>
+</span>35 <span style=''>  def getDesiredAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int, desiredStartOffset: Long, clientName: String): Long = {
+</span>36 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>    val startOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
+</span>39 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.EarliestTime, 1)),
+</span>40 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
+</span>41 <span style=''>
+</span>42 <span style=''>    val startResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(startOffsetRequest)</span><span style=''>
+</span>43 <span style=''>    if (</span><span style='background: #F0ADAD'>startResponse.hasError</span><span style=''>) {
+</span>44 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
+</span>45 <span style=''>    }
+</span>46 <span style=''>    val startOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>startResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
+</span>47 <span style=''>    if (</span><span style='background: #F0ADAD'>startOffsets.length != 1</span><span style=''>) {
+</span>48 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${startOffsets.length}]")</span><span style=''>
+</span>49 <span style=''>    }
+</span>50 <span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>    val endOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
+</span>53 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)),
+</span>54 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''>  //TODO: determine replicaId, if needed?
+</span>55 <span style=''>
+</span>56 <span style=''>    val endResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(endOffsetRequest)</span><span style=''>
+</span>57 <span style=''>    if (</span><span style='background: #F0ADAD'>endResponse.hasError</span><span style=''>) {
+</span>58 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting latest offsets" )</span><span style=''> //+ startResponse.error())
+</span>59 <span style=''>    }
+</span>60 <span style=''>    val endOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>endResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
+</span>61 <span style=''>    if (</span><span style='background: #F0ADAD'>endOffsets.length != 1</span><span style=''>) {
+</span>62 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one latest offset but got [${endOffsets.length}]")</span><span style=''>
+</span>63 <span style=''>    }
 </span>64 <span style=''>
-</span>65 <span style=''>    </span><span style='background: #F0ADAD'>range(0) = startOffsets(0)</span><span style=''>
-</span>66 <span style=''>    </span><span style='background: #F0ADAD'>range(1) = endOffsets(0)</span><span style=''>
-</span>67 <span style=''>
-</span>68 <span style=''>    if (</span><span style='background: #F0ADAD'>range(1) < range(0)</span><span style=''>) {
-</span>69 <span style=''>      </span><span style='background: #F0ADAD'>range(0) = range(1)</span><span style=''>
-</span>70 <span style=''>    }
-</span>71 <span style=''>    if (</span><span style='background: #F0ADAD'>desiredStartOffset > range(0) && desiredStartOffset < range(1)</span><span style=''>) {
-</span>72 <span style=''>      </span><span style='background: #F0ADAD'>range(0) = desiredStartOffset</span><span style=''>
-</span>73 <span style=''>    }
-</span>74 <span style=''>
-</span>75 <span style=''>    </span><span style='background: #F0ADAD'>range(0)</span><span style=''>
+</span>65 <span style=''>    val range:Array[Long] = </span><span style='background: #F0ADAD'>new Array(2)</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>range(0) = startOffsets.head</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #F0ADAD'>range(1) = endOffsets.head</span><span style=''>
+</span>69 <span style=''>
+</span>70 <span style=''>    if (</span><span style='background: #F0ADAD'>range(1) < range(0)</span><span style=''>) {
+</span>71 <span style=''>      </span><span style='background: #F0ADAD'>range(0) = range(1)</span><span style=''>
+</span>72 <span style=''>    }
+</span>73 <span style=''>    if (</span><span style='background: #F0ADAD'>desiredStartOffset > range(0) && desiredStartOffset < range(1)</span><span style=''>) {
+</span>74 <span style=''>      </span><span style='background: #F0ADAD'>range(0) = desiredStartOffset</span><span style=''>
+</span>75 <span style=''>    }
 </span>76 <span style=''>
-</span>77 <span style=''>  }
+</span>77 <span style=''>    </span><span style='background: #F0ADAD'>range(0)</span><span style=''>
 </span>78 <span style=''>
-</span>79 <span style=''>  def getSmallestAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int): Long = {
-</span>80 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
-</span>81 <span style=''>
-</span>82 <span style=''>    val endOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
-</span>83 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.EarliestTime, 1)),
-</span>84 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
-</span>85 <span style=''>
-</span>86 <span style=''>    val endResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(endOffsetRequest)</span><span style=''>
-</span>87 <span style=''>    if (</span><span style='background: #F0ADAD'>endResponse.hasError</span><span style=''>) {
-</span>88 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
-</span>89 <span style=''>    }
-</span>90 <span style=''>    val endOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>endResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
-</span>91 <span style=''>    if (</span><span style='background: #F0ADAD'>endOffsets.length != 1</span><span style=''>) {
-</span>92 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${endOffsets.length}]")</span><span style=''>
-</span>93 <span style=''>    }
-</span>94 <span style=''>    </span><span style='background: #F0ADAD'>endOffsets(0)</span><span style=''>
-</span>95 <span style=''>  }
-</span>96 <span style=''>
-</span>97 <span style=''>  def getLargestAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int): Long = {
-</span>98 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
-</span>99 <span style=''>
-</span>100 <span style=''>    val startOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
-</span>101 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)),
-</span>102 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
-</span>103 <span style=''>
-</span>104 <span style=''>    val startResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(startOffsetRequest)</span><span style=''>
-</span>105 <span style=''>    if (</span><span style='background: #F0ADAD'>startResponse.hasError</span><span style=''>) {
-</span>106 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
-</span>107 <span style=''>    }
-</span>108 <span style=''>    val startOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>startResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
-</span>109 <span style=''>    if (</span><span style='background: #F0ADAD'>startOffsets.length != 1</span><span style=''>) {
-</span>110 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${startOffsets.length}]")</span><span style=''>
-</span>111 <span style=''>    }
-</span>112 <span style=''>
-</span>113 <span style=''>    </span><span style='background: #F0ADAD'>startOffsets(0)</span><span style=''>
-</span>114 <span style=''>  }
-</span>115 <span style=''>}
+</span>79 <span style=''>  }
+</span>80 <span style=''>
+</span>81 <span style=''>  def getSmallestAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int): Long = {
+</span>82 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
+</span>83 <span style=''>
+</span>84 <span style=''>    val endOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
+</span>85 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.EarliestTime, 1)),
+</span>86 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
+</span>87 <span style=''>
+</span>88 <span style=''>    val endResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(endOffsetRequest)</span><span style=''>
+</span>89 <span style=''>    if (</span><span style='background: #F0ADAD'>endResponse.hasError</span><span style=''>) {
+</span>90 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
+</span>91 <span style=''>    }
+</span>92 <span style=''>    val endOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>endResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
+</span>93 <span style=''>    if (</span><span style='background: #F0ADAD'>endOffsets.length != 1</span><span style=''>) {
+</span>94 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${endOffsets.length}]")</span><span style=''>
+</span>95 <span style=''>    }
+</span>96 <span style=''>    </span><span style='background: #F0ADAD'>endOffsets.head</span><span style=''>
+</span>97 <span style=''>  }
+</span>98 <span style=''>
+</span>99 <span style=''>  def getLargestAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int): Long = {
+</span>100 <span style=''>    val topicAndPartition: TopicAndPartition = </span><span style='background: #F0ADAD'>new TopicAndPartition(topic, partition)</span><span style=''>
+</span>101 <span style=''>
+</span>102 <span style=''>    val startOffsetRequest = </span><span style='background: #F0ADAD'>OffsetRequest(
+</span>103 <span style=''></span><span style='background: #F0ADAD'>      Map(topicAndPartition -> PartitionOffsetRequestInfo(OffsetRequest.LatestTime, 1)),
+</span>104 <span style=''></span><span style='background: #F0ADAD'>      replicaId = 0)</span><span style=''> //TODO: determine replicaId, if needed?
+</span>105 <span style=''>
+</span>106 <span style=''>    val startResponse: OffsetResponse = </span><span style='background: #F0ADAD'>consumer.getOffsetsBefore(startOffsetRequest)</span><span style=''>
+</span>107 <span style=''>    if (</span><span style='background: #F0ADAD'>startResponse.hasError</span><span style=''>) {
+</span>108 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException("Kafka response error getting earliest offsets" )</span><span style=''>
+</span>109 <span style=''>    }
+</span>110 <span style=''>    val startOffsets: Seq[Long] = </span><span style='background: #F0ADAD'>startResponse.partitionErrorAndOffsets(topicAndPartition).offsets</span><span style=''>
+</span>111 <span style=''>    if (</span><span style='background: #F0ADAD'>startOffsets.length != 1</span><span style=''>) {
+</span>112 <span style=''>      </span><span style='background: #F0ADAD'>throw new IllegalStateException(s"Expect one earliest offset but got [${startOffsets.length}]")</span><span style=''>
+</span>113 <span style=''>    }
+</span>114 <span style=''>
+</span>115 <span style=''>    </span><span style='background: #F0ADAD'>startOffsets.head</span><span style=''>
+</span>116 <span style=''>  }
+</span>117 <span style=''>
+</span>118 <span style=''>  def configToProps(config: Config): Properties = {
+</span>119 <span style=''>    val props: Properties = </span><span style='background: #F0ADAD'>new Properties</span><span style=''>
+</span>120 <span style=''>    import scala.collection.JavaConversions._
+</span>121 <span style=''>    </span><span style='background: #F0ADAD'>config.entrySet.foreach { entry =>
+</span>122 <span style=''></span><span style='background: #F0ADAD'>      entry.getValue.valueType match {
+</span>123 <span style=''></span><span style='background: #F0ADAD'>        case ConfigValueType.STRING =>
+</span>124 <span style=''></span><span style='background: #F0ADAD'>          props.put(entry.getKey, config.getString(entry.getKey))
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        case ConfigValueType.NUMBER =>
+</span>126 <span style=''></span><span style='background: #F0ADAD'>          props.put(entry.getKey, config.getNumber(entry.getKey).toString)
+</span>127 <span style=''></span><span style='background: #F0ADAD'>        case _ =>
+</span>128 <span style=''></span><span style='background: #F0ADAD'>        // Ignore other types
+</span>129 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>130 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>131 <span style=''>    </span><span style='background: #F0ADAD'>props.put("key.serializer","org.apache.kafka.common.serialization.StringSerializer")</span><span style=''>
+</span>132 <span style=''>    </span><span style='background: #F0ADAD'>props.put("value.serializer","org.apache.kafka.common.serialization.ByteArraySerializer")</span><span style=''>
+</span>133 <span style=''>    props
+</span>134 <span style=''>  }
+</span>135 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -151,15 +171,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          29
+          31
         </td>
         <td>
-          1903
+          1851
         </td>
         <td>
-          1081
+          1162
           -
-          1176
+          1257
         </td>
         <td>
           Apply
@@ -172,15 +192,15 @@
         </td>
       </tr><tr>
         <td>
-          34
+          36
         </td>
         <td>
-          1904
+          1852
         </td>
         <td>
-          1382
+          1463
           -
-          1421
+          1502
         </td>
         <td>
           Apply
@@ -193,57 +213,36 @@
         </td>
       </tr><tr>
         <td>
-          36
+          38
         </td>
         <td>
-          1913
+          1859
         </td>
         <td>
-          1452
+          1533
           -
-          1452
+          1533
         </td>
         <td>
           Select
         </td>
         <td>
-          kafka.api.OffsetRequest.apply$default$4
+          kafka.api.OffsetRequest.apply$default$2
         </td>
         <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$4
+          kafka.api.OffsetRequest.apply$default$2
         </td>
       </tr><tr>
         <td>
-          36
+          38
         </td>
         <td>
-          1912
+          1862
         </td>
         <td>
-          1452
+          1533
           -
-          1452
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$3
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$3
-        </td>
-      </tr><tr>
-        <td>
-          36
-        </td>
-        <td>
-          1914
-        </td>
-        <td>
-          1452
-          -
-          1578
+          1659
         </td>
         <td>
           Apply
@@ -256,99 +255,57 @@
         </td>
       </tr><tr>
         <td>
-          36
+          38
         </td>
         <td>
-          1911
+          1861
         </td>
         <td>
-          1452
+          1533
           -
-          1452
+          1533
         </td>
         <td>
           Select
         </td>
         <td>
-          kafka.api.OffsetRequest.apply$default$2
+          kafka.api.OffsetRequest.apply$default$4
         </td>
         <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$2
+          kafka.api.OffsetRequest.apply$default$4
         </td>
       </tr><tr>
         <td>
-          37
+          38
         </td>
         <td>
-          1907
+          1860
         </td>
         <td>
-          1498
+          1533
           -
-          1555
+          1533
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          kafka.api.PartitionOffsetRequestInfo.apply
+          kafka.api.OffsetRequest.apply$default$3
         </td>
         <td style="background: #F0ADAD">
-          kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)
+          kafka.api.OffsetRequest.apply$default$3
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          1906
+          1853
         </td>
         <td>
-          1553
+          1606
           -
-          1554
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          1909
-        </td>
-        <td>
-          1473
-          -
-          1556
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenMapFactory.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)))
-        </td>
-      </tr><tr>
-        <td>
-          37
-        </td>
-        <td>
-          1905
-        </td>
-        <td>
-          1525
-          -
-          1551
+          1632
         </td>
         <td>
           Select
@@ -361,15 +318,15 @@
         </td>
       </tr><tr>
         <td>
-          37
+          39
         </td>
         <td>
-          1908
+          1856
         </td>
         <td>
-          1477
+          1558
           -
-          1555
+          1636
         </td>
         <td>
           Apply
@@ -382,15 +339,78 @@
         </td>
       </tr><tr>
         <td>
-          38
+          39
         </td>
         <td>
-          1910
+          1855
         </td>
         <td>
-          1576
+          1579
           -
-          1577
+          1636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          kafka.api.PartitionOffsetRequestInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1854
+        </td>
+        <td>
+          1634
+          -
+          1635
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1857
+        </td>
+        <td>
+          1554
+          -
+          1637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1858
+        </td>
+        <td>
+          1657
+          -
+          1658
         </td>
         <td>
           Literal
@@ -403,15 +423,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          42
         </td>
         <td>
-          1915
+          1863
         </td>
         <td>
-          1660
+          1741
           -
-          1705
+          1786
         </td>
         <td>
           Apply
@@ -424,18 +444,18 @@
         </td>
       </tr><tr>
         <td>
-          41
+          43
         </td>
         <td>
-          1919
+          1868
         </td>
         <td>
-          1710
+          1791
           -
-          1710
+          1791
         </td>
         <td>
-          Literal
+          Block
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -445,15 +465,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          43
         </td>
         <td>
-          1916
+          1864
         </td>
         <td>
-          1714
+          1795
           -
-          1736
+          1817
         </td>
         <td>
           Select
@@ -466,18 +486,18 @@
         </td>
       </tr><tr>
         <td>
-          41
+          43
         </td>
         <td>
-          1920
+          1867
         </td>
         <td>
-          1710
+          1791
           -
-          1710
+          1791
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -487,36 +507,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          44
         </td>
         <td>
-          1918
+          1865
         </td>
         <td>
-          1746
-          -
           1827
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          42
-        </td>
-        <td>
-          1917
-        </td>
-        <td>
-          1746
           -
-          1827
+          1908
         </td>
         <td>
           Throw
@@ -532,12 +531,33 @@
           44
         </td>
         <td>
-          1921
+          1866
         </td>
         <td>
-          1868
+          1827
           -
-          1933
+          1908
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1869
+        </td>
+        <td>
+          1949
+          -
+          2014
         </td>
         <td>
           Select
@@ -550,36 +570,36 @@
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
-          1922
+          1874
         </td>
         <td>
-          1942
+          2019
           -
-          1966
+          2019
         </td>
         <td>
-          Apply
+          Block
         </td>
         <td>
-          scala.Int.!=
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          startOffsets.length.!=(1)
+          ()
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
-          1925
+          1873
         </td>
         <td>
-          1938
+          2019
           -
-          1938
+          2019
         </td>
         <td>
           Literal
@@ -592,57 +612,36 @@
         </td>
       </tr><tr>
         <td>
-          45
+          47
         </td>
         <td>
-          1926
+          1870
         </td>
         <td>
-          1938
+          2023
           -
-          1938
+          2047
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.Int.!=
         </td>
         <td style="background: #F0ADAD">
-          ()
+          startOffsets.length.!=(1)
         </td>
       </tr><tr>
         <td>
-          46
+          48
         </td>
         <td>
-          1924
+          1871
         </td>
         <td>
-          1976
+          2057
           -
-          2071
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(startOffsets.length))
-        </td>
-      </tr><tr>
-        <td>
-          46
-        </td>
-        <td>
-          1923
-        </td>
-        <td>
-          1976
-          -
-          2071
+          2152
         </td>
         <td>
           Throw
@@ -655,15 +654,57 @@
         </td>
       </tr><tr>
         <td>
-          50
+          48
         </td>
         <td>
-          1934
+          1872
         </td>
         <td>
-          2107
+          2057
           -
-          2107
+          2152
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(startOffsets.length))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1883
+        </td>
+        <td>
+          2188
+          -
+          2188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1882
+        </td>
+        <td>
+          2188
+          -
+          2188
         </td>
         <td>
           Select
@@ -676,15 +717,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          52
         </td>
         <td>
-          1933
+          1881
         </td>
         <td>
-          2107
+          2188
           -
-          2107
+          2188
         </td>
         <td>
           Select
@@ -697,15 +738,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          52
         </td>
         <td>
-          1936
+          1884
         </td>
         <td>
-          2107
+          2188
           -
-          2231
+          2312
         </td>
         <td>
           Apply
@@ -718,120 +759,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          53
         </td>
         <td>
-          1935
+          1877
         </td>
         <td>
-          2107
+          2234
           -
-          2107
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1928
-        </td>
-        <td>
-          2206
-          -
-          2207
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1931
-        </td>
-        <td>
-          2128
-          -
-          2209
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenMapFactory.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)))
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1927
-        </td>
-        <td>
-          2180
-          -
-          2204
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.LatestTime
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.LatestTime
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1930
-        </td>
-        <td>
-          2132
-          -
-          2208
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1))
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1929
-        </td>
-        <td>
-          2153
-          -
-          2208
+          2289
         </td>
         <td>
           Apply
@@ -844,15 +780,99 @@
         </td>
       </tr><tr>
         <td>
-          52
+          53
         </td>
         <td>
-          1932
+          1876
         </td>
         <td>
-          2229
+          2287
           -
-          2230
+          2288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          2209
+          -
+          2290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          2213
+          -
+          2289
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1875
+        </td>
+        <td>
+          2261
+          -
+          2285
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.LatestTime
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.LatestTime
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1880
+        </td>
+        <td>
+          2310
+          -
+          2311
         </td>
         <td>
           Literal
@@ -865,15 +885,15 @@
         </td>
       </tr><tr>
         <td>
-          54
+          56
         </td>
         <td>
-          1937
+          1885
         </td>
         <td>
-          2312
+          2393
           -
-          2355
+          2436
         </td>
         <td>
           Apply
@@ -886,36 +906,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          57
         </td>
         <td>
-          1942
+          1886
         </td>
         <td>
-          2360
+          2445
           -
-          2360
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          55
-        </td>
-        <td>
-          1938
-        </td>
-        <td>
-          2364
-          -
-          2384
+          2465
         </td>
         <td>
           Select
@@ -928,15 +927,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          57
         </td>
         <td>
-          1941
+          1889
         </td>
         <td>
-          2360
+          2441
           -
-          2360
+          2441
         </td>
         <td>
           Literal
@@ -949,15 +948,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          57
         </td>
         <td>
-          1940
+          1890
         </td>
         <td>
-          2394
+          2441
           -
-          2473
+          2441
         </td>
         <td>
           Block
@@ -966,22 +965,22 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting latest offsets&quot;)
+          ()
         </td>
       </tr><tr>
         <td>
-          56
+          58
         </td>
         <td>
-          1939
+          1888
         </td>
         <td>
-          2394
+          2475
           -
-          2473
+          2554
         </td>
         <td>
-          Throw
+          Block
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -994,12 +993,33 @@
           58
         </td>
         <td>
-          1943
+          1887
         </td>
         <td>
-          2539
+          2475
           -
-          2602
+          2554
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting latest offsets&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1891
+        </td>
+        <td>
+          2620
+          -
+          2683
         </td>
         <td>
           Select
@@ -1012,57 +1032,15 @@
         </td>
       </tr><tr>
         <td>
-          59
+          61
         </td>
         <td>
-          1948
+          1892
         </td>
         <td>
-          2607
+          2692
           -
-          2607
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          1947
-        </td>
-        <td>
-          2607
-          -
-          2607
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          1944
-        </td>
-        <td>
-          2611
-          -
-          2633
+          2714
         </td>
         <td>
           Apply
@@ -1075,15 +1053,57 @@
         </td>
       </tr><tr>
         <td>
-          60
+          61
         </td>
         <td>
-          1946
+          1895
         </td>
         <td>
-          2643
+          2688
           -
-          2734
+          2688
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1896
+        </td>
+        <td>
+          2688
+          -
+          2688
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1894
+        </td>
+        <td>
+          2724
+          -
+          2815
         </td>
         <td>
           Block
@@ -1096,15 +1116,15 @@
         </td>
       </tr><tr>
         <td>
-          60
+          62
         </td>
         <td>
-          1945
+          1893
         </td>
         <td>
-          2643
+          2724
           -
-          2734
+          2815
         </td>
         <td>
           Throw
@@ -1117,15 +1137,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          65
         </td>
         <td>
-          1949
+          1897
         </td>
         <td>
-          2770
+          2851
           -
-          2782
+          2863
         </td>
         <td>
           Apply
@@ -1138,57 +1158,15 @@
         </td>
       </tr><tr>
         <td>
-          65
+          67
         </td>
         <td>
-          1952
+          1898
         </td>
         <td>
-          2788
+          2875
           -
-          2814
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Array.update
-        </td>
-        <td style="background: #F0ADAD">
-          range.update(0, startOffsets.apply(0))
-        </td>
-      </tr><tr>
-        <td>
-          65
-        </td>
-        <td>
-          1951
-        </td>
-        <td>
-          2799
-          -
-          2814
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.SeqLike.apply
-        </td>
-        <td style="background: #F0ADAD">
-          startOffsets.apply(0)
-        </td>
-      </tr><tr>
-        <td>
-          65
-        </td>
-        <td>
-          1950
-        </td>
-        <td>
-          2794
-          -
-          2795
+          2876
         </td>
         <td>
           Literal
@@ -1201,15 +1179,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          67
         </td>
         <td>
-          1955
+          1900
         </td>
         <td>
-          2819
+          2869
           -
-          2843
+          2897
         </td>
         <td>
           Apply
@@ -1218,40 +1196,40 @@
           scala.Array.update
         </td>
         <td style="background: #F0ADAD">
-          range.update(1, endOffsets.apply(0))
+          range.update(0, startOffsets.head)
         </td>
       </tr><tr>
         <td>
-          66
+          67
         </td>
         <td>
-          1954
+          1899
         </td>
         <td>
-          2830
+          2880
           -
-          2843
+          2897
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          scala.collection.SeqLike.apply
+          scala.collection.IterableLike.head
         </td>
         <td style="background: #F0ADAD">
-          endOffsets.apply(0)
+          startOffsets.head
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          1953
+          1901
         </td>
         <td>
-          2825
+          2908
           -
-          2826
+          2909
         </td>
         <td>
           Literal
@@ -1267,33 +1245,75 @@
           68
         </td>
         <td>
-          1964
+          1903
         </td>
         <td>
-          2849
+          2902
           -
-          2849
+          2928
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.Array.update
         </td>
         <td style="background: #F0ADAD">
-          ()
+          range.update(1, endOffsets.head)
         </td>
       </tr><tr>
         <td>
           68
         </td>
         <td>
-          1958
+          1902
         </td>
         <td>
-          2853
+          2913
           -
-          2872
+          2928
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #F0ADAD">
+          endOffsets.head
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1904
+        </td>
+        <td>
+          2944
+          -
+          2945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          2938
+          -
+          2957
         </td>
         <td>
           Apply
@@ -1306,15 +1326,36 @@
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          1957
+          1912
         </td>
         <td>
-          2864
+          2934
           -
-          2872
+          2934
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1905
+        </td>
+        <td>
+          2949
+          -
+          2957
         </td>
         <td>
           Apply
@@ -1327,15 +1368,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          70
         </td>
         <td>
-          1963
+          1911
         </td>
         <td>
-          2849
+          2934
           -
-          2849
+          2934
         </td>
         <td>
           Literal
@@ -1348,39 +1389,18 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          1956
+          1910
         </td>
         <td>
-          2859
+          2967
           -
-          2860
+          2986
         </td>
         <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          1961
-        </td>
-        <td>
-          2882
-          -
-          2901
-        </td>
-        <td>
-          Apply
+          Block
         </td>
         <td>
           scala.Array.update
@@ -1390,36 +1410,15 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          1960
+          1907
         </td>
         <td>
-          2893
+          2973
           -
-          2901
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Array.apply
-        </td>
-        <td style="background: #F0ADAD">
-          range.apply(1)
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          1959
-        </td>
-        <td>
-          2888
-          -
-          2889
+          2974
         </td>
         <td>
           Literal
@@ -1432,18 +1431,18 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          1962
+          1909
         </td>
         <td>
-          2882
+          2967
           -
-          2901
+          2986
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
           scala.Array.update
@@ -1456,33 +1455,12 @@
           71
         </td>
         <td>
-          1967
+          1908
         </td>
         <td>
-          2949
-          -
           2978
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Long.&lt;
-        </td>
-        <td style="background: #F0ADAD">
-          desiredStartOffset.&lt;(range.apply(1))
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1966
-        </td>
-        <td>
-          2970
           -
-          2978
+          2986
         </td>
         <td>
           Apply
@@ -1495,36 +1473,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1972
+          1919
         </td>
         <td>
-          2912
+          2997
           -
-          2912
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1971
-        </td>
-        <td>
-          2912
-          -
-          2912
+          2997
         </td>
         <td>
           Literal
@@ -1537,15 +1494,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1965
+          1913
         </td>
         <td>
-          2937
+          3022
           -
-          2945
+          3030
         </td>
         <td>
           Apply
@@ -1558,15 +1515,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1968
+          1916
         </td>
         <td>
-          2916
+          3001
           -
-          2978
+          3063
         </td>
         <td>
           Apply
@@ -1579,15 +1536,78 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          1970
+          1915
         </td>
         <td>
-          2988
+          3034
           -
-          3017
+          3063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td style="background: #F0ADAD">
+          desiredStartOffset.&lt;(range.apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1920
+        </td>
+        <td>
+          2997
+          -
+          2997
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1914
+        </td>
+        <td>
+          3055
+          -
+          3063
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          range.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1918
+        </td>
+        <td>
+          3073
+          -
+          3102
         </td>
         <td>
           Block
@@ -1600,15 +1620,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          74
         </td>
         <td>
-          1969
+          1917
         </td>
         <td>
-          2988
+          3073
           -
-          3017
+          3102
         </td>
         <td>
           Apply
@@ -1621,15 +1641,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          77
         </td>
         <td>
-          1973
+          1921
         </td>
         <td>
-          3029
+          3114
           -
-          3037
+          3122
         </td>
         <td>
           Apply
@@ -1642,15 +1662,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          82
         </td>
         <td>
-          1974
+          1922
         </td>
         <td>
-          3191
+          3276
           -
-          3230
+          3315
         </td>
         <td>
           Apply
@@ -1663,15 +1683,36 @@
         </td>
       </tr><tr>
         <td>
-          82
+          84
         </td>
         <td>
-          1982
+          1931
         </td>
         <td>
-          3259
+          3344
           -
-          3259
+          3344
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1930
+        </td>
+        <td>
+          3344
+          -
+          3344
         </td>
         <td>
           Select
@@ -1684,15 +1725,36 @@
         </td>
       </tr><tr>
         <td>
-          82
+          84
         </td>
         <td>
-          1984
+          1929
         </td>
         <td>
-          3259
+          3344
           -
-          3385
+          3344
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1932
+        </td>
+        <td>
+          3344
+          -
+          3470
         </td>
         <td>
           Apply
@@ -1705,141 +1767,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          85
         </td>
         <td>
-          1981
+          1925
         </td>
         <td>
-          3259
+          3390
           -
-          3259
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$2
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$2
-        </td>
-      </tr><tr>
-        <td>
-          82
-        </td>
-        <td>
-          1983
-        </td>
-        <td>
-          3259
-          -
-          3259
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1979
-        </td>
-        <td>
-          3280
-          -
-          3363
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenMapFactory.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)))
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1976
-        </td>
-        <td>
-          3360
-          -
-          3361
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          1
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1975
-        </td>
-        <td>
-          3332
-          -
-          3358
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.EarliestTime
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.EarliestTime
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1978
-        </td>
-        <td>
-          3284
-          -
-          3362
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Predef.ArrowAssoc.-&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1))
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1977
-        </td>
-        <td>
-          3305
-          -
-          3362
+          3447
         </td>
         <td>
           Apply
@@ -1852,435 +1788,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          85
         </td>
         <td>
-          1980
+          1924
         </td>
         <td>
-          3383
+          3445
           -
-          3384
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          1985
-        </td>
-        <td>
-          3465
-          -
-          3508
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          kafka.consumer.SimpleConsumer.getOffsetsBefore
-        </td>
-        <td style="background: #F0ADAD">
-          consumer.getOffsetsBefore(endOffsetRequest)
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          1990
-        </td>
-        <td>
-          3513
-          -
-          3513
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          1989
-        </td>
-        <td>
-          3513
-          -
-          3513
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          1986
-        </td>
-        <td>
-          3517
-          -
-          3537
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetResponse.hasError
-        </td>
-        <td style="background: #F0ADAD">
-          endResponse.hasError
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1988
-        </td>
-        <td>
-          3547
-          -
-          3628
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1987
-        </td>
-        <td>
-          3547
-          -
-          3628
-        </td>
-        <td>
-          Throw
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          90
-        </td>
-        <td>
-          1991
-        </td>
-        <td>
-          3667
-          -
-          3730
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.PartitionOffsetsResponse.offsets
-        </td>
-        <td style="background: #F0ADAD">
-          endResponse.partitionErrorAndOffsets.apply(topicAndPartition).offsets
-        </td>
-      </tr><tr>
-        <td>
-          91
-        </td>
-        <td>
-          1996
-        </td>
-        <td>
-          3735
-          -
-          3735
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          91
-        </td>
-        <td>
-          1992
-        </td>
-        <td>
-          3739
-          -
-          3761
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.!=
-        </td>
-        <td style="background: #F0ADAD">
-          endOffsets.length.!=(1)
-        </td>
-      </tr><tr>
-        <td>
-          91
-        </td>
-        <td>
-          1995
-        </td>
-        <td>
-          3735
-          -
-          3735
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          1994
-        </td>
-        <td>
-          3771
-          -
-          3864
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(endOffsets.length))
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          1993
-        </td>
-        <td>
-          3771
-          -
-          3864
-        </td>
-        <td>
-          Throw
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(endOffsets.length))
-        </td>
-      </tr><tr>
-        <td>
-          94
-        </td>
-        <td>
-          1997
-        </td>
-        <td>
-          3875
-          -
-          3888
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.SeqLike.apply
-        </td>
-        <td style="background: #F0ADAD">
-          endOffsets.apply(0)
-        </td>
-      </tr><tr>
-        <td>
-          98
-        </td>
-        <td>
-          1998
-        </td>
-        <td>
-          4040
-          -
-          4079
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          kafka.common.TopicAndPartition.&lt;init&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          new kafka.common.TopicAndPartition(topic, partition)
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          2006
-        </td>
-        <td>
-          4110
-          -
-          4110
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$3
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$3
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          2005
-        </td>
-        <td>
-          4110
-          -
-          4110
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$2
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$2
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          2008
-        </td>
-        <td>
-          4110
-          -
-          4234
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply(x$16, x$18, x$19, x$20, x$17)
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          2007
-        </td>
-        <td>
-          4110
-          -
-          4110
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          2003
-        </td>
-        <td>
-          4131
-          -
-          4212
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.generic.GenMapFactory.apply
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)))
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          2000
-        </td>
-        <td>
-          4209
-          -
-          4210
+          3446
         </td>
         <td>
           Literal
@@ -2293,15 +1809,57 @@
         </td>
       </tr><tr>
         <td>
-          101
+          85
         </td>
         <td>
-          2002
+          1927
         </td>
         <td>
-          4135
+          3365
           -
-          4211
+          3448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1)))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1923
+        </td>
+        <td>
+          3417
+          -
+          3443
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.EarliestTime
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.EarliestTime
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1926
+        </td>
+        <td>
+          3369
+          -
+          3447
         </td>
         <td>
           Apply
@@ -2310,61 +1868,19 @@
           scala.Predef.ArrowAssoc.-&gt;
         </td>
         <td style="background: #F0ADAD">
-          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1))
+          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.EarliestTime, 1))
         </td>
       </tr><tr>
         <td>
-          101
+          86
         </td>
         <td>
-          1999
+          1928
         </td>
         <td>
-          4183
+          3468
           -
-          4207
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.OffsetRequest.LatestTime
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.OffsetRequest.LatestTime
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          2001
-        </td>
-        <td>
-          4156
-          -
-          4211
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          kafka.api.PartitionOffsetRequestInfo.apply
-        </td>
-        <td style="background: #F0ADAD">
-          kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)
-        </td>
-      </tr><tr>
-        <td>
-          102
-        </td>
-        <td>
-          2004
-        </td>
-        <td>
-          4232
-          -
-          4233
+          3469
         </td>
         <td>
           Literal
@@ -2377,15 +1893,519 @@
         </td>
       </tr><tr>
         <td>
+          88
+        </td>
+        <td>
+          1933
+        </td>
+        <td>
+          3550
+          -
+          3593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          kafka.consumer.SimpleConsumer.getOffsetsBefore
+        </td>
+        <td style="background: #F0ADAD">
+          consumer.getOffsetsBefore(endOffsetRequest)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          3602
+          -
+          3622
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetResponse.hasError
+        </td>
+        <td style="background: #F0ADAD">
+          endResponse.hasError
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1937
+        </td>
+        <td>
+          3598
+          -
+          3598
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1938
+        </td>
+        <td>
+          3598
+          -
+          3598
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1936
+        </td>
+        <td>
+          3632
+          -
+          3713
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1935
+        </td>
+        <td>
+          3632
+          -
+          3713
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1939
+        </td>
+        <td>
+          3752
+          -
+          3815
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.PartitionOffsetsResponse.offsets
+        </td>
+        <td style="background: #F0ADAD">
+          endResponse.partitionErrorAndOffsets.apply(topicAndPartition).offsets
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1943
+        </td>
+        <td>
+          3820
+          -
+          3820
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          3824
+          -
+          3846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td style="background: #F0ADAD">
+          endOffsets.length.!=(1)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1944
+        </td>
+        <td>
+          3820
+          -
+          3820
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1942
+        </td>
+        <td>
+          3856
+          -
+          3949
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(endOffsets.length))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1941
+        </td>
+        <td>
+          3856
+          -
+          3949
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(scala.StringContext.apply(&quot;Expect one earliest offset but got [&quot;, &quot;]&quot;).s(endOffsets.length))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1945
+        </td>
+        <td>
+          3960
+          -
+          3975
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #F0ADAD">
+          endOffsets.head
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1946
+        </td>
+        <td>
+          4127
+          -
+          4166
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          kafka.common.TopicAndPartition.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new kafka.common.TopicAndPartition(topic, partition)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1955
+        </td>
+        <td>
+          4197
+          -
+          4197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1954
+        </td>
+        <td>
+          4197
+          -
+          4197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$3
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1956
+        </td>
+        <td>
+          4197
+          -
+          4321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply(x$16, x$18, x$19, x$20, x$17)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1953
+        </td>
+        <td>
+          4197
+          -
+          4197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.apply$default$2
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.apply$default$2
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1949
+        </td>
+        <td>
+          4243
+          -
+          4298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          kafka.api.PartitionOffsetRequestInfo.apply
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1951
+        </td>
+        <td>
+          4218
+          -
+          4299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[kafka.common.TopicAndPartition, kafka.api.PartitionOffsetRequestInfo](scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1)))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1948
+        </td>
+        <td>
+          4296
+          -
+          4297
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1947
+        </td>
+        <td>
+          4270
+          -
+          4294
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.OffsetRequest.LatestTime
+        </td>
+        <td style="background: #F0ADAD">
+          kafka.api.OffsetRequest.LatestTime
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1950
+        </td>
+        <td>
+          4222
+          -
+          4298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[kafka.common.TopicAndPartition](topicAndPartition).-&gt;[kafka.api.PartitionOffsetRequestInfo](kafka.api.PartitionOffsetRequestInfo.apply(kafka.api.OffsetRequest.LatestTime, 1))
+        </td>
+      </tr><tr>
+        <td>
           104
         </td>
         <td>
-          2009
+          1952
         </td>
         <td>
-          4316
+          4319
           -
-          4361
+          4320
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1957
+        </td>
+        <td>
+          4403
+          -
+          4448
         </td>
         <td>
           Apply
@@ -2398,18 +2418,18 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          2014
+          1961
         </td>
         <td>
-          4366
+          4453
           -
-          4366
+          4453
         </td>
         <td>
-          Block
+          Literal
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -2419,15 +2439,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          2010
+          1958
         </td>
         <td>
-          4370
+          4457
           -
-          4392
+          4479
         </td>
         <td>
           Select
@@ -2440,18 +2460,18 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          2013
+          1962
         </td>
         <td>
-          4366
+          4453
           -
-          4366
+          4453
         </td>
         <td>
-          Literal
+          Block
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -2461,39 +2481,18 @@
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          2012
+          1960
         </td>
         <td>
-          4402
+          4489
           -
-          4483
+          4570
         </td>
         <td>
           Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          2011
-        </td>
-        <td>
-          4402
-          -
-          4483
-        </td>
-        <td>
-          Throw
         </td>
         <td>
           &lt;nosymbol&gt;
@@ -2506,12 +2505,33 @@
           108
         </td>
         <td>
-          2015
+          1959
         </td>
         <td>
-          4524
+          4489
           -
-          4589
+          4570
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Kafka response error getting earliest offsets&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1963
+        </td>
+        <td>
+          4611
+          -
+          4676
         </td>
         <td>
           Select
@@ -2524,36 +2544,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          111
         </td>
         <td>
-          2020
+          1964
         </td>
         <td>
-          4594
+          4685
           -
-          4594
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          109
-        </td>
-        <td>
-          2016
-        </td>
-        <td>
-          4598
-          -
-          4622
+          4709
         </td>
         <td>
           Apply
@@ -2566,15 +2565,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          111
         </td>
         <td>
-          2019
+          1967
         </td>
         <td>
-          4594
+          4681
           -
-          4594
+          4681
         </td>
         <td>
           Literal
@@ -2587,15 +2586,36 @@
         </td>
       </tr><tr>
         <td>
-          110
+          111
         </td>
         <td>
-          2018
+          1968
         </td>
         <td>
-          4632
+          4681
           -
-          4727
+          4681
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1966
+        </td>
+        <td>
+          4719
+          -
+          4814
         </td>
         <td>
           Block
@@ -2608,15 +2628,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          112
         </td>
         <td>
-          2017
+          1965
         </td>
         <td>
-          4632
+          4719
           -
-          4727
+          4814
         </td>
         <td>
           Throw
@@ -2629,24 +2649,322 @@
         </td>
       </tr><tr>
         <td>
-          113
+          115
         </td>
         <td>
-          2021
+          1969
         </td>
         <td>
-          4739
+          4826
           -
-          4754
+          4843
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td style="background: #F0ADAD">
+          startOffsets.head
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1970
+        </td>
+        <td>
+          4929
+          -
+          4943
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.SeqLike.apply
+          java.util.Properties.&lt;init&gt;
         </td>
         <td style="background: #F0ADAD">
-          startOffsets.apply(0)
+          new java.util.Properties()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1981
+        </td>
+        <td>
+          4994
+          -
+          5348
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.asScalaSet[java.util.Map.Entry[String,com.typesafe.config.ConfigValue]](config.entrySet()).foreach[Any](((entry: java.util.Map.Entry[String,com.typesafe.config.ConfigValue]) =&gt; entry.getValue().valueType() match {
+  case STRING =&gt; props.put(entry.getKey(), config.getString(entry.getKey()))
+  case NUMBER =&gt; props.put(entry.getKey(), config.getNumber(entry.getKey()).toString())
+  case _ =&gt; ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1971
+        </td>
+        <td>
+          4994
+          -
+          5009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.entrySet
+        </td>
+        <td style="background: #F0ADAD">
+          config.entrySet()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1972
+        </td>
+        <td>
+          5035
+          -
+          5059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.ConfigValue.valueType
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getValue().valueType()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1973
+        </td>
+        <td>
+          5127
+          -
+          5139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.Entry.getKey
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getKey()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1976
+        </td>
+        <td>
+          5117
+          -
+          5172
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Hashtable.put
+        </td>
+        <td style="background: #F0ADAD">
+          props.put(entry.getKey(), config.getString(entry.getKey()))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1975
+        </td>
+        <td>
+          5141
+          -
+          5171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          config.getString(entry.getKey())
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1974
+        </td>
+        <td>
+          5158
+          -
+          5170
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.Entry.getKey
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getKey()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1979
+        </td>
+        <td>
+          5222
+          -
+          5286
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Hashtable.put
+        </td>
+        <td style="background: #F0ADAD">
+          props.put(entry.getKey(), config.getNumber(entry.getKey()).toString())
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1978
+        </td>
+        <td>
+          5246
+          -
+          5285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          config.getNumber(entry.getKey()).toString()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1977
+        </td>
+        <td>
+          5232
+          -
+          5244
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.Entry.getKey
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getKey()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1980
+        </td>
+        <td>
+          5302
+          -
+          5304
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1982
+        </td>
+        <td>
+          5353
+          -
+          5437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Hashtable.put
+        </td>
+        <td style="background: #F0ADAD">
+          props.put(&quot;key.serializer&quot;, &quot;org.apache.kafka.common.serialization.StringSerializer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1983
+        </td>
+        <td>
+          5442
+          -
+          5531
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Hashtable.put
+        </td>
+        <td style="background: #F0ADAD">
+          props.put(&quot;value.serializer&quot;, &quot;org.apache.kafka.common.serialization.ByteArraySerializer&quot;)
         </td>
       </tr>
     </table>
