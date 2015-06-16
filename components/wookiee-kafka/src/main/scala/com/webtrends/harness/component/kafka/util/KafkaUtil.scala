@@ -19,12 +19,14 @@
 
 package com.webtrends.harness.component.kafka.util
 
+import java.util.Properties
+
+import com.typesafe.config.{Config, ConfigValueType}
 import kafka.api.{PartitionOffsetRequestInfo, _}
 import kafka.common.TopicAndPartition
 import kafka.consumer.SimpleConsumer
 
 object KafkaUtil {
-
   def getFetchRequest(clientName: String, topic: String, part: Int, offset: Long, fetchSize: Int): FetchRequest = {
     val req: FetchRequest = new FetchRequestBuilder().clientId(clientName).addFetch(topic, part, offset, fetchSize).build()
     req
@@ -62,8 +64,8 @@ object KafkaUtil {
 
     val range:Array[Long] = new Array(2)
 
-    range(0) = startOffsets(0)
-    range(1) = endOffsets(0)
+    range(0) = startOffsets.head
+    range(1) = endOffsets.head
 
     if (range(1) < range(0)) {
       range(0) = range(1)
@@ -91,7 +93,7 @@ object KafkaUtil {
     if (endOffsets.length != 1) {
       throw new IllegalStateException(s"Expect one earliest offset but got [${endOffsets.length}]")
     }
-    endOffsets(0)
+    endOffsets.head
   }
 
   def getLargestAvailableOffset(consumer: SimpleConsumer, topic: String, partition: Int): Long = {
@@ -110,6 +112,24 @@ object KafkaUtil {
       throw new IllegalStateException(s"Expect one earliest offset but got [${startOffsets.length}]")
     }
 
-    startOffsets(0)
+    startOffsets.head
+  }
+
+  def configToProps(config: Config): Properties = {
+    val props: Properties = new Properties
+    import scala.collection.JavaConversions._
+    config.entrySet.foreach { entry =>
+      entry.getValue.valueType match {
+        case ConfigValueType.STRING =>
+          props.put(entry.getKey, config.getString(entry.getKey))
+        case ConfigValueType.NUMBER =>
+          props.put(entry.getKey, config.getNumber(entry.getKey).toString)
+        case _ =>
+        // Ignore other types
+      }
+    }
+    props.put("key.serializer","org.apache.kafka.common.serialization.StringSerializer")
+    props.put("value.serializer","org.apache.kafka.common.serialization.ByteArraySerializer")
+    props
   }
 }
