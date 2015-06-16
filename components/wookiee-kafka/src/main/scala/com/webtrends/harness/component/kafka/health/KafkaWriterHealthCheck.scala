@@ -47,9 +47,8 @@ trait KafkaWriterHealthCheck { this: KafkaWriter =>
   }.getOrElse(5000)
 
   // Schedule a regular send to detect changes even if no data is flowing through
-  import scala.concurrent.ExecutionContext.Implicits.global
   val healthMessage = EventToWrite("producer_health", "Healthy".getBytes("utf-8"))
-  val scheduledHealthProduce = context.system.scheduler.schedule(0 seconds, 5 seconds, self, healthMessage)
+  val scheduledHealthProduce = context.system.scheduler.schedule(0 seconds, 5 seconds, self, healthMessage)(scala.concurrent.ExecutionContext.Implicits.global)
 
   def healthReceive: Receive = {
     case hc: HealthComponent =>
@@ -96,7 +95,7 @@ trait KafkaWriterHealthCheck { this: KafkaWriter =>
             }
             inProcessSend = None // Note that this may be executed in a different thread than the current message being processed
           }
-        }
+        }(scala.concurrent.ExecutionContext.Implicits.global)
     }
   }
 }
