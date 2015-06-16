@@ -26,7 +26,7 @@ import com.webtrends.harness.component.socko.route.SockoHeader
  */
 object SockoUtils {
 
-  val KeyAllHeaders = "all"
+  val KeyAllRequestMethods = "all"
 
   /**
    * Based on the method this function will filter out only the required headers from the map
@@ -37,7 +37,7 @@ object SockoUtils {
    */
   def toSockoHeaderFormat(method:String, headers:Map[String, List[SockoHeader]], size: Int = 0) : Map[String, String] = {
     val retHeaders = (headers filter {
-      x => x._1.equalsIgnoreCase(method) || x._1 == KeyAllHeaders
+      x => x._1.equalsIgnoreCase(method) || x._1 == KeyAllRequestMethods
     } values).flatten.toList
     toSockoHeaderFormat(retHeaders :+ SockoHeader("Content-Length", size + ""))
   }
