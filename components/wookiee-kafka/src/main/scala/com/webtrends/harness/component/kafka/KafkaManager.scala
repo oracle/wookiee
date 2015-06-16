@@ -21,16 +21,15 @@ package com.webtrends.harness.component.kafka
 
 import akka.actor.{ActorRef, Props}
 import akka.pattern._
-import akka.routing.RoundRobinPool
-import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
 import com.webtrends.harness.component.Component
-import com.webtrends.harness.component.kafka.actor.{KafkaTopicManager, KafkaProducer}
+import com.webtrends.harness.component.kafka.actor.{KafkaTopicManager, KafkaWriter}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 
 import scala.concurrent.{Future, Promise}
-import scala.util.{Try, Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 /**
  * This class manages the creation of both the KafkaConsumerCoordinator (if 'consumer' is configured)
@@ -61,6 +60,15 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
 
   var consumerManagerHealth: Option[HealthComponent] = None
 
+  override def preStart() = {
+    if (kafkaConfig.hasPath("producer")) {
+      startProducer()
+    }
+    if (kafkaConfig.hasPath("consumer")) {
+      startCoordinator()
+    }
+  }
+
   override def receive = super.receive orElse configReceive orElse {
     // Use this call to get the Kafka Consumer Coordinator, if configured
     case GetCoordinator =>
@@ -69,13 +77,6 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
     case GetDistributor =>
       sender ! distributor
 
-    case SystemReady =>
-      if (kafkaConfig.hasPath("producer")) {
-        startProducer()
-      }
-      if (kafkaConfig.hasPath("consumer")) {
-        startCoordinator()
-      }
     case PrepareForShutdown =>
       coordinator.foreach(_ ! PrepareForShutdown)
       distributor.foreach(_ ! PrepareForShutdown)
@@ -87,7 +88,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
   def startProducer() {
     log.info("Starting producer as wookiee-kafka config contained 'producer' config")
     val writerCount = Try { kafkaConfig.getInt("producer-count") } getOrElse 10
-    producer = Some(context.actorOf(RoundRobinPool(writerCount).props(KafkaProducer.props()), "producer"))
+    producer = Some(context.system.actorOf(Props[KafkaWriter], "producer"))
   }
 
   override def checkHealth: Future[HealthComponent] = {
