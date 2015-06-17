@@ -21,7 +21,7 @@ package com.webtrends.harness.component.kafka
 
 import akka.actor.{ActorRef, Props}
 import akka.pattern._
-import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.component.kafka.actor.{KafkaTopicManager, KafkaWriter}
 import com.webtrends.harness.component.kafka.util.KafkaSettings
@@ -60,19 +60,24 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
 
   var consumerManagerHealth: Option[HealthComponent] = None
 
-  override def preStart() = {
+  override def start = {
     if (kafkaConfig.hasPath("producer")) {
       startProducer()
     }
-    if (kafkaConfig.hasPath("consumer")) {
-      startCoordinator()
-    }
+    super.start
   }
 
   override def receive = super.receive orElse configReceive orElse {
     // Use this call to get the Kafka Consumer Coordinator, if configured
     case GetCoordinator =>
       sender ! coordinator
+
+    // We are loading the coordinator here because it depends on zookeeper component being loaded up which
+    // will have occurred earlier at the ComponentStart phase
+    case SystemReady =>
+      if (kafkaConfig.hasPath("consumer")) {
+        startCoordinator()
+      }
 
     case GetDistributor =>
       sender ! distributor

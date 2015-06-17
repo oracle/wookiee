@@ -23,7 +23,6 @@ import akka.actor.{Actor, Props}
 import com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck
 import com.webtrends.harness.component.kafka.util.{KafkaUtil, KafkaSettings}
 import com.webtrends.harness.component.metrics.metrictype.Meter
-import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
 import com.webtrends.harness.health.ComponentState
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
@@ -42,7 +41,7 @@ object KafkaWriter {
 }
 
 class KafkaWriter extends Actor
-  with ActorLoggingAdapter with  KafkaWriterHealthCheck with ZookeeperAdapter with KafkaSettings {
+  with ActorLoggingAdapter with KafkaWriterHealthCheck with KafkaSettings {
   import KafkaWriter._
 
   lazy val totalEvents = Meter("total-events-per-second")
