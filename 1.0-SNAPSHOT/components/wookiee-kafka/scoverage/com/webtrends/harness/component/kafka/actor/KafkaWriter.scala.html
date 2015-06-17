@@ -48,96 +48,95 @@
 </span>23 <span style=''>import com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck
 </span>24 <span style=''>import com.webtrends.harness.component.kafka.util.{KafkaUtil, KafkaSettings}
 </span>25 <span style=''>import com.webtrends.harness.component.metrics.metrictype.Meter
-</span>26 <span style=''>import com.webtrends.harness.component.zookeeper.ZookeeperAdapter
-</span>27 <span style=''>import com.webtrends.harness.health.ComponentState
-</span>28 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
-</span>29 <span style=''>import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
-</span>30 <span style=''>import scala.util.Try
-</span>31 <span style=''>
-</span>32 <span style=''>object KafkaWriter {
-</span>33 <span style=''>  case class EventToWrite(topic: String, event: Array[Byte])
-</span>34 <span style=''>
-</span>35 <span style=''>  case class EventsToWrite(topic: String, events: List[Array[Byte]])
-</span>36 <span style=''>
-</span>37 <span style=''>  case class EventsToWriteWithAck(topic: String, ackId: String, events: Array[Byte]*)
-</span>38 <span style=''>
-</span>39 <span style=''>  case class EventWriteAck(ackId: Either[String, Throwable])
-</span>40 <span style=''>
-</span>41 <span style=''>  def props(): Props = </span><span style='background: #F0ADAD'>Props[KafkaWriter]</span><span style=''>
-</span>42 <span style=''>}
-</span>43 <span style=''>
-</span>44 <span style=''>class KafkaWriter extends Actor
-</span>45 <span style=''>  with ActorLoggingAdapter with  KafkaWriterHealthCheck with ZookeeperAdapter with KafkaSettings {
-</span>46 <span style=''>  import KafkaWriter._
-</span>47 <span style=''>
-</span>48 <span style=''>  lazy val totalEvents = </span><span style='background: #F0ADAD'>Meter("total-events-per-second")</span><span style=''>
-</span>49 <span style=''>  lazy val totalBytesPerSecond = </span><span style='background: #F0ADAD'>Meter("total-bytes-per-second")</span><span style=''>
-</span>50 <span style=''>
-</span>51 <span style=''>  val dataProducer = </span><span style='background: #F0ADAD'>new KafkaProducer[String, Array[Byte]](KafkaUtil.configToProps(kafkaConfig.getConfig("producer")))</span><span style=''>
-</span>52 <span style=''>  var partitionKey = </span><span style='background: #F0ADAD'>0L</span><span style=''>
-</span>53 <span style=''>  val evenPartitionDistribution = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getBoolean("even-partition-distribution") } getOrElse true</span><span style=''>
-</span>54 <span style=''>
-</span>55 <span style=''>  override def postStop() = {
-</span>56 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Stopping Kafka Writer")</span><span style=''>
-</span>57 <span style=''>    </span><span style='background: #F0ADAD'>super.postStop()</span><span style=''>
-</span>58 <span style=''>    </span><span style='background: #F0ADAD'>dataProducer.close()</span><span style=''>
-</span>59 <span style=''>  }
-</span>60 <span style=''>
-</span>61 <span style=''>  def receive:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse {
-</span>62 <span style=''></span><span style='background: #F0ADAD'>    case EventToWrite(topic, event) => sendData(topic, Seq(event))
-</span>63 <span style=''></span><span style='background: #F0ADAD'>
-</span>64 <span style=''></span><span style='background: #F0ADAD'>    case EventsToWrite(topic, events) => sendData(topic, events)
-</span>65 <span style=''></span><span style='background: #F0ADAD'>
-</span>66 <span style=''></span><span style='background: #F0ADAD'>    case msg: EventsToWriteWithAck =>
-</span>67 <span style=''></span><span style='background: #F0ADAD'>      sender() ! EventWriteAck(sendData(msg.topic, msg.events, msg.ackId))
-</span>68 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>69 <span style=''>
-</span>70 <span style=''>  def sendData(topic: String, eventMessages: Seq[Array[Byte]], ackId: String = ""): Either[String, Throwable] ={
-</span>71 <span style=''>    </span><span style='background: #F0ADAD'>Try {
-</span>72 <span style=''></span><span style='background: #F0ADAD'>      var bytes = 0L
-</span>73 <span style=''></span><span style='background: #F0ADAD'>      val keyedMessages = eventMessages.withFilter(_.length > 0).map { it =>
-</span>74 <span style=''></span><span style='background: #F0ADAD'>        bytes += it.length
-</span>75 <span style=''></span><span style='background: #F0ADAD'>        val message = keyedMessage(topic, it)
-</span>76 <span style=''></span><span style='background: #F0ADAD'>
-</span>77 <span style=''></span><span style='background: #F0ADAD'>        // If the Kafka target is down completely, the Kafka client provides no feedback.
-</span>78 <span style=''></span><span style='background: #F0ADAD'>        // The callback is never called and a get on the returned java Future will block indefinitely.
-</span>79 <span style=''></span><span style='background: #F0ADAD'>        // Handling this by waiting on the
-</span>80 <span style=''></span><span style='background: #F0ADAD'>        val productionFuture = dataProducer.send(message)
-</span>81 <span style=''></span><span style='background: #F0ADAD'>        monitorSendHealth(productionFuture)
-</span>82 <span style=''></span><span style='background: #F0ADAD'>
-</span>83 <span style=''></span><span style='background: #F0ADAD'>        message
-</span>84 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>85 <span style=''></span><span style='background: #F0ADAD'>
-</span>86 <span style=''></span><span style='background: #F0ADAD'>      if (keyedMessages.nonEmpty) {
-</span>87 <span style=''></span><span style='background: #F0ADAD'>        totalEvents.mark(keyedMessages.size)
-</span>88 <span style=''></span><span style='background: #F0ADAD'>        totalBytesPerSecond.mark(bytes)
-</span>89 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>90 <span style=''></span><span style='background: #F0ADAD'>
-</span>91 <span style=''></span><span style='background: #F0ADAD'>      if (currentHealth.isEmpty || currentHealth.get.state == ComponentState.NORMAL) {
-</span>92 <span style=''></span><span style='background: #F0ADAD'>        Left(ackId)
-</span>93 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>94 <span style=''></span><span style='background: #F0ADAD'>      else {
-</span>95 <span style=''></span><span style='background: #F0ADAD'>        Right(new IllegalStateException("Producer is not healthy"))
-</span>96 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>97 <span style=''></span><span style='background: #F0ADAD'>    } recover {
-</span>98 <span style=''></span><span style='background: #F0ADAD'>      case ex:Exception =>
-</span>99 <span style=''></span><span style='background: #F0ADAD'>        log.error("Unable To write Event", ex)
-</span>100 <span style=''></span><span style='background: #F0ADAD'>        setHealth(ComponentState.CRITICAL, "Last message failed to send")
-</span>101 <span style=''></span><span style='background: #F0ADAD'>        Right(ex)
-</span>102 <span style=''></span><span style='background: #F0ADAD'>    } get</span><span style=''>
-</span>103 <span style=''>  }
-</span>104 <span style=''>
-</span>105 <span style=''>  private def keyedMessage(topic: String, value: Array[Byte]): ProducerRecord[String, Array[Byte]] = {
-</span>106 <span style=''>    val keyedMessage =
-</span>107 <span style=''>      if(</span><span style='background: #F0ADAD'>evenPartitionDistribution</span><span style=''>)
-</span>108 <span style=''>        </span><span style='background: #F0ADAD'>new ProducerRecord[String, Array[Byte]](topic, partitionKey.toString, value)</span><span style=''>
-</span>109 <span style=''>      else
-</span>110 <span style=''>        </span><span style='background: #F0ADAD'>new ProducerRecord[String, Array[Byte]](topic, value)</span><span style=''>
-</span>111 <span style=''>
-</span>112 <span style=''>    </span><span style='background: #F0ADAD'>partitionKey += 1</span><span style=''>
-</span>113 <span style=''>    keyedMessage
-</span>114 <span style=''>  }
-</span>115 <span style=''>}
+</span>26 <span style=''>import com.webtrends.harness.health.ComponentState
+</span>27 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>28 <span style=''>import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+</span>29 <span style=''>import scala.util.Try
+</span>30 <span style=''>
+</span>31 <span style=''>object KafkaWriter {
+</span>32 <span style=''>  case class EventToWrite(topic: String, event: Array[Byte])
+</span>33 <span style=''>
+</span>34 <span style=''>  case class EventsToWrite(topic: String, events: List[Array[Byte]])
+</span>35 <span style=''>
+</span>36 <span style=''>  case class EventsToWriteWithAck(topic: String, ackId: String, events: Array[Byte]*)
+</span>37 <span style=''>
+</span>38 <span style=''>  case class EventWriteAck(ackId: Either[String, Throwable])
+</span>39 <span style=''>
+</span>40 <span style=''>  def props(): Props = </span><span style='background: #F0ADAD'>Props[KafkaWriter]</span><span style=''>
+</span>41 <span style=''>}
+</span>42 <span style=''>
+</span>43 <span style=''>class KafkaWriter extends Actor
+</span>44 <span style=''>  with ActorLoggingAdapter with KafkaWriterHealthCheck with KafkaSettings {
+</span>45 <span style=''>  import KafkaWriter._
+</span>46 <span style=''>
+</span>47 <span style=''>  lazy val totalEvents = </span><span style='background: #F0ADAD'>Meter("total-events-per-second")</span><span style=''>
+</span>48 <span style=''>  lazy val totalBytesPerSecond = </span><span style='background: #F0ADAD'>Meter("total-bytes-per-second")</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>  val dataProducer = </span><span style='background: #F0ADAD'>new KafkaProducer[String, Array[Byte]](KafkaUtil.configToProps(kafkaConfig.getConfig("producer")))</span><span style=''>
+</span>51 <span style=''>  var partitionKey = </span><span style='background: #F0ADAD'>0L</span><span style=''>
+</span>52 <span style=''>  val evenPartitionDistribution = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getBoolean("even-partition-distribution") } getOrElse true</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  override def postStop() = {
+</span>55 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Stopping Kafka Writer")</span><span style=''>
+</span>56 <span style=''>    </span><span style='background: #F0ADAD'>super.postStop()</span><span style=''>
+</span>57 <span style=''>    </span><span style='background: #F0ADAD'>dataProducer.close()</span><span style=''>
+</span>58 <span style=''>  }
+</span>59 <span style=''>
+</span>60 <span style=''>  def receive:Receive = </span><span style='background: #F0ADAD'>healthReceive orElse {
+</span>61 <span style=''></span><span style='background: #F0ADAD'>    case EventToWrite(topic, event) => sendData(topic, Seq(event))
+</span>62 <span style=''></span><span style='background: #F0ADAD'>
+</span>63 <span style=''></span><span style='background: #F0ADAD'>    case EventsToWrite(topic, events) => sendData(topic, events)
+</span>64 <span style=''></span><span style='background: #F0ADAD'>
+</span>65 <span style=''></span><span style='background: #F0ADAD'>    case msg: EventsToWriteWithAck =>
+</span>66 <span style=''></span><span style='background: #F0ADAD'>      sender() ! EventWriteAck(sendData(msg.topic, msg.events, msg.ackId))
+</span>67 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>  def sendData(topic: String, eventMessages: Seq[Array[Byte]], ackId: String = ""): Either[String, Throwable] ={
+</span>70 <span style=''>    </span><span style='background: #F0ADAD'>Try {
+</span>71 <span style=''></span><span style='background: #F0ADAD'>      var bytes = 0L
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      val keyedMessages = eventMessages.withFilter(_.length > 0).map { it =>
+</span>73 <span style=''></span><span style='background: #F0ADAD'>        bytes += it.length
+</span>74 <span style=''></span><span style='background: #F0ADAD'>        val message = keyedMessage(topic, it)
+</span>75 <span style=''></span><span style='background: #F0ADAD'>
+</span>76 <span style=''></span><span style='background: #F0ADAD'>        // If the Kafka target is down completely, the Kafka client provides no feedback.
+</span>77 <span style=''></span><span style='background: #F0ADAD'>        // The callback is never called and a get on the returned java Future will block indefinitely.
+</span>78 <span style=''></span><span style='background: #F0ADAD'>        // Handling this by waiting on the
+</span>79 <span style=''></span><span style='background: #F0ADAD'>        val productionFuture = dataProducer.send(message)
+</span>80 <span style=''></span><span style='background: #F0ADAD'>        monitorSendHealth(productionFuture)
+</span>81 <span style=''></span><span style='background: #F0ADAD'>
+</span>82 <span style=''></span><span style='background: #F0ADAD'>        message
+</span>83 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>84 <span style=''></span><span style='background: #F0ADAD'>
+</span>85 <span style=''></span><span style='background: #F0ADAD'>      if (keyedMessages.nonEmpty) {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>        totalEvents.mark(keyedMessages.size)
+</span>87 <span style=''></span><span style='background: #F0ADAD'>        totalBytesPerSecond.mark(bytes)
+</span>88 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>89 <span style=''></span><span style='background: #F0ADAD'>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      if (currentHealth.isEmpty || currentHealth.get.state == ComponentState.NORMAL) {
+</span>91 <span style=''></span><span style='background: #F0ADAD'>        Left(ackId)
+</span>92 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      else {
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        Right(new IllegalStateException("Producer is not healthy"))
+</span>95 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>96 <span style=''></span><span style='background: #F0ADAD'>    } recover {
+</span>97 <span style=''></span><span style='background: #F0ADAD'>      case ex:Exception =>
+</span>98 <span style=''></span><span style='background: #F0ADAD'>        log.error("Unable To write Event", ex)
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        setHealth(ComponentState.CRITICAL, "Last message failed to send")
+</span>100 <span style=''></span><span style='background: #F0ADAD'>        Right(ex)
+</span>101 <span style=''></span><span style='background: #F0ADAD'>    } get</span><span style=''>
+</span>102 <span style=''>  }
+</span>103 <span style=''>
+</span>104 <span style=''>  private def keyedMessage(topic: String, value: Array[Byte]): ProducerRecord[String, Array[Byte]] = {
+</span>105 <span style=''>    val keyedMessage =
+</span>106 <span style=''>      if(</span><span style='background: #F0ADAD'>evenPartitionDistribution</span><span style=''>)
+</span>107 <span style=''>        </span><span style='background: #F0ADAD'>new ProducerRecord[String, Array[Byte]](topic, partitionKey.toString, value)</span><span style=''>
+</span>108 <span style=''>      else
+</span>109 <span style=''>        </span><span style='background: #F0ADAD'>new ProducerRecord[String, Array[Byte]](topic, value)</span><span style=''>
+</span>110 <span style=''>
+</span>111 <span style=''>    </span><span style='background: #F0ADAD'>partitionKey += 1</span><span style=''>
+</span>112 <span style=''>    keyedMessage
+</span>113 <span style=''>  }
+</span>114 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -151,15 +150,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          41
+          40
         </td>
         <td>
-          975
+          976
         </td>
         <td>
-          1637
+          1571
           -
-          1655
+          1589
         </td>
         <td>
           ApplyToImplicitArgs
@@ -172,15 +171,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          47
         </td>
         <td>
-          976
+          977
         </td>
         <td>
-          1839
+          1750
           -
-          1871
+          1782
         </td>
         <td>
           Apply
@@ -193,15 +192,15 @@
         </td>
       </tr><tr>
         <td>
-          49
+          48
         </td>
         <td>
-          977
+          978
         </td>
         <td>
-          1905
+          1816
           -
-          1936
+          1847
         </td>
         <td>
           Apply
@@ -214,15 +213,57 @@
         </td>
       </tr><tr>
         <td>
-          51
+          50
         </td>
         <td>
           980
         </td>
         <td>
-          1959
+          1909
           -
-          2057
+          1967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaUtil.configToProps
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.util.KafkaUtil.configToProps(KafkaWriter.this.kafkaConfig.getConfig(&quot;producer&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          1933
+          -
+          1966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getConfig
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriter.this.kafkaConfig.getConfig(&quot;producer&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          981
+        </td>
+        <td>
+          1870
+          -
+          1968
         </td>
         <td>
           Apply
@@ -238,54 +279,12 @@
           51
         </td>
         <td>
-          979
+          982
         </td>
         <td>
-          1998
+          1990
           -
-          2056
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.KafkaUtil.configToProps
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.kafka.util.KafkaUtil.configToProps(KafkaWriter.this.kafkaConfig.getConfig(&quot;producer&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          978
-        </td>
-        <td>
-          2022
-          -
-          2055
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.typesafe.config.Config.getConfig
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.this.kafkaConfig.getConfig(&quot;producer&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          52
-        </td>
-        <td>
-          981
-        </td>
-        <td>
-          2079
-          -
-          2081
+          1992
         </td>
         <td>
           Literal
@@ -298,15 +297,15 @@
         </td>
       </tr><tr>
         <td>
-          53
+          52
         </td>
         <td>
-          982
+          983
         </td>
         <td>
-          2116
+          2027
           -
-          2192
+          2103
         </td>
         <td>
           Apply
@@ -319,15 +318,15 @@
         </td>
       </tr><tr>
         <td>
-          56
+          55
         </td>
         <td>
-          983
+          984
         </td>
         <td>
-          2228
+          2139
           -
-          2261
+          2172
         </td>
         <td>
           Apply
@@ -340,15 +339,15 @@
         </td>
       </tr><tr>
         <td>
-          57
+          56
         </td>
         <td>
-          984
+          985
         </td>
         <td>
-          2266
+          2177
           -
-          2282
+          2193
         </td>
         <td>
           Apply
@@ -361,15 +360,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          57
         </td>
         <td>
-          985
+          986
         </td>
         <td>
-          2287
+          2198
           -
-          2307
+          2218
         </td>
         <td>
           Apply
@@ -382,36 +381,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          60
         </td>
         <td>
-          1001
+          1003
         </td>
         <td>
-          2358
+          2248
           -
-          2358
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaWriter.$anonfun.&lt;init&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          new $anonfun()
-        </td>
-      </tr><tr>
-        <td>
-          61
-        </td>
-        <td>
-          1002
-        </td>
-        <td>
-          2337
-          -
-          2610
+          2521
         </td>
         <td>
           Apply
@@ -450,57 +428,36 @@
         </td>
       </tr><tr>
         <td>
-          62
+          60
         </td>
         <td>
-          986
+          1002
         </td>
         <td>
-          2415
+          2269
           -
-          2425
+          2269
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.generic.GenericCompanion.apply
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.$anonfun.&lt;init&gt;
         </td>
         <td style="background: #F0ADAD">
-          collection.this.Seq.apply[Array[Byte]](event)
+          new $anonfun()
         </td>
       </tr><tr>
         <td>
-          62
+          61
         </td>
         <td>
           989
         </td>
         <td>
-          2407
+          2310
           -
-          2407
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          62
-        </td>
-        <td>
-          988
-        </td>
-        <td>
-          2399
-          -
-          2426
+          2337
         </td>
         <td>
           Apply
@@ -513,15 +470,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          61
         </td>
         <td>
-          987
+          988
         </td>
         <td>
-          2399
+          2310
           -
-          2399
+          2310
         </td>
         <td>
           Select
@@ -534,15 +491,36 @@
         </td>
       </tr><tr>
         <td>
-          64
+          61
         </td>
         <td>
-          992
+          987
         </td>
         <td>
-          2477
+          2326
           -
-          2477
+          2336
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.apply[Array[Byte]](event)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          990
+        </td>
+        <td>
+          2318
+          -
+          2318
         </td>
         <td>
           Literal
@@ -555,15 +533,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          63
         </td>
         <td>
-          991
+          992
         </td>
         <td>
-          2469
+          2380
           -
-          2492
+          2403
         </td>
         <td>
           Apply
@@ -576,15 +554,15 @@
         </td>
       </tr><tr>
         <td>
-          64
+          63
         </td>
         <td>
-          990
+          991
         </td>
         <td>
-          2469
+          2380
           -
-          2469
+          2380
         </td>
         <td>
           Select
@@ -597,78 +575,36 @@
         </td>
       </tr><tr>
         <td>
-          67
+          63
         </td>
         <td>
-          995
+          993
         </td>
         <td>
-          2583
+          2388
           -
-          2593
+          2388
         </td>
         <td>
-          Select
+          Literal
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventsToWriteWithAck.events
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          msg.events
+          ()
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          998
+          1001
         </td>
         <td>
-          2549
+          2449
           -
-          2606
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventWriteAck.apply
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.EventWriteAck.apply(KafkaWriter.this.sendData(msg.topic, msg.events, msg.ackId))
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          997
-        </td>
-        <td>
-          2563
-          -
-          2605
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaWriter.sendData
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.this.sendData(msg.topic, msg.events, msg.ackId)
-        </td>
-      </tr><tr>
-        <td>
-          67
-        </td>
-        <td>
-          1000
-        </td>
-        <td>
-          2538
-          -
-          2606
+          2517
         </td>
         <td>
           ApplyToImplicitArgs
@@ -681,15 +617,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          994
+          995
         </td>
         <td>
-          2572
+          2483
           -
-          2581
+          2492
         </td>
         <td>
           Select
@@ -702,15 +638,36 @@
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          996
+          998
         </td>
         <td>
-          2595
+          2474
           -
-          2604
+          2516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.sendData
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriter.this.sendData(msg.topic, msg.events, msg.ackId)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          2506
+          -
+          2515
         </td>
         <td>
           Select
@@ -723,15 +680,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          999
+          1000
         </td>
         <td>
-          2547
+          2458
           -
-          2547
+          2458
         </td>
         <td>
           Select
@@ -744,15 +701,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          993
+          994
         </td>
         <td>
-          2538
+          2449
           -
-          2546
+          2457
         </td>
         <td>
           Apply
@@ -765,15 +722,57 @@
         </td>
       </tr><tr>
         <td>
-          72
+          66
         </td>
         <td>
-          1003
+          996
         </td>
         <td>
-          2753
+          2494
           -
-          2755
+          2504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventsToWriteWithAck.events
+        </td>
+        <td style="background: #F0ADAD">
+          msg.events
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          999
+        </td>
+        <td>
+          2460
+          -
+          2517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaWriter.EventWriteAck.apply
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriter.EventWriteAck.apply(KafkaWriter.this.sendData(msg.topic, msg.events, msg.ackId))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          2664
+          -
+          2666
         </td>
         <td>
           Literal
@@ -786,57 +785,15 @@
         </td>
       </tr><tr>
         <td>
-          73
+          72
         </td>
         <td>
-          1010
+          1012
         </td>
         <td>
-          2825
+          2693
           -
-          2825
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[org.apache.kafka.clients.producer.ProducerRecord[String,Array[Byte]]]
-        </td>
-      </tr><tr>
-        <td>
-          73
-        </td>
-        <td>
-          1004
-        </td>
-        <td>
-          2807
-          -
-          2819
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          x$1.length.&gt;(0)
-        </td>
-      </tr><tr>
-        <td>
-          73
-        </td>
-        <td>
-          1011
-        </td>
-        <td>
-          2782
-          -
-          3269
+          3180
         </td>
         <td>
           ApplyToImplicitArgs
@@ -855,15 +812,57 @@
         </td>
       </tr><tr>
         <td>
-          74
+          72
         </td>
         <td>
-          1006
+          1005
         </td>
         <td>
-          2841
+          2718
           -
-          2859
+          2730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.length.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1011
+        </td>
+        <td>
+          2736
+          -
+          2736
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.kafka.clients.producer.ProducerRecord[String,Array[Byte]]]
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          2752
+          -
+          2770
         </td>
         <td>
           Apply
@@ -876,15 +875,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          73
         </td>
         <td>
-          1005
+          1006
         </td>
         <td>
-          2850
+          2761
           -
-          2859
+          2770
         </td>
         <td>
           Select
@@ -897,15 +896,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          74
         </td>
         <td>
-          1007
+          1008
         </td>
         <td>
-          2882
+          2793
           -
-          2905
+          2816
         </td>
         <td>
           Apply
@@ -918,15 +917,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          79
         </td>
         <td>
-          1008
+          1009
         </td>
         <td>
-          3174
+          3085
           -
-          3200
+          3111
         </td>
         <td>
           Apply
@@ -939,15 +938,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          80
         </td>
         <td>
-          1009
+          1010
         </td>
         <td>
-          3209
+          3120
           -
-          3244
+          3155
         </td>
         <td>
           Apply
@@ -960,15 +959,78 @@
         </td>
       </tr><tr>
         <td>
-          86
+          85
         </td>
         <td>
-          1016
+          1019
         </td>
         <td>
-          3305
+          3188
           -
-          3399
+          3188
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          3192
+          -
+          3214
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td style="background: #F0ADAD">
+          keyedMessages.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          3188
+          -
+          3188
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1017
+        </td>
+        <td>
+          3216
+          -
+          3310
         </td>
         <td>
           Block
@@ -987,75 +1049,33 @@
           86
         </td>
         <td>
-          1018
+          1015
         </td>
         <td>
-          3277
+          3226
           -
-          3277
+          3262
         </td>
         <td>
-          Block
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          com.webtrends.harness.component.metrics.metrictype.Meter.mark
         </td>
         <td style="background: #F0ADAD">
-          ()
+          KafkaWriter.this.totalEvents.mark(keyedMessages.size.toLong)
         </td>
       </tr><tr>
         <td>
           86
         </td>
         <td>
-          1012
+          1014
         </td>
         <td>
-          3281
+          3243
           -
-          3303
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableOnce.nonEmpty
-        </td>
-        <td style="background: #F0ADAD">
-          keyedMessages.nonEmpty
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          1017
-        </td>
-        <td>
-          3277
-          -
-          3277
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          1013
-        </td>
-        <td>
-          3332
-          -
-          3350
+          3261
         </td>
         <td>
           Select
@@ -1071,33 +1091,12 @@
           87
         </td>
         <td>
-          1014
+          1016
         </td>
         <td>
-          3315
+          3271
           -
-          3351
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.metrics.metrictype.Meter.mark
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.this.totalEvents.mark(keyedMessages.size.toLong)
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1015
-        </td>
-        <td>
-          3360
-          -
-          3391
+          3302
         </td>
         <td>
           Apply
@@ -1110,36 +1109,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          90
         </td>
         <td>
-          1019
+          1022
         </td>
         <td>
-          3463
+          3322
           -
-          3484
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          91
-        </td>
-        <td>
-          1021
-        </td>
-        <td>
-          3411
-          -
-          3484
+          3395
         </td>
         <td>
           Apply
@@ -1152,15 +1130,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          90
         </td>
         <td>
-          1020
+          1021
         </td>
         <td>
-          3436
+          3347
           -
-          3484
+          3395
         </td>
         <td>
           Apply
@@ -1173,36 +1151,36 @@
         </td>
       </tr><tr>
         <td>
-          92
+          90
         </td>
         <td>
-          1022
+          1020
         </td>
         <td>
-          3496
+          3374
           -
-          3507
+          3395
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          scala.util.Left.apply
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
         <td style="background: #F0ADAD">
-          scala.`package`.Left.apply[String, Nothing](ackId)
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
       </tr><tr>
         <td>
-          92
+          91
         </td>
         <td>
-          1023
+          1024
         </td>
         <td>
-          3496
+          3407
           -
-          3507
+          3418
         </td>
         <td>
           Block
@@ -1215,36 +1193,36 @@
         </td>
       </tr><tr>
         <td>
-          95
+          91
         </td>
         <td>
-          1025
+          1023
         </td>
         <td>
-          3537
+          3407
           -
-          3596
+          3418
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.util.Right.apply
+          scala.util.Left.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.`package`.Right.apply[Nothing, IllegalStateException](new java.this.lang.IllegalStateException(&quot;Producer is not healthy&quot;))
+          scala.`package`.Left.apply[String, Nothing](ackId)
         </td>
       </tr><tr>
         <td>
-          95
+          94
         </td>
         <td>
-          1024
+          1025
         </td>
         <td>
-          3543
+          3454
           -
-          3595
+          3506
         </td>
         <td>
           Apply
@@ -1257,15 +1235,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          94
         </td>
         <td>
-          1026
+          1027
         </td>
         <td>
-          3537
+          3448
           -
-          3596
+          3507
         </td>
         <td>
           Block
@@ -1278,15 +1256,36 @@
         </td>
       </tr><tr>
         <td>
-          97
+          94
         </td>
         <td>
-          1032
+          1026
         </td>
         <td>
-          3619
+          3448
           -
-          3619
+          3507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, IllegalStateException](new java.this.lang.IllegalStateException(&quot;Producer is not healthy&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1033
+        </td>
+        <td>
+          3530
+          -
+          3530
         </td>
         <td>
           Apply
@@ -1299,15 +1298,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          98
         </td>
         <td>
-          1027
+          1028
         </td>
         <td>
-          3656
+          3567
           -
-          3694
+          3605
         </td>
         <td>
           Apply
@@ -1320,15 +1319,57 @@
         </td>
       </tr><tr>
         <td>
-          100
+          99
         </td>
         <td>
-          1028
+          1031
         </td>
         <td>
-          3713
+          3614
           -
-          3736
+          3679
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.setHealth
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriter.this.setHealth(com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Last message failed to send&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1030
+        </td>
+        <td>
+          3649
+          -
+          3678
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Last message failed to send&quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          3624
+          -
+          3647
         </td>
         <td>
           Select
@@ -1344,54 +1385,12 @@
           100
         </td>
         <td>
-          1030
+          1032
         </td>
         <td>
-          3703
+          3688
           -
-          3768
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.setHealth
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.this.setHealth(com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Last message failed to send&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          1029
-        </td>
-        <td>
-          3738
-          -
-          3767
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Last message failed to send&quot;
-        </td>
-      </tr><tr>
-        <td>
-          101
-        </td>
-        <td>
-          1031
-        </td>
-        <td>
-          3777
-          -
-          3786
+          3697
         </td>
         <td>
           Apply
@@ -1404,15 +1403,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          101
         </td>
         <td>
-          1033
+          1034
         </td>
         <td>
-          2729
+          2640
           -
-          3796
+          3707
         </td>
         <td>
           Select
@@ -1465,15 +1464,15 @@
         </td>
       </tr><tr>
         <td>
-          107
+          106
         </td>
         <td>
-          1034
+          1035
         </td>
         <td>
-          3937
+          3848
           -
-          3962
+          3873
         </td>
         <td>
           Select
@@ -1486,36 +1485,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          107
         </td>
         <td>
           1037
         </td>
         <td>
-          3972
+          3883
           -
-          4048
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          org.apache.kafka.clients.producer.ProducerRecord.&lt;init&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          new org.apache.kafka.clients.producer.ProducerRecord[String,Array[Byte]](topic, KafkaWriter.this.partitionKey.toString(), value)
-        </td>
-      </tr><tr>
-        <td>
-          108
-        </td>
-        <td>
-          1036
-        </td>
-        <td>
-          3972
-          -
-          4048
+          3959
         </td>
         <td>
           Apply
@@ -1528,15 +1506,15 @@
         </td>
       </tr><tr>
         <td>
-          108
+          107
         </td>
         <td>
-          1035
+          1036
         </td>
         <td>
-          4019
+          3930
           -
-          4040
+          3951
         </td>
         <td>
           Apply
@@ -1549,15 +1527,36 @@
         </td>
       </tr><tr>
         <td>
-          110
+          107
         </td>
         <td>
-          1039
+          1038
         </td>
         <td>
-          4068
+          3883
           -
-          4121
+          3959
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.kafka.clients.producer.ProducerRecord.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.kafka.clients.producer.ProducerRecord[String,Array[Byte]](topic, KafkaWriter.this.partitionKey.toString(), value)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          3979
+          -
+          4032
         </td>
         <td>
           Block
@@ -1570,15 +1569,15 @@
         </td>
       </tr><tr>
         <td>
-          110
+          109
         </td>
         <td>
-          1038
+          1039
         </td>
         <td>
-          4068
+          3979
           -
-          4121
+          4032
         </td>
         <td>
           Apply
@@ -1591,36 +1590,15 @@
         </td>
       </tr><tr>
         <td>
-          112
+          111
         </td>
         <td>
-          1040
+          1042
         </td>
         <td>
-          4127
+          4038
           -
-          4144
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Long.+
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriter.this.partitionKey.+(1)
-        </td>
-      </tr><tr>
-        <td>
-          112
-        </td>
-        <td>
-          1041
-        </td>
-        <td>
-          4127
-          -
-          4144
+          4055
         </td>
         <td>
           Apply
@@ -1630,6 +1608,27 @@
         </td>
         <td style="background: #F0ADAD">
           KafkaWriter.this.partitionKey_=(KafkaWriter.this.partitionKey.+(1))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          4038
+          -
+          4055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriter.this.partitionKey.+(1)
         </td>
       </tr>
     </table>
