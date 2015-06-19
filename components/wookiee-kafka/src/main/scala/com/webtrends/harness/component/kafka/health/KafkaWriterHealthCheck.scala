@@ -42,9 +42,10 @@ trait KafkaWriterHealthCheck { this: KafkaWriter =>
   var inProcessSend: Option[java.util.concurrent.Future[RecordMetadata]] = None
 
   // Amount of time we allow an async produce to run for before we consider it unhealthy
-  lazy val maxSendTimeMillis = Try {
-    kafkaConfig.getConfig("producer").getInt("linger.ms") + 2000
-  }.getOrElse(5000)
+  // We need to allow the entire linger time since the production may not even start until this time has passed
+  // plus some overhead for the production to actually occur.
+  lazy val maxSendTimeMillis = Try { kafkaConfig.getConfig("producer").getInt("linger.ms") }.getOrElse(5000) +
+    Try { kafkaConfig.getConfig("producer").getInt("produce-timeout-millis") }.getOrElse(10000)
 
   // Schedule a regular send to detect changes even if no data is flowing through
   val healthMessage = EventToWrite("producer_health", "Healthy".getBytes("utf-8"))
