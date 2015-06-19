@@ -67,63 +67,64 @@
 </span>42 <span style=''>  var inProcessSend: Option[java.util.concurrent.Future[RecordMetadata]] = </span><span style='background: #F0ADAD'>None</span><span style=''>
 </span>43 <span style=''>
 </span>44 <span style=''>  // Amount of time we allow an async produce to run for before we consider it unhealthy
-</span>45 <span style=''>  lazy val maxSendTimeMillis = </span><span style='background: #F0ADAD'>Try {
-</span>46 <span style=''></span><span style='background: #F0ADAD'>    kafkaConfig.getConfig("producer").getInt("linger.ms") + 2000
-</span>47 <span style=''></span><span style='background: #F0ADAD'>  }.getOrElse(5000)</span><span style=''>
-</span>48 <span style=''>
-</span>49 <span style=''>  // Schedule a regular send to detect changes even if no data is flowing through
-</span>50 <span style=''>  val healthMessage = </span><span style='background: #F0ADAD'>EventToWrite("producer_health", "Healthy".getBytes("utf-8"))</span><span style=''>
-</span>51 <span style=''>  val scheduledHealthProduce = </span><span style='background: #F0ADAD'>context.system.scheduler.schedule(0 seconds, 5 seconds, self, healthMessage)(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
-</span>52 <span style=''>
-</span>53 <span style=''>  def healthReceive: Receive = {
-</span>54 <span style=''>    case hc: HealthComponent =>
-</span>55 <span style=''>      </span><span style='background: #F0ADAD'>currentHealth = Some(hc)</span><span style=''>
-</span>56 <span style=''>
-</span>57 <span style=''>    case CheckHealth =>
-</span>58 <span style=''>      </span><span style='background: #F0ADAD'>sender ! currentHealth.getOrElse(HealthComponent(healthName, ComponentState.NORMAL, "No data has been written yet"))</span><span style=''>
-</span>59 <span style=''>  }
-</span>60 <span style=''>
-</span>61 <span style=''>  def setHealth(componentState: ComponentState, details: String) {
-</span>62 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = Some(HealthComponent("Kafka Writer", componentState, details))</span><span style=''>
-</span>63 <span style=''>  }
-</span>64 <span style=''>
-</span>65 <span style=''>  def stopHealthCheck: Unit = {
-</span>66 <span style=''>    </span><span style='background: #F0ADAD'>scheduledHealthProduce.cancel()</span><span style=''>
-</span>67 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = None</span><span style=''>
-</span>68 <span style=''>  }
-</span>69 <span style=''>
-</span>70 <span style=''>  // The Kafka API makes it difficult to identify the target kafka server being down. A provided callback will not
-</span>71 <span style=''>  // be called and calling get on the returned java Future will block indefinitely.
-</span>72 <span style=''>  //
-</span>73 <span style=''>  // Addressing this by wrapping the returned java Future and into a scala Future and blocking with defined timeout.
-</span>74 <span style=''>  // If it completes successfully, and we don't have a normal health, set it to NORMAL
-</span>75 <span style=''>  // If it throws an exception or times out, set our health to CRITICAL
-</span>76 <span style=''>  //
-</span>77 <span style=''>  // To limit performance impact, we are only monitoring a single send at at ime
-</span>78 <span style=''>  def monitorSendHealth(sendFuture: java.util.concurrent.Future[RecordMetadata]) {
-</span>79 <span style=''>    </span><span style='background: #F0ADAD'>inProcessSend</span><span style=''> match {
-</span>80 <span style=''>      case Some(f) </span><span style='background: #F0ADAD'>=></span><span style=''> // Don't do anything, already monitoring a send
-</span>81 <span style=''>      case None =>
-</span>82 <span style=''>        </span><span style='background: #F0ADAD'>inProcessSend = Some(sendFuture)</span><span style=''>
-</span>83 <span style=''>        </span><span style='background: #F0ADAD'>Future {
-</span>84 <span style=''></span><span style='background: #F0ADAD'>          blocking {
-</span>85 <span style=''></span><span style='background: #F0ADAD'>            try {
-</span>86 <span style=''></span><span style='background: #F0ADAD'>              sendFuture.get(maxSendTimeMillis, TimeUnit.MILLISECONDS)
-</span>87 <span style=''></span><span style='background: #F0ADAD'>              if (currentHealth.isEmpty || currentHealth.get.state != ComponentState.NORMAL) {
-</span>88 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.NORMAL, "Write successful")
-</span>89 <span style=''></span><span style='background: #F0ADAD'>              }
-</span>90 <span style=''></span><span style='background: #F0ADAD'>            }
-</span>91 <span style=''></span><span style='background: #F0ADAD'>            catch {
-</span>92 <span style=''></span><span style='background: #F0ADAD'>              case ex: Exception =>
-</span>93 <span style=''></span><span style='background: #F0ADAD'>                log.error("Unable to produce data. Marking producer as unhealthy", ex)
-</span>94 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.CRITICAL, ex.getMessage)
-</span>95 <span style=''></span><span style='background: #F0ADAD'>            }
-</span>96 <span style=''></span><span style='background: #F0ADAD'>            inProcessSend = None // Note that this may be executed in a different thread than the current message being processed
-</span>97 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>98 <span style=''></span><span style='background: #F0ADAD'>        }(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
-</span>99 <span style=''>    }
-</span>100 <span style=''>  }
-</span>101 <span style=''>}
+</span>45 <span style=''>  // We need to allow the entire linger time since the production may not even start until this time has passed
+</span>46 <span style=''>  // plus some overhead for the production to actually occur.
+</span>47 <span style=''>  lazy val maxSendTimeMillis = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getConfig("producer").getInt("linger.ms") }.getOrElse(5000) +
+</span>48 <span style=''></span><span style='background: #F0ADAD'>    Try { kafkaConfig.getConfig("producer").getInt("produce.timeout.ms") }.getOrElse(10000)</span><span style=''>
+</span>49 <span style=''>
+</span>50 <span style=''>  // Schedule a regular send to detect changes even if no data is flowing through
+</span>51 <span style=''>  val healthMessage = </span><span style='background: #F0ADAD'>EventToWrite("producer_health", "Healthy".getBytes("utf-8"))</span><span style=''>
+</span>52 <span style=''>  val scheduledHealthProduce = </span><span style='background: #F0ADAD'>context.system.scheduler.schedule(0 seconds, 5 seconds, self, healthMessage)(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
+</span>53 <span style=''>
+</span>54 <span style=''>  def healthReceive: Receive = {
+</span>55 <span style=''>    case hc: HealthComponent =>
+</span>56 <span style=''>      </span><span style='background: #F0ADAD'>currentHealth = Some(hc)</span><span style=''>
+</span>57 <span style=''>
+</span>58 <span style=''>    case CheckHealth =>
+</span>59 <span style=''>      </span><span style='background: #F0ADAD'>sender ! currentHealth.getOrElse(HealthComponent(healthName, ComponentState.NORMAL, "No data has been written yet"))</span><span style=''>
+</span>60 <span style=''>  }
+</span>61 <span style=''>
+</span>62 <span style=''>  def setHealth(componentState: ComponentState, details: String) {
+</span>63 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = Some(HealthComponent("Kafka Writer", componentState, details))</span><span style=''>
+</span>64 <span style=''>  }
+</span>65 <span style=''>
+</span>66 <span style=''>  def stopHealthCheck: Unit = {
+</span>67 <span style=''>    </span><span style='background: #F0ADAD'>scheduledHealthProduce.cancel()</span><span style=''>
+</span>68 <span style=''>    </span><span style='background: #F0ADAD'>currentHealth = None</span><span style=''>
+</span>69 <span style=''>  }
+</span>70 <span style=''>
+</span>71 <span style=''>  // The Kafka API makes it difficult to identify the target kafka server being down. A provided callback will not
+</span>72 <span style=''>  // be called and calling get on the returned java Future will block indefinitely.
+</span>73 <span style=''>  //
+</span>74 <span style=''>  // Addressing this by wrapping the returned java Future and into a scala Future and blocking with defined timeout.
+</span>75 <span style=''>  // If it completes successfully, and we don't have a normal health, set it to NORMAL
+</span>76 <span style=''>  // If it throws an exception or times out, set our health to CRITICAL
+</span>77 <span style=''>  //
+</span>78 <span style=''>  // To limit performance impact, we are only monitoring a single send at at ime
+</span>79 <span style=''>  def monitorSendHealth(sendFuture: java.util.concurrent.Future[RecordMetadata]) {
+</span>80 <span style=''>    </span><span style='background: #F0ADAD'>inProcessSend</span><span style=''> match {
+</span>81 <span style=''>      case Some(f) </span><span style='background: #F0ADAD'>=></span><span style=''> // Don't do anything, already monitoring a send
+</span>82 <span style=''>      case None =>
+</span>83 <span style=''>        </span><span style='background: #F0ADAD'>inProcessSend = Some(sendFuture)</span><span style=''>
+</span>84 <span style=''>        </span><span style='background: #F0ADAD'>Future {
+</span>85 <span style=''></span><span style='background: #F0ADAD'>          blocking {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>            try {
+</span>87 <span style=''></span><span style='background: #F0ADAD'>              sendFuture.get(maxSendTimeMillis, TimeUnit.MILLISECONDS)
+</span>88 <span style=''></span><span style='background: #F0ADAD'>              if (currentHealth.isEmpty || currentHealth.get.state != ComponentState.NORMAL) {
+</span>89 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.NORMAL, "Write successful")
+</span>90 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>91 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>92 <span style=''></span><span style='background: #F0ADAD'>            catch {
+</span>93 <span style=''></span><span style='background: #F0ADAD'>              case ex: Exception =>
+</span>94 <span style=''></span><span style='background: #F0ADAD'>                log.error("Unable to produce data. Marking producer as unhealthy", ex)
+</span>95 <span style=''></span><span style='background: #F0ADAD'>                self ! HealthComponent(healthName, ComponentState.CRITICAL, ex.getMessage)
+</span>96 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>97 <span style=''></span><span style='background: #F0ADAD'>            inProcessSend = None // Note that this may be executed in a different thread than the current message being processed
+</span>98 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        }(scala.concurrent.ExecutionContext.Implicits.global)</span><span style=''>
+</span>100 <span style=''>    }
+</span>101 <span style=''>  }
+</span>102 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -203,12 +204,75 @@
           47
         </td>
         <td>
+          1664
+        </td>
+        <td>
+          1942
+          -
+          1946
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5000
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1666
+        </td>
+        <td>
+          1870
+          -
+          2041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[Int](KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;linger.ms&quot;)).getOrElse[Int](5000).+(scala.util.Try.apply[Int](KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;produce.timeout.ms&quot;)).getOrElse[Int](10000))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
           1663
         </td>
         <td>
-          1696
+          1876
           -
-          1786
+          1929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;linger.ms&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1665
+        </td>
+        <td>
+          1954
+          -
+          2041
         </td>
         <td>
           Apply
@@ -217,19 +281,19 @@
           scala.util.Try.getOrElse
         </td>
         <td style="background: #F0ADAD">
-          scala.util.Try.apply[Int](KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;linger.ms&quot;).+(2000)).getOrElse[Int](5000)
+          scala.util.Try.apply[Int](KafkaWriterHealthCheck.this.kafkaConfig.getConfig(&quot;producer&quot;).getInt(&quot;produce.timeout.ms&quot;)).getOrElse[Int](10000)
         </td>
       </tr><tr>
         <td>
-          50
+          51
         </td>
         <td>
-          1665
+          1668
         </td>
         <td>
-          1924
+          2179
           -
-          1951
+          2206
         </td>
         <td>
           Apply
@@ -242,15 +306,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          51
         </td>
         <td>
-          1664
+          1667
         </td>
         <td>
-          1905
+          2160
           -
-          1922
+          2177
         </td>
         <td>
           Literal
@@ -263,15 +327,15 @@
         </td>
       </tr><tr>
         <td>
-          50
+          51
         </td>
         <td>
-          1666
+          1669
         </td>
         <td>
-          1892
+          2147
           -
-          1952
+          2207
         </td>
         <td>
           Apply
@@ -284,57 +348,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          52
         </td>
         <td>
           1674
         </td>
         <td>
-          2017
+          2284
           -
-          2017
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Scheduler.schedule$default$6
-        </td>
-        <td style="background: #F0ADAD">
-          qual$1.schedule$default$6(x$1, x$2, x$3, x$4)
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1668
-        </td>
-        <td>
-          2018
-          -
-          2019
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          0
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1671
-        </td>
-        <td>
-          2029
-          -
-          2038
+          2293
         </td>
         <td>
           Select
@@ -347,15 +369,36 @@
         </td>
       </tr><tr>
         <td>
-          51
+          52
         </td>
         <td>
-          1670
+          1677
         </td>
         <td>
-          2029
+          2272
           -
-          2030
+          2272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Scheduler.schedule$default$6
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.schedule$default$6(x$1, x$2, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1671
+        </td>
+        <td>
+          2273
+          -
+          2274
         </td>
         <td>
           Literal
@@ -364,40 +407,19 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          5
+          0
         </td>
       </tr><tr>
         <td>
-          51
+          52
         </td>
         <td>
-          1673
+          1670
         </td>
         <td>
-          2046
+          2239
           -
-          2059
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthMessage
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.healthMessage
-        </td>
-      </tr><tr>
-        <td>
-          51
-        </td>
-        <td>
-          1667
-        </td>
-        <td>
-          1984
-          -
-          2008
+          2263
         </td>
         <td>
           Select
@@ -410,15 +432,78 @@
         </td>
       </tr><tr>
         <td>
-          51
+          52
+        </td>
+        <td>
+          1673
+        </td>
+        <td>
+          2284
+          -
+          2285
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1676
+        </td>
+        <td>
+          2301
+          -
+          2314
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthMessage
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthMessage
+        </td>
+      </tr><tr>
+        <td>
+          52
         </td>
         <td>
           1675
         </td>
         <td>
-          1984
+          2295
           -
-          2112
+          2299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1678
+        </td>
+        <td>
+          2239
+          -
+          2367
         </td>
         <td>
           Apply
@@ -431,15 +516,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          52
         </td>
         <td>
-          1669
+          1672
         </td>
         <td>
-          2018
+          2273
           -
-          2027
+          2282
         </td>
         <td>
           Select
@@ -452,36 +537,15 @@
         </td>
       </tr><tr>
         <td>
-          51
+          54
         </td>
         <td>
-          1672
+          1691
         </td>
         <td>
-          2040
+          2400
           -
-          2044
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.self
-        </td>
-      </tr><tr>
-        <td>
-          53
-        </td>
-        <td>
-          1688
-        </td>
-        <td>
-          2145
-          -
-          2145
+          2400
         </td>
         <td>
           Apply
@@ -494,15 +558,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          56
         </td>
         <td>
-          1677
+          1680
         </td>
         <td>
-          2185
+          2440
           -
-          2209
+          2464
         </td>
         <td>
           Apply
@@ -515,15 +579,15 @@
         </td>
       </tr><tr>
         <td>
-          55
+          56
         </td>
         <td>
-          1676
+          1679
         </td>
         <td>
-          2201
+          2456
           -
-          2209
+          2464
         </td>
         <td>
           Apply
@@ -536,57 +600,15 @@
         </td>
       </tr><tr>
         <td>
-          58
+          59
         </td>
         <td>
-          1680
+          1689
         </td>
         <td>
-          2302
+          2503
           -
-          2323
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          1683
-        </td>
-        <td>
-          2274
-          -
-          2274
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          1686
-        </td>
-        <td>
-          2248
-          -
-          2248
+          2503
         </td>
         <td>
           Select
@@ -599,57 +621,57 @@
         </td>
       </tr><tr>
         <td>
-          58
+          59
         </td>
         <td>
-          1679
+          1683
         </td>
         <td>
-          2290
+          2557
           -
-          2300
+          2578
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthName
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
         <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.healthName
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
       </tr><tr>
         <td>
-          58
+          59
         </td>
         <td>
-          1682
+          1686
         </td>
         <td>
-          2274
+          2529
           -
-          2274
+          2529
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
       </tr><tr>
         <td>
-          58
+          59
         </td>
         <td>
-          1685
+          1688
         </td>
         <td>
-          2250
+          2505
           -
-          2357
+          2612
         </td>
         <td>
           Apply
@@ -662,78 +684,57 @@
         </td>
       </tr><tr>
         <td>
-          58
+          59
+        </td>
+        <td>
+          1682
+        </td>
+        <td>
+          2545
+          -
+          2555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaWriterHealthCheck.healthName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.healthName
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1685
+        </td>
+        <td>
+          2529
+          -
+          2529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          59
         </td>
         <td>
           1684
         </td>
         <td>
-          2274
+          2580
           -
-          2356
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          1687
-        </td>
-        <td>
-          2241
-          -
-          2357
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.sender()).!(KafkaWriterHealthCheck.this.currentHealth.getOrElse[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(KafkaWriterHealthCheck.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          1678
-        </td>
-        <td>
-          2241
-          -
-          2247
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Actor.sender
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.sender()
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          1681
-        </td>
-        <td>
-          2325
-          -
-          2355
+          2610
         </td>
         <td>
           Literal
@@ -746,15 +747,78 @@
         </td>
       </tr><tr>
         <td>
-          62
+          59
         </td>
         <td>
-          1689
+          1687
         </td>
         <td>
-          2471
+          2529
           -
-          2485
+          2611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1681
+        </td>
+        <td>
+          2496
+          -
+          2502
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1690
+        </td>
+        <td>
+          2496
+          -
+          2612
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.sender()).!(KafkaWriterHealthCheck.this.currentHealth.getOrElse[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;No data has been written yet&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          2726
+          -
+          2740
         </td>
         <td>
           Literal
@@ -767,15 +831,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          63
         </td>
         <td>
-          1692
+          1695
         </td>
         <td>
-          2455
+          2710
           -
-          2511
+          2766
         </td>
         <td>
           Apply
@@ -788,15 +852,36 @@
         </td>
       </tr><tr>
         <td>
-          62
+          63
         </td>
         <td>
           1694
         </td>
         <td>
-          2434
+          2710
           -
-          2512
+          2710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1697
+        </td>
+        <td>
+          2689
+          -
+          2767
         </td>
         <td>
           Apply
@@ -809,36 +894,36 @@
         </td>
       </tr><tr>
         <td>
-          62
-        </td>
-        <td>
-          1691
-        </td>
-        <td>
-          2455
-          -
-          2455
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          62
+          63
         </td>
         <td>
           1693
         </td>
         <td>
-          2450
+          2710
           -
-          2512
+          2710
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1696
+        </td>
+        <td>
+          2705
+          -
+          2767
         </td>
         <td>
           Apply
@@ -851,36 +936,15 @@
         </td>
       </tr><tr>
         <td>
-          62
+          67
         </td>
         <td>
-          1690
+          1698
         </td>
         <td>
-          2455
+          2809
           -
-          2455
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          66
-        </td>
-        <td>
-          1695
-        </td>
-        <td>
-          2554
-          -
-          2585
+          2840
         </td>
         <td>
           Apply
@@ -893,15 +957,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          68
         </td>
         <td>
-          1697
+          1700
         </td>
         <td>
-          2590
+          2845
           -
-          2610
+          2865
         </td>
         <td>
           Apply
@@ -914,15 +978,15 @@
         </td>
       </tr><tr>
         <td>
-          67
+          68
         </td>
         <td>
-          1696
+          1699
         </td>
         <td>
-          2606
+          2861
           -
-          2610
+          2865
         </td>
         <td>
           Select
@@ -935,15 +999,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
-          1698
+          1701
         </td>
         <td>
-          3269
+          3524
           -
-          3282
+          3537
         </td>
         <td>
           Select
@@ -956,15 +1020,15 @@
         </td>
       </tr><tr>
         <td>
-          80
+          81
         </td>
         <td>
-          1699
+          1702
         </td>
         <td>
-          3310
+          3565
           -
-          3312
+          3567
         </td>
         <td>
           Literal
@@ -977,15 +1041,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          83
         </td>
         <td>
-          1701
+          1704
         </td>
         <td>
-          3388
+          3643
           -
-          3420
+          3675
         </td>
         <td>
           Apply
@@ -998,15 +1062,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          83
         </td>
         <td>
-          1700
+          1703
         </td>
         <td>
-          3404
+          3659
           -
-          3420
+          3675
         </td>
         <td>
           Apply
@@ -1019,15 +1083,15 @@
         </td>
       </tr><tr>
         <td>
-          84
+          85
         </td>
         <td>
-          1733
+          1736
         </td>
         <td>
-          3448
+          3703
           -
-          4156
+          4411
         </td>
         <td>
           Apply
@@ -1054,15 +1118,15 @@
         </td>
       </tr><tr>
         <td>
-          85
+          86
         </td>
         <td>
-          1720
+          1723
         </td>
         <td>
-          3491
+          3746
           -
-          3752
+          4007
         </td>
         <td>
           Block
@@ -1081,15 +1145,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          1704
+          1707
         </td>
         <td>
-          3491
+          3746
           -
-          3547
+          3802
         </td>
         <td>
           Apply
@@ -1102,15 +1166,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          1703
+          1706
         </td>
         <td>
-          3525
+          3780
           -
-          3546
+          3801
         </td>
         <td>
           Literal
@@ -1123,15 +1187,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          1702
+          1705
         </td>
         <td>
-          3506
+          3761
           -
-          3523
+          3778
         </td>
         <td>
           Select
@@ -1144,15 +1208,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
-          1707
+          1710
         </td>
         <td>
-          3566
+          3821
           -
-          3639
+          3894
         </td>
         <td>
           Apply
@@ -1165,15 +1229,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
-          1719
+          1722
         </td>
         <td>
-          3562
+          3817
           -
-          3562
+          3817
         </td>
         <td>
           Block
@@ -1186,15 +1250,36 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
-          1706
+          1721
         </td>
         <td>
-          3591
+          3817
           -
-          3639
+          3817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1709
+        </td>
+        <td>
+          3846
+          -
+          3894
         </td>
         <td>
           Apply
@@ -1207,36 +1292,15 @@
         </td>
       </tr><tr>
         <td>
-          87
+          88
         </td>
         <td>
-          1718
+          1708
         </td>
         <td>
-          3562
+          3873
           -
-          3562
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          1705
-        </td>
-        <td>
-          3618
-          -
-          3639
+          3894
         </td>
         <td>
           Select
@@ -1249,15 +1313,36 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
           1716
         </td>
         <td>
-          3659
+          3921
           -
-          3736
+          3921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1719
+        </td>
+        <td>
+          3914
+          -
+          3991
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1270,99 +1355,36 @@
         </td>
       </tr><tr>
         <td>
-          88
-        </td>
-        <td>
-          1710
-        </td>
-        <td>
-          3694
-          -
-          3715
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          88
+          89
         </td>
         <td>
           1713
         </td>
         <td>
-          3666
+          3949
           -
-          3666
+          3970
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          com.webtrends.harness.health.ComponentState.NORMAL
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
           1712
         </td>
         <td>
-          3666
+          3937
           -
-          3666
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1715
-        </td>
-        <td>
-          3664
-          -
-          3664
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.self
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1709
-        </td>
-        <td>
-          3682
-          -
-          3692
+          3947
         </td>
         <td>
           Select
@@ -1375,57 +1397,57 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
+        </td>
+        <td>
+          1715
+        </td>
+        <td>
+          3921
+          -
+          3921
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          3919
+          -
+          3919
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          89
         </td>
         <td>
           1717
         </td>
         <td>
-          3659
+          3921
           -
-          3736
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1711
-        </td>
-        <td>
-          3717
-          -
-          3735
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Write successful&quot;
-        </td>
-      </tr><tr>
-        <td>
-          88
-        </td>
-        <td>
-          1714
-        </td>
-        <td>
-          3666
-          -
-          3736
+          3991
         </td>
         <td>
           Apply
@@ -1438,15 +1460,15 @@
         </td>
       </tr><tr>
         <td>
-          88
+          89
         </td>
         <td>
-          1708
+          1711
         </td>
         <td>
-          3659
+          3914
           -
-          3663
+          3918
         </td>
         <td>
           Select
@@ -1459,15 +1481,57 @@
         </td>
       </tr><tr>
         <td>
-          93
+          89
         </td>
         <td>
-          1721
+          1720
         </td>
         <td>
-          3839
+          3914
           -
-          3909
+          3991
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaWriterHealthCheck.this.self).!(com.webtrends.harness.health.HealthComponent.apply(KafkaWriterHealthCheck.this.healthName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Write successful&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaWriterHealthCheck.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1714
+        </td>
+        <td>
+          3972
+          -
+          3990
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Write successful&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1724
+        </td>
+        <td>
+          4094
+          -
+          4164
         </td>
         <td>
           Apply
@@ -1480,15 +1544,36 @@
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
           1725
         </td>
         <td>
-          3986
+          4181
           -
-          3999
+          4185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1728
+        </td>
+        <td>
+          4241
+          -
+          4254
         </td>
         <td>
           Apply
@@ -1501,15 +1586,15 @@
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
-          1728
+          1731
         </td>
         <td>
-          3933
+          4188
           -
-          4000
+          4255
         </td>
         <td>
           Apply
@@ -1522,36 +1607,36 @@
         </td>
       </tr><tr>
         <td>
-          94
-        </td>
-        <td>
-          1722
-        </td>
-        <td>
-          3926
-          -
-          3930
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.self
-        </td>
-      </tr><tr>
-        <td>
-          94
+          95
         </td>
         <td>
           1730
         </td>
         <td>
-          3926
+          4188
           -
-          4000
+          4188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1733
+        </td>
+        <td>
+          4181
+          -
+          4255
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1564,99 +1649,36 @@
         </td>
       </tr><tr>
         <td>
-          94
-        </td>
-        <td>
-          1724
-        </td>
-        <td>
-          3961
-          -
-          3984
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-      </tr><tr>
-        <td>
-          94
+          95
         </td>
         <td>
           1727
         </td>
         <td>
-          3933
+          4216
           -
-          3933
+          4239
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          com.webtrends.harness.health.ComponentState.CRITICAL
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          com.webtrends.harness.health.ComponentState.CRITICAL
         </td>
       </tr><tr>
         <td>
-          94
+          95
         </td>
         <td>
           1726
         </td>
         <td>
-          3933
+          4204
           -
-          3933
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          94
-        </td>
-        <td>
-          1729
-        </td>
-        <td>
-          3931
-          -
-          3931
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaWriterHealthCheck.this.self
-        </td>
-      </tr><tr>
-        <td>
-          94
-        </td>
-        <td>
-          1723
-        </td>
-        <td>
-          3949
-          -
-          3959
+          4214
         </td>
         <td>
           Select
@@ -1669,15 +1691,57 @@
         </td>
       </tr><tr>
         <td>
-          96
+          95
         </td>
         <td>
-          1731
+          1729
         </td>
         <td>
-          4043
+          4188
           -
-          4047
+          4188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1732
+        </td>
+        <td>
+          4186
+          -
+          4186
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaWriterHealthCheck.this.self
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          4298
+          -
+          4302
         </td>
         <td>
           Select
@@ -1690,15 +1754,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          97
         </td>
         <td>
-          1732
+          1735
         </td>
         <td>
-          4027
+          4282
           -
-          4047
+          4302
         </td>
         <td>
           Apply
@@ -1711,15 +1775,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          99
         </td>
         <td>
-          1734
+          1737
         </td>
         <td>
-          3429
+          3684
           -
-          4218
+          4473
         </td>
         <td>
           Apply
@@ -1746,15 +1810,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          99
         </td>
         <td>
-          1735
+          1738
         </td>
         <td>
-          4166
+          4421
           -
-          4166
+          4421
         </td>
         <td>
           Literal
