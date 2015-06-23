@@ -36,6 +36,8 @@ import com.webtrends.harness.health.ComponentState._
 import com.webtrends.harness.utils.Json
 import com.webtrends.harness.utils.JsonSerializable
 
+import scala.collection.immutable.ListMap
+
 /**
  * The health component is used to define a subset of functionality that
  * can be asked of it's state. It can contain optional child components.
@@ -54,14 +56,14 @@ case class HealthComponent(name: String,
       case None => ""
     }
 
-    val props = Map[String, Any](
+    val props = ListMap[String, Any](
       "name" -> name,
       "state" -> state.toString,
       "details" -> details,
       "extra" -> extraDetails,
       "components" -> components
     )
-    Json.build(props).toString
+    Json.build(props, sort = false).toString
   }
 
   def addComponent(component: HealthComponent): Unit = components = components :+ component

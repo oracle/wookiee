@@ -145,20 +145,21 @@ object Json {
   /**
    * Returns a JSON representation of the given object, as a JsonQuoted object.
    */
-  def build(obj: Any): JsonQuoted = {
+  def build(obj: Any, sort: Boolean = true): JsonQuoted = {
     val rv = obj match {
       case JsonQuoted(body) => body
       case null => "null"
       case x: Boolean => x.toString
       case x: Number => x.toString
-      case array: Array[_] => array.map(build(_).body).mkString("[", ",", "]")
+      case array: Array[_] => array.map(build(_, sort).body).mkString("[", ",", "]")
       case list: Seq[_] =>
-        list.map(build(_).body).mkString("[", ",", "]")
+        list.map(build(_, sort).body).mkString("[", ",", "]")
       case map: collection.mutable.LinkedHashMap[_, _] =>
-        map.map { case (k, v) => quote(k.toString) + ":" + build(v).body }.mkString("{", ",", "}")
+        map.map { case (k, v) => quote(k.toString) + ":" + build(v, sort).body }.mkString("{", ",", "}")
       case map: scala.collection.Map[_, _] =>
-        Sorting.stableSort[(Any, Any), String](map.iterator.toList, { case (k, v) => k.toString }).map { case (k, v) =>
-          quote(k.toString) + ":" + build(v).body
+        val finalMap = if (sort) Sorting.stableSort[(Any, Any), String](map.iterator.toList, { case (k, v) => k.toString }).toMap else map
+        finalMap.map { case (k, v) =>
+          quote(k.toString) + ":" + build(v, sort).body
         }.mkString("{", ",", "}")
       case x: JsonSerializable => x.toJson()
       case x =>

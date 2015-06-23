@@ -22,6 +22,8 @@ import ComponentState.ComponentState
 import com.webtrends.harness.utils.{Json, JsonSerializable}
 import org.joda.time.DateTime
 
+import scala.collection.immutable.ListMap
+
 case class ApplicationHealth(applicationName: String,
                              version: String,
                              time: DateTime,
@@ -29,7 +31,7 @@ case class ApplicationHealth(applicationName: String,
                              details: String,
                              components: Seq[HealthComponent]) extends JsonSerializable {
   override def toJson(): String = {
-    val props = Map[String, Any](
+    val props = ListMap[String, Any](
       "applicationName" -> applicationName,
       "startedTime" -> time,
       "version" -> version,
@@ -37,7 +39,7 @@ case class ApplicationHealth(applicationName: String,
       "details" -> details,
       "components" -> components
     )
-    Json.build(props).toString
+    Json.build(props, sort = false).toString
   }
 }
 
