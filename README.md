@@ -127,7 +127,7 @@ wookiee-system {
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform
 uses Typesafe Config to load configurations at runtime in layers.  A component's default configuration should be given the lowest
-priority (resource.conf) following the layered priority schema set by Typesafe Config.  This can be problematic at times, as third party libs
+priority, the reference conf, following the layered priority schema set by Typesafe Config.  This can be problematic at times, as third party libs
 and components with equally prioritized, overlapping configurations are combined in the application.  To ensure component 
 configurations take precedence, place components jars at the begining of the classpath.  One approach is to separate components
 from third party libs in the distribution.
