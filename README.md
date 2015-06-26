@@ -123,3 +123,50 @@ wookiee-system {
 8. [Kafka Component](components/wookiee-kafka/README.md)
 9. [Netty Component](components/wookiee-netty/README.md)
 9. [Socko Component](components/wookiee-socko/README.md)
+
+### Configuring a component
+Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform
+uses Typesafe Config to load configurations at runtime in layers.  A component's default configuration should be given the lowest
+priority, the reference conf, following the layered priority schema set by Typesafe Config.  This can be problematic at times, as third party libs
+and components with equally prioritized, overlapping configurations are combined in the application.  To ensure component 
+configurations take precedence, place components jars at the begining of the classpath.  One approach is to separate components
+from third party libs in the distribution.
+
+Maven dist.xml
+```xml
+<assembly>
+    <id>bin</id>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <formats>
+        <format>tar.gz</format>
+    </formats>
+    <files>
+        <file>
+            <source>${project.build.directory}/${project.build.finalName}.jar</source>
+        </file>
+    </files>
+    <dependencySets>
+        <dependencySet>
+            <useProjectArtifact>false</useProjectArtifact>
+            <outputDirectory>/lib/thirdparty</outputDirectory>
+            <scope>runtime</scope>
+            <excludes>
+                <exclude>*:wookiee*:jar</exclude>
+            </excludes>
+        </dependencySet>
+        <dependencySet>
+            <useProjectArtifact>false</useProjectArtifact>
+            <outputDirectory>/lib/components</outputDirectory>
+            <scope>runtime</scope>
+            <includes>
+                <include>*:wookiee*:jar</include>
+            </includes>
+        </dependencySet>
+    </dependencySets>
+</assembly>
+```
+
+Run command:
+```
+java -cp *:lib/components/*:lib/thirdparty/* com.webtrends.harness.app.HarnessService
+```
