@@ -138,10 +138,11 @@ private[route] trait SockoRoutes extends ComponentHelper {
   protected def getRejectionHandler(event:HttpRequestEvent, e:Throwable) = {
 
     def writeErrorResponse(status: HttpResponseStatus, body: String = ""): Unit = {
+      val encBody = body.getBytes("utf-8")
       event.response.write(status,
-        body.getBytes("utf-8"),
+        encBody,
         "text/plain; charset=UTF-8",
-        SockoUtils.toSockoHeaderFormat(event.nettyHttpRequest.getMethod.name(), getResponseHeaders(event.request.headers))
+        SockoUtils.toSockoHeaderFormat(event.nettyHttpRequest.getMethod.name(), getResponseHeaders(event.request.headers), encBody.size)
       )
     }
 
