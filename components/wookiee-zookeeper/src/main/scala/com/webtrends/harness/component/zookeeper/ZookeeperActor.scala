@@ -19,6 +19,8 @@
 
 package com.webtrends.harness.component.zookeeper
 
+import java.net.InetAddress
+
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
@@ -27,6 +29,8 @@ import com.webtrends.harness.component.zookeeper.ZookeeperEvent.Internal.{Unregi
 import com.webtrends.harness.component.zookeeper.ZookeeperEvent._
 import com.webtrends.harness.component.zookeeper.ZookeeperService._
 import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
+import com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService._
+import com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService
 import com.webtrends.harness.health.{ComponentState, HealthComponent, ActorHealth}
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import org.apache.curator.framework.CuratorFramework
@@ -35,6 +39,7 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCache.StartMode
 import org.apache.curator.framework.recipes.cache.{PathChildrenCacheEvent, PathChildrenCache, PathChildrenCacheListener}
 import org.apache.curator.framework.recipes.leader.{LeaderLatchListener, LeaderLatch}
 import org.apache.curator.framework.state.{ConnectionState, ConnectionStateListener}
+import org.apache.curator.x.discovery.{UriSpec, ServiceInstance}
 import org.apache.zookeeper.CreateMode
 import org.apache.zookeeper.KeeperException.{NoNodeException, NodeExistsException}
 
@@ -80,6 +85,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     Try({
       // Register as a handler
       ZookeeperService.registerMediator(self)
+      DiscoverableService.registerMediator(self)
       startCurator
     }).recover({
       case e: Exception => log.error("An error occurred trying to start curator.", e)
@@ -91,6 +97,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     unregisterNode(curator.client, settings)
     // Un-register as a handler
     ZookeeperService.unregisterMediator(self)
+    DiscoverableService.unregisterMediator(self)
     // We are stopped so shutdown curator
     stopCurator
     log.info("Curator client stopped")
@@ -127,7 +134,16 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     case CreateNode(path, ephemeral, data, optNamespace) => createNode(path, ephemeral, data, optNamespace)
     // Delete a node
     case DeleteNode(path, optNamespace) => deleteNode(path, optNamespace)
-
+    // query for service names
+    case QueryForNames(basePath) => queryForNames(basePath)
+    // query for service instances
+    case QueryForInstances(basePath, name, id) => queryForInstances(basePath, name, id)
+    // make service discoverable
+    case MakeDiscoverable(basePath, id, name, port, uriSpec) => makeDiscoverable(basePath, id, name, port, uriSpec)
+    // get a single instance from the provider
+    case GetInstance(basePath, name) => getInstance(basePath, name)
+    // get all the instances from the provider
+    case GetAllInstances(basePath, name) => getAllInstances(basePath, name)
     // Registration messages
     case r: RegisterZookeeperEvent => registerForEvents(r)
     case ur: UnregisterZookeeperEvent => unregisterForEvents(ur)
@@ -205,8 +221,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
   private def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean, namespace: Option[String]) = {
     try {
       sender() ! getClientContext(namespace).getData.forPath(path)
-    }
-    catch {
+    } catch {
       case e: NoNodeException =>
         try {
           val mode = if (ephemeral) CreateMode.EPHEMERAL else CreateMode.PERSISTENT
@@ -256,6 +271,74 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
       case ne: NoNodeException => sender() ! path // Swallow
       case e: Exception =>
         log.error(e, "An error occurred trying to create a node for the path {}", path)
+        sender() ! Status.Failure(e)
+    }
+  }
+
+  private def queryForNames(basePath:String) = {
+    try {
+      sender() ! curator.discovery(basePath).queryForNames()
+    } catch {
+      case e: Exception =>
+        log.error(e, "An error occurred trying to query for names")
+        sender() ! Status.Failure(e)
+    }
+  }
+
+  private def queryForInstances(basePath:String, name:String, id:Option[String]=None) = {
+    try {
+      val query = id match {
+        case Some(i) => curator.discovery(basePath).queryForInstance(name, i)
+        case None => curator.discovery(basePath).queryForInstances(name)
+      }
+      sender() ! query
+    } catch {
+      case e:Exception =>
+        log.error(e, "An error occurred trying to query for instances")
+        sender() ! Status.Failure(e)
+    }
+  }
+
+  private def makeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec) = {
+    try {
+      if (curator.discovery(basePath).queryForInstance(name, id) == null) {
+        val instance = ServiceInstance.builder[Void]()
+          .id(id)
+          .name(name)
+          .port(port)
+          .uriSpec(uriSpec)
+          .build()
+
+        curator.registerService(basePath, instance)
+        log.info(s"Service is now discoverable ${instance.toString}")
+        sender() ! true
+      } else {
+        log.info(s"Not making {$id, $name} discoverable as it already is")
+        sender() ! false
+      }
+    } catch {
+      case e:Exception =>
+        log.error(e, "An error occurred while trying to make discoverable")
+        sender() ! Status.Failure(e)
+    }
+  }
+
+  private def getInstance(basePath:String, name:String) = {
+    try {
+      sender() ! curator.createServiceProvider(basePath, name).getInstance()
+    } catch {
+      case e:Exception =>
+        log.error(e, "An error occurred while trying to get an instance from the discoverable provider")
+        sender() ! Status.Failure(e)
+    }
+  }
+
+  private def getAllInstances(basePath:String, name:String) = {
+    try {
+      sender() ! curator.createServiceProvider(basePath, name).getAllInstances
+    } catch {
+      case e:Exception =>
+        log.error(e, "An error occurred while trying to get all instances from the discoverable provider")
         sender() ! Status.Failure(e)
     }
   }
@@ -402,8 +485,13 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
       s"We are currently not able to connect to the zookeeper quorum on ${settings.quorum}"
     }
 
+    val components = curator.getServiceProviderDetails() map {
+      k =>
+        new HealthComponent(k._1.toString, ComponentState.NORMAL, k._2.toString)
+    }
+
     Future {
-      new HealthComponent("zookeeper", zookeeperState, details = msg, extra = None)
+      new HealthComponent("zookeeper", zookeeperState, details = msg, extra = None, components.toList)
     }
   }
 
