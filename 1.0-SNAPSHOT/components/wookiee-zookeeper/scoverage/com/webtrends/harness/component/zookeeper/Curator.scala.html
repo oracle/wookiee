@@ -49,76 +49,131 @@
 </span>24 <span style=''>import org.apache.curator.retry.RetryNTimes
 </span>25 <span style=''>import com.webtrends.harness.component.zookeeper.config.ZookeeperSettings
 </span>26 <span style=''>import com.webtrends.harness.logging.LoggingAdapter
-</span>27 <span style=''>import scala.collection.mutable
-</span>28 <span style=''>
-</span>29 <span style=''>private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAdapter {
+</span>27 <span style=''>import org.apache.curator.x.discovery.{ServiceInstance, ServiceProvider, ServiceDiscoveryBuilder, ServiceDiscovery}
+</span>28 <span style=''>import scala.collection.mutable
+</span>29 <span style=''>import scala.collection.JavaConversions._
 </span>30 <span style=''>
-</span>31 <span style=''>  // We manage an internal client since the CuratorFramework will not allow re-use of the client
-</span>32 <span style=''>  // after it has been closed
-</span>33 <span style=''>  private var internalClient: Option[CuratorFramework] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>31 <span style=''>private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAdapter {
+</span>32 <span style=''>
+</span>33 <span style=''>  private[zookeeper] case class ProviderKey(basePath:String, key:String)
 </span>34 <span style=''>
-</span>35 <span style=''>  def client = </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
-</span>36 <span style=''>
-</span>37 <span style=''>  private[zookeeper] def createClient: CuratorFramework = {
-</span>38 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
-</span>39 <span style=''>    </span><span style='background: #AEF1AE'>internalClient = Some(CuratorFrameworkFactory.newClient(
-</span>40 <span style=''></span><span style='background: #AEF1AE'>      settings.quorum,
-</span>41 <span style=''></span><span style='background: #AEF1AE'>      settings.sessionTimeout.intValue,
-</span>42 <span style=''></span><span style='background: #AEF1AE'>      settings.connectionTimeout.intValue, new RetryNTimes(
-</span>43 <span style=''></span><span style='background: #AEF1AE'>        settings.retryCount,
-</span>44 <span style=''></span><span style='background: #AEF1AE'>        settings.retrySleep.intValue)))</span><span style=''>
-</span>45 <span style=''>
-</span>46 <span style=''>    }
-</span>47 <span style=''>
-</span>48 <span style=''>    </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
-</span>49 <span style=''>  }
-</span>50 <span style=''>
-</span>51 <span style=''>  private[zookeeper] def start(listener: Option[ConnectionStateListener] = None): Unit = {
-</span>52 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
-</span>53 <span style=''>      </span><span style='background: #AEF1AE'>createClient</span><span style=''>
+</span>35 <span style=''>  // We manage an internal client since the CuratorFramework will not allow re-use of the client
+</span>36 <span style=''>  // after it has been closed
+</span>37 <span style=''>  private var internalClient: Option[CuratorFramework] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>38 <span style=''>  def client = </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
+</span>39 <span style=''>
+</span>40 <span style=''>  // list of all discovery services by basepath
+</span>41 <span style=''>  private val discoveries = </span><span style='background: #AEF1AE'>mutable.Map[String, ServiceDiscovery[Void]]()</span><span style=''>
+</span>42 <span style=''>  // we manage an internal list of all discoverable provider
+</span>43 <span style=''>  private val providers = </span><span style='background: #AEF1AE'>mutable.Map[ProviderKey, ServiceProvider[Void]]()</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  private[zookeeper] def createClient: CuratorFramework = {
+</span>46 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
+</span>47 <span style=''>    </span><span style='background: #AEF1AE'>internalClient = Some(CuratorFrameworkFactory.newClient(
+</span>48 <span style=''></span><span style='background: #AEF1AE'>      settings.quorum,
+</span>49 <span style=''></span><span style='background: #AEF1AE'>      settings.sessionTimeout.intValue,
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      settings.connectionTimeout.intValue, new RetryNTimes(
+</span>51 <span style=''></span><span style='background: #AEF1AE'>        settings.retryCount,
+</span>52 <span style=''></span><span style='background: #AEF1AE'>        settings.retrySleep.intValue)))</span><span style=''>
+</span>53 <span style=''>
 </span>54 <span style=''>    }
 </span>55 <span style=''>
-</span>56 <span style=''>    </span><span style='background: #AEF1AE'>client.synchronized {
-</span>57 <span style=''></span><span style='background: #AEF1AE'>      if (client.getState == CuratorFrameworkState.LATENT) {
-</span>58 <span style=''></span><span style='background: #AEF1AE'>        log.info("Starting curator with quorum " + settings.quorum)
-</span>59 <span style=''></span><span style='background: #AEF1AE'>        if (listener.isDefined) {
-</span>60 <span style=''></span><span style='background: #AEF1AE'>          client.getConnectionStateListenable.addListener(listener.get)
-</span>61 <span style=''></span><span style='background: #AEF1AE'>        }
-</span>62 <span style=''></span><span style='background: #AEF1AE'>
-</span>63 <span style=''></span><span style='background: #AEF1AE'>        client.start
-</span>64 <span style=''></span><span style='background: #AEF1AE'>        client.getZookeeperClient.blockUntilConnectedOrTimedOut
-</span>65 <span style=''></span><span style='background: #AEF1AE'>      }
-</span>66 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>67 <span style=''>  }
-</span>68 <span style=''>
-</span>69 <span style=''>  private[zookeeper] def stop: Unit = {
-</span>70 <span style=''>    </span><span style='background: #AEF1AE'>log.debug("Stopping curator")</span><span style=''>
-</span>71 <span style=''>    </span><span style='background: #AEF1AE'>client.close</span><span style=''>
-</span>72 <span style=''>    </span><span style='background: #AEF1AE'>internalClient = None</span><span style=''>
-</span>73 <span style=''>  }
-</span>74 <span style=''>}
-</span>75 <span style=''>
-</span>76 <span style=''>/**
-</span>77 <span style=''> * This allows access to a single instance of the curator client per quorum when an application
-</span>78 <span style=''> * needs direct access. It is still preferred for one to use the ZookeeperAdapter
-</span>79 <span style=''> * and ZookeeperEventAdapter traits.
-</span>80 <span style=''> */
-</span>81 <span style=''>object Curator {
-</span>82 <span style=''>
-</span>83 <span style=''>  private val curators = </span><span style='background: #AEF1AE'>mutable.Map.empty[String, Curator]</span><span style=''>
-</span>84 <span style=''>
-</span>85 <span style=''>  /**
-</span>86 <span style=''>   * Return the instance of the Curator client object. This is usually used after the harness has
-</span>87 <span style=''>   * called the apply method that takes the required settings.
-</span>88 <span style=''>   * @return the singleton instance of the Curator
-</span>89 <span style=''>   */
-</span>90 <span style=''>  def apply(settings: ZookeeperSettings): Curator = {
-</span>91 <span style=''>    </span><span style='background: #AEF1AE'>curators.synchronized {
-</span>92 <span style=''></span><span style='background: #AEF1AE'>      curators.getOrElseUpdate(settings.quorum, new Curator(settings))
-</span>93 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
-</span>94 <span style=''>  }
-</span>95 <span style=''>
-</span>96 <span style=''>}
+</span>56 <span style=''>    </span><span style='background: #AEF1AE'>internalClient.get</span><span style=''>
+</span>57 <span style=''>  }
+</span>58 <span style=''>
+</span>59 <span style=''>  private[zookeeper] def start(listener: Option[ConnectionStateListener] = None): Unit = {
+</span>60 <span style=''>    if (</span><span style='background: #AEF1AE'>internalClient.isEmpty</span><span style=''>) {
+</span>61 <span style=''>      </span><span style='background: #AEF1AE'>createClient</span><span style=''>
+</span>62 <span style=''>    }
+</span>63 <span style=''>
+</span>64 <span style=''>    </span><span style='background: #AEF1AE'>client.synchronized {
+</span>65 <span style=''></span><span style='background: #AEF1AE'>      if (client.getState == CuratorFrameworkState.LATENT) {
+</span>66 <span style=''></span><span style='background: #AEF1AE'>        log.info("Starting curator with quorum " + settings.quorum)
+</span>67 <span style=''></span><span style='background: #AEF1AE'>        if (listener.isDefined) {
+</span>68 <span style=''></span><span style='background: #AEF1AE'>          client.getConnectionStateListenable.addListener(listener.get)
+</span>69 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>70 <span style=''></span><span style='background: #AEF1AE'>
+</span>71 <span style=''></span><span style='background: #AEF1AE'>        client.start
+</span>72 <span style=''></span><span style='background: #AEF1AE'>        client.getZookeeperClient.blockUntilConnectedOrTimedOut
+</span>73 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>74 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  private[zookeeper] def stop: Unit = {
+</span>78 <span style=''>    </span><span style='background: #AEF1AE'>log.debug("Stopping curator")</span><span style=''>
+</span>79 <span style=''>    </span><span style='background: #AEF1AE'>internalClient</span><span style=''> match {
+</span>80 <span style=''>      case Some(c) if </span><span style='background: #AEF1AE'>c.getState == CuratorFrameworkState.STARTED</span><span style=''> =>
+</span>81 <span style=''>        </span><span style='background: #AEF1AE'>c.close()</span><span style=''>
+</span>82 <span style=''>        </span><span style='background: #AEF1AE'>internalClient = None</span><span style=''>
+</span>83 <span style=''>      case _ </span><span style='background: #F0ADAD'>=></span><span style=''>
+</span>84 <span style=''>    }
+</span>85 <span style=''>    </span><span style='background: #AEF1AE'>discoveries.foreach(x => </span><span style='background: #F0ADAD'>x._2.close()</span><span style='background: #AEF1AE'>)</span><span style=''>
+</span>86 <span style=''>  }
+</span>87 <span style=''>
+</span>88 <span style=''>  def discovery(basePath:String): ServiceDiscovery[Void] = {
+</span>89 <span style=''>    if (</span><span style='background: #F0ADAD'>discoveries.contains(basePath)</span><span style=''>) {
+</span>90 <span style=''>      </span><span style='background: #F0ADAD'>discoveries(basePath)</span><span style=''>
+</span>91 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>92 <span style=''></span><span style='background: #F0ADAD'>      val discovery = ServiceDiscoveryBuilder.builder(classOf[Void])
+</span>93 <span style=''></span><span style='background: #F0ADAD'>        .client(client)
+</span>94 <span style=''></span><span style='background: #F0ADAD'>        .basePath(basePath)
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        .build()
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      discovery.start()
+</span>97 <span style=''></span><span style='background: #F0ADAD'>      discoveries.put(basePath, discovery)
+</span>98 <span style=''></span><span style='background: #F0ADAD'>      discovery
+</span>99 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>100 <span style=''>  }
+</span>101 <span style=''>
+</span>102 <span style=''>  def createServiceProvider(basePath:String, name:String) : ServiceProvider[Void] = {
+</span>103 <span style=''>    val key = </span><span style='background: #F0ADAD'>ProviderKey(basePath, name)</span><span style=''>
+</span>104 <span style=''>    if (</span><span style='background: #F0ADAD'>providers.contains(key)</span><span style=''>) {
+</span>105 <span style=''>      </span><span style='background: #F0ADAD'>providers(key)</span><span style=''>
+</span>106 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>107 <span style=''></span><span style='background: #F0ADAD'>      val provider = discovery(basePath).serviceProviderBuilder().serviceName(name).build()
+</span>108 <span style=''></span><span style='background: #F0ADAD'>      provider.start()
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      providers.put(key, provider)
+</span>110 <span style=''></span><span style='background: #F0ADAD'>      provider
+</span>111 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>  def getServiceProviderDetails(name:Option[String]=None) : Map[ProviderKey, Iterable[ServiceInstance[Void]]] = {
+</span>115 <span style=''>    val filteredMap = name match {
+</span>116 <span style=''>      case Some(n) => </span><span style='background: #F0ADAD'>providers.filter(k => k._1.equals(n))</span><span style=''>
+</span>117 <span style=''>      case None => </span><span style='background: #F0ADAD'>providers</span><span style=''>
+</span>118 <span style=''>    }
+</span>119 <span style=''>    </span><span style='background: #F0ADAD'>filteredMap.map {
+</span>120 <span style=''></span><span style='background: #F0ADAD'>      k => k._1 -> collectionAsScalaIterable(k._2.getAllInstances)
+</span>121 <span style=''></span><span style='background: #F0ADAD'>    }.toMap</span><span style=''>
+</span>122 <span style=''>  }
+</span>123 <span style=''>
+</span>124 <span style=''>  def registerService(basePath:String, instance:ServiceInstance[Void]) = {
+</span>125 <span style=''>    </span><span style='background: #F0ADAD'>discovery(basePath).registerService(instance)</span><span style=''>
+</span>126 <span style=''>    // create a provider for the service if one has not already been created for it
+</span>127 <span style=''>    </span><span style='background: #F0ADAD'>createServiceProvider(basePath, instance.getName)</span><span style=''>
+</span>128 <span style=''>  }
+</span>129 <span style=''>}
+</span>130 <span style=''>
+</span>131 <span style=''>/**
+</span>132 <span style=''> * This allows access to a single instance of the curator client per quorum when an application
+</span>133 <span style=''> * needs direct access. It is still preferred for one to use the ZookeeperAdapter
+</span>134 <span style=''> * and ZookeeperEventAdapter traits.
+</span>135 <span style=''> */
+</span>136 <span style=''>object Curator {
+</span>137 <span style=''>
+</span>138 <span style=''>  private val curators = </span><span style='background: #AEF1AE'>mutable.Map.empty[String, Curator]</span><span style=''>
+</span>139 <span style=''>
+</span>140 <span style=''>  /**
+</span>141 <span style=''>   * Return the instance of the Curator client object. This is usually used after the harness has
+</span>142 <span style=''>   * called the apply method that takes the required settings.
+</span>143 <span style=''>   * @return the singleton instance of the Curator
+</span>144 <span style=''>   */
+</span>145 <span style=''>  def apply(settings: ZookeeperSettings): Curator = {
+</span>146 <span style=''>    </span><span style='background: #AEF1AE'>curators.synchronized {
+</span>147 <span style=''></span><span style='background: #AEF1AE'>      curators.getOrElseUpdate(settings.quorum, new Curator(settings))
+</span>148 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>149 <span style=''>  }
+</span>150 <span style=''>
+</span>151 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -132,15 +187,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          33
+          37
         </td>
         <td>
           1
         </td>
         <td>
-          1474
+          1706
           -
-          1478
+          1710
         </td>
         <td>
           Select
@@ -153,15 +208,15 @@
         </td>
       </tr><tr>
         <td>
-          35
+          38
         </td>
         <td>
           2
         </td>
         <td>
-          1495
+          1726
           -
-          1513
+          1744
         </td>
         <td>
           Select
@@ -174,57 +229,57 @@
         </td>
       </tr><tr>
         <td>
-          38
-        </td>
-        <td>
-          14
-        </td>
-        <td>
-          1579
-          -
-          1579
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          38
+          41
         </td>
         <td>
           3
         </td>
         <td>
-          1583
+          1822
           -
-          1605
+          1867
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          scala.Option.isEmpty
+          scala.collection.generic.GenMapFactory.apply
         </td>
         <td style="background: #AEF1AE">
-          Curator.this.internalClient.isEmpty
+          scala.collection.mutable.Map.apply[String, org.apache.curator.x.discovery.ServiceDiscovery[Void]]()
         </td>
       </tr><tr>
         <td>
-          38
+          43
         </td>
         <td>
-          15
+          4
         </td>
         <td>
-          1579
+          1955
           -
-          1579
+          2004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.mutable.Map.apply[Curator.this.ProviderKey, org.apache.curator.x.discovery.ServiceProvider[Void]]()
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          2070
+          -
+          2070
         </td>
         <td>
           Block
@@ -237,15 +292,78 @@
         </td>
       </tr><tr>
         <td>
-          39
+          46
         </td>
         <td>
-          11
+          5
         </td>
         <td>
-          1630
+          2074
           -
-          1861
+          2096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2070
+          -
+          2070
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          2104
+          -
+          2352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.internalClient_=
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient_=(scala.Some.apply[org.apache.curator.framework.CuratorFramework](org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()))))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          2121
+          -
+          2352
         </td>
         <td>
           Apply
@@ -258,36 +376,15 @@
         </td>
       </tr><tr>
         <td>
-          39
+          47
         </td>
         <td>
-          13
+          12
         </td>
         <td>
-          1613
+          2126
           -
-          1861
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.webtrends.harness.component.zookeeper.Curator.internalClient_=
-        </td>
-        <td style="background: #AEF1AE">
-          Curator.this.internalClient_=(scala.Some.apply[org.apache.curator.framework.CuratorFramework](org.apache.curator.framework.CuratorFrameworkFactory.newClient(Curator.this.settings.quorum, scala.this.Predef.long2Long(Curator.this.settings.sessionTimeout).intValue(), scala.this.Predef.long2Long(Curator.this.settings.connectionTimeout).intValue(), new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue()))))
-        </td>
-      </tr><tr>
-        <td>
-          39
-        </td>
-        <td>
-          10
-        </td>
-        <td>
-          1635
-          -
-          1860
+          2351
         </td>
         <td>
           Apply
@@ -300,18 +397,18 @@
         </td>
       </tr><tr>
         <td>
-          39
+          47
         </td>
         <td>
-          12
+          15
         </td>
         <td>
-          1613
+          2104
           -
-          1861
+          2352
         </td>
         <td>
-          Apply
+          Block
         </td>
         <td>
           com.webtrends.harness.component.zookeeper.Curator.internalClient_=
@@ -321,15 +418,15 @@
         </td>
       </tr><tr>
         <td>
-          40
+          48
         </td>
         <td>
-          4
+          6
         </td>
         <td>
-          1676
+          2167
           -
-          1691
+          2182
         </td>
         <td>
           Select
@@ -342,15 +439,15 @@
         </td>
       </tr><tr>
         <td>
-          41
+          49
         </td>
         <td>
-          5
+          7
         </td>
         <td>
-          1699
+          2190
           -
-          1731
+          2222
         </td>
         <td>
           Apply
@@ -363,36 +460,15 @@
         </td>
       </tr><tr>
         <td>
-          42
+          50
         </td>
         <td>
-          9
+          8
         </td>
         <td>
-          1776
+          2230
           -
-          1859
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          org.apache.curator.retry.RetryNTimes.&lt;init&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue())
-        </td>
-      </tr><tr>
-        <td>
-          42
-        </td>
-        <td>
-          6
-        </td>
-        <td>
-          1739
-          -
-          1774
+          2265
         </td>
         <td>
           Apply
@@ -405,15 +481,36 @@
         </td>
       </tr><tr>
         <td>
-          43
+          50
         </td>
         <td>
-          7
+          11
         </td>
         <td>
-          1801
+          2267
           -
-          1820
+          2350
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.retry.RetryNTimes.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new org.apache.curator.retry.RetryNTimes(Curator.this.settings.retryCount, scala.this.Predef.long2Long(Curator.this.settings.retrySleep).intValue())
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          2292
+          -
+          2311
         </td>
         <td>
           Select
@@ -426,15 +523,15 @@
         </td>
       </tr><tr>
         <td>
-          44
+          52
         </td>
         <td>
-          8
+          10
         </td>
         <td>
-          1830
+          2321
           -
-          1858
+          2349
         </td>
         <td>
           Apply
@@ -447,15 +544,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          56
         </td>
         <td>
-          16
+          18
         </td>
         <td>
-          1874
+          2365
           -
-          1892
+          2383
         </td>
         <td>
           Select
@@ -468,36 +565,36 @@
         </td>
       </tr><tr>
         <td>
-          52
+          60
         </td>
         <td>
-          17
+          23
         </td>
         <td>
-          1997
+          2484
           -
-          2019
+          2484
         </td>
         <td>
-          Select
+          Block
         </td>
         <td>
-          scala.Option.isEmpty
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          Curator.this.internalClient.isEmpty
+          ()
         </td>
       </tr><tr>
         <td>
-          52
+          60
         </td>
         <td>
-          20
+          22
         </td>
         <td>
-          1993
+          2484
           -
-          1993
+          2484
         </td>
         <td>
           Literal
@@ -510,57 +607,36 @@
         </td>
       </tr><tr>
         <td>
-          52
-        </td>
-        <td>
-          21
-        </td>
-        <td>
-          1993
-          -
-          1993
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          53
+          60
         </td>
         <td>
           19
         </td>
         <td>
-          2029
+          2488
           -
-          2041
+          2510
         </td>
         <td>
-          Block
+          Select
         </td>
         <td>
-          com.webtrends.harness.component.zookeeper.Curator.createClient
+          scala.Option.isEmpty
         </td>
         <td style="background: #AEF1AE">
-          Curator.this.createClient
+          Curator.this.internalClient.isEmpty
         </td>
       </tr><tr>
         <td>
-          53
+          61
         </td>
         <td>
-          18
+          20
         </td>
         <td>
-          2029
+          2520
           -
-          2041
+          2532
         </td>
         <td>
           Select
@@ -573,15 +649,57 @@
         </td>
       </tr><tr>
         <td>
-          56
+          61
         </td>
         <td>
-          38
+          21
         </td>
         <td>
-          2053
+          2520
           -
-          2419
+          2532
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.createClient
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.createClient
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          2564
+          -
+          2564
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2544
+          -
+          2910
         </td>
         <td>
           Apply
@@ -605,15 +723,15 @@ else
         </td>
       </tr><tr>
         <td>
-          56
+          65
         </td>
         <td>
-          39
+          38
         </td>
         <td>
-          2073
+          2572
           -
-          2073
+          2572
         </td>
         <td>
           Literal
@@ -626,15 +744,15 @@ else
         </td>
       </tr><tr>
         <td>
-          57
+          65
         </td>
         <td>
-          35
+          37
         </td>
         <td>
-          2134
+          2625
           -
-          2413
+          2904
         </td>
         <td>
           Block
@@ -655,15 +773,36 @@ else
         </td>
       </tr><tr>
         <td>
-          57
+          65
         </td>
         <td>
-          22
+          39
         </td>
         <td>
-          2085
+          2572
           -
-          2132
+          2572
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          2576
+          -
+          2623
         </td>
         <td>
           Apply
@@ -676,120 +815,15 @@ else
         </td>
       </tr><tr>
         <td>
-          57
-        </td>
-        <td>
-          37
-        </td>
-        <td>
-          2081
-          -
-          2081
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          57
-        </td>
-        <td>
-          36
-        </td>
-        <td>
-          2081
-          -
-          2081
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          23
-        </td>
-        <td>
-          2153
-          -
-          2184
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          &quot;Starting curator with quorum &quot;
-        </td>
-      </tr><tr>
-        <td>
-          58
+          66
         </td>
         <td>
           26
         </td>
         <td>
-          2144
+          2678
           -
-          2203
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.info
-        </td>
-        <td style="background: #AEF1AE">
-          Curator.this.log.info(&quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum))
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          25
-        </td>
-        <td>
-          2153
-          -
-          2202
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.String.+
-        </td>
-        <td style="background: #AEF1AE">
-          &quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum)
-        </td>
-      </tr><tr>
-        <td>
-          58
-        </td>
-        <td>
-          24
-        </td>
-        <td>
-          2187
-          -
-          2202
+          2693
         </td>
         <td>
           Select
@@ -802,36 +836,15 @@ else
         </td>
       </tr><tr>
         <td>
-          59
+          66
         </td>
         <td>
-          32
+          25
         </td>
         <td>
-          2212
+          2644
           -
-          2212
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #AEF1AE">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          31
-        </td>
-        <td>
-          2212
-          -
-          2212
+          2675
         </td>
         <td>
           Literal
@@ -840,19 +853,61 @@ else
           &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          ()
+          &quot;Starting curator with quorum &quot;
         </td>
       </tr><tr>
         <td>
-          59
+          66
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          2635
+          -
+          2694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.log.info(&quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum))
+        </td>
+      </tr><tr>
+        <td>
+          66
         </td>
         <td>
           27
         </td>
         <td>
-          2216
+          2644
           -
-          2234
+          2693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Starting curator with quorum &quot;.+(Curator.this.settings.quorum)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          2707
+          -
+          2725
         </td>
         <td>
           Select
@@ -865,57 +920,57 @@ else
         </td>
       </tr><tr>
         <td>
-          60
+          67
         </td>
         <td>
-          29
+          34
         </td>
         <td>
-          2248
+          2703
           -
-          2309
+          2703
         </td>
         <td>
-          Apply
+          Block
         </td>
         <td>
-          org.apache.curator.framework.listen.Listenable.addListener
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+          ()
         </td>
       </tr><tr>
         <td>
-          60
+          67
         </td>
         <td>
-          28
+          33
         </td>
         <td>
-          2296
+          2703
           -
-          2308
+          2703
         </td>
         <td>
-          Select
+          Literal
         </td>
         <td>
-          scala.Option.get
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #AEF1AE">
-          listener.get
+          ()
         </td>
       </tr><tr>
         <td>
-          60
+          68
         </td>
         <td>
-          30
+          32
         </td>
         <td>
-          2248
+          2739
           -
-          2309
+          2800
         </td>
         <td>
           Block
@@ -928,15 +983,57 @@ else
         </td>
       </tr><tr>
         <td>
-          63
+          68
         </td>
         <td>
-          33
+          31
         </td>
         <td>
-          2329
+          2739
           -
-          2341
+          2800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.framework.listen.Listenable.addListener
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.client.getConnectionStateListenable().addListener(listener.get)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          2787
+          -
+          2799
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #AEF1AE">
+          listener.get
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          2820
+          -
+          2832
         </td>
         <td>
           Apply
@@ -949,15 +1046,15 @@ else
         </td>
       </tr><tr>
         <td>
-          64
+          72
         </td>
         <td>
-          34
+          36
         </td>
         <td>
-          2350
+          2841
           -
-          2405
+          2896
         </td>
         <td>
           Apply
@@ -970,15 +1067,15 @@ else
         </td>
       </tr><tr>
         <td>
-          70
+          78
         </td>
         <td>
-          40
+          42
         </td>
         <td>
-          2469
+          2960
           -
-          2498
+          2989
         </td>
         <td>
           Apply
@@ -991,15 +1088,57 @@ else
         </td>
       </tr><tr>
         <td>
-          71
+          79
         </td>
         <td>
-          41
+          43
         </td>
         <td>
-          2503
+          2994
           -
-          2515
+          3008
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.internalClient
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.internalClient
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          3039
+          -
+          3082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #AEF1AE">
+          c.getState().==(STARTED)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          3094
+          -
+          3103
         </td>
         <td>
           Apply
@@ -1008,19 +1147,19 @@ else
           org.apache.curator.framework.CuratorFramework.close
         </td>
         <td style="background: #AEF1AE">
-          Curator.this.client.close()
+          c.close()
         </td>
       </tr><tr>
         <td>
-          72
+          82
         </td>
         <td>
-          43
+          47
         </td>
         <td>
-          2520
+          3112
           -
-          2541
+          3133
         </td>
         <td>
           Apply
@@ -1033,15 +1172,15 @@ else
         </td>
       </tr><tr>
         <td>
-          72
+          82
         </td>
         <td>
-          42
+          46
         </td>
         <td>
-          2537
+          3129
           -
-          2541
+          3133
         </td>
         <td>
           Select
@@ -1057,12 +1196,673 @@ else
           83
         </td>
         <td>
-          44
+          48
         </td>
         <td>
-          2815
+          3147
           -
-          2849
+          3149
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          50
+        </td>
+        <td>
+          3160
+          -
+          3198
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          Curator.this.discoveries.foreach[Unit](((x: (String, org.apache.curator.x.discovery.ServiceDiscovery[Void])) =&gt; x._2.close()))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          49
+        </td>
+        <td>
+          3185
+          -
+          3197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.Closeable.close
+        </td>
+        <td style="background: #F0ADAD">
+          x._2.close()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          3273
+          -
+          3303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discoveries.contains(basePath)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          3313
+          -
+          3334
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discoveries.apply(basePath)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          3313
+          -
+          3334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discoveries.apply(basePath)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          3346
+          -
+          3574
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val discovery: org.apache.curator.x.discovery.ServiceDiscovery[Void] = org.apache.curator.x.discovery.ServiceDiscoveryBuilder.builder[Void](classOf[java.lang.Void]).client(Curator.this.client).basePath(basePath).build();
+  discovery.start();
+  Curator.this.discoveries.put(basePath, discovery);
+  discovery
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          3370
+          -
+          3485
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceDiscoveryBuilder.build
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.curator.x.discovery.ServiceDiscoveryBuilder.builder[Void](classOf[java.lang.Void]).client(Curator.this.client).basePath(basePath).build()
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          3492
+          -
+          3509
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceDiscovery.start
+        </td>
+        <td style="background: #F0ADAD">
+          discovery.start()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          56
+        </td>
+        <td>
+          3516
+          -
+          3552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discoveries.put(basePath, discovery)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          3680
+          -
+          3707
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.ProviderKey.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.ProviderKey.apply(basePath, name)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          3716
+          -
+          3739
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers.contains(key)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          3749
+          -
+          3763
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers.apply(key)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          3749
+          -
+          3763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers.apply(key)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          3775
+          -
+          3947
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val provider: org.apache.curator.x.discovery.ServiceProvider[Void] = Curator.this.discovery(basePath).serviceProviderBuilder().serviceName(name).build();
+  provider.start();
+  Curator.this.providers.put(key, provider);
+  provider
+}
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          3798
+          -
+          3868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceProviderBuilder.build
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discovery(basePath).serviceProviderBuilder().serviceName(name).build()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          3875
+          -
+          3891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceProvider.start
+        </td>
+        <td style="background: #F0ADAD">
+          provider.start()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          3898
+          -
+          3926
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers.put(key, provider)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          4124
+          -
+          4161
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers.filter(((k: (Curator.this.ProviderKey, org.apache.curator.x.discovery.ServiceProvider[Void])) =&gt; k._1.equals(n)))
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          4146
+          -
+          4160
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.ProviderKey.equals
+        </td>
+        <td style="background: #F0ADAD">
+          k._1.equals(n)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          4181
+          -
+          4190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.providers
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.providers
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          4217
+          -
+          4217
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Map.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          mutable.this.Map.canBuildFrom[Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          4238
+          -
+          4285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.convert.WrapAsScala.collectionAsScalaIterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConversions.collectionAsScalaIterable[org.apache.curator.x.discovery.ServiceInstance[Void]](k._2.getAllInstances())
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          4264
+          -
+          4284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceProvider.getAllInstances
+        </td>
+        <td style="background: #F0ADAD">
+          k._2.getAllInstances()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          4230
+          -
+          4234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          k._1
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          4230
+          -
+          4285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[Curator.this.ProviderKey](k._1).-&gt;[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]](scala.collection.JavaConversions.collectionAsScalaIterable[org.apache.curator.x.discovery.ServiceInstance[Void]](k._2.getAllInstances()))
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          74
+        </td>
+        <td>
+          4292
+          -
+          4292
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]])]
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          4201
+          -
+          4297
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          filteredMap.map[(Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]), scala.collection.mutable.Map[Curator.this.ProviderKey,Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]](((k: (Curator.this.ProviderKey, org.apache.curator.x.discovery.ServiceProvider[Void])) =&gt; scala.this.Predef.ArrowAssoc[Curator.this.ProviderKey](k._1).-&gt;[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]](scala.collection.JavaConversions.collectionAsScalaIterable[org.apache.curator.x.discovery.ServiceInstance[Void]](k._2.getAllInstances()))))(mutable.this.Map.canBuildFrom[Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]).toMap[Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]](scala.this.Predef.$conforms[(Curator.this.ProviderKey, Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]])])
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          4382
+          -
+          4427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceDiscovery.registerService
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.discovery(basePath).registerService(instance)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          4548
+          -
+          4564
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.curator.x.discovery.ServiceInstance.getName
+        </td>
+        <td style="background: #F0ADAD">
+          instance.getName()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          4516
+          -
+          4565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.Curator.createServiceProvider
+        </td>
+        <td style="background: #F0ADAD">
+          Curator.this.createServiceProvider(basePath, instance.getName())
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          4839
+          -
+          4873
         </td>
         <td>
           TypeApply
@@ -1075,15 +1875,15 @@ else
         </td>
       </tr><tr>
         <td>
-          91
+          146
         </td>
         <td>
-          48
+          83
         </td>
         <td>
-          3133
+          5157
           -
-          3233
+          5257
         </td>
         <td>
           Apply
@@ -1096,15 +1896,36 @@ else
         </td>
       </tr><tr>
         <td>
-          92
+          147
         </td>
         <td>
-          47
+          80
         </td>
         <td>
-          3163
+          5212
           -
-          3227
+          5227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.quorum
+        </td>
+        <td style="background: #AEF1AE">
+          settings.quorum
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          5187
+          -
+          5251
         </td>
         <td>
           Apply
@@ -1117,15 +1938,15 @@ else
         </td>
       </tr><tr>
         <td>
-          92
+          147
         </td>
         <td>
-          46
+          81
         </td>
         <td>
-          3205
+          5229
           -
-          3226
+          5250
         </td>
         <td>
           Apply
@@ -1135,27 +1956,6 @@ else
         </td>
         <td style="background: #AEF1AE">
           new Curator(settings)
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          45
-        </td>
-        <td>
-          3188
-          -
-          3203
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.zookeeper.config.ZookeeperSettings.quorum
-        </td>
-        <td style="background: #AEF1AE">
-          settings.quorum
         </td>
       </tr>
     </table>

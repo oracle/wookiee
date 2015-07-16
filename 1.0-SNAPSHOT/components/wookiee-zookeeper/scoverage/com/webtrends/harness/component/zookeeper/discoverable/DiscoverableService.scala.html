@@ -1,0 +1,716 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/zookeeper/discoverable/DiscoverableService.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.component.zookeeper.discoverable
+</span>20 <span style=''>
+</span>21 <span style=''>import java.util
+</span>22 <span style=''>import java.util.concurrent.TimeUnit
+</span>23 <span style=''>
+</span>24 <span style=''>import akka.actor.{ActorRef, ActorSystem}
+</span>25 <span style=''>import akka.event.Logging
+</span>26 <span style=''>import akka.pattern.ask
+</span>27 <span style=''>import akka.util.Timeout
+</span>28 <span style=''>import org.apache.curator.x.discovery.{ServiceInstance, UriSpec}
+</span>29 <span style=''>
+</span>30 <span style=''>import scala.concurrent.Future
+</span>31 <span style=''>
+</span>32 <span style=''>/**
+</span>33 <span style=''> * @author Michael Cuthbert on 7/9/15.
+</span>34 <span style=''> */
+</span>35 <span style=''>private[harness] class DiscoverableService()(implicit system: ActorSystem) {
+</span>36 <span style=''>  import DiscoverableService._
+</span>37 <span style=''>
+</span>38 <span style=''>  private[zookeeper] val defaultTimeout = </span><span style='background: #F0ADAD'>Timeout(system.settings.config.getDuration("message-processor.default-send-timeout", TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)</span><span style=''>
+</span>39 <span style=''>  private val log = </span><span style='background: #F0ADAD'>Logging(system, this.getClass)</span><span style=''>
+</span>40 <span style=''>
+</span>41 <span style=''>  def queryForNames(basePath:String)(implicit timeout:Timeout = defaultTimeout) : Future[util.Collection[String]] = {
+</span>42 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? QueryForNames(basePath)).mapTo[util.Collection[String]]</span><span style=''>
+</span>43 <span style=''>  }
+</span>44 <span style=''>
+</span>45 <span style=''>  def queryForInstances(basePath:String, name:String, id:Option[String]=None)
+</span>46 <span style=''>                       (implicit timeout:Timeout = defaultTimeout): Future[Iterable[ServiceInstance[Void]]] = {
+</span>47 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? QueryForInstances(basePath, name, id)).mapTo[Iterable[ServiceInstance[Void]]]</span><span style=''>
+</span>48 <span style=''>  }
+</span>49 <span style=''>
+</span>50 <span style=''>  def makeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec)
+</span>51 <span style=''>                      (implicit timeout:Timeout = defaultTimeout): Future[Boolean] = {
+</span>52 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? MakeDiscoverable(basePath, id, name, port, uriSpec)).mapTo[Boolean]</span><span style=''>
+</span>53 <span style=''>  }
+</span>54 <span style=''>
+</span>55 <span style=''>  def getInstance(basePath:String, name:String)(implicit timeout:Timeout) : Future[ServiceInstance[Void]] = {
+</span>56 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetInstance(basePath, name)).mapTo[ServiceInstance[Void]]</span><span style=''>
+</span>57 <span style=''>  }
+</span>58 <span style=''>
+</span>59 <span style=''>  def getAllInstances(basePath:String, name:String)(implicit timeout:Timeout) : Future[Iterable[ServiceInstance[Void]]] = {
+</span>60 <span style=''>    (</span><span style='background: #F0ADAD'>mediator.get ? GetAllInstances(basePath, name)).mapTo[Iterable[ServiceInstance[Void]]]</span><span style=''>
+</span>61 <span style=''>  }
+</span>62 <span style=''>}
+</span>63 <span style=''>
+</span>64 <span style=''>object DiscoverableService {
+</span>65 <span style=''>  def apply()(implicit system: ActorSystem): DiscoverableService = </span><span style='background: #F0ADAD'>new DiscoverableService</span><span style=''>
+</span>66 <span style=''>
+</span>67 <span style=''>  private var mediator: Option[ActorRef] = </span><span style='background: #AEF1AE'>None</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>  private[harness] def registerMediator(actor: ActorRef) = {
+</span>70 <span style=''>    </span><span style='background: #AEF1AE'>mediator = Some(actor)</span><span style=''>
+</span>71 <span style=''>  }
+</span>72 <span style=''>
+</span>73 <span style=''>  private[harness] def unregisterMediator(actor: ActorRef) = {
+</span>74 <span style=''>    </span><span style='background: #AEF1AE'>mediator = None</span><span style=''>
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  @SerialVersionUID(1L) private[harness] case class QueryForNames(basePath:String)
+</span>78 <span style=''>
+</span>79 <span style=''>  @SerialVersionUID(1L) private[harness] case class QueryForInstances(basePath:String, name:String, id:Option[String]=None)
+</span>80 <span style=''>
+</span>81 <span style=''>  @SerialVersionUID(1L) private[harness] case class MakeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec)
+</span>82 <span style=''>
+</span>83 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetInstance(basePath:String, name:String)
+</span>84 <span style=''>
+</span>85 <span style=''>  @SerialVersionUID(1L) private[harness] case class GetAllInstances(basePath:String, name:String)
+</span>86 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          857
+        </td>
+        <td>
+          1380
+          -
+          1401
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          MILLISECONDS
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          1279
+          -
+          1378
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getDuration
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.this.system.settings.config.getDuration(&quot;message-processor.default-send-timeout&quot;, MILLISECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          1271
+          -
+          1402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(DiscoverableService.this.system.settings.config.getDuration(&quot;message-processor.default-send-timeout&quot;, MILLISECONDS), MILLISECONDS)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          1439
+          -
+          1452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          1423
+          -
+          1453
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.event.Logging.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.event.Logging.apply[Class[?0]](DiscoverableService.this.system, this.getClass())(event.this.LogSource.fromAnyClass[?0])
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          859
+        </td>
+        <td>
+          1431
+          -
+          1437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.system
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.this.system
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          1430
+          -
+          1430
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          akka.event.LogSource.fromAnyClass
+        </td>
+        <td style="background: #F0ADAD">
+          event.this.LogSource.fromAnyClass[?0]
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          864
+        </td>
+        <td>
+          1593
+          -
+          1616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.QueryForNames.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.QueryForNames.apply(basePath)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          1578
+          -
+          1590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          865
+        </td>
+        <td>
+          1578
+          -
+          1648
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(DiscoverableService.mediator.get).?(DiscoverableService.QueryForNames.apply(basePath))(timeout).mapTo[java.util.Collection[String]]((ClassTag.apply[java.util.Collection[String]](classOf[java.util.Collection]): scala.reflect.ClassTag[java.util.Collection[String]]))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          1849
+          -
+          1861
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          1849
+          -
+          1941
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(DiscoverableService.mediator.get).?(DiscoverableService.QueryForInstances.apply(basePath, name, id))(timeout).mapTo[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]((ClassTag.apply[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]](classOf[scala.collection.Iterable]): scala.reflect.ClassTag[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          1864
+          -
+          1901
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.QueryForInstances.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.QueryForInstances.apply(basePath, name, id)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          869
+        </td>
+        <td>
+          2130
+          -
+          2142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          2130
+          -
+          2212
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(DiscoverableService.mediator.get).?(DiscoverableService.MakeDiscoverable.apply(basePath, id, name, port, uriSpec))(timeout).mapTo[Boolean]((ClassTag.Boolean: scala.reflect.ClassTag[Boolean]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          2145
+          -
+          2196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.MakeDiscoverable.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.MakeDiscoverable.apply(basePath, id, name, port, uriSpec)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          2348
+          -
+          2375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.GetInstance.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.GetInstance.apply(basePath, name)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          2333
+          -
+          2345
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          874
+        </td>
+        <td>
+          2333
+          -
+          2405
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(DiscoverableService.mediator.get).?(DiscoverableService.GetInstance.apply(basePath, name))(timeout).mapTo[org.apache.curator.x.discovery.ServiceInstance[Void]]((ClassTag.apply[org.apache.curator.x.discovery.ServiceInstance[Void]](classOf[org.apache.curator.x.discovery.ServiceInstance]): scala.reflect.ClassTag[org.apache.curator.x.discovery.ServiceInstance[Void]]))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          875
+        </td>
+        <td>
+          2540
+          -
+          2552
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.mediator.get
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          2540
+          -
+          2626
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(DiscoverableService.mediator.get).?(DiscoverableService.GetAllInstances.apply(basePath, name))(timeout).mapTo[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]((ClassTag.apply[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]](classOf[scala.collection.Iterable]): scala.reflect.ClassTag[Iterable[org.apache.curator.x.discovery.ServiceInstance[Void]]]))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          2555
+          -
+          2586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.GetAllInstances.apply
+        </td>
+        <td style="background: #F0ADAD">
+          DiscoverableService.GetAllInstances.apply(basePath, name)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          878
+        </td>
+        <td>
+          2730
+          -
+          2753
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new DiscoverableService()(system)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          2798
+          -
+          2802
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          2869
+          -
+          2891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.mediator_=
+        </td>
+        <td style="background: #AEF1AE">
+          DiscoverableService.this.mediator_=(scala.Some.apply[akka.actor.ActorRef](actor))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          2880
+          -
+          2891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[akka.actor.ActorRef](actor)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          2975
+          -
+          2979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          2964
+          -
+          2979
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.zookeeper.discoverable.DiscoverableService.mediator_=
+        </td>
+        <td style="background: #AEF1AE">
+          DiscoverableService.this.mediator_=(scala.None)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
