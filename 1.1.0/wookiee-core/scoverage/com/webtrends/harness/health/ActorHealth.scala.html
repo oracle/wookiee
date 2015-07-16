@@ -1,0 +1,1966 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/health/ActorHealth.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.health
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.pattern._
+</span>22 <span style=''>import akka.actor.{ActorRef, Actor}
+</span>23 <span style=''>import akka.util.Timeout
+</span>24 <span style=''>import scala.concurrent.duration._
+</span>25 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>26 <span style=''>import com.webtrends.harness.logging.Logger
+</span>27 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>28 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>29 <span style=''>
+</span>30 <span style=''>import scala.concurrent.{Await, Promise, Future}
+</span>31 <span style=''>import scala.util.{Try, Success, Failure}
+</span>32 <span style=''>
+</span>33 <span style=''>trait ActorHealth {
+</span>34 <span style=''>  this: Actor =>
+</span>35 <span style=''>
+</span>36 <span style=''>  private val _log = </span><span style='background: #AEF1AE'>Logger(this, context.system)</span><span style=''>
+</span>37 <span style=''>
+</span>38 <span style=''>  import context.dispatcher
+</span>39 <span style=''>
+</span>40 <span style=''>  implicit val checkTimeout:Timeout =
+</span>41 <span style=''>    </span><span style='background: #AEF1AE'>ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(10 seconds))</span><span style=''>
+</span>42 <span style=''>
+</span>43 <span style=''>  def health:Receive = {
+</span>44 <span style=''>    case CheckHealth =>
+</span>45 <span style=''>      </span><span style='background: #AEF1AE'>pipe(Try(checkHealth)
+</span>46 <span style=''></span><span style='background: #AEF1AE'>        .recover({
+</span>47 <span style=''></span><span style='background: #AEF1AE'>        case e: Exception =>
+</span>48 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
+</span>49 <span style=''></span><span style='background: #F0ADAD'>            "Exception when trying to check the health: %s".format(e.getMessage))</span><span style='background: #AEF1AE'>
+</span>50 <span style=''></span><span style='background: #AEF1AE'>      }).get.asInstanceOf[Future[HealthComponent]]
+</span>51 <span style=''></span><span style='background: #AEF1AE'>      ) to sender()</span><span style=''>
+</span>52 <span style=''>  }
+</span>53 <span style=''>
+</span>54 <span style=''>  /**
+</span>55 <span style=''>   * This is the health of the current object, by default will be NORMAL
+</span>56 <span style=''>   * In general this should be overridden to define the health of the current object
+</span>57 <span style=''>   * For objects that simply manage other objects you shouldn't need to do anything
+</span>58 <span style=''>   * else, as the health of the children components would be handled by their own
+</span>59 <span style=''>   * CheckHealth function
+</span>60 <span style=''>   *
+</span>61 <span style=''>   * @return
+</span>62 <span style=''>   */
+</span>63 <span style=''>  protected def getHealth: Future[HealthComponent] = {
+</span>64 <span style=''>    </span><span style='background: #F0ADAD'>Future {
+</span>65 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(self.path.toString, ComponentState.NORMAL, "Healthy")
+</span>66 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>67 <span style=''>  }
+</span>68 <span style=''>
+</span>69 <span style=''>  /**
+</span>70 <span style=''>   * This is the list of child actors that should be iterated and checked for health
+</span>71 <span style=''>   * This can be overridden in cases where one does not want to check all children for
+</span>72 <span style=''>   * health, or some children may not support health checks, or a child is using a push
+</span>73 <span style=''>   * based model of health reporting
+</span>74 <span style=''>   * CheckHealth function
+</span>75 <span style=''>   *
+</span>76 <span style=''>   * @return
+</span>77 <span style=''>   */
+</span>78 <span style=''>  protected def getHealthChildren: Iterable[ActorRef] = {
+</span>79 <span style=''>    </span><span style='background: #F0ADAD'>context.children</span><span style=''>
+</span>80 <span style=''>  }
+</span>81 <span style=''>
+</span>82 <span style=''>  /**
+</span>83 <span style=''>   * The actor has been asked to respond with some health information. It needs
+</span>84 <span style=''>   * to implement this function and provide a list of components used in this service
+</span>85 <span style=''>   * and their current state. By default the health check will simply run through all the
+</span>86 <span style=''>   * children for the actor and get their health. Should be overridden for any custom
+</span>87 <span style=''>   * behavior
+</span>88 <span style=''>   * @return An instance of a health component
+</span>89 <span style=''>   */
+</span>90 <span style=''>  def checkHealth: Future[HealthComponent] = {
+</span>91 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[HealthComponent]()</span><span style=''>
+</span>92 <span style=''>
+</span>93 <span style=''>    </span><span style='background: #F0ADAD'>getHealth.onComplete {
+</span>94 <span style=''></span><span style='background: #F0ADAD'>      case Success(s) =>
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        val healthFutures = getHealthChildren map { ref =>
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          (ref ? CheckHealth).mapTo[HealthComponent] recover {
+</span>97 <span style=''></span><span style='background: #F0ADAD'>            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+</span>98 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>100 <span style=''></span><span style='background: #F0ADAD'>
+</span>101 <span style=''></span><span style='background: #F0ADAD'>        Future.sequence(healthFutures) onComplete {
+</span>102 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) =>
+</span>103 <span style=''></span><span style='background: #F0ADAD'>            _log.debug(f, "Failed to retrieve health of children objects")
+</span>104 <span style=''></span><span style='background: #F0ADAD'>            p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+</span>105 <span style=''></span><span style='background: #F0ADAD'>          case Success(healths) =>
+</span>106 <span style=''></span><span style='background: #F0ADAD'>            healths foreach { it => s.addComponent(it) }
+</span>107 <span style=''></span><span style='background: #F0ADAD'>            p success s
+</span>108 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      case Failure(f) =>
+</span>110 <span style=''></span><span style='background: #F0ADAD'>        _log.debug(f, "Failed to get health from component")
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        p success HealthComponent(self.path.toString, ComponentState.CRITICAL, f.getMessage)
+</span>112 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>113 <span style=''>
+</span>114 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>115 <span style=''>  }
+</span>116 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1485
+        </td>
+        <td>
+          1247
+          -
+          1247
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.event.LogSource.fromActor
+        </td>
+        <td style="background: #AEF1AE">
+          event.this.LogSource.fromActor
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1484
+        </td>
+        <td>
+          1254
+          -
+          1268
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.system
+        </td>
+        <td style="background: #AEF1AE">
+          ActorHealth.this.context.system
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1486
+        </td>
+        <td>
+          1241
+          -
+          1269
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.logging.Logger.apply[com.webtrends.harness.health.ActorHealth with akka.actor.Actor](this, ActorHealth.this.context.system)(event.this.LogSource.fromActor)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1492
+        </td>
+        <td>
+          1353
+          -
+          1353
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1488
+        </td>
+        <td>
+          1403
+          -
+          1437
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyDefaultTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.HarnessConstants.KeyDefaultTimeout
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1491
+        </td>
+        <td>
+          1439
+          -
+          1458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(10).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1490
+        </td>
+        <td>
+          1447
+          -
+          1457
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1493
+        </td>
+        <td>
+          1342
+          -
+          1459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout(ActorHealth.this.context.system.settings.config, com.webtrends.harness.HarnessConstants.KeyDefaultTimeout, akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(10).seconds), com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1487
+        </td>
+        <td>
+          1371
+          -
+          1401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #AEF1AE">
+          ActorHealth.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1489
+        </td>
+        <td>
+          1447
+          -
+          1449
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1509
+        </td>
+        <td>
+          1484
+          -
+          1484
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1494
+        </td>
+        <td>
+          1525
+          -
+          1536
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkHealth
+        </td>
+        <td style="background: #AEF1AE">
+          ActorHealth.this.checkHealth
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1505
+        </td>
+        <td>
+          1520
+          -
+          1520
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #AEF1AE">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1503
+        </td>
+        <td>
+          1555
+          -
+          1555
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.$anonfun.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1501
+        </td>
+        <td>
+          1596
+          -
+          1596
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1500
+        </td>
+        <td>
+          1596
+          -
+          1596
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1502
+        </td>
+        <td>
+          1596
+          -
+          1742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply(ActorHealth.this.getClass().getSimpleName(), ComponentState.CRITICAL, scala.this.Predef.augmentString(&quot;Exception when trying to check the health: %s&quot;).format(e.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1496
+        </td>
+        <td>
+          1636
+          -
+          1659
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1495
+        </td>
+        <td>
+          1612
+          -
+          1634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getSimpleName
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.getClass().getSimpleName()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1497
+        </td>
+        <td>
+          1673
+          -
+          1720
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Exception when trying to check the health: %s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1499
+        </td>
+        <td>
+          1673
+          -
+          1741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.format
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(&quot;Exception when trying to check the health: %s&quot;).format(e.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1498
+        </td>
+        <td>
+          1728
+          -
+          1740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          e.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1504
+        </td>
+        <td>
+          1521
+          -
+          1793
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]](ActorHealth.this.checkHealth).recover[Object](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; HealthComponent.apply(ActorHealth.this.getClass().getSimpleName(), ComponentState.CRITICAL, scala.this.Predef.augmentString(&quot;Exception when trying to check the health: %s&quot;).format(e.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent])).get.asInstanceOf[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1506
+        </td>
+        <td>
+          1805
+          -
+          1813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #AEF1AE">
+          ActorHealth.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1508
+        </td>
+        <td>
+          1802
+          -
+          1802
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1507
+        </td>
+        <td>
+          1516
+          -
+          1813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #AEF1AE">
+          akka.pattern.`package`.pipe[com.webtrends.harness.health.HealthComponent](scala.util.Try.apply[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]](ActorHealth.this.checkHealth).recover[Object](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; HealthComponent.apply(ActorHealth.this.getClass().getSimpleName(), ComponentState.CRITICAL, scala.this.Predef.augmentString(&quot;Exception when trying to check the health: %s&quot;).format(e.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (e @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent])).get.asInstanceOf[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]])(ActorHealth.this.context.dispatcher).to(ActorHealth.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          2258
+          -
+          2348
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](HealthComponent.apply(ActorHealth.this.self.path.toString(), ComponentState.NORMAL, &quot;Healthy&quot;, HealthComponent.apply$default$4, HealthComponent.apply$default$5))(ActorHealth.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1516
+        </td>
+        <td>
+          2265
+          -
+          2265
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1510
+        </td>
+        <td>
+          2289
+          -
+          2307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1512
+        </td>
+        <td>
+          2332
+          -
+          2341
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Healthy&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1515
+        </td>
+        <td>
+          2273
+          -
+          2342
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply(ActorHealth.this.self.path.toString(), ComponentState.NORMAL, &quot;Healthy&quot;, HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1514
+        </td>
+        <td>
+          2273
+          -
+          2273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1511
+        </td>
+        <td>
+          2309
+          -
+          2330
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          2273
+          -
+          2273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1518
+        </td>
+        <td>
+          2769
+          -
+          2785
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.children
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.children
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1519
+        </td>
+        <td>
+          3265
+          -
+          3291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.health.HealthComponent]()
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1563
+        </td>
+        <td>
+          3297
+          -
+          4243
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.getHealth.onComplete[Any](((x0$1: scala.util.Try[com.webtrends.harness.health.HealthComponent]) =&gt; x0$1 match {
+  case (value: com.webtrends.harness.health.HealthComponent)scala.util.Success[com.webtrends.harness.health.HealthComponent]((s @ _)) =&gt; {
+    val healthFutures: Iterable[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]] = ActorHealth.this.getHealthChildren.map[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent], Iterable[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]](((ref: akka.actor.ActorRef) =&gt; akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(ActorHealth.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ (_: Exception)) =&gt; HealthComponent.apply(ref.path.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+          case (defaultCase$ @ _) =&gt; default.apply(x3)
+        };
+        final def isDefinedAt(x3: Throwable): Boolean = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+          case (ex @ (_: Exception)) =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(ActorHealth.this.context.dispatcher)))(collection.this.Iterable.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]);
+    scala.concurrent.Future.sequence[com.webtrends.harness.health.HealthComponent, Iterable](healthFutures)(collection.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent], ActorHealth.this.context.dispatcher).onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Iterable[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$2 match {
+      case (exception: Throwable)scala.util.Failure[Iterable[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+        ActorHealth.this._log.debug(f, &quot;Failed to retrieve health of children objects&quot;);
+        p.success(HealthComponent.apply(s.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5))
+      }
+      case (value: Iterable[com.webtrends.harness.health.HealthComponent])scala.util.Success[Iterable[com.webtrends.harness.health.HealthComponent]]((healths @ _)) =&gt; {
+        healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)));
+        p.success(s)
+      }
+    }))(ActorHealth.this.context.dispatcher)
+  }
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.health.HealthComponent]((f @ _)) =&gt; {
+    ActorHealth.this._log.debug(f, &quot;Failed to get health from component&quot;);
+    p.success(HealthComponent.apply(ActorHealth.this.self.path.toString(), ComponentState.CRITICAL, f.getMessage(), HealthComponent.apply$default$4, HealthComponent.apply$default$5))
+  }
+}))(ActorHealth.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1562
+        </td>
+        <td>
+          3318
+          -
+          3318
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1535
+        </td>
+        <td>
+          3373
+          -
+          3631
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.getHealthChildren.map[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent], Iterable[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]](((ref: akka.actor.ActorRef) =&gt; akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(ActorHealth.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; HealthComponent.apply(ref.path.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: Throwable): Boolean = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(ActorHealth.this.context.dispatcher)))(collection.this.Iterable.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]])
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1534
+        </td>
+        <td>
+          3391
+          -
+          3391
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Iterable.canBuildFrom[scala.concurrent.Future[com.webtrends.harness.health.HealthComponent]]
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          3419
+          -
+          3419
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1533
+        </td>
+        <td>
+          3415
+          -
+          3631
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.recover
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(ref).?(com.webtrends.harness.service.messages.CheckHealth)(ActorHealth.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent])).recover[com.webtrends.harness.health.HealthComponent](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,com.webtrends.harness.health.HealthComponent] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; com.webtrends.harness.health.HealthComponent&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: com.webtrends.harness.health.HealthComponent](x3: A1, default: A1 =&gt; B1): B1 = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; HealthComponent.apply(ref.path.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+      case (defaultCase$ @ _) =&gt; default.apply(x3)
+    };
+    final def isDefinedAt(x3: Throwable): Boolean = ((x3.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (ex @ (_: Exception)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,com.webtrends.harness.health.HealthComponent]))(ActorHealth.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1532
+        </td>
+        <td>
+          3457
+          -
+          3457
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1520
+        </td>
+        <td>
+          3421
+          -
+          3432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1531
+        </td>
+        <td>
+          3465
+          -
+          3465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1528
+        </td>
+        <td>
+          3501
+          -
+          3501
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1527
+        </td>
+        <td>
+          3557
+          -
+          3618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1530
+        </td>
+        <td>
+          3501
+          -
+          3619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply(ref.path.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child component. &quot;, &quot;&quot;).s(ex.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1524
+        </td>
+        <td>
+          3559
+          -
+          3602
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure to get health of child component. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          3532
+          -
+          3555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1526
+        </td>
+        <td>
+          3603
+          -
+          3616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1529
+        </td>
+        <td>
+          3501
+          -
+          3501
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1522
+        </td>
+        <td>
+          3517
+          -
+          3530
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.name
+        </td>
+        <td style="background: #F0ADAD">
+          ref.path.name
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1525
+        </td>
+        <td>
+          3617
+          -
+          3618
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1536
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1553
+        </td>
+        <td>
+          3651
+          -
+          4058
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.sequence[com.webtrends.harness.health.HealthComponent, Iterable](healthFutures)(collection.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent], ActorHealth.this.context.dispatcher).onComplete[scala.concurrent.Promise[com.webtrends.harness.health.HealthComponent]](((x0$2: scala.util.Try[Iterable[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$2 match {
+  case (exception: Throwable)scala.util.Failure[Iterable[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+    ActorHealth.this._log.debug(f, &quot;Failed to retrieve health of children objects&quot;);
+    p.success(HealthComponent.apply(s.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5))
+  }
+  case (value: Iterable[com.webtrends.harness.health.HealthComponent])scala.util.Success[Iterable[com.webtrends.harness.health.HealthComponent]]((healths @ _)) =&gt; {
+    healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)));
+    p.success(s)
+  }
+}))(ActorHealth.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1537
+        </td>
+        <td>
+          3666
+          -
+          3666
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1552
+        </td>
+        <td>
+          3682
+          -
+          3682
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1538
+        </td>
+        <td>
+          3736
+          -
+          3798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this._log.debug(f, &quot;Failed to retrieve health of children objects&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1545
+        </td>
+        <td>
+          3821
+          -
+          3821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1539
+        </td>
+        <td>
+          3837
+          -
+          3843
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.name
+        </td>
+        <td style="background: #F0ADAD">
+          s.name
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          3811
+          -
+          3932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(HealthComponent.apply(s.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1542
+        </td>
+        <td>
+          3930
+          -
+          3931
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1541
+        </td>
+        <td>
+          3872
+          -
+          3916
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Failure to get health of child components. &quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          3870
+          -
+          3931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          3821
+          -
+          3932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply(s.name, ComponentState.CRITICAL, scala.StringContext.apply(&quot;Failure to get health of child components. &quot;, &quot;&quot;).s(f.getMessage()), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1546
+        </td>
+        <td>
+          3821
+          -
+          3821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1540
+        </td>
+        <td>
+          3845
+          -
+          3868
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1543
+        </td>
+        <td>
+          3917
+          -
+          3929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1550
+        </td>
+        <td>
+          3980
+          -
+          4022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          healths.foreach[Unit](((it: com.webtrends.harness.health.HealthComponent) =&gt; s.addComponent(it)))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1549
+        </td>
+        <td>
+          4004
+          -
+          4022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.addComponent
+        </td>
+        <td style="background: #F0ADAD">
+          s.addComponent(it)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          4037
+          -
+          4048
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1554
+        </td>
+        <td>
+          4092
+          -
+          4144
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this._log.debug(f, &quot;Failed to get health from component&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1560
+        </td>
+        <td>
+          4163
+          -
+          4237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply(ActorHealth.this.self.path.toString(), ComponentState.CRITICAL, f.getMessage(), HealthComponent.apply$default$4, HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1557
+        </td>
+        <td>
+          4224
+          -
+          4236
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td style="background: #F0ADAD">
+          f.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1559
+        </td>
+        <td>
+          4163
+          -
+          4163
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1556
+        </td>
+        <td>
+          4199
+          -
+          4222
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1555
+        </td>
+        <td>
+          4179
+          -
+          4197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          ActorHealth.this.self.path.toString()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1558
+        </td>
+        <td>
+          4163
+          -
+          4163
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1561
+        </td>
+        <td>
+          4153
+          -
+          4237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(HealthComponent.apply(ActorHealth.this.self.path.toString(), ComponentState.CRITICAL, f.getMessage(), HealthComponent.apply$default$4, HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1564
+        </td>
+        <td>
+          4249
+          -
+          4257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

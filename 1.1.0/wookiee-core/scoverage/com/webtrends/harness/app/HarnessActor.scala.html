@@ -1,0 +1,6123 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/app/HarnessActor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>package com.webtrends.harness.app
+</span>20 <span style=''>
+</span>21 <span style=''>import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
+</span>22 <span style=''>import akka.actor._
+</span>23 <span style=''>import akka.pattern._
+</span>24 <span style=''>import akka.util.Timeout
+</span>25 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>26 <span style=''>import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+</span>27 <span style=''>import com.webtrends.harness.command.CommandManager
+</span>28 <span style=''>import com.webtrends.harness.component.{ComponentHelper, ComponentManager, InitializeComponents}
+</span>29 <span style=''>import com.webtrends.harness.config.ConfigWatcher
+</span>30 <span style=''>import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
+</span>31 <span style=''>import com.webtrends.harness.http.InternalHTTP
+</span>32 <span style=''>import com.webtrends.harness.logging.ActorLoggingAdapter
+</span>33 <span style=''>import com.webtrends.harness.service.ServiceManager
+</span>34 <span style=''>import com.webtrends.harness.service.ServiceManager.ServicesReady
+</span>35 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>36 <span style=''>import com.webtrends.harness.utils.ConfigUtil
+</span>37 <span style=''>
+</span>38 <span style=''>import scala.concurrent.duration._
+</span>39 <span style=''>import scala.concurrent.{Promise, Future}
+</span>40 <span style=''>import scala.util.{Success, Failure}
+</span>41 <span style=''>
+</span>42 <span style=''>object HarnessActor {
+</span>43 <span style=''>  def props()(implicit system: ActorSystem): Props = </span><span style='background: #F0ADAD'>Props[HarnessActor]</span><span style=''>
+</span>44 <span style=''>
+</span>45 <span style=''>  @SerialVersionUID(1L) case class ShutdownSystem()
+</span>46 <span style=''>  @SerialVersionUID(1L) case class RestartSystem()
+</span>47 <span style=''>  @SerialVersionUID(1L) case class ConfigChange()
+</span>48 <span style=''>  @SerialVersionUID(1L) case class SystemReady()
+</span>49 <span style=''>  @SerialVersionUID(1L) case class ComponentInitializationComplete()
+</span>50 <span style=''>  @SerialVersionUID(1L) case class ReadyCheck()
+</span>51 <span style=''>  @SerialVersionUID(1L) case class GetManagers()
+</span>52 <span style=''>  @SerialVersionUID(1L) case object PrepareForShutdown
+</span>53 <span style=''>}
+</span>54 <span style=''>
+</span>55 <span style=''>// Below are actor traits that are commonly used for actors in the Harness
+</span>56 <span style=''>trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
+</span>57 <span style=''>  override def receive = </span><span style='background: #AEF1AE'>health</span><span style=''>
+</span>58 <span style=''>}
+</span>59 <span style=''>
+</span>60 <span style=''>
+</span>61 <span style=''>trait PrepareForShutdown extends HActor {
+</span>62 <span style=''>
+</span>63 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>health orElse {
+</span>64 <span style=''></span><span style='background: #F0ADAD'>    case PrepareForShutdown =>
+</span>65 <span style=''></span><span style='background: #F0ADAD'>      log.info("Preparing for shutdown")
+</span>66 <span style=''></span><span style='background: #F0ADAD'>      context.children foreach(_ ! PrepareForShutdown)
+</span>67 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>68 <span style=''>}
+</span>69 <span style=''>
+</span>70 <span style=''>class HarnessActor extends Actor
+</span>71 <span style=''>    with ActorLoggingAdapter
+</span>72 <span style=''>    with Health
+</span>73 <span style=''>    with ConfigWatcher
+</span>74 <span style=''>    with InternalHTTP {
+</span>75 <span style=''>
+</span>76 <span style=''>  import HarnessActor._
+</span>77 <span style=''>  import ConfigUtil._
+</span>78 <span style=''>  import context.dispatcher
+</span>79 <span style=''>
+</span>80 <span style=''>  private val config = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
+</span>81 <span style=''>
+</span>82 <span style=''>  implicit val checkTimeout = </span><span style='background: #F0ADAD'>getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(5 seconds))</span><span style=''>
+</span>83 <span style=''>  val startupTimeout = </span><span style='background: #F0ADAD'>getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))</span><span style=''>
+</span>84 <span style=''>  val prepareShutdownTimeout = </span><span style='background: #F0ADAD'>getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))</span><span style=''>
+</span>85 <span style=''>
+</span>86 <span style=''>  var running: Option[Boolean] = </span><span style='background: #F0ADAD'>Some(false)</span><span style=''>
+</span>87 <span style=''>
+</span>88 <span style=''>  override val supervisorStrategy =
+</span>89 <span style=''>    </span><span style='background: #F0ADAD'>OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute, loggingEnabled = true) {
+</span>90 <span style=''></span><span style='background: #F0ADAD'>      case _: ActorInitializationException => Stop
+</span>91 <span style=''></span><span style='background: #F0ADAD'>      case _: DeathPactException => Stop
+</span>92 <span style=''></span><span style='background: #F0ADAD'>      case _: ActorKilledException => Restart
+</span>93 <span style=''></span><span style='background: #F0ADAD'>      case _: Exception => Restart
+</span>94 <span style=''></span><span style='background: #F0ADAD'>      case _: Throwable => Escalate
+</span>95 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>96 <span style=''>
+</span>97 <span style=''>  // The service manager will be created after we have started and all of the system's actors are able to receive messages
+</span>98 <span style=''>  var serviceActor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>99 <span style=''>  var componentActor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>100 <span style=''>  var commandManager: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>101 <span style=''>
+</span>102 <span style=''>  // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
+</span>103 <span style=''>  var configWatcherActor: Option[ActorRef] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>104 <span style=''>
+</span>105 <span style=''>  override def preStart(): Unit = </span><span style='background: #F0ADAD'>initialize</span><span style=''>
+</span>106 <span style=''>
+</span>107 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>initializing</span><span style=''>
+</span>108 <span style=''>
+</span>109 <span style=''>  def initializing: Receive = {
+</span>110 <span style=''>    case CheckHealth => </span><span style='background: #F0ADAD'>pipe(getHealth(true)) to sender</span><span style=''>
+</span>111 <span style=''>    case ComponentInitializationComplete => </span><span style='background: #F0ADAD'>initializationComplete</span><span style=''>
+</span>112 <span style=''>    case ShutdownSystem => </span><span style='background: #F0ADAD'>shutdownCoreServices</span><span style=''>
+</span>113 <span style=''>    case ReadyCheck => </span><span style='background: #F0ADAD'>sender ! running.get</span><span style=''>
+</span>114 <span style=''>  }
+</span>115 <span style=''>
+</span>116 <span style=''>  def processing: Receive = {
+</span>117 <span style=''>    case CheckHealth => </span><span style='background: #F0ADAD'>pipe(getHealth(false)) to sender</span><span style=''>
+</span>118 <span style=''>
+</span>119 <span style=''>    case ServicesReady =>
+</span>120 <span style=''>      // This message is sent from the service manager that tells us the services are loaded.
+</span>121 <span style=''>      // Notify the services, components and commands that we are all ready to go
+</span>122 <span style=''>      </span><span style='background: #F0ADAD'>serviceActor</span><span style=''> match {
+</span>123 <span style=''>        case Some(sa) => </span><span style='background: #F0ADAD'>sa ! SystemReady</span><span style=''>
+</span>124 <span style=''>        case None </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore
+</span>125 <span style=''>      }
+</span>126 <span style=''>      </span><span style='background: #F0ADAD'>componentActor</span><span style=''> match {
+</span>127 <span style=''>        case Some(ca) => </span><span style='background: #F0ADAD'>ca ! SystemReady</span><span style=''>
+</span>128 <span style=''>        case None </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore
+</span>129 <span style=''>      }
+</span>130 <span style=''>      </span><span style='background: #F0ADAD'>commandManager</span><span style=''> match {
+</span>131 <span style=''>        case Some(cm) => </span><span style='background: #F0ADAD'>cm ! SystemReady</span><span style=''>
+</span>132 <span style=''>        case None </span><span style='background: #F0ADAD'>=></span><span style=''> // ignore
+</span>133 <span style=''>      }
+</span>134 <span style=''>    case ReadyCheck => </span><span style='background: #F0ADAD'>sender ! running.get</span><span style=''>
+</span>135 <span style=''>    case GetManagers =>
+</span>136 <span style=''>      </span><span style='background: #F0ADAD'>sender ! Map[String, Option[ActorRef]](
+</span>137 <span style=''></span><span style='background: #F0ADAD'>        HarnessConstants.CommandName -> commandManager,
+</span>138 <span style=''></span><span style='background: #F0ADAD'>        HarnessConstants.ServicesName -> serviceActor,
+</span>139 <span style=''></span><span style='background: #F0ADAD'>        HarnessConstants.ComponentName -> componentActor
+</span>140 <span style=''></span><span style='background: #F0ADAD'>      ).collect { case (key, Some(value)) => key -> value }</span><span style=''>
+</span>141 <span style=''>    case RestartSystem => </span><span style='background: #F0ADAD'>Harness.restartActorSystem</span><span style=''>
+</span>142 <span style=''>    case c: ConfigChange =>
+</span>143 <span style=''>      </span><span style='background: #F0ADAD'>log.info("Received message to reload services/components due to config change")</span><span style=''>
+</span>144 <span style=''>      </span><span style='background: #F0ADAD'>serviceActor.get ! c</span><span style=''>
+</span>145 <span style=''>      </span><span style='background: #F0ADAD'>componentActor.get ! c</span><span style=''>
+</span>146 <span style=''>    case ShutdownSystem => </span><span style='background: #F0ADAD'>shutdownCoreServices</span><span style=''>
+</span>147 <span style=''>  }
+</span>148 <span style=''>
+</span>149 <span style=''>  /**
+</span>150 <span style=''>   * Start the core services
+</span>151 <span style=''>   */
+</span>152 <span style=''>  private def initialize = {
+</span>153 <span style=''>    </span><span style='background: #F0ADAD'>startHealth</span><span style=''>
+</span>154 <span style=''>    </span><span style='background: #F0ADAD'>startConfigWatcher</span><span style=''>
+</span>155 <span style=''>    if (</span><span style='background: #F0ADAD'>!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>156 <span style=''></span><span style='background: #F0ADAD'>      // initialize the command manager right at the beginning
+</span>157 <span style=''></span><span style='background: #F0ADAD'>      commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
+</span>158 <span style=''></span><span style='background: #F0ADAD'>      log.info("Command Manager started: {}", commandManager)
+</span>159 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>160 <span style=''>    </span><span style='background: #F0ADAD'>componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))</span><span style=''>
+</span>161 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Component manager started: {}", componentActor)</span><span style=''>
+</span>162 <span style=''>    </span><span style='background: #F0ADAD'>componentActor.get ! InitializeComponents</span><span style=''>
+</span>163 <span style=''>  }
+</span>164 <span style=''>
+</span>165 <span style=''>  private def initializationComplete: Unit = {
+</span>166 <span style=''>    // Wait for the child actors above to be loaded before calling on the services
+</span>167 <span style=''>    </span><span style='background: #F0ADAD'>Future.traverse(context.children)(child => (child ? Identify("xyz123"))(startupTimeout)) onComplete {
+</span>168 <span style=''></span><span style='background: #F0ADAD'>      case Success(_) =>
+</span>169 <span style=''></span><span style='background: #F0ADAD'>        context.become(processing)
+</span>170 <span style=''></span><span style='background: #F0ADAD'>        // Load any services
+</span>171 <span style=''></span><span style='background: #F0ADAD'>        serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
+</span>172 <span style=''></span><span style='background: #F0ADAD'>        log.info("Harness manager started: {}", context.self.path)
+</span>173 <span style=''></span><span style='background: #F0ADAD'>        // in general the internal http should always start, but in the cases where you want to turn it off
+</span>174 <span style=''></span><span style='background: #F0ADAD'>        // you can just disable it in the config using internal-http.enable = false
+</span>175 <span style=''></span><span style='background: #F0ADAD'>        // it will also fail silently with a warning if another http component is using the same port as it.
+</span>176 <span style=''></span><span style='background: #F0ADAD'>        if (ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalHttpEnabled, config.getBoolean, true)) {
+</span>177 <span style=''></span><span style='background: #F0ADAD'>          startInternalHTTP(ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalHttpPort, config.getInt, 8080))
+</span>178 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>179 <span style=''></span><span style='background: #F0ADAD'>        running = Some(true)
+</span>180 <span style=''></span><span style='background: #F0ADAD'>      case Failure(t) =>
+</span>181 <span style=''></span><span style='background: #F0ADAD'>        log.error("Error loading the main harness actors", t)
+</span>182 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>183 <span style=''>  }
+</span>184 <span style=''>
+</span>185 <span style=''>  /**
+</span>186 <span style=''>   * Complete the shutdown process. This will be called after clustering has been shutdown.
+</span>187 <span style=''>   */
+</span>188 <span style=''>  private def shutdownCoreServices: Unit = {
+</span>189 <span style=''>    </span><span style='background: #F0ADAD'>log.info("Starting the shutdown process")</span><span style=''>
+</span>190 <span style=''>    if (</span><span style='background: #F0ADAD'>running.isDefined && running.get</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>191 <span style=''></span><span style='background: #F0ADAD'>      val tmpService = serviceActor
+</span>192 <span style=''></span><span style='background: #F0ADAD'>      val tmpComp = componentActor
+</span>193 <span style=''></span><span style='background: #F0ADAD'>      val tmpCmd = commandManager;
+</span>194 <span style=''></span><span style='background: #F0ADAD'>      prepareForShutdown(tmpService, tmpCmd, tmpComp) andThen {
+</span>195 <span style=''></span><span style='background: #F0ADAD'>        case _ => gracefulShutdown
+</span>196 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>197 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>198 <span style=''>  }
+</span>199 <span style=''>
+</span>200 <span style=''>  private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
+</span>201 <span style=''>    </span><span style='background: #F0ADAD'>Future {
+</span>202 <span style=''></span><span style='background: #F0ADAD'>      log.info(s"Prepare For Shutdown")
+</span>203 <span style=''></span><span style='background: #F0ADAD'>      for {
+</span>204 <span style=''></span><span style='background: #F0ADAD'>        optRef <- actorRefs
+</span>205 <span style=''></span><span style='background: #F0ADAD'>        ref <- optRef
+</span>206 <span style=''></span><span style='background: #F0ADAD'>      } yield {
+</span>207 <span style=''></span><span style='background: #F0ADAD'>        ref ! PrepareForShutdown
+</span>208 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>209 <span style=''></span><span style='background: #F0ADAD'>      //Give the message time to propagate through the system.
+</span>210 <span style=''></span><span style='background: #F0ADAD'>      Thread sleep prepareShutdownTimeout.duration.toMillis
+</span>211 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>212 <span style=''>  }
+</span>213 <span style=''>
+</span>214 <span style=''>
+</span>215 <span style=''>  private def gracefulShutdown:Unit = {
+</span>216 <span style=''>    </span><span style='background: #F0ADAD'>log.info(s"Starting graceful shutdown")</span><span style=''>
+</span>217 <span style=''>    </span><span style='background: #F0ADAD'>gracefulStop(serviceActor.get, 5 seconds).onComplete {
+</span>218 <span style=''></span><span style='background: #F0ADAD'>      case _ => // in the case of a failure just continue shutting down
+</span>219 <span style=''></span><span style='background: #F0ADAD'>        // Shutdown the components second
+</span>220 <span style=''></span><span style='background: #F0ADAD'>        gracefulStop(componentActor.get, 5 seconds) onComplete {
+</span>221 <span style=''></span><span style='background: #F0ADAD'>          case _ => // We don't care if we could not shutdown properly. Any errors were logged so
+</span>222 <span style=''></span><span style='background: #F0ADAD'>            // just continue
+</span>223 <span style=''></span><span style='background: #F0ADAD'>            // Shutdown the children
+</span>224 <span style=''></span><span style='background: #F0ADAD'>            if (context.children.size > 0) {
+</span>225 <span style=''></span><span style='background: #F0ADAD'>              Future.sequence(context.children map (a => gracefulStop(a, 10 seconds)))
+</span>226 <span style=''></span><span style='background: #F0ADAD'>                .onComplete {
+</span>227 <span style=''></span><span style='background: #F0ADAD'>                case Success(_) =>
+</span>228 <span style=''></span><span style='background: #F0ADAD'>                  log.info("Harness subsystems have been shutdown")
+</span>229 <span style=''></span><span style='background: #F0ADAD'>                  context.stop(self)
+</span>230 <span style=''></span><span style='background: #F0ADAD'>                  running = Some(false)
+</span>231 <span style=''></span><span style='background: #F0ADAD'>                case Failure(fail) =>
+</span>232 <span style=''></span><span style='background: #F0ADAD'>                  log.info("Harness subsystems have not been shutdown properly")
+</span>233 <span style=''></span><span style='background: #F0ADAD'>                  context.stop(self)
+</span>234 <span style=''></span><span style='background: #F0ADAD'>                  running = Some(false)
+</span>235 <span style=''></span><span style='background: #F0ADAD'>              }
+</span>236 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>237 <span style=''></span><span style='background: #F0ADAD'>        }
+</span>238 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>239 <span style=''>  }
+</span>240 <span style=''>
+</span>241 <span style=''>
+</span>242 <span style=''>  /**
+</span>243 <span style=''>   * Fetch the health of this actor and all of its children.
+</span>244 <span style=''>   * @return A Future that contains a sequence of the children's HealthComponent
+</span>245 <span style=''>   */
+</span>246 <span style=''>  private def getHealth(initializing: Boolean): Future[Seq[HealthComponent]] = {
+</span>247 <span style=''>    </span><span style='background: #F0ADAD'>log.debug("We have received a message to check our health")</span><span style=''>
+</span>248 <span style=''>    if (initializing) {
+</span>249 <span style=''>      </span><span style='background: #F0ADAD'>Future {
+</span>250 <span style=''></span><span style='background: #F0ADAD'>        Seq(HealthComponent("system", ComponentState.DEGRADED, s"The system is still initializing"))
+</span>251 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>252 <span style=''>    } else </span><span style='background: #F0ADAD'>{
+</span>253 <span style=''></span><span style='background: #F0ADAD'>      // Call the sections and get their health
+</span>254 <span style=''></span><span style='background: #F0ADAD'>      val future = Future.traverse(context.children)(sys => sys match {
+</span>255 <span style=''></span><span style='background: #F0ADAD'>        case a: ActorRef =>
+</span>256 <span style=''></span><span style='background: #F0ADAD'>          (a ? CheckHealth).mapTo[HealthComponent]
+</span>257 <span style=''></span><span style='background: #F0ADAD'>      })
+</span>258 <span style=''></span><span style='background: #F0ADAD'>
+</span>259 <span style=''></span><span style='background: #F0ADAD'>      val p = Promise[Seq[HealthComponent]]()
+</span>260 <span style=''></span><span style='background: #F0ADAD'>      future.onComplete({
+</span>261 <span style=''></span><span style='background: #F0ADAD'>        case Failure(f) =>
+</span>262 <span style=''></span><span style='background: #F0ADAD'>          log.error("Error fetching health", f)
+</span>263 <span style=''></span><span style='background: #F0ADAD'>          p failure (f)
+</span>264 <span style=''></span><span style='background: #F0ADAD'>        case Success(answers) =>
+</span>265 <span style=''></span><span style='background: #F0ADAD'>          p success answers.toSeq
+</span>266 <span style=''></span><span style='background: #F0ADAD'>      })
+</span>267 <span style=''></span><span style='background: #F0ADAD'>
+</span>268 <span style=''></span><span style='background: #F0ADAD'>      p.future
+</span>269 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>270 <span style=''>  }
+</span>271 <span style=''>
+</span>272 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          1822
+          -
+          1841
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.app.HarnessActor]()((ClassTag.apply[com.webtrends.harness.app.HarnessActor](classOf[com.webtrends.harness.app.HarnessActor]): scala.reflect.ClassTag[com.webtrends.harness.app.HarnessActor]))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          2440
+          -
+          2446
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.health
+        </td>
+        <td style="background: #AEF1AE">
+          HActor.this.health
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          2533
+          -
+          2533
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.PrepareForShutdown.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          2519
+          -
+          2665
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          PrepareForShutdown.this.health.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; {
+        PrepareForShutdown.this.log.info(&quot;Preparing for shutdown&quot;);
+        PrepareForShutdown.this.context.children.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(PrepareForShutdown.this.self)))
+      }
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case com.webtrends.harness.app.HarnessActor.PrepareForShutdown =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          2572
+          -
+          2606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          PrepareForShutdown.this.log.info(&quot;Preparing for shutdown&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          2640
+          -
+          2640
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          PrepareForShutdown.this.self
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          2642
+          -
+          2660
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          2613
+          -
+          2661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          PrepareForShutdown.this.context.children.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(PrepareForShutdown.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          2638
+          -
+          2660
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(x$1).!(com.webtrends.harness.app.HarnessActor.PrepareForShutdown)(PrepareForShutdown.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          2893
+          -
+          2923
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          3025
+          -
+          3034
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          2955
+          -
+          3036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout(HarnessActor.this.config, com.webtrends.harness.HarnessConstants.KeyDefaultTimeout, akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds), com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          3025
+          -
+          3026
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          2955
+          -
+          2955
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          3017
+          -
+          3035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          2981
+          -
+          3015
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyDefaultTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyDefaultTimeout
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          2973
+          -
+          2979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.config
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          3060
+          -
+          3060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          3086
+          -
+          3120
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyStartupTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyStartupTimeout
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          3122
+          -
+          3141
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(20).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          3060
+          -
+          3142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout(HarnessActor.this.config, com.webtrends.harness.HarnessConstants.KeyStartupTimeout, akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(20).seconds), com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          3078
+          -
+          3084
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.config
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          3130
+          -
+          3140
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(20).seconds
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          3130
+          -
+          3132
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          20
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          3200
+          -
+          3241
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.PrepareToShutdownTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.PrepareToShutdownTimeout
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          3251
+          -
+          3260
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          3174
+          -
+          3262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout(HarnessActor.this.config, com.webtrends.harness.HarnessConstants.PrepareToShutdownTimeout, akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds), com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          3192
+          -
+          3198
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.config
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          3251
+          -
+          3252
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          3174
+          -
+          3174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultTimeout$default$4
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          3243
+          -
+          3261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.util.Timeout.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.util.Timeout.apply(scala.concurrent.duration.`package`.DurationInt(5).seconds)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          3297
+          -
+          3308
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Boolean](false)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          3406
+          -
+          3414
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.minute
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(1).minute
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          3350
+          -
+          3655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.OneForOneStrategy.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.OneForOneStrategy.apply(3, scala.concurrent.duration.`package`.DurationInt(1).minute, true)(({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Throwable,akka.actor.SupervisorStrategy.Directive] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Throwable =&gt; akka.actor.SupervisorStrategy.Directive&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: Throwable, B1 &gt;: akka.actor.SupervisorStrategy.Directive](x2: A1, default: A1 =&gt; B1): B1 = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (_: akka.actor.ActorInitializationException) =&gt; akka.actor.SupervisorStrategy.Stop
+      case (_: akka.actor.DeathPactException) =&gt; akka.actor.SupervisorStrategy.Stop
+      case (_: akka.actor.ActorKilledException) =&gt; akka.actor.SupervisorStrategy.Restart
+      case (_: Exception) =&gt; akka.actor.SupervisorStrategy.Restart
+      case (_: Throwable) =&gt; akka.actor.SupervisorStrategy.Escalate
+      case (defaultCase$ @ _) =&gt; default.apply(x2)
+    };
+    final def isDefinedAt(x2: Throwable): Boolean = ((x2.asInstanceOf[Throwable]: Throwable): Throwable @unchecked) match {
+      case (_: akka.actor.ActorInitializationException) =&gt; true
+      case (_: akka.actor.DeathPactException) =&gt; true
+      case (_: akka.actor.ActorKilledException) =&gt; true
+      case (_: Exception) =&gt; true
+      case (_: Throwable) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Throwable,akka.actor.SupervisorStrategy.Directive]))
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          3406
+          -
+          3407
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          3439
+          -
+          3439
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          3385
+          -
+          3386
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          168
+        </td>
+        <td>
+          3433
+          -
+          3437
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          3487
+          -
+          3491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          3528
+          -
+          3532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Stop
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          3571
+          -
+          3578
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          3606
+          -
+          3613
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Restart
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          3641
+          -
+          3649
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.SupervisorStrategy.Escalate
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.SupervisorStrategy.Escalate
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          3819
+          -
+          3823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          3865
+          -
+          3869
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          3911
+          -
+          3915
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          4092
+          -
+          4096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          4132
+          -
+          4142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.initialize
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.initialize
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          4169
+          -
+          4181
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.initializing
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.initializing
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          193
+        </td>
+        <td>
+          4213
+          -
+          4213
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          4244
+          -
+          4259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.getHealth
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.getHealth(true)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          4239
+          -
+          4270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Seq[com.webtrends.harness.health.HealthComponent]](HarnessActor.this.getHealth(true))(HarnessActor.this.context.dispatcher).to(HarnessActor.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          4264
+          -
+          4270
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          4243
+          -
+          4243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          4261
+          -
+          4261
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          4315
+          -
+          4337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.initializationComplete
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.initializationComplete
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          4365
+          -
+          4385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.shutdownCoreServices
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.shutdownCoreServices
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          4416
+          -
+          4416
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          4418
+          -
+          4429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running.get
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          4409
+          -
+          4415
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          4409
+          -
+          4429
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.sender()).!(HarnessActor.this.running.get)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          244
+        </td>
+        <td>
+          4463
+          -
+          4463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          4494
+          -
+          4510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.getHealth
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.getHealth(false)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          4515
+          -
+          4521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          4512
+          -
+          4512
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          4493
+          -
+          4493
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          4489
+          -
+          4521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[Seq[com.webtrends.harness.health.HealthComponent]](HarnessActor.this.getHealth(false))(HarnessActor.this.context.dispatcher).to(HarnessActor.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          4731
+          -
+          4743
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.serviceActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          4782
+          -
+          4793
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.SystemReady
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          4777
+          -
+          4793
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(sa).!(HarnessActor.SystemReady)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          4780
+          -
+          4780
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          4812
+          -
+          4814
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          4839
+          -
+          4853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.componentActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          4892
+          -
+          4903
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.SystemReady
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          4887
+          -
+          4903
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ca).!(HarnessActor.SystemReady)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          4890
+          -
+          4890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          4922
+          -
+          4924
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          4949
+          -
+          4963
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.commandManager
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.commandManager
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          5000
+          -
+          5000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          5002
+          -
+          5013
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.SystemReady
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.SystemReady
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          4997
+          -
+          5013
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(cm).!(HarnessActor.SystemReady)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          5032
+          -
+          5034
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          5076
+          -
+          5082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          5076
+          -
+          5096
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.sender()).!(HarnessActor.this.running.get)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          5083
+          -
+          5083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          215
+        </td>
+        <td>
+          5085
+          -
+          5096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running.get
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          5127
+          -
+          5133
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          5134
+          -
+          5134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          5127
+          -
+          5394
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.sender()).!(scala.this.Predef.Map.apply[String, Option[akka.actor.ActorRef]](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.CommandName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.commandManager), scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ServicesName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.serviceActor), scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ComponentName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.componentActor)).collect[(String, akka.actor.ActorRef), Any](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[(String, Option[akka.actor.ActorRef]),(String, akka.actor.ActorRef)] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: ((String, Option[akka.actor.ActorRef])) =&gt; (String, akka.actor.ActorRef)&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: (String, Option[akka.actor.ActorRef]), B1 &gt;: (String, akka.actor.ActorRef)](x5: A1, default: A1 =&gt; B1): B1 = ((x5.asInstanceOf[(String, Option[akka.actor.ActorRef])]: (String, Option[akka.actor.ActorRef])): (String, Option[akka.actor.ActorRef]) @unchecked) match {
+      case (_1: String, _2: Option[akka.actor.ActorRef])(String, Option[akka.actor.ActorRef])((key @ _), (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((value @ _))) =&gt; scala.this.Predef.ArrowAssoc[String](key).-&gt;[akka.actor.ActorRef](value)
+      case (defaultCase$ @ _) =&gt; default.apply(x5)
+    };
+    final def isDefinedAt(x5: (String, Option[akka.actor.ActorRef])): Boolean = ((x5.asInstanceOf[(String, Option[akka.actor.ActorRef])]: (String, Option[akka.actor.ActorRef])): (String, Option[akka.actor.ActorRef]) @unchecked) match {
+      case (_1: String, _2: Option[akka.actor.ActorRef])(String, Option[akka.actor.ActorRef])((key @ _), (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((value @ _))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[(String, Option[akka.actor.ActorRef]),(String, akka.actor.ActorRef)]))(immutable.this.Map.canBuildFrom[String, akka.actor.ActorRef]))(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          5207
+          -
+          5221
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.commandManager
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.commandManager
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          5175
+          -
+          5203
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          5175
+          -
+          5221
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.CommandName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.commandManager)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          5264
+          -
+          5276
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.serviceActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          5231
+          -
+          5260
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          5231
+          -
+          5276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ServicesName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.serviceActor)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          5286
+          -
+          5334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ComponentName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.componentActor)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          5320
+          -
+          5334
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.componentActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          5286
+          -
+          5316
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          5351
+          -
+          5351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.$anonfun.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          5380
+          -
+          5392
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](key).-&gt;[akka.actor.ActorRef](value)
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          5136
+          -
+          5394
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.collect
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Map.apply[String, Option[akka.actor.ActorRef]](scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.CommandName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.commandManager), scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ServicesName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.serviceActor), scala.this.Predef.ArrowAssoc[String](com.webtrends.harness.HarnessConstants.ComponentName).-&gt;[Option[akka.actor.ActorRef]](HarnessActor.this.componentActor)).collect[(String, akka.actor.ActorRef), Any](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[(String, Option[akka.actor.ActorRef]),(String, akka.actor.ActorRef)] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: ((String, Option[akka.actor.ActorRef])) =&gt; (String, akka.actor.ActorRef)&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: (String, Option[akka.actor.ActorRef]), B1 &gt;: (String, akka.actor.ActorRef)](x5: A1, default: A1 =&gt; B1): B1 = ((x5.asInstanceOf[(String, Option[akka.actor.ActorRef])]: (String, Option[akka.actor.ActorRef])): (String, Option[akka.actor.ActorRef]) @unchecked) match {
+      case (_1: String, _2: Option[akka.actor.ActorRef])(String, Option[akka.actor.ActorRef])((key @ _), (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((value @ _))) =&gt; scala.this.Predef.ArrowAssoc[String](key).-&gt;[akka.actor.ActorRef](value)
+      case (defaultCase$ @ _) =&gt; default.apply(x5)
+    };
+    final def isDefinedAt(x5: (String, Option[akka.actor.ActorRef])): Boolean = ((x5.asInstanceOf[(String, Option[akka.actor.ActorRef])]: (String, Option[akka.actor.ActorRef])): (String, Option[akka.actor.ActorRef]) @unchecked) match {
+      case (_1: String, _2: Option[akka.actor.ActorRef])(String, Option[akka.actor.ActorRef])((key @ _), (x: akka.actor.ActorRef)Some[akka.actor.ActorRef]((value @ _))) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[(String, Option[akka.actor.ActorRef]),(String, akka.actor.ActorRef)]))(immutable.this.Map.canBuildFrom[String, akka.actor.ActorRef])
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          5351
+          -
+          5351
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Map.canBuildFrom[String, akka.actor.ActorRef]
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          5429
+          -
+          5429
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          5421
+          -
+          5447
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.Harness.restartActorSystem
+        </td>
+        <td style="background: #F0ADAD">
+          Harness.restartActorSystem
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          5482
+          -
+          5561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Received message to reload services/components due to config change&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          5585
+          -
+          5585
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          5568
+          -
+          5584
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor.get
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          239
+        </td>
+        <td>
+          5568
+          -
+          5588
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.serviceActor.get).!(c)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          241
+        </td>
+        <td>
+          5614
+          -
+          5614
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          5595
+          -
+          5613
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor.get
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          5595
+          -
+          5617
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.componentActor.get).!(c)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          5645
+          -
+          5665
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.shutdownCoreServices
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.shutdownCoreServices
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          245
+        </td>
+        <td>
+          5745
+          -
+          5756
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.Health.startHealth
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.startHealth
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          246
+        </td>
+        <td>
+          5761
+          -
+          5779
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcher.startConfigWatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.startConfigWatcher
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          5804
+          -
+          5839
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyCommandsEnabled
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyCommandsEnabled
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          250
+        </td>
+        <td>
+          5788
+          -
+          5898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config.hasPath(com.webtrends.harness.HarnessConstants.KeyCommandsEnabled).unary_!.||(HarnessActor.this.config.getBoolean(com.webtrends.harness.HarnessConstants.KeyCommandsEnabled))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          5900
+          -
+          6129
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  HarnessActor.this.commandManager_=(scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.command.CommandManager.props, com.webtrends.harness.HarnessConstants.CommandName)));
+  HarnessActor.this.log.info(&quot;Command Manager started: {}&quot;, HarnessActor.this.commandManager)
+}
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          5844
+          -
+          5898
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getBoolean
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config.getBoolean(com.webtrends.harness.HarnessConstants.KeyCommandsEnabled)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          5784
+          -
+          5784
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          5862
+          -
+          5897
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyCommandsEnabled
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyCommandsEnabled
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          5784
+          -
+          5784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          5988
+          -
+          6061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.command.CommandManager.props, com.webtrends.harness.HarnessConstants.CommandName))
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          5993
+          -
+          6060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.actorOf(com.webtrends.harness.command.CommandManager.props, com.webtrends.harness.HarnessConstants.CommandName)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          6031
+          -
+          6059
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.CommandName
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          5971
+          -
+          6061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.commandManager_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.commandManager_=(scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.command.CommandManager.props, com.webtrends.harness.HarnessConstants.CommandName)))
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          6009
+          -
+          6029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.command.CommandManager.props
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          6077
+          -
+          6106
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Command Manager started: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          6068
+          -
+          6123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Command Manager started: {}&quot;, HarnessActor.this.commandManager)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          6108
+          -
+          6122
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.commandManager
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.commandManager
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          6172
+          -
+          6194
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.ComponentManager.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.ComponentManager.props
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          6151
+          -
+          6228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.component.ComponentManager.props, com.webtrends.harness.HarnessConstants.ComponentName))
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          6156
+          -
+          6227
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.actorOf(com.webtrends.harness.component.ComponentManager.props, com.webtrends.harness.HarnessConstants.ComponentName)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          6196
+          -
+          6226
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ComponentName
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          6134
+          -
+          6228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.componentActor_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor_=(scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.component.ComponentManager.props, com.webtrends.harness.HarnessConstants.ComponentName)))
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          6275
+          -
+          6289
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.componentActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          6242
+          -
+          6273
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Component manager started: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          6233
+          -
+          6290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Component manager started: {}&quot;, HarnessActor.this.componentActor)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          6316
+          -
+          6336
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.InitializeComponents
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.InitializeComponents
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          6295
+          -
+          6313
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor.get
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          6295
+          -
+          6336
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(HarnessActor.this.componentActor.get).!(com.webtrends.harness.component.InitializeComponents)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          6314
+          -
+          6314
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          6492
+          -
+          6508
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.children
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.children
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          6519
+          -
+          6563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.AskableActorRef.?
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(child).?(akka.actor.Identify.apply(&quot;xyz123&quot;))(HarnessActor.this.startupTimeout)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          6548
+          -
+          6562
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.startupTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.startupTimeout
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          6476
+          -
+          7487
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.traverse[akka.actor.ActorRef, Any, scala.collection.immutable.Iterable](HarnessActor.this.context.children)(((child: akka.actor.ActorRef) =&gt; akka.pattern.`package`.ask(child).?(akka.actor.Identify.apply(&quot;xyz123&quot;))(HarnessActor.this.startupTimeout)))(immutable.this.Iterable.canBuildFrom[Any], HarnessActor.this.context.dispatcher).onComplete[Unit](((x0$1: scala.util.Try[scala.collection.immutable.Iterable[Any]]) =&gt; x0$1 match {
+  case (value: scala.collection.immutable.Iterable[Any])scala.util.Success[scala.collection.immutable.Iterable[Any]](_) =&gt; {
+    HarnessActor.this.context.become(HarnessActor.this.processing);
+    HarnessActor.this.serviceActor_=(scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.service.ServiceManager.props, com.webtrends.harness.HarnessConstants.ServicesName)));
+    HarnessActor.this.log.info(&quot;Harness manager started: {}&quot;, HarnessActor.this.context.self.path);
+    if (com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Boolean](com.webtrends.harness.HarnessConstants.KeyInternalHttpEnabled, {
+      ((x$1: String) =&gt; HarnessActor.this.config.getBoolean(x$1))
+    }, true))
+      HarnessActor.this.startInternalHTTP(com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](com.webtrends.harness.HarnessConstants.KeyInternalHttpPort, {
+        ((x$1: String) =&gt; HarnessActor.this.config.getInt(x$1))
+      }, 8080))
+    else
+      ();
+    HarnessActor.this.running_=(scala.Some.apply[Boolean](true))
+  }
+  case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Any]]((t @ _)) =&gt; HarnessActor.this.log.error(&quot;Error loading the main harness actors&quot;, t)
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          6509
+          -
+          6509
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          6528
+          -
+          6546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Identify.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Identify.apply(&quot;xyz123&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          6565
+          -
+          6565
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          6509
+          -
+          6509
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[Any]
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          6626
+          -
+          6636
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.processing
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.processing
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          281
+        </td>
+        <td>
+          6611
+          -
+          6637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorContext.become
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.become(HarnessActor.this.processing)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          6675
+          -
+          6764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.serviceActor_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor_=(scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.service.ServiceManager.props, com.webtrends.harness.HarnessConstants.ServicesName)))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          6733
+          -
+          6762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.ServicesName
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          6690
+          -
+          6764
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[akka.actor.ActorRef](HarnessActor.this.context.actorOf(com.webtrends.harness.service.ServiceManager.props, com.webtrends.harness.HarnessConstants.ServicesName))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          6711
+          -
+          6731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.props
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.ServiceManager.props
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          6695
+          -
+          6763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.actorOf(com.webtrends.harness.service.ServiceManager.props, com.webtrends.harness.HarnessConstants.ServicesName)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          6773
+          -
+          6831
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Harness manager started: {}&quot;, HarnessActor.this.context.self.path)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          288
+        </td>
+        <td>
+          6813
+          -
+          6830
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.self.path
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          6782
+          -
+          6811
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Harness manager started: {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          301
+        </td>
+        <td>
+          7141
+          -
+          7141
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          7232
+          -
+          7236
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          300
+        </td>
+        <td>
+          7141
+          -
+          7141
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          291
+        </td>
+        <td>
+          7213
+          -
+          7230
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getBoolean
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config.getBoolean(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          7172
+          -
+          7211
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyInternalHttpEnabled
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyInternalHttpEnabled
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          7145
+          -
+          7237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Boolean](com.webtrends.harness.HarnessConstants.KeyInternalHttpEnabled, {
+  ((x$1: String) =&gt; HarnessActor.this.config.getBoolean(x$1))
+}, true)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          7334
+          -
+          7347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.config.getInt(x$1)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          298
+        </td>
+        <td>
+          7251
+          -
+          7355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHTTP.startInternalHTTP
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.startInternalHTTP(com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](com.webtrends.harness.HarnessConstants.KeyInternalHttpPort, {
+  ((x$1: String) =&gt; HarnessActor.this.config.getInt(x$1))
+}, 8080))
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          7296
+          -
+          7332
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyInternalHttpPort
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyInternalHttpPort
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          297
+        </td>
+        <td>
+          7269
+          -
+          7354
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](com.webtrends.harness.HarnessConstants.KeyInternalHttpPort, {
+  ((x$1: String) =&gt; HarnessActor.this.config.getInt(x$1))
+}, 8080)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          7251
+          -
+          7355
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.http.InternalHTTP.startInternalHTTP
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.startInternalHTTP(com.webtrends.harness.utils.ConfigUtil.getDefaultValue[Int](com.webtrends.harness.HarnessConstants.KeyInternalHttpPort, {
+  ((x$1: String) =&gt; HarnessActor.this.config.getInt(x$1))
+}, 8080))
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          296
+        </td>
+        <td>
+          7349
+          -
+          7353
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          8080
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          7374
+          -
+          7394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.running_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running_=(scala.Some.apply[Boolean](true))
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          7384
+          -
+          7394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Boolean](true)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          7428
+          -
+          7481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.error(&quot;Error loading the main harness actors&quot;, t)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          7646
+          -
+          7687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Starting the shutdown process&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          7692
+          -
+          7692
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          309
+        </td>
+        <td>
+          7696
+          -
+          7728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running.isDefined.&amp;&amp;(HarnessActor.this.running.get)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          7730
+          -
+          7950
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val tmpService: Option[akka.actor.ActorRef] = HarnessActor.this.serviceActor;
+  val tmpComp: Option[akka.actor.ActorRef] = HarnessActor.this.componentActor;
+  val tmpCmd: Option[akka.actor.ActorRef] = HarnessActor.this.commandManager;
+  {
+    HarnessActor.this.prepareForShutdown(tmpService, tmpCmd, tmpComp).andThen[Unit](({
+      @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[scala.util.Try[Unit],Unit] with Serializable {
+        def &lt;init&gt;(): &lt;$anon: scala.util.Try[Unit] =&gt; Unit&gt; = {
+          $anonfun.super.&lt;init&gt;();
+          ()
+        };
+        final override def applyOrElse[A1 &lt;: scala.util.Try[Unit], B1 &gt;: Unit](x6: A1, default: A1 =&gt; B1): B1 = ((x6.asInstanceOf[scala.util.Try[Unit]]: scala.util.Try[Unit]): scala.util.Try[Unit] @unchecked) match {
+          case _ =&gt; HarnessActor.this.gracefulShutdown
+          case (defaultCase$ @ _) =&gt; default.apply(x6)
+        };
+        final def isDefinedAt(x6: scala.util.Try[Unit]): Boolean = ((x6.asInstanceOf[scala.util.Try[Unit]]: scala.util.Try[Unit]): scala.util.Try[Unit] @unchecked) match {
+          case _ =&gt; true
+          case (defaultCase$ @ _) =&gt; false
+        }
+      };
+      new $anonfun()
+    }: PartialFunction[scala.util.Try[Unit],Unit]))(HarnessActor.this.context.dispatcher);
+    ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          7717
+          -
+          7728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running.get
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          7692
+          -
+          7692
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          7755
+          -
+          7767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.serviceActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          7788
+          -
+          7802
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.componentActor
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          7822
+          -
+          7836
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.commandManager
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.commandManager
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          7844
+          -
+          7944
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.andThen
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.prepareForShutdown(tmpService, tmpCmd, tmpComp).andThen[Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[scala.util.Try[Unit],Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: scala.util.Try[Unit] =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: scala.util.Try[Unit], B1 &gt;: Unit](x6: A1, default: A1 =&gt; B1): B1 = ((x6.asInstanceOf[scala.util.Try[Unit]]: scala.util.Try[Unit]): scala.util.Try[Unit] @unchecked) match {
+      case _ =&gt; HarnessActor.this.gracefulShutdown
+      case (defaultCase$ @ _) =&gt; default.apply(x6)
+    };
+    final def isDefinedAt(x6: scala.util.Try[Unit]): Boolean = ((x6.asInstanceOf[scala.util.Try[Unit]]: scala.util.Try[Unit]): scala.util.Try[Unit] @unchecked) match {
+      case _ =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[scala.util.Try[Unit],Unit]))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          7892
+          -
+          7892
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          7892
+          -
+          7892
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          7900
+          -
+          7900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          7920
+          -
+          7936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.gracefulShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.gracefulShutdown
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          8041
+          -
+          8337
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Unit]({
+  HarnessActor.this.log.info(scala.StringContext.apply(&quot;Prepare For Shutdown&quot;).s());
+  actorRefs.flatMap[Unit, Seq[Unit]](((optRef: Option[akka.actor.ActorRef]) =&gt; scala.this.Option.option2Iterable[Unit](optRef.map[Unit](((ref: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(ref).!(HarnessActor.PrepareForShutdown)(HarnessActor.this.self))))))(collection.this.Seq.canBuildFrom[Unit]);
+  java.this.lang.Thread.sleep(HarnessActor.this.prepareShutdownTimeout.duration.toMillis)
+})(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          8048
+          -
+          8048
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          8056
+          -
+          8089
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(scala.StringContext.apply(&quot;Prepare For Shutdown&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          321
+        </td>
+        <td>
+          8065
+          -
+          8088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Prepare For Shutdown&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          8117
+          -
+          8117
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[Unit]
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          8096
+          -
+          8200
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td style="background: #F0ADAD">
+          actorRefs.flatMap[Unit, Seq[Unit]](((optRef: Option[akka.actor.ActorRef]) =&gt; scala.this.Option.option2Iterable[Unit](optRef.map[Unit](((ref: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(ref).!(HarnessActor.PrepareForShutdown)(HarnessActor.this.self))))))(collection.this.Seq.canBuildFrom[Unit])
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          8138
+          -
+          8200
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[Unit](optRef.map[Unit](((ref: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(ref).!(HarnessActor.PrepareForShutdown)(HarnessActor.this.self))))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          8138
+          -
+          8200
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td style="background: #F0ADAD">
+          optRef.map[Unit](((ref: akka.actor.ActorRef) =&gt; akka.actor.`package`.actorRef2Scala(ref).!(HarnessActor.PrepareForShutdown)(HarnessActor.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          8176
+          -
+          8200
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.`package`.actorRef2Scala(ref).!(HarnessActor.PrepareForShutdown)(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          8180
+          -
+          8180
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          8182
+          -
+          8200
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.PrepareForShutdown
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.PrepareForShutdown
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          8278
+          -
+          8331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.sleep
+        </td>
+        <td style="background: #F0ADAD">
+          java.this.lang.Thread.sleep(HarnessActor.this.prepareShutdownTimeout.duration.toMillis)
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          8291
+          -
+          8331
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.FiniteDuration.toMillis
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.prepareShutdownTimeout.duration.toMillis
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          8397
+          -
+          8426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Starting graceful shutdown&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          335
+        </td>
+        <td>
+          8388
+          -
+          8427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(scala.StringContext.apply(&quot;Starting graceful shutdown&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          370
+        </td>
+        <td>
+          8485
+          -
+          8485
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          8463
+          -
+          8464
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          8445
+          -
+          8461
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.serviceActor.get
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          8432
+          -
+          8432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.pattern.GracefulStopSupport.gracefulStop$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop$default$3
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          8432
+          -
+          9413
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop(HarnessActor.this.serviceActor.get, scala.concurrent.duration.`package`.DurationInt(5).seconds, akka.pattern.`package`.gracefulStop$default$3).onComplete[Unit](((x0$2: scala.util.Try[Boolean]) =&gt; x0$2 match {
+  case _ =&gt; akka.pattern.`package`.gracefulStop(HarnessActor.this.componentActor.get, scala.concurrent.duration.`package`.DurationInt(5).seconds, akka.pattern.`package`.gracefulStop$default$3).onComplete[Unit](((x0$3: scala.util.Try[Boolean]) =&gt; x0$3 match {
+    case _ =&gt; if (HarnessActor.this.context.children.size.&gt;(0))
+      scala.concurrent.Future.sequence[Boolean, scala.collection.immutable.Iterable](HarnessActor.this.context.children.map[scala.concurrent.Future[Boolean], scala.collection.immutable.Iterable[scala.concurrent.Future[Boolean]]](((a: akka.actor.ActorRef) =&gt; akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)))(immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]]))(immutable.this.Iterable.canBuildFrom[Boolean], HarnessActor.this.context.dispatcher).onComplete[Unit](((x0$4: scala.util.Try[scala.collection.immutable.Iterable[Boolean]]) =&gt; x0$4 match {
+        case (value: scala.collection.immutable.Iterable[Boolean])scala.util.Success[scala.collection.immutable.Iterable[Boolean]](_) =&gt; {
+          HarnessActor.this.log.info(&quot;Harness subsystems have been shutdown&quot;);
+          HarnessActor.this.context.stop(HarnessActor.this.self);
+          HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+        }
+        case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Boolean]]((fail @ _)) =&gt; {
+          HarnessActor.this.log.info(&quot;Harness subsystems have not been shutdown properly&quot;);
+          HarnessActor.this.context.stop(HarnessActor.this.self);
+          HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+        }
+      }))(HarnessActor.this.context.dispatcher)
+    else
+      ()
+  }))(HarnessActor.this.context.dispatcher)
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          8463
+          -
+          8472
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          8622
+          -
+          8640
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.componentActor.get
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          8609
+          -
+          8609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.pattern.GracefulStopSupport.gracefulStop$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop$default$3
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          8609
+          -
+          9407
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop(HarnessActor.this.componentActor.get, scala.concurrent.duration.`package`.DurationInt(5).seconds, akka.pattern.`package`.gracefulStop$default$3).onComplete[Unit](((x0$3: scala.util.Try[Boolean]) =&gt; x0$3 match {
+  case _ =&gt; if (HarnessActor.this.context.children.size.&gt;(0))
+    scala.concurrent.Future.sequence[Boolean, scala.collection.immutable.Iterable](HarnessActor.this.context.children.map[scala.concurrent.Future[Boolean], scala.collection.immutable.Iterable[scala.concurrent.Future[Boolean]]](((a: akka.actor.ActorRef) =&gt; akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)))(immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]]))(immutable.this.Iterable.canBuildFrom[Boolean], HarnessActor.this.context.dispatcher).onComplete[Unit](((x0$4: scala.util.Try[scala.collection.immutable.Iterable[Boolean]]) =&gt; x0$4 match {
+      case (value: scala.collection.immutable.Iterable[Boolean])scala.util.Success[scala.collection.immutable.Iterable[Boolean]](_) =&gt; {
+        HarnessActor.this.log.info(&quot;Harness subsystems have been shutdown&quot;);
+        HarnessActor.this.context.stop(HarnessActor.this.self);
+        HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+      }
+      case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Boolean]]((fail @ _)) =&gt; {
+        HarnessActor.this.log.info(&quot;Harness subsystems have not been shutdown properly&quot;);
+        HarnessActor.this.context.stop(HarnessActor.this.self);
+        HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+      }
+    }))(HarnessActor.this.context.dispatcher)
+  else
+    ()
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          8642
+          -
+          8651
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(5).seconds
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          8642
+          -
+          8643
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          5
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          368
+        </td>
+        <td>
+          8653
+          -
+          8653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          8842
+          -
+          8842
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          8842
+          -
+          8842
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          8846
+          -
+          8871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.children.size.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          8948
+          -
+          8958
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.duration.DurationConversions.seconds
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.duration.`package`.DurationInt(10).seconds
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          8922
+          -
+          8922
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]]
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          8904
+          -
+          8904
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          345
+        </td>
+        <td>
+          8948
+          -
+          8950
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          10
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          8932
+          -
+          8959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.GracefulStopSupport.gracefulStop
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          8904
+          -
+          8904
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          8905
+          -
+          8960
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.children.map[scala.concurrent.Future[Boolean], scala.collection.immutable.Iterable[scala.concurrent.Future[Boolean]]](((a: akka.actor.ActorRef) =&gt; akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)))(immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]])
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          347
+        </td>
+        <td>
+          8932
+          -
+          8932
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.pattern.GracefulStopSupport.gracefulStop$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.gracefulStop$default$3
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          8889
+          -
+          9383
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.sequence[Boolean, scala.collection.immutable.Iterable](HarnessActor.this.context.children.map[scala.concurrent.Future[Boolean], scala.collection.immutable.Iterable[scala.concurrent.Future[Boolean]]](((a: akka.actor.ActorRef) =&gt; akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)))(immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]]))(immutable.this.Iterable.canBuildFrom[Boolean], HarnessActor.this.context.dispatcher).onComplete[Unit](((x0$4: scala.util.Try[scala.collection.immutable.Iterable[Boolean]]) =&gt; x0$4 match {
+  case (value: scala.collection.immutable.Iterable[Boolean])scala.util.Success[scala.collection.immutable.Iterable[Boolean]](_) =&gt; {
+    HarnessActor.this.log.info(&quot;Harness subsystems have been shutdown&quot;);
+    HarnessActor.this.context.stop(HarnessActor.this.self);
+    HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+  }
+  case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Boolean]]((fail @ _)) =&gt; {
+    HarnessActor.this.log.info(&quot;Harness subsystems have not been shutdown properly&quot;);
+    HarnessActor.this.context.stop(HarnessActor.this.self);
+    HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+  }
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          363
+        </td>
+        <td>
+          8990
+          -
+          8990
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          8889
+          -
+          9383
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.sequence[Boolean, scala.collection.immutable.Iterable](HarnessActor.this.context.children.map[scala.concurrent.Future[Boolean], scala.collection.immutable.Iterable[scala.concurrent.Future[Boolean]]](((a: akka.actor.ActorRef) =&gt; akka.pattern.`package`.gracefulStop(a, scala.concurrent.duration.`package`.DurationInt(10).seconds, akka.pattern.`package`.gracefulStop$default$3)))(immutable.this.Iterable.canBuildFrom[scala.concurrent.Future[Boolean]]))(immutable.this.Iterable.canBuildFrom[Boolean], HarnessActor.this.context.dispatcher).onComplete[Unit](((x0$4: scala.util.Try[scala.collection.immutable.Iterable[Boolean]]) =&gt; x0$4 match {
+  case (value: scala.collection.immutable.Iterable[Boolean])scala.util.Success[scala.collection.immutable.Iterable[Boolean]](_) =&gt; {
+    HarnessActor.this.log.info(&quot;Harness subsystems have been shutdown&quot;);
+    HarnessActor.this.context.stop(HarnessActor.this.self);
+    HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+  }
+  case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[Boolean]]((fail @ _)) =&gt; {
+    HarnessActor.this.log.info(&quot;Harness subsystems have not been shutdown properly&quot;);
+    HarnessActor.this.context.stop(HarnessActor.this.self);
+    HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+  }
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          9045
+          -
+          9094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Harness subsystems have been shutdown&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          9113
+          -
+          9131
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.stop(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          354
+        </td>
+        <td>
+          9126
+          -
+          9130
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          9150
+          -
+          9171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.running_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          9160
+          -
+          9171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Boolean](false)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          9228
+          -
+          9290
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.info(&quot;Harness subsystems have not been shutdown properly&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          9309
+          -
+          9327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.stop
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.stop(HarnessActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          9322
+          -
+          9326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          9356
+          -
+          9367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Boolean](false)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          362
+        </td>
+        <td>
+          9346
+          -
+          9367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.running_=
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.running_=(scala.Some.apply[Boolean](false))
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          372
+        </td>
+        <td>
+          9659
+          -
+          9718
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.debug(&quot;We have received a message to check our health&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          382
+        </td>
+        <td>
+          9749
+          -
+          9866
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Seq[com.webtrends.harness.health.HealthComponent]](collection.this.Seq.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;system&quot;, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;The system is still initializing&quot;).s(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          381
+        </td>
+        <td>
+          9749
+          -
+          9866
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[Seq[com.webtrends.harness.health.HealthComponent]](collection.this.Seq.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;system&quot;, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;The system is still initializing&quot;).s(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          380
+        </td>
+        <td>
+          9756
+          -
+          9756
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          9786
+          -
+          9794
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;system&quot;
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          376
+        </td>
+        <td>
+          9770
+          -
+          9770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          9766
+          -
+          9858
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.apply[com.webtrends.harness.health.HealthComponent](com.webtrends.harness.health.HealthComponent.apply(&quot;system&quot;, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;The system is still initializing&quot;).s(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          9770
+          -
+          9857
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;system&quot;, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;The system is still initializing&quot;).s(), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          375
+        </td>
+        <td>
+          9821
+          -
+          9856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;The system is still initializing&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          9770
+          -
+          9770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          9796
+          -
+          9819
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          398
+        </td>
+        <td>
+          9878
+          -
+          10357
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val future: scala.concurrent.Future[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]] = scala.concurrent.Future.traverse[akka.actor.ActorRef, com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable](HarnessActor.this.context.children)(((sys: akka.actor.ActorRef) =&gt; sys match {
+    case (a @ (_: akka.actor.ActorRef)) =&gt; akka.pattern.`package`.ask(a).?(com.webtrends.harness.service.messages.CheckHealth)(HarnessActor.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent]))
+  }))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent], HarnessActor.this.context.dispatcher);
+  val p: scala.concurrent.Promise[Seq[com.webtrends.harness.health.HealthComponent]] = scala.concurrent.Promise.apply[Seq[com.webtrends.harness.health.HealthComponent]]();
+  future.onComplete[scala.concurrent.Promise[Seq[com.webtrends.harness.health.HealthComponent]]](((x0$5: scala.util.Try[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$5 match {
+    case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+      HarnessActor.this.log.error(&quot;Error fetching health&quot;, f);
+      p.failure(f)
+    }
+    case (value: scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent])scala.util.Success[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]((answers @ _)) =&gt; p.success(answers.toSeq)
+  }))(HarnessActor.this.context.dispatcher);
+  p.future
+}
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          388
+        </td>
+        <td>
+          9980
+          -
+          9980
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          387
+        </td>
+        <td>
+          9980
+          -
+          9980
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          383
+        </td>
+        <td>
+          9963
+          -
+          9979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.children
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.children
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          389
+        </td>
+        <td>
+          9947
+          -
+          10087
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.traverse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.traverse[akka.actor.ActorRef, com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable](HarnessActor.this.context.children)(((sys: akka.actor.ActorRef) =&gt; sys match {
+  case (a @ (_: akka.actor.ActorRef)) =&gt; akka.pattern.`package`.ask(a).?(com.webtrends.harness.service.messages.CheckHealth)(HarnessActor.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent]))
+}))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent], HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          385
+        </td>
+        <td>
+          10041
+          -
+          10041
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          384
+        </td>
+        <td>
+          10043
+          -
+          10054
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.service.messages.CheckHealth
+        </td>
+      </tr><tr>
+        <td>
+          256
+        </td>
+        <td>
+          386
+        </td>
+        <td>
+          10039
+          -
+          10078
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.mapTo
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(a).?(com.webtrends.harness.service.messages.CheckHealth)(HarnessActor.this.checkTimeout).mapTo[com.webtrends.harness.health.HealthComponent]((ClassTag.apply[com.webtrends.harness.health.HealthComponent](classOf[com.webtrends.harness.health.HealthComponent]): scala.reflect.ClassTag[com.webtrends.harness.health.HealthComponent]))
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          390
+        </td>
+        <td>
+          10103
+          -
+          10134
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[Seq[com.webtrends.harness.health.HealthComponent]]()
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          396
+        </td>
+        <td>
+          10141
+          -
+          10335
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          future.onComplete[scala.concurrent.Promise[Seq[com.webtrends.harness.health.HealthComponent]]](((x0$5: scala.util.Try[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]) =&gt; x0$5 match {
+  case (exception: Throwable)scala.util.Failure[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]((f @ _)) =&gt; {
+    HarnessActor.this.log.error(&quot;Error fetching health&quot;, f);
+    p.failure(f)
+  }
+  case (value: scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent])scala.util.Success[scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]]((answers @ _)) =&gt; p.success(answers.toSeq)
+}))(HarnessActor.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          395
+        </td>
+        <td>
+          10158
+          -
+          10158
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          262
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          10198
+          -
+          10235
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          HarnessActor.this.log.error(&quot;Error fetching health&quot;, f)
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          392
+        </td>
+        <td>
+          10246
+          -
+          10259
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          394
+        </td>
+        <td>
+          10303
+          -
+          10326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(answers.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          393
+        </td>
+        <td>
+          10313
+          -
+          10326
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td style="background: #F0ADAD">
+          answers.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          397
+        </td>
+        <td>
+          10343
+          -
+          10351
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

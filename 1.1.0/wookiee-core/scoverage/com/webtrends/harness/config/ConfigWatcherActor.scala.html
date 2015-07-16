@@ -1,0 +1,2825 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/config/ConfigWatcherActor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.config
+</span>21 <span style=''>
+</span>22 <span style=''>import java.io.{File, IOException}
+</span>23 <span style=''>import java.nio.file.StandardWatchEventKinds._
+</span>24 <span style=''>import java.nio.file._
+</span>25 <span style=''>
+</span>26 <span style=''>import akka.actor.Props
+</span>27 <span style=''>import com.sun.nio.file.SensitivityWatchEventModifier
+</span>28 <span style=''>import com.webtrends.harness.app.HActor
+</span>29 <span style=''>import com.webtrends.harness.app.HarnessActor.ConfigChange
+</span>30 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>31 <span style=''>import com.webtrends.harness.service.ServiceManager
+</span>32 <span style=''>
+</span>33 <span style=''>import scala.collection.JavaConversions._
+</span>34 <span style=''>import scala.concurrent.ExecutionContext.Implicits.global
+</span>35 <span style=''>import scala.concurrent.Future
+</span>36 <span style=''>
+</span>37 <span style=''>class ConfigWatcherActor extends HActor {
+</span>38 <span style=''>  val configWatcher = </span><span style='background: #AEF1AE'>FileSystems.getDefault.newWatchService()</span><span style=''>
+</span>39 <span style=''>  var configDir = </span><span style='background: #AEF1AE'>Paths.get(".")</span><span style=''>
+</span>40 <span style=''>  val watchThread = </span><span style='background: #AEF1AE'>new Thread(new DirectoryWatcher)</span><span style=''>
+</span>41 <span style=''>  var brokenKeys = </span><span style='background: #AEF1AE'>List()</span><span style=''>
+</span>42 <span style=''>  var configExists = </span><span style='background: #AEF1AE'>false</span><span style=''>
+</span>43 <span style=''>
+</span>44 <span style=''>  override def preStart(): Unit = {
+</span>45 <span style=''>    </span><span style='background: #AEF1AE'>super.preStart()</span><span style=''>
+</span>46 <span style=''>    val conf = </span><span style='background: #AEF1AE'>context.system.settings.config</span><span style=''>
+</span>47 <span style=''>    </span><span style='background: #AEF1AE'>ServiceManager.serviceDir(conf)</span><span style=''> match {
+</span>48 <span style=''>      case Some(s) =>
+</span>49 <span style=''>        </span><span style='background: #AEF1AE'>configDir = s.toPath</span><span style=''>
+</span>50 <span style=''>        val dirs = </span><span style='background: #AEF1AE'>s.listFiles.filter(_.isDirectory)</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>        </span><span style='background: #AEF1AE'>dirs foreach {
+</span>53 <span style=''></span><span style='background: #AEF1AE'>          dir =>
+</span>54 <span style=''></span><span style='background: #AEF1AE'>            val path = Paths.get(dir.getPath.concat("/conf"))
+</span>55 <span style=''></span><span style='background: #AEF1AE'>            if (Files.exists(path)) {
+</span>56 <span style=''></span><span style='background: #AEF1AE'>              log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+</span>57 <span style=''></span><span style='background: #AEF1AE'>              path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+</span>58 <span style=''></span><span style='background: #AEF1AE'>            }</span><span style=''>
+</span>59 <span style=''>        }
+</span>60 <span style=''>        if (</span><span style='background: #AEF1AE'>dirs.length > 0</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>61 <span style=''></span><span style='background: #AEF1AE'>          configExists = true
+</span>62 <span style=''></span><span style='background: #AEF1AE'>          watchThread.start()
+</span>63 <span style=''></span><span style='background: #AEF1AE'>        }</span><span style=''>
+</span>64 <span style=''>      case None => </span><span style='background: #F0ADAD'>log.warn("Service dir does not exist, not starting watchers")</span><span style=''>
+</span>65 <span style=''>    }
+</span>66 <span style=''>    </span><span style='background: #AEF1AE'>System.getProperty("config.file")</span><span style=''> match {
+</span>67 <span style=''>      case s: String =>
+</span>68 <span style=''>        val cPath = </span><span style='background: #F0ADAD'>new File(s)</span><span style=''>
+</span>69 <span style=''>        if (</span><span style='background: #F0ADAD'>cPath.exists()</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>70 <span style=''></span><span style='background: #F0ADAD'>          val path = cPath.getParentFile.toPath
+</span>71 <span style=''></span><span style='background: #F0ADAD'>          log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+</span>72 <span style=''></span><span style='background: #F0ADAD'>          path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+</span>73 <span style=''></span><span style='background: #F0ADAD'>
+</span>74 <span style=''></span><span style='background: #F0ADAD'>          if (!configExists) {
+</span>75 <span style=''></span><span style='background: #F0ADAD'>            configExists = true
+</span>76 <span style=''></span><span style='background: #F0ADAD'>            watchThread.start()
+</span>77 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>78 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>79 <span style=''>      case null => </span><span style='background: #AEF1AE'>log.info("Prop config.file not set, not watching for config changes")</span><span style=''>
+</span>80 <span style=''>    }
+</span>81 <span style=''>  }
+</span>82 <span style=''>
+</span>83 <span style=''>  override def postStop(): Unit = {
+</span>84 <span style=''>    </span><span style='background: #AEF1AE'>super.postStop()</span><span style=''>
+</span>85 <span style=''>    if (</span><span style='background: #AEF1AE'>watchThread.isAlive</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>86 <span style=''></span><span style='background: #AEF1AE'>      log.info("Stopping config watcher")
+</span>87 <span style=''></span><span style='background: #AEF1AE'>      watchThread.interrupt()
+</span>88 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  override def checkHealth: Future[HealthComponent] = {
+</span>92 <span style=''>    </span><span style='background: #AEF1AE'>Future {
+</span>93 <span style=''></span><span style='background: #AEF1AE'>      !configExists || (watchThread.isAlive && !watchThread.isInterrupted) match {
+</span>94 <span style=''></span><span style='background: #AEF1AE'>        case true => HealthComponent("Config Watcher Health", ComponentState.NORMAL, "Config being watched as expected")
+</span>95 <span style=''></span><span style='background: #AEF1AE'>        case false => </span><span style='background: #F0ADAD'>HealthComponent("Config Watcher Health", ComponentState.CRITICAL, "Config changes are no longer being watched")</span><span style='background: #AEF1AE'>
+</span>96 <span style=''></span><span style='background: #AEF1AE'>      }
+</span>97 <span style=''></span><span style='background: #AEF1AE'>    }</span><span style=''>
+</span>98 <span style=''>  }
+</span>99 <span style=''>
+</span>100 <span style=''>  private class DirectoryWatcher extends Runnable {
+</span>101 <span style=''>    def run(): Unit = {
+</span>102 <span style=''>      while (</span><span style='background: #AEF1AE'>true</span><span style=''>) </span><span style='background: #AEF1AE'>{
+</span>103 <span style=''></span><span style='background: #AEF1AE'>
+</span>104 <span style=''></span><span style='background: #AEF1AE'>        // wait for key to be signaled
+</span>105 <span style=''></span><span style='background: #AEF1AE'>        var key: Option[WatchKey] = None
+</span>106 <span style=''></span><span style='background: #AEF1AE'>        try {
+</span>107 <span style=''></span><span style='background: #AEF1AE'>          key = Some(configWatcher.take())
+</span>108 <span style=''></span><span style='background: #AEF1AE'>        } catch {
+</span>109 <span style=''></span><span style='background: #AEF1AE'>          case x: InterruptedException =>
+</span>110 <span style=''></span><span style='background: #AEF1AE'>            return
+</span>111 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>112 <span style=''></span><span style='background: #AEF1AE'>
+</span>113 <span style=''></span><span style='background: #AEF1AE'>        key.get.pollEvents().toStream.takeWhile(_.kind() != OVERFLOW) foreach {
+</span>114 <span style=''></span><span style='background: #AEF1AE'>          event =>
+</span>115 <span style=''></span><span style='background: #AEF1AE'>            log.info("Detected alteration on file {}", event.context().toString)
+</span>116 <span style=''></span><span style='background: #AEF1AE'>            // The filename is the context of the event.
+</span>117 <span style=''></span><span style='background: #AEF1AE'>            val ev = event.asInstanceOf[WatchEvent[Path]]
+</span>118 <span style=''></span><span style='background: #AEF1AE'>            val filename = ev.context()
+</span>119 <span style=''></span><span style='background: #AEF1AE'>
+</span>120 <span style=''></span><span style='background: #AEF1AE'>            try {
+</span>121 <span style=''></span><span style='background: #AEF1AE'>              // Resolve the filename against the directory.
+</span>122 <span style=''></span><span style='background: #AEF1AE'>              val child = configDir.resolve(filename)
+</span>123 <span style=''></span><span style='background: #AEF1AE'>              if (filename.toString.endsWith(".conf")) {
+</span>124 <span style=''></span><span style='background: #AEF1AE'>                log.info("Config file change detected, {}, sending message to services/components to reload if applicable.", child.toString)
+</span>125 <span style=''></span><span style='background: #AEF1AE'>                context.parent ! ConfigChange()
+</span>126 <span style=''></span><span style='background: #AEF1AE'>              } else {
+</span>127 <span style=''></span><span style='background: #AEF1AE'>                </span><span style='background: #F0ADAD'>log.info("Ignoring change to {} as it is not a .conf file", child.toString)</span><span style='background: #AEF1AE'>
+</span>128 <span style=''></span><span style='background: #AEF1AE'>              }
+</span>129 <span style=''></span><span style='background: #AEF1AE'>            } catch {
+</span>130 <span style=''></span><span style='background: #AEF1AE'>              case x: IOException =>
+</span>131 <span style=''></span><span style='background: #AEF1AE'>                </span><span style='background: #F0ADAD'>log.error("Issue reading file changed in config dir.", x)</span><span style='background: #AEF1AE'>
+</span>132 <span style=''></span><span style='background: #AEF1AE'>            }
+</span>133 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>134 <span style=''></span><span style='background: #AEF1AE'>
+</span>135 <span style=''></span><span style='background: #AEF1AE'>        // Reset the key -- this step is critical if you want to receive further watch events.
+</span>136 <span style=''></span><span style='background: #AEF1AE'>        val valid = key.get.reset()
+</span>137 <span style=''></span><span style='background: #AEF1AE'>        if (!valid) {
+</span>138 <span style=''></span><span style='background: #AEF1AE'>          </span><span style='background: #F0ADAD'>throw new IllegalStateException("Key is no longer in a valid state, can't watch configuration anymore")</span><span style='background: #AEF1AE'>
+</span>139 <span style=''></span><span style='background: #AEF1AE'>        }
+</span>140 <span style=''></span><span style='background: #AEF1AE'>      }</span><span style=''>
+</span>141 <span style=''>    }
+</span>142 <span style=''>  }
+</span>143 <span style=''>}
+</span>144 <span style=''>
+</span>145 <span style=''>object ConfigWatcherActor {
+</span>146 <span style=''>  def props: Props = </span><span style='background: #AEF1AE'>Props[ConfigWatcherActor]</span><span style=''>
+</span>147 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          1380
+          -
+          1420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.FileSystem.newWatchService
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.FileSystems.getDefault().newWatchService()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1364
+        </td>
+        <td>
+          1439
+          -
+          1453
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Paths.get
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.Paths.get(&quot;.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1366
+        </td>
+        <td>
+          1474
+          -
+          1506
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new java.this.lang.Thread(new ConfigWatcherActor.this.DirectoryWatcher())
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1365
+        </td>
+        <td>
+          1485
+          -
+          1505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.DirectoryWatcher.&lt;init&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          new ConfigWatcherActor.this.DirectoryWatcher()
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          1526
+          -
+          1532
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.Nil
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1368
+        </td>
+        <td>
+          1554
+          -
+          1559
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1369
+        </td>
+        <td>
+          1601
+          -
+          1617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.preStart
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.super.preStart()
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1370
+        </td>
+        <td>
+          1633
+          -
+          1663
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1371
+        </td>
+        <td>
+          1668
+          -
+          1699
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.service.ServiceManager.serviceDir
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.service.ServiceManager.serviceDir(conf)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1372
+        </td>
+        <td>
+          1750
+          -
+          1758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.toPath
+        </td>
+        <td style="background: #AEF1AE">
+          s.toPath()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1373
+        </td>
+        <td>
+          1738
+          -
+          1758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.configDir_=
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configDir_=(s.toPath())
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1375
+        </td>
+        <td>
+          1797
+          -
+          1810
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.isDirectory
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.isDirectory()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          1778
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.listFiles
+        </td>
+        <td style="background: #AEF1AE">
+          s.listFiles()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1376
+        </td>
+        <td>
+          1778
+          -
+          1811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[java.io.File](s.listFiles()).filter(((x$1: java.io.File) =&gt; x$1.isDirectory()))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1390
+        </td>
+        <td>
+          1821
+          -
+          2200
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Predef.refArrayOps[java.io.File](dirs).foreach[Any](((dir: java.io.File) =&gt; {
+  val path: java.nio.file.Path = java.nio.file.Paths.get(dir.getPath().concat(&quot;/conf&quot;));
+  if (java.nio.file.Files.exists(path))
+    {
+      ConfigWatcherActor.this.log.info(&quot;Adding watcher to existing directory {} for any *.conf file changes&quot;, path);
+      path.register(ConfigWatcherActor.this.configWatcher, scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]])), HIGH)
+    }
+  else
+    ()
+}))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1378
+        </td>
+        <td>
+          1876
+          -
+          1914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Paths.get
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.Paths.get(dir.getPath().concat(&quot;/conf&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1377
+        </td>
+        <td>
+          1886
+          -
+          1913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.concat
+        </td>
+        <td style="background: #AEF1AE">
+          dir.getPath().concat(&quot;/conf&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1387
+        </td>
+        <td>
+          1951
+          -
+          2200
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ConfigWatcherActor.this.log.info(&quot;Adding watcher to existing directory {} for any *.conf file changes&quot;, path);
+  path.register(ConfigWatcherActor.this.configWatcher, scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]])), HIGH)
+}
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          1927
+          -
+          1927
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1388
+        </td>
+        <td>
+          1927
+          -
+          1927
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          1931
+          -
+          1949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Files.exists
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.Files.exists(path)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          1967
+          -
+          2052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.log.info(&quot;Adding watcher to existing directory {} for any *.conf file changes&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1384
+        </td>
+        <td>
+          2096
+          -
+          2149
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]]))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1381
+        </td>
+        <td>
+          2081
+          -
+          2094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.configWatcher
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configWatcher
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1383
+        </td>
+        <td>
+          2136
+          -
+          2148
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1386
+        </td>
+        <td>
+          2067
+          -
+          2186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.register
+        </td>
+        <td style="background: #AEF1AE">
+          path.register(ConfigWatcherActor.this.configWatcher, scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]])), HIGH)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1382
+        </td>
+        <td>
+          2122
+          -
+          2134
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1385
+        </td>
+        <td>
+          2151
+          -
+          2185
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          HIGH
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1396
+        </td>
+        <td>
+          2219
+          -
+          2219
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1395
+        </td>
+        <td>
+          2219
+          -
+          2219
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1394
+        </td>
+        <td>
+          2240
+          -
+          2311
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ConfigWatcherActor.this.configExists_=(true);
+  ConfigWatcherActor.this.watchThread.start()
+}
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1391
+        </td>
+        <td>
+          2223
+          -
+          2238
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          dirs.length.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1392
+        </td>
+        <td>
+          2252
+          -
+          2271
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.configExists_=
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configExists_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1393
+        </td>
+        <td>
+          2282
+          -
+          2301
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.start
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.watchThread.start()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1397
+        </td>
+        <td>
+          2331
+          -
+          2392
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.warn
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.log.warn(&quot;Service dir does not exist, not starting watchers&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1398
+        </td>
+        <td>
+          2403
+          -
+          2436
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.getProperty
+        </td>
+        <td style="background: #AEF1AE">
+          java.this.lang.System.getProperty(&quot;config.file&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1399
+        </td>
+        <td>
+          2489
+          -
+          2500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(s)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1416
+        </td>
+        <td>
+          2509
+          -
+          2509
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1415
+        </td>
+        <td>
+          2529
+          -
+          2922
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val path: java.nio.file.Path = cPath.getParentFile().toPath();
+  ConfigWatcherActor.this.log.info(&quot;Adding watcher to existing directory {} for any *.conf file changes&quot;, path);
+  path.register(ConfigWatcherActor.this.configWatcher, scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]])), HIGH);
+  if (ConfigWatcherActor.this.configExists.unary_!)
+    {
+      ConfigWatcherActor.this.configExists_=(true);
+      ConfigWatcherActor.this.watchThread.start()
+    }
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1400
+        </td>
+        <td>
+          2513
+          -
+          2527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.exists
+        </td>
+        <td style="background: #F0ADAD">
+          cPath.exists()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1417
+        </td>
+        <td>
+          2509
+          -
+          2509
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1401
+        </td>
+        <td>
+          2552
+          -
+          2578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.toPath
+        </td>
+        <td style="background: #F0ADAD">
+          cPath.getParentFile().toPath()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1402
+        </td>
+        <td>
+          2589
+          -
+          2674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.log.info(&quot;Adding watcher to existing directory {} for any *.conf file changes&quot;, path)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1405
+        </td>
+        <td>
+          2754
+          -
+          2766
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1408
+        </td>
+        <td>
+          2685
+          -
+          2804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.register
+        </td>
+        <td style="background: #F0ADAD">
+          path.register(ConfigWatcherActor.this.configWatcher, scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]])), HIGH)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1407
+        </td>
+        <td>
+          2769
+          -
+          2803
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          HIGH
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1404
+        </td>
+        <td>
+          2740
+          -
+          2752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.file.StandardWatchEventKinds.ENTRY_CREATE
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1403
+        </td>
+        <td>
+          2699
+          -
+          2712
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.configWatcher
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.configWatcher
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1406
+        </td>
+        <td>
+          2714
+          -
+          2767
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[java.nio.file.WatchEvent.Kind[_]](java.nio.file.StandardWatchEventKinds.ENTRY_CREATE, java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY)((ClassTag.apply[java.nio.file.WatchEvent.Kind[_]](classOf[java.nio.file.WatchEvent$Kind]): scala.reflect.ClassTag[java.nio.file.WatchEvent.Kind[_]]))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1414
+        </td>
+        <td>
+          2816
+          -
+          2816
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1413
+        </td>
+        <td>
+          2816
+          -
+          2816
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1412
+        </td>
+        <td>
+          2835
+          -
+          2912
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ConfigWatcherActor.this.configExists_=(true);
+  ConfigWatcherActor.this.watchThread.start()
+}
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1409
+        </td>
+        <td>
+          2820
+          -
+          2833
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.configExists.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1410
+        </td>
+        <td>
+          2849
+          -
+          2868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.configExists_=
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.configExists_=(true)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1411
+        </td>
+        <td>
+          2881
+          -
+          2900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.start
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.watchThread.start()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1418
+        </td>
+        <td>
+          2942
+          -
+          3011
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.log.info(&quot;Prop config.file not set, not watching for config changes&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1419
+        </td>
+        <td>
+          3063
+          -
+          3079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.postStop
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.super.postStop()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1420
+        </td>
+        <td>
+          3088
+          -
+          3107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.isAlive
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.watchThread.isAlive()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1423
+        </td>
+        <td>
+          3109
+          -
+          3188
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ConfigWatcherActor.this.log.info(&quot;Stopping config watcher&quot;);
+  ConfigWatcherActor.this.watchThread.interrupt()
+}
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1425
+        </td>
+        <td>
+          3084
+          -
+          3084
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1424
+        </td>
+        <td>
+          3084
+          -
+          3084
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1421
+        </td>
+        <td>
+          3117
+          -
+          3152
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.log.info(&quot;Stopping config watcher&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1422
+        </td>
+        <td>
+          3159
+          -
+          3182
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.interrupt
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.watchThread.interrupt()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1441
+        </td>
+        <td>
+          3254
+          -
+          3614
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.concurrent.Future.apply[com.webtrends.harness.health.HealthComponent](ConfigWatcherActor.this.configExists.unary_!.||(ConfigWatcherActor.this.watchThread.isAlive().&amp;&amp;(ConfigWatcherActor.this.watchThread.isInterrupted().unary_!)) match {
+  case true =&gt; com.webtrends.harness.health.HealthComponent.apply(&quot;Config Watcher Health&quot;, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Config being watched as expected&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+  case false =&gt; com.webtrends.harness.health.HealthComponent.apply(&quot;Config Watcher Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Config changes are no longer being watched&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+})(scala.concurrent.ExecutionContext.Implicits.global)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1428
+        </td>
+        <td>
+          3269
+          -
+          3337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configExists.unary_!.||(ConfigWatcherActor.this.watchThread.isAlive().&amp;&amp;(ConfigWatcherActor.this.watchThread.isInterrupted().unary_!))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1427
+        </td>
+        <td>
+          3287
+          -
+          3336
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.watchThread.isAlive().&amp;&amp;(ConfigWatcherActor.this.watchThread.isInterrupted().unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1426
+        </td>
+        <td>
+          3310
+          -
+          3336
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.watchThread.isInterrupted().unary_!
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1429
+        </td>
+        <td>
+          3383
+          -
+          3406
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Config Watcher Health&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1432
+        </td>
+        <td>
+          3367
+          -
+          3367
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1434
+        </td>
+        <td>
+          3367
+          -
+          3466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;Config Watcher Health&quot;, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Config being watched as expected&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1431
+        </td>
+        <td>
+          3431
+          -
+          3465
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Config being watched as expected&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1430
+        </td>
+        <td>
+          3408
+          -
+          3429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1433
+        </td>
+        <td>
+          3367
+          -
+          3367
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          3489
+          -
+          3489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1440
+        </td>
+        <td>
+          3489
+          -
+          3600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(&quot;Config Watcher Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, &quot;Config changes are no longer being watched&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1437
+        </td>
+        <td>
+          3555
+          -
+          3599
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Config changes are no longer being watched&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1439
+        </td>
+        <td>
+          3489
+          -
+          3489
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1436
+        </td>
+        <td>
+          3530
+          -
+          3553
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          3505
+          -
+          3528
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Config Watcher Health&quot;
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1479
+        </td>
+        <td>
+          3715
+          -
+          3715
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.config.ConfigWatcherActor.DirectoryWatcher.while$1
+        </td>
+        <td style="background: #AEF1AE">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1482
+        </td>
+        <td>
+          3702
+          -
+          3702
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1481
+        </td>
+        <td>
+          3702
+          -
+          3702
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1442
+        </td>
+        <td>
+          3709
+          -
+          3713
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1480
+        </td>
+        <td>
+          3715
+          -
+          5233
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  {
+    var key: Option[java.nio.file.WatchKey] = scala.None;
+    try {
+      key = scala.Some.apply[java.nio.file.WatchKey](ConfigWatcherActor.this.configWatcher.take())
+    } catch {
+      case (x @ (_: InterruptedException)) =&gt; return ()
+    };
+    scala.collection.JavaConversions.asScalaBuffer[java.nio.file.WatchEvent[_]](key.get.pollEvents()).toStream.takeWhile(((x$2: java.nio.file.WatchEvent[_]) =&gt; x$2.kind().!=(java.nio.file.StandardWatchEventKinds.OVERFLOW))).foreach[Unit](((event: java.nio.file.WatchEvent[_]) =&gt; {
+      ConfigWatcherActor.this.log.info(&quot;Detected alteration on file {}&quot;, event.context().toString());
+      val ev: java.nio.file.WatchEvent[java.nio.file.Path] = event.asInstanceOf[java.nio.file.WatchEvent[java.nio.file.Path]];
+      val filename: java.nio.file.Path = ev.context();
+      try {
+        val child: java.nio.file.Path = ConfigWatcherActor.this.configDir.resolve(filename);
+        if (filename.toString().endsWith(&quot;.conf&quot;))
+          {
+            ConfigWatcherActor.this.log.info(&quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;, child.toString());
+            akka.this.actor.`package`.actorRef2Scala(ConfigWatcherActor.this.context.parent).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(ConfigWatcherActor.this.self)
+          }
+        else
+          ConfigWatcherActor.this.log.info(&quot;Ignoring change to {} as it is not a .conf file&quot;, child.toString())
+      } catch {
+        case (x @ (_: java.io.IOException)) =&gt; ConfigWatcherActor.this.log.error(&quot;Issue reading file changed in config dir.&quot;, x)
+      }
+    }));
+    val valid: Boolean = key.get.reset();
+    if (valid.unary_!)
+      throw new java.this.lang.IllegalStateException(&quot;Key is no longer in a valid state, can\'t watch configuration anymore&quot;)
+    else
+      ()
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1443
+        </td>
+        <td>
+          3793
+          -
+          3797
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #AEF1AE">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1446
+        </td>
+        <td>
+          3822
+          -
+          3854
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          key = scala.Some.apply[java.nio.file.WatchKey](ConfigWatcherActor.this.configWatcher.take())
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1445
+        </td>
+        <td>
+          3828
+          -
+          3854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[java.nio.file.WatchKey](ConfigWatcherActor.this.configWatcher.take())
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1444
+        </td>
+        <td>
+          3833
+          -
+          3853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.WatchService.take
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configWatcher.take()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1447
+        </td>
+        <td>
+          3927
+          -
+          3933
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1450
+        </td>
+        <td>
+          3993
+          -
+          4013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.kind().!=(java.nio.file.StandardWatchEventKinds.OVERFLOW)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          4005
+          -
+          4013
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.nio.file.StandardWatchEventKinds.OVERFLOW
+        </td>
+        <td style="background: #AEF1AE">
+          java.nio.file.StandardWatchEventKinds.OVERFLOW
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1472
+        </td>
+        <td>
+          3953
+          -
+          4937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.Stream.foreach
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConversions.asScalaBuffer[java.nio.file.WatchEvent[_]](key.get.pollEvents()).toStream.takeWhile(((x$2: java.nio.file.WatchEvent[_]) =&gt; x$2.kind().!=(java.nio.file.StandardWatchEventKinds.OVERFLOW))).foreach[Unit](((event: java.nio.file.WatchEvent[_]) =&gt; {
+  ConfigWatcherActor.this.log.info(&quot;Detected alteration on file {}&quot;, event.context().toString());
+  val ev: java.nio.file.WatchEvent[java.nio.file.Path] = event.asInstanceOf[java.nio.file.WatchEvent[java.nio.file.Path]];
+  val filename: java.nio.file.Path = ev.context();
+  try {
+    val child: java.nio.file.Path = ConfigWatcherActor.this.configDir.resolve(filename);
+    if (filename.toString().endsWith(&quot;.conf&quot;))
+      {
+        ConfigWatcherActor.this.log.info(&quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;, child.toString());
+        akka.this.actor.`package`.actorRef2Scala(ConfigWatcherActor.this.context.parent).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(ConfigWatcherActor.this.self)
+      }
+    else
+      ConfigWatcherActor.this.log.info(&quot;Ignoring change to {} as it is not a .conf file&quot;, child.toString())
+  } catch {
+    case (x @ (_: java.io.IOException)) =&gt; ConfigWatcherActor.this.log.error(&quot;Issue reading file changed in config dir.&quot;, x)
+  }
+}))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1448
+        </td>
+        <td>
+          3953
+          -
+          3973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.WatchKey.pollEvents
+        </td>
+        <td style="background: #AEF1AE">
+          key.get.pollEvents()
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1452
+        </td>
+        <td>
+          4099
+          -
+          4123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td style="background: #AEF1AE">
+          event.context().toString()
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1451
+        </td>
+        <td>
+          4065
+          -
+          4097
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Detected alteration on file {}&quot;
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1453
+        </td>
+        <td>
+          4056
+          -
+          4124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.log.info(&quot;Detected alteration on file {}&quot;, event.context().toString())
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1454
+        </td>
+        <td>
+          4203
+          -
+          4239
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #AEF1AE">
+          event.asInstanceOf[java.nio.file.WatchEvent[java.nio.file.Path]]
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          4267
+          -
+          4279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.WatchEvent.context
+        </td>
+        <td style="background: #AEF1AE">
+          ev.context()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1470
+        </td>
+        <td>
+          4374
+          -
+          4790
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val child: java.nio.file.Path = ConfigWatcherActor.this.configDir.resolve(filename);
+  if (filename.toString().endsWith(&quot;.conf&quot;))
+    {
+      ConfigWatcherActor.this.log.info(&quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;, child.toString());
+      akka.this.actor.`package`.actorRef2Scala(ConfigWatcherActor.this.context.parent).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(ConfigWatcherActor.this.self)
+    }
+  else
+    ConfigWatcherActor.this.log.info(&quot;Ignoring change to {} as it is not a .conf file&quot;, child.toString())
+}
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1456
+        </td>
+        <td>
+          4386
+          -
+          4413
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.resolve
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.configDir.resolve(filename)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1465
+        </td>
+        <td>
+          4469
+          -
+          4675
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  ConfigWatcherActor.this.log.info(&quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;, child.toString());
+  akka.this.actor.`package`.actorRef2Scala(ConfigWatcherActor.this.context.parent).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(ConfigWatcherActor.this.self)
+}
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          1457
+        </td>
+        <td>
+          4432
+          -
+          4467
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.endsWith
+        </td>
+        <td style="background: #AEF1AE">
+          filename.toString().endsWith(&quot;.conf&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1459
+        </td>
+        <td>
+          4596
+          -
+          4610
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #AEF1AE">
+          child.toString()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1458
+        </td>
+        <td>
+          4496
+          -
+          4594
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1460
+        </td>
+        <td>
+          4487
+          -
+          4611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.log.info(&quot;Config file change detected, {}, sending message to services/components to reload if applicable.&quot;, child.toString())
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1461
+        </td>
+        <td>
+          4628
+          -
+          4642
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1464
+        </td>
+        <td>
+          4628
+          -
+          4659
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #AEF1AE">
+          akka.this.actor.`package`.actorRef2Scala(ConfigWatcherActor.this.context.parent).!(com.webtrends.harness.app.HarnessActor.ConfigChange.apply())(ConfigWatcherActor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1463
+        </td>
+        <td>
+          4643
+          -
+          4643
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #AEF1AE">
+          ConfigWatcherActor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1462
+        </td>
+        <td>
+          4645
+          -
+          4659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply
+        </td>
+        <td style="background: #AEF1AE">
+          com.webtrends.harness.app.HarnessActor.ConfigChange.apply()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1468
+        </td>
+        <td>
+          4699
+          -
+          4774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.log.info(&quot;Ignoring change to {} as it is not a .conf file&quot;, child.toString())
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1467
+        </td>
+        <td>
+          4759
+          -
+          4773
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td style="background: #F0ADAD">
+          child.toString()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1466
+        </td>
+        <td>
+          4708
+          -
+          4757
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Ignoring change to {} as it is not a .conf file&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1469
+        </td>
+        <td>
+          4699
+          -
+          4774
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.info
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.log.info(&quot;Ignoring change to {} as it is not a .conf file&quot;, child.toString())
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1471
+        </td>
+        <td>
+          4866
+          -
+          4923
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          ConfigWatcherActor.this.log.error(&quot;Issue reading file changed in config dir.&quot;, x)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          1473
+        </td>
+        <td>
+          5064
+          -
+          5079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.WatchKey.reset
+        </td>
+        <td style="background: #AEF1AE">
+          key.get.reset()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1474
+        </td>
+        <td>
+          5092
+          -
+          5098
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #AEF1AE">
+          valid.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1478
+        </td>
+        <td>
+          5088
+          -
+          5088
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          5088
+          -
+          5088
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1476
+        </td>
+        <td>
+          5112
+          -
+          5215
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Key is no longer in a valid state, can\'t watch configuration anymore&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1475
+        </td>
+        <td>
+          5112
+          -
+          5215
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          throw new java.this.lang.IllegalStateException(&quot;Key is no longer in a valid state, can\'t watch configuration anymore&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1483
+        </td>
+        <td>
+          5296
+          -
+          5321
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #AEF1AE">
+          akka.actor.Props.apply[com.webtrends.harness.config.ConfigWatcherActor]()((ClassTag.apply[com.webtrends.harness.config.ConfigWatcherActor](classOf[com.webtrends.harness.config.ConfigWatcherActor]): scala.reflect.ClassTag[com.webtrends.harness.config.ConfigWatcherActor]))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

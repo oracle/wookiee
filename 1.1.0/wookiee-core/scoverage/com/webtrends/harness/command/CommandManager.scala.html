@@ -1,0 +1,2477 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/command/CommandManager.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.command
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.pattern.{ask, pipe}
+</span>23 <span style=''>import akka.actor.{ActorRef, Props}
+</span>24 <span style=''>import akka.routing.{RoundRobinPool, FromConfig}
+</span>25 <span style=''>import com.webtrends.harness.HarnessConstants
+</span>26 <span style=''>import com.webtrends.harness.app.{PrepareForShutdown, HActor}
+</span>27 <span style=''>import com.webtrends.harness.app.HarnessActor.SystemReady
+</span>28 <span style=''>import org.slf4j.LoggerFactory
+</span>29 <span style=''>
+</span>30 <span style=''>import scala.collection.mutable
+</span>31 <span style=''>import scala.concurrent.{Future, Promise}
+</span>32 <span style=''>import scala.util.{Success, Failure}
+</span>33 <span style=''>
+</span>34 <span style=''>case class AddCommandWithProps[T<:Command](name:String, props:Props)
+</span>35 <span style=''>case class AddCommand[T<:Command](name:String, actorClass:Class[T])
+</span>36 <span style=''>case class ExecuteCommand(name:String, bean:Option[CommandBean]=None)
+</span>37 <span style=''>case class ExecuteRemoteCommand(name:String, server:String, port:Int, bean:Option[CommandBean]=None)
+</span>38 <span style=''>case class CommandResponse[T](data:Option[T], responseType:String="json")
+</span>39 <span style=''>
+</span>40 <span style=''>/**
+</span>41 <span style=''> * @author Michael Cuthbert on 12/1/14.
+</span>42 <span style=''> */
+</span>43 <span style=''>class CommandManager extends PrepareForShutdown {
+</span>44 <span style=''>
+</span>45 <span style=''>  import context.dispatcher
+</span>46 <span style=''>
+</span>47 <span style=''>  override def receive = </span><span style='background: #F0ADAD'>super.receive orElse {
+</span>48 <span style=''></span><span style='background: #F0ADAD'>    case AddCommandWithProps(name, props) => pipe(addCommand(name, props)) to sender
+</span>49 <span style=''></span><span style='background: #F0ADAD'>    case AddCommand(name, actorClass) => pipe(addCommand(name, actorClass)) to sender
+</span>50 <span style=''></span><span style='background: #F0ADAD'>    case ExecuteCommand(name, bean) => pipe(executeCommand(name, bean)) to sender
+</span>51 <span style=''></span><span style='background: #F0ADAD'>    case ExecuteRemoteCommand(name, server, port, bean) => pipe(executeRemoteCommand(name, server, port, bean)) to sender
+</span>52 <span style=''></span><span style='background: #F0ADAD'>    case SystemReady => // ignore
+</span>53 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>54 <span style=''>
+</span>55 <span style=''>  /**
+</span>56 <span style=''>   * Wrapper around the addCommand function that creates a function with props, this will just get the
+</span>57 <span style=''>   * props from the actor class
+</span>58 <span style=''>   *
+</span>59 <span style=''>   * @param name name of the command you want to add
+</span>60 <span style=''>   * @param actorClass the actor class for the command
+</span>61 <span style=''>   * @tparam T
+</span>62 <span style=''>   * @return
+</span>63 <span style=''>   */
+</span>64 <span style=''>  protected def addCommand[T<:Command](name:String, actorClass:Class[T]) : Future[ActorRef] = </span><span style='background: #F0ADAD'>addCommand[T](name, Props(actorClass))</span><span style=''>
+</span>65 <span style=''>
+</span>66 <span style=''>  /**
+</span>67 <span style=''>   * We add commands as children to the CommandManager, based on default routing
+</span>68 <span style=''>   * or we use the setup defined for the command
+</span>69 <span style=''>   *
+</span>70 <span style=''>   * @param name
+</span>71 <span style=''>   * @param props
+</span>72 <span style=''>   */
+</span>73 <span style=''>  protected def addCommand[T<:Command](name:String, props:Props) : Future[ActorRef] = {
+</span>74 <span style=''>    // check first if the router props have been defined else
+</span>75 <span style=''>    // use the default Round Robin approach
+</span>76 <span style=''>    val config = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
+</span>77 <span style=''>    val aRef = if (</span><span style='background: #F0ADAD'>!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>78 <span style=''></span><span style='background: #F0ADAD'>      val nrRoutees = config.getInt(HarnessConstants.KeyCommandsNrRoutees)
+</span>79 <span style=''></span><span style='background: #F0ADAD'>      context.actorOf(RoundRobinPool(nrRoutees).props(props), name)
+</span>80 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else {
+</span>81 <span style=''>      </span><span style='background: #F0ADAD'>context.actorOf(FromConfig.props(props), name)</span><span style=''>
+</span>82 <span style=''>    }
+</span>83 <span style=''>    </span><span style='background: #F0ADAD'>CommandManager.addCommand(name, aRef)</span><span style=''>
+</span>84 <span style=''>    </span><span style='background: #F0ADAD'>Future { aRef }</span><span style=''>
+</span>85 <span style=''>  }
+</span>86 <span style=''>
+</span>87 <span style=''>  /**
+</span>88 <span style=''>   * Executes a remote command and will return a commandResponse to the sender
+</span>89 <span style=''>   *
+</span>90 <span style=''>   * @param name The name of the command you want to execute
+</span>91 <span style=''>   * @param server The server that has the command on
+</span>92 <span style=''>   * @param port the port that the server is listening on
+</span>93 <span style=''>   * @param bean
+</span>94 <span style=''>   */
+</span>95 <span style=''>  protected def executeRemoteCommand[T](name:String, server:String, port:Int=2552, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
+</span>96 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[CommandResponse[T]]</span><span style=''>
+</span>97 <span style=''>    </span><span style='background: #F0ADAD'>context.system.settings.config.getString("akka.actor.provider")</span><span style=''> match {
+</span>98 <span style=''>      case "akka.remote.RemoteActorRefProvider" =>
+</span>99 <span style=''>        </span><span style='background: #F0ADAD'>context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
+</span>100 <span style=''></span><span style='background: #F0ADAD'>          case Success(ref) =>
+</span>101 <span style=''></span><span style='background: #F0ADAD'>            (ref ? ExecuteCommand(name, bean)).mapTo[CommandResponse[T]] onComplete {
+</span>102 <span style=''></span><span style='background: #F0ADAD'>              case Success(s) => p success s
+</span>103 <span style=''></span><span style='background: #F0ADAD'>              case Failure(f) => p failure f
+</span>104 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>105 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure new CommandException("CommandManager", s"Failed to find remote system [$server:$port]", Some(f))
+</span>106 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>107 <span style=''>      case _ => </span><span style='background: #F0ADAD'>p failure new CommandException("CommandManager", s"Remote provider for akka is not enabled")</span><span style=''>
+</span>108 <span style=''>    }
+</span>109 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>110 <span style=''>  }
+</span>111 <span style=''>
+</span>112 <span style=''>  /**
+</span>113 <span style=''>   * Executes a command and will return a CommandResponse to the sender
+</span>114 <span style=''>   *
+</span>115 <span style=''>   * @param name
+</span>116 <span style=''>   * @param bean
+</span>117 <span style=''>   */
+</span>118 <span style=''>  protected def executeCommand[T](name:String, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
+</span>119 <span style=''>    val p = </span><span style='background: #F0ADAD'>Promise[CommandResponse[T]]</span><span style=''>
+</span>120 <span style=''>    </span><span style='background: #F0ADAD'>CommandManager.getCommand(name)</span><span style=''> match {
+</span>121 <span style=''>      case Some(ref) =>
+</span>122 <span style=''>        (</span><span style='background: #F0ADAD'>ref ? ExecuteCommand(name, bean)).mapTo[CommandResponse[T]] onComplete {
+</span>123 <span style=''></span><span style='background: #F0ADAD'>          case Success(s) => p success s
+</span>124 <span style=''></span><span style='background: #F0ADAD'>          case Failure(f) => p failure f
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        }</span><span style=''>
+</span>126 <span style=''>      case None => </span><span style='background: #F0ADAD'>p failure CommandException(name, "Command not found")</span><span style=''>
+</span>127 <span style=''>    }
+</span>128 <span style=''>    </span><span style='background: #F0ADAD'>p.future</span><span style=''>
+</span>129 <span style=''>  }
+</span>130 <span style=''>}
+</span>131 <span style=''>
+</span>132 <span style=''>object CommandManager {
+</span>133 <span style=''>  private val externalLogger = </span><span style='background: #F0ADAD'>LoggerFactory.getLogger(this.getClass)</span><span style=''>
+</span>134 <span style=''>
+</span>135 <span style=''>  // map that stores the name of the command with the actor it references
+</span>136 <span style=''>  val commandMap = </span><span style='background: #F0ADAD'>mutable.Map[String, ActorRef]()</span><span style=''>
+</span>137 <span style=''>
+</span>138 <span style=''>  def props = </span><span style='background: #F0ADAD'>Props[CommandManager]</span><span style=''>
+</span>139 <span style=''>
+</span>140 <span style=''>  def addCommand(name:String, ref:ActorRef) = {
+</span>141 <span style=''>    </span><span style='background: #F0ADAD'>externalLogger.debug(s"Command $name with path ${ref.path} inserted into Command Manager map.")</span><span style=''>
+</span>142 <span style=''>    </span><span style='background: #F0ADAD'>commandMap += (name -> ref)</span><span style=''>
+</span>143 <span style=''>  }
+</span>144 <span style=''>
+</span>145 <span style=''>  protected def removeCommand(name:String) : Boolean = {
+</span>146 <span style=''>    </span><span style='background: #F0ADAD'>commandMap.get(name)</span><span style=''> match {
+</span>147 <span style=''>      case Some(n) =>
+</span>148 <span style=''>        </span><span style='background: #F0ADAD'>externalLogger.debug(s"Command $name with path ${n.path} removed from Command Manager map.")</span><span style=''>
+</span>149 <span style=''>        </span><span style='background: #F0ADAD'>commandMap -= name</span><span style=''>
+</span>150 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>151 <span style=''>      case None => </span><span style='background: #F0ADAD'>false</span><span style=''>
+</span>152 <span style=''>    }
+</span>153 <span style=''>  }
+</span>154 <span style=''>
+</span>155 <span style=''>  def getCommand(name:String) : Option[ActorRef] = </span><span style='background: #F0ADAD'>commandMap.get(name)</span><span style=''>
+</span>156 <span style=''>
+</span>157 <span style=''>  def getRemoteAkkaPath(server:String, port:Int) : String = </span><span style='background: #F0ADAD'>s"akka.tcp://server@$server:$port${HarnessConstants.CommandFullName}"</span><span style=''>
+</span>158 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          1763
+          -
+          1763
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          706
+        </td>
+        <td>
+          1742
+          -
+          2177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.PartialFunction.orElse
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.super.receive.orElse[Any, Unit](({
+  @SerialVersionUID(0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[Any,Unit] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: Any =&gt; Unit&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, props: akka.actor.Props)com.webtrends.harness.command.AddCommandWithProps[com.webtrends.harness.command.Command]((name @ _), (props @ _)) =&gt; {
+        akka.pattern.`package`.pipe[akka.actor.ActorRef](CommandManager.this.addCommand[Nothing](name, props))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender());
+        ()
+      }
+      case (name: String, actorClass: Class[com.webtrends.harness.command.Command])com.webtrends.harness.command.AddCommand[com.webtrends.harness.command.Command]((name @ _), (actorClass @ _)) =&gt; {
+        akka.pattern.`package`.pipe[akka.actor.ActorRef](CommandManager.this.addCommand[com.webtrends.harness.command.Command](name, actorClass))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender());
+        ()
+      }
+      case (name: String, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteCommand((name @ _), (bean @ _)) =&gt; {
+        akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](CommandManager.this.executeCommand[Nothing](name, bean))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender());
+        ()
+      }
+      case (name: String, server: String, port: Int, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteRemoteCommand((name @ _), (server @ _), (port @ _), (bean @ _)) =&gt; {
+        akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](CommandManager.this.executeRemoteCommand[Nothing](name, server, port, bean))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender());
+        ()
+      }
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; ()
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
+      case (name: String, props: akka.actor.Props)com.webtrends.harness.command.AddCommandWithProps[com.webtrends.harness.command.Command]((name @ _), (props @ _)) =&gt; true
+      case (name: String, actorClass: Class[com.webtrends.harness.command.Command])com.webtrends.harness.command.AddCommand[com.webtrends.harness.command.Command]((name @ _), (actorClass @ _)) =&gt; true
+      case (name: String, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteCommand((name @ _), (bean @ _)) =&gt; true
+      case (name: String, server: String, port: Int, bean: Option[com.webtrends.harness.command.CommandBean])com.webtrends.harness.command.ExecuteRemoteCommand((name @ _), (server @ _), (port @ _), (bean @ _)) =&gt; true
+      case com.webtrends.harness.app.HarnessActor.SystemReady =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[Any,Unit]))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          1810
+          -
+          1849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[akka.actor.ActorRef](CommandManager.this.addCommand[Nothing](name, props))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          1815
+          -
+          1838
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.addCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.addCommand[Nothing](name, props)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          1843
+          -
+          1849
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          1814
+          -
+          1814
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          1840
+          -
+          1840
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          1895
+          -
+          1895
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          1926
+          -
+          1926
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          1891
+          -
+          1935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[akka.actor.ActorRef](CommandManager.this.addCommand[com.webtrends.harness.command.Command](name, actorClass))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          1896
+          -
+          1924
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.addCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.addCommand[com.webtrends.harness.command.Command](name, actorClass)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          1929
+          -
+          1935
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          2011
+          -
+          2017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          1979
+          -
+          1979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          2008
+          -
+          2008
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          1975
+          -
+          2017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](CommandManager.this.executeCommand[Nothing](name, bean))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          1980
+          -
+          2006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.executeCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.executeCommand[Nothing](name, bean)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          2082
+          -
+          2128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.executeRemoteCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.executeRemoteCommand[Nothing](name, server, port, bean)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          702
+        </td>
+        <td>
+          2077
+          -
+          2139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.pattern.PipeToSupport.PipeableFuture.to
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.pipe[com.webtrends.harness.command.CommandResponse[Nothing]](CommandManager.this.executeRemoteCommand[Nothing](name, server, port, bean))(CommandManager.this.context.dispatcher).to(CommandManager.this.sender())
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          2133
+          -
+          2139
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          700
+        </td>
+        <td>
+          2081
+          -
+          2081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          2130
+          -
+          2130
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          704
+        </td>
+        <td>
+          2161
+          -
+          2163
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          2561
+          -
+          2599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.addCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.addCommand[T](name, akka.actor.Props.apply(actorClass))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          2581
+          -
+          2598
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply(actorClass)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          2994
+          -
+          3024
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          720
+        </td>
+        <td>
+          3129
+          -
+          3279
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val nrRoutees: Int = config.getInt(com.webtrends.harness.HarnessConstants.KeyCommandsNrRoutees);
+  CommandManager.this.context.actorOf(akka.routing.RoundRobinPool.apply(nrRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props), name)
+}
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          714
+        </td>
+        <td>
+          3060
+          -
+          3126
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;akka.actor.deployment.&quot;, &quot;/&quot;, &quot;&quot;).s(com.webtrends.harness.HarnessConstants.CommandFullName, name)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          3119
+          -
+          3121
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          710
+        </td>
+        <td>
+          3062
+          -
+          3085
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;akka.actor.deployment.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          713
+        </td>
+        <td>
+          3086
+          -
+          3118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.CommandFullName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.CommandFullName
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          3044
+          -
+          3127
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          config.hasPath(scala.StringContext.apply(&quot;akka.actor.deployment.&quot;, &quot;/&quot;, &quot;&quot;).s(com.webtrends.harness.HarnessConstants.CommandFullName, name)).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          712
+        </td>
+        <td>
+          3125
+          -
+          3126
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          3153
+          -
+          3205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getInt
+        </td>
+        <td style="background: #F0ADAD">
+          config.getInt(com.webtrends.harness.HarnessConstants.KeyCommandsNrRoutees)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          716
+        </td>
+        <td>
+          3167
+          -
+          3204
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.KeyCommandsNrRoutees
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.KeyCommandsNrRoutees
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          3212
+          -
+          3273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.actorOf(akka.routing.RoundRobinPool.apply(nrRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props), name)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          718
+        </td>
+        <td>
+          3228
+          -
+          3266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Pool.props
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.RoundRobinPool.apply(nrRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          3293
+          -
+          3339
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.actorOf(akka.routing.FromConfig.props(props), name)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          722
+        </td>
+        <td>
+          3293
+          -
+          3339
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.actorOf(akka.routing.FromConfig.props(props), name)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          3309
+          -
+          3332
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Pool.props
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.FromConfig.props(props)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          3350
+          -
+          3387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.addCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.addCommand(name, aRef)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          726
+        </td>
+        <td>
+          3392
+          -
+          3407
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Future.apply[akka.actor.ActorRef](aRef)(CommandManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          3399
+          -
+          3399
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          727
+        </td>
+        <td>
+          3858
+          -
+          3885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.command.CommandResponse[T]]()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          3890
+          -
+          3953
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.getString
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.system.settings.config.getString(&quot;akka.actor.provider&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          4044
+          -
+          4090
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.getRemoteAkkaPath
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.getRemoteAkkaPath(server, port)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          4021
+          -
+          4484
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne()(CommandManager.this.checkTimeout).onComplete[Any](((x0$1: scala.util.Try[akka.actor.ActorRef]) =&gt; x0$1 match {
+  case (value: akka.actor.ActorRef)scala.util.Success[akka.actor.ActorRef]((ref @ _)) =&gt; akka.pattern.`package`.ask(ref).?(ExecuteCommand.apply(name, bean))(CommandManager.this.checkTimeout).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[scala.concurrent.Promise[com.webtrends.harness.command.CommandResponse[T]]](((x0$2: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$2 match {
+    case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; p.success(s)
+    case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; p.failure(f)
+  }))(CommandManager.this.context.dispatcher)
+  case (exception: Throwable)scala.util.Failure[akka.actor.ActorRef]((f @ _)) =&gt; p.failure(new CommandException(&quot;CommandManager&quot;, scala.StringContext.apply(&quot;Failed to find remote system [&quot;, &quot;:&quot;, &quot;]&quot;).s(server, port), scala.Some.apply[Throwable](f)))
+}))(CommandManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          4105
+          -
+          4105
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          4102
+          -
+          4102
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          732
+        </td>
+        <td>
+          4166
+          -
+          4166
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          4222
+          -
+          4222
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          4168
+          -
+          4194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.ExecuteCommand.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ExecuteCommand.apply(name, bean)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          4162
+          -
+          4338
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(ref).?(ExecuteCommand.apply(name, bean))(CommandManager.this.checkTimeout).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[scala.concurrent.Promise[com.webtrends.harness.command.CommandResponse[T]]](((x0$2: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$2 match {
+  case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; p.success(s)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; p.failure(f)
+}))(CommandManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          4268
+          -
+          4279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          4313
+          -
+          4324
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          4417
+          -
+          4464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Failed to find remote system [&quot;, &quot;:&quot;, &quot;]&quot;).s(server, port)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          4368
+          -
+          4474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(new CommandException(&quot;CommandManager&quot;, scala.StringContext.apply(&quot;Failed to find remote system [&quot;, &quot;:&quot;, &quot;]&quot;).s(server, port), scala.Some.apply[Throwable](f)))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          4399
+          -
+          4415
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;CommandManager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          4378
+          -
+          4474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandException.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new CommandException(&quot;CommandManager&quot;, scala.StringContext.apply(&quot;Failed to find remote system [&quot;, &quot;:&quot;, &quot;]&quot;).s(server, port), scala.Some.apply[Throwable](f))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          4466
+          -
+          4473
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Throwable](f)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          747
+        </td>
+        <td>
+          4511
+          -
+          4593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandException.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new CommandException(&quot;CommandManager&quot;, scala.StringContext.apply(&quot;Remote provider for akka is not enabled&quot;).s(), command.this.CommandException.&lt;init&gt;$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          4532
+          -
+          4548
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;CommandManager&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          4511
+          -
+          4511
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandException.&lt;init&gt;$default$3
+        </td>
+        <td style="background: #F0ADAD">
+          command.this.CommandException.&lt;init&gt;$default$3
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          745
+        </td>
+        <td>
+          4550
+          -
+          4592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Remote provider for akka is not enabled&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          4501
+          -
+          4593
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(new CommandException(&quot;CommandManager&quot;, scala.StringContext.apply(&quot;Remote provider for akka is not enabled&quot;).s(), command.this.CommandException.&lt;init&gt;$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          4604
+          -
+          4612
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          4864
+          -
+          4891
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.concurrent.Promise.apply[com.webtrends.harness.command.CommandResponse[T]]()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          751
+        </td>
+        <td>
+          4896
+          -
+          4927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandManager.getCommand
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.getCommand(name)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          5029
+          -
+          5029
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.dispatcher
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.context.dispatcher
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          4973
+          -
+          4973
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ActorHealth.checkTimeout
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.checkTimeout
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          4975
+          -
+          5001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.ExecuteCommand.apply
+        </td>
+        <td style="background: #F0ADAD">
+          ExecuteCommand.apply(name, bean)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          4969
+          -
+          5133
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.concurrent.Future.onComplete
+        </td>
+        <td style="background: #F0ADAD">
+          akka.pattern.`package`.ask(ref).?(ExecuteCommand.apply(name, bean))(CommandManager.this.checkTimeout).mapTo[com.webtrends.harness.command.CommandResponse[T]]((ClassTag.apply[com.webtrends.harness.command.CommandResponse[T]](classOf[com.webtrends.harness.command.CommandResponse]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandResponse[T]])).onComplete[scala.concurrent.Promise[com.webtrends.harness.command.CommandResponse[T]]](((x0$3: scala.util.Try[com.webtrends.harness.command.CommandResponse[T]]) =&gt; x0$3 match {
+  case (value: com.webtrends.harness.command.CommandResponse[T])scala.util.Success[com.webtrends.harness.command.CommandResponse[T]]((s @ _)) =&gt; p.success(s)
+  case (exception: Throwable)scala.util.Failure[com.webtrends.harness.command.CommandResponse[T]]((f @ _)) =&gt; p.failure(f)
+}))(CommandManager.this.context.dispatcher)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          5071
+          -
+          5082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.success
+        </td>
+        <td style="background: #F0ADAD">
+          p.success(s)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          5112
+          -
+          5123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(f)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          5153
+          -
+          5206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.concurrent.Promise.failure
+        </td>
+        <td style="background: #F0ADAD">
+          p.failure(CommandException.apply(name, &quot;Command not found&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          5163
+          -
+          5206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.command.CommandException.apply
+        </td>
+        <td style="background: #F0ADAD">
+          CommandException.apply(name, &quot;Command not found&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          5217
+          -
+          5225
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.concurrent.Promise.future
+        </td>
+        <td style="background: #F0ADAD">
+          p.future
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          5288
+          -
+          5326
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.LoggerFactory.getLogger
+        </td>
+        <td style="background: #F0ADAD">
+          org.slf4j.LoggerFactory.getLogger(this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          5312
+          -
+          5325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          5421
+          -
+          5452
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, akka.actor.ActorRef]()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          5468
+          -
+          5489
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.Props.apply
+        </td>
+        <td style="background: #F0ADAD">
+          akka.actor.Props.apply[com.webtrends.harness.command.CommandManager]()((ClassTag.apply[com.webtrends.harness.command.CommandManager](classOf[com.webtrends.harness.command.CommandManager]): scala.reflect.ClassTag[com.webtrends.harness.command.CommandManager]))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          5566
+          -
+          5575
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Command &quot;
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          5592
+          -
+          5600
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          ref.path
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          5543
+          -
+          5638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.externalLogger.debug(scala.StringContext.apply(&quot;Command &quot;, &quot; with path &quot;, &quot; inserted into Command Manager map.&quot;).s(name, ref.path))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          5601
+          -
+          5637
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; inserted into Command Manager map.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          5579
+          -
+          5591
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; with path &quot;
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          5564
+          -
+          5637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Command &quot;, &quot; with path &quot;, &quot; inserted into Command Manager map.&quot;).s(name, ref.path)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          5658
+          -
+          5669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.ArrowAssoc[String](name).-&gt;[akka.actor.ActorRef](ref)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          5643
+          -
+          5670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.commandMap.+=(scala.this.Predef.ArrowAssoc[String](name).-&gt;[akka.actor.ActorRef](ref))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          773
+        </td>
+        <td>
+          5737
+          -
+          5757
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.commandMap.get(name)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          5819
+          -
+          5828
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Command &quot;
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          5845
+          -
+          5851
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorRef.path
+        </td>
+        <td style="background: #F0ADAD">
+          n.path
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          5796
+          -
+          5888
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.externalLogger.debug(scala.StringContext.apply(&quot;Command &quot;, &quot; with path &quot;, &quot; removed from Command Manager map.&quot;).s(name, n.path))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          5852
+          -
+          5887
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; removed from Command Manager map.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          5832
+          -
+          5844
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; with path &quot;
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          5817
+          -
+          5887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Command &quot;, &quot; with path &quot;, &quot; removed from Command Manager map.&quot;).s(name, n.path)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          5897
+          -
+          5915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.-=
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.commandMap.-=(name)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          5924
+          -
+          5928
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          5948
+          -
+          5953
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          783
+        </td>
+        <td>
+          6016
+          -
+          6036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td style="background: #F0ADAD">
+          CommandManager.this.commandMap.get(name)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          6131
+          -
+          6132
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          6133
+          -
+          6165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.HarnessConstants.CommandFullName
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.HarnessConstants.CommandFullName
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          6125
+          -
+          6127
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          6100
+          -
+          6119
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;akka.tcp://server@&quot;
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          6166
+          -
+          6167
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          6098
+          -
+          6167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;akka.tcp://server@&quot;, &quot;:&quot;, &quot;&quot;, &quot;&quot;).s(server, port, com.webtrends.harness.HarnessConstants.CommandFullName)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
