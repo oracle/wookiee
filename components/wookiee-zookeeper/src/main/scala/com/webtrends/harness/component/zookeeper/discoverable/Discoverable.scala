@@ -31,6 +31,7 @@ trait Discoverable {
   import this.context.system
   private lazy val service = DiscoverableService()
   val port = context.system.settings.config.getInt("akka.remote.netty.tcp.port")
+  val address = context.system.settings.config.getString("akka.remote.netty.tcp.hostname")
 
   def queryForNames(basePath:String)(implicit timeout:Timeout) = service.queryForNames(basePath)
 
@@ -38,9 +39,13 @@ trait Discoverable {
                        (implicit timeout:Timeout) = service.queryForInstances(basePath, name, id)
 
   def makeDiscoverable(basePath:String, id:String, name:String)(implicit timeout:Timeout) = {
-    service.makeDiscoverable(basePath, id, name,
+    val add = address match {
+      case "127.0.0.1" | "localhost" | "0.0.0.0" => (None, "[SERVER]")
+      case a => (Some(a), a)
+    }
+    service.makeDiscoverable(basePath, id, name, add._1,
       port,
-      new UriSpec(s"akka.tcp://server@[SERVER]:$port/$name")
+      new UriSpec(s"akka.tcp://server@${add._2}:$port/$name")
     )
   }
 
