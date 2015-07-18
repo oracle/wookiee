@@ -47,9 +47,9 @@ private[harness] class DiscoverableService()(implicit system: ActorSystem) {
     (mediator.get ? QueryForInstances(basePath, name, id)).mapTo[Iterable[ServiceInstance[Void]]]
   }
 
-  def makeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec)
+  def makeDiscoverable(basePath:String, id:String, name:String, address:Option[String], port:Int, uriSpec:UriSpec)
                       (implicit timeout:Timeout = defaultTimeout): Future[Boolean] = {
-    (mediator.get ? MakeDiscoverable(basePath, id, name, port, uriSpec)).mapTo[Boolean]
+    (mediator.get ? MakeDiscoverable(basePath, id, name, address, port, uriSpec)).mapTo[Boolean]
   }
 
   def getInstance(basePath:String, name:String)(implicit timeout:Timeout) : Future[ServiceInstance[Void]] = {
@@ -78,7 +78,7 @@ object DiscoverableService {
 
   @SerialVersionUID(1L) private[harness] case class QueryForInstances(basePath:String, name:String, id:Option[String]=None)
 
-  @SerialVersionUID(1L) private[harness] case class MakeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec)
+  @SerialVersionUID(1L) private[harness] case class MakeDiscoverable(basePath:String, id:String, name:String, address:Option[String], port:Int, uriSpec:UriSpec)
 
   @SerialVersionUID(1L) private[harness] case class GetInstance(basePath:String, name:String)
 

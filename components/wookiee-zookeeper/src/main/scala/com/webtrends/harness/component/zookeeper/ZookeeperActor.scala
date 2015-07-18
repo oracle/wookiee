@@ -139,7 +139,7 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     // query for service instances
     case QueryForInstances(basePath, name, id) => queryForInstances(basePath, name, id)
     // make service discoverable
-    case MakeDiscoverable(basePath, id, name, port, uriSpec) => makeDiscoverable(basePath, id, name, port, uriSpec)
+    case MakeDiscoverable(basePath, id, name, address, port, uriSpec) => makeDiscoverable(basePath, id, name, address, port, uriSpec)
     // get a single instance from the provider
     case GetInstance(basePath, name) => getInstance(basePath, name)
     // get all the instances from the provider
@@ -299,15 +299,19 @@ class ZookeeperActor(settings:ZookeeperSettings, clusterEnabled:Boolean=false) e
     }
   }
 
-  private def makeDiscoverable(basePath:String, id:String, name:String, port:Int, uriSpec:UriSpec) = {
+  private def makeDiscoverable(basePath:String, id:String, name:String, address:Option[String], port:Int, uriSpec:UriSpec) = {
     try {
       if (curator.discovery(basePath).queryForInstance(name, id) == null) {
-        val instance = ServiceInstance.builder[Void]()
+        val builder = ServiceInstance.builder[Void]()
           .id(id)
           .name(name)
           .port(port)
           .uriSpec(uriSpec)
-          .build()
+        address match {
+          case Some(a) => builder.address(a)
+          case None => //ignore
+        }
+        val instance = builder.build()
 
         curator.registerService(basePath, instance)
         log.info(s"Service is now discoverable ${instance.toString}")

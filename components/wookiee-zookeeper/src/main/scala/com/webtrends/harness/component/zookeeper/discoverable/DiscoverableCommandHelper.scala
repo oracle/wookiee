@@ -70,7 +70,6 @@ trait DiscoverableCommandHelper extends CommandHelper with Discoverable {
             (cm ? AddCommand(name, actorClass)).mapTo[ActorRef] onComplete {
               case Success(r) =>
                 makeDiscoverable(basePath, idValue, name)
-
                 p success r
               case Failure(f) => p failure f
             }
