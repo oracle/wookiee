@@ -1,0 +1,1268 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/component/kafka/actor/SourceMonitor.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>package com.webtrends.harness.component.kafka.actor
+</span>2 <span style=''>
+</span>3 <span style=''>import com.webtrends.harness.app.HActor
+</span>4 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources
+</span>5 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
+</span>6 <span style=''>import org.apache.http.client.methods.HttpGet
+</span>7 <span style=''>import org.apache.http.impl.client.HttpClientBuilder
+</span>8 <span style=''>
+</span>9 <span style=''>import scala.collection.mutable
+</span>10 <span style=''>import scala.io.Source
+</span>11 <span style=''>import scala.util.Try
+</span>12 <span style=''>import scala.util.parsing.json.{JSON, JSONObject}
+</span>13 <span style=''>
+</span>14 <span style=''>/**
+</span>15 <span style=''> * Allows one to setup monitoring on any source nodes to watch for scheduled downtime and put workers into a NORMAL state
+</span>16 <span style=''> * instead of DEGRADED when it is expected for them to go down
+</span>17 <span style=''> */
+</span>18 <span style=''>case class HostList(hosts: List[String])
+</span>19 <span style=''>
+</span>20 <span style=''>class SourceMonitor extends HActor with KafkaSettings {
+</span>21 <span style=''>  val nagiosServer = </span><span style='background: #F0ADAD'>Try { kafkaConfig.getString("nagios-host") } getOrElse "http://nagios:8080/host/"</span><span style=''>
+</span>22 <span style=''>
+</span>23 <span style=''>  override def receive: Receive = {
+</span>24 <span style=''>    case HostList(hosts) => </span><span style='background: #F0ADAD'>sender ! checkHosts(hosts)</span><span style=''>
+</span>25 <span style=''>  }
+</span>26 <span style=''>
+</span>27 <span style=''>  def checkHosts(assignments: List[String]): DownSources = {
+</span>28 <span style=''>    val checkedHosts = </span><span style='background: #F0ADAD'>mutable.HashSet[String]()</span><span style=''>
+</span>29 <span style=''>    val downHosts = </span><span style='background: #F0ADAD'>mutable.HashSet[String]()</span><span style=''>
+</span>30 <span style=''>    </span><span style='background: #F0ADAD'>assignments foreach { assignment =>
+</span>31 <span style=''></span><span style='background: #F0ADAD'>      if (!checkedHosts.contains(assignment)) {
+</span>32 <span style=''></span><span style='background: #F0ADAD'>        checkedHosts.add(assignment)
+</span>33 <span style=''></span><span style='background: #F0ADAD'>        if (!hostIsGreen(assignment.split('.')(0))) downHosts.add(assignment)
+</span>34 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>35 <span style=''>    }
+</span>36 <span style=''>    </span><span style='background: #F0ADAD'>DownSources(downHosts.toSet)</span><span style=''>
+</span>37 <span style=''>  }
+</span>38 <span style=''>
+</span>39 <span style=''>  def hostIsGreen(host: String): Boolean = {
+</span>40 <span style=''>    try {
+</span>41 <span style=''>      </span><span style='background: #F0ADAD'>val response = getRestContent(s"$nagiosServer$host")
+</span>42 <span style=''></span><span style='background: #F0ADAD'>      response match {
+</span>43 <span style=''></span><span style='background: #F0ADAD'>        case Some(resp) =>
+</span>44 <span style=''></span><span style='background: #F0ADAD'>          val parsed = JSON.parseRaw(resp).get.asInstanceOf[JSONObject].obj("content").asInstanceOf[JSONObject]
+</span>45 <span style=''></span><span style='background: #F0ADAD'>          parsed.obj("scheduled_downtime_depth") == "0"
+</span>46 <span style=''></span><span style='background: #F0ADAD'>        case None => true // If nagios not responding, assume no problems in source, so we can go CRITICAL
+</span>47 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>48 <span style=''>    } catch {
+</span>49 <span style=''>      case e: NoSuchElementException => </span><span style='background: #F0ADAD'>true</span><span style=''> // In the case where the host is not using this service
+</span>50 <span style=''>      case e: Exception =>
+</span>51 <span style=''>        </span><span style='background: #F0ADAD'>log.error(e, s"Error parsing nagios response for host $host")</span><span style=''>
+</span>52 <span style=''>        </span><span style='background: #F0ADAD'>true</span><span style=''>
+</span>53 <span style=''>    }
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  // Returns the text content from a REST URL. Returns a None if there is a problem.
+</span>57 <span style=''>  def getRestContent(url:String): Option[String] = {
+</span>58 <span style=''>    var content: Option[String] = </span><span style='background: #F0ADAD'>None</span><span style=''>
+</span>59 <span style=''>    val httpClient = </span><span style='background: #F0ADAD'>HttpClientBuilder.create().build()</span><span style=''>
+</span>60 <span style=''>    try {
+</span>61 <span style=''>      </span><span style='background: #F0ADAD'>val httpResponse = httpClient.execute(new HttpGet(url))
+</span>62 <span style=''></span><span style='background: #F0ADAD'>      val entity = httpResponse.getEntity
+</span>63 <span style=''></span><span style='background: #F0ADAD'>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>      if (entity != null) {
+</span>65 <span style=''></span><span style='background: #F0ADAD'>        val inputStream = entity.getContent
+</span>66 <span style=''></span><span style='background: #F0ADAD'>        content = Some(Source.fromInputStream(inputStream).getLines().mkString)
+</span>67 <span style=''></span><span style='background: #F0ADAD'>        inputStream.close()
+</span>68 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>69 <span style=''>    } finally {
+</span>70 <span style=''>      </span><span style='background: #F0ADAD'>httpClient.close()</span><span style=''>
+</span>71 <span style=''>    }
+</span>72 <span style=''>    content
+</span>73 <span style=''>  }
+</span>74 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          1511
+        </td>
+        <td>
+          778
+          -
+          859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.getOrElse
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[String](SourceMonitor.this.kafkaConfig.getString(&quot;nagios-host&quot;)).getOrElse[String](&quot;http://nagios:8080/host/&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1516
+        </td>
+        <td>
+          895
+          -
+          895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.SourceMonitor.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1512
+        </td>
+        <td>
+          925
+          -
+          931
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1515
+        </td>
+        <td>
+          925
+          -
+          951
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(SourceMonitor.this.sender()).!(SourceMonitor.this.checkHosts(hosts))(SourceMonitor.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1514
+        </td>
+        <td>
+          932
+          -
+          932
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.self
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          934
+          -
+          951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.SourceMonitor.checkHosts
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.checkHosts(hosts)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          1041
+          -
+          1066
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.HashSet.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          1518
+        </td>
+        <td>
+          1087
+          -
+          1112
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.HashSet.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1530
+        </td>
+        <td>
+          1117
+          -
+          1323
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          assignments.foreach[AnyVal](((assignment: String) =&gt; if (checkedHosts.contains(assignment).unary_!)
+  {
+    checkedHosts.add(assignment);
+    if (SourceMonitor.this.hostIsGreen(scala.this.Predef.augmentString(assignment).split('.').apply(0)).unary_!)
+      downHosts.add(assignment)
+    else
+      ()
+  }
+else
+  ()))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1528
+        </td>
+        <td>
+          1159
+          -
+          1159
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1519
+        </td>
+        <td>
+          1163
+          -
+          1197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          checkedHosts.contains(assignment).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1527
+        </td>
+        <td>
+          1199
+          -
+          1323
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  checkedHosts.add(assignment);
+  if (SourceMonitor.this.hostIsGreen(scala.this.Predef.augmentString(assignment).split('.').apply(0)).unary_!)
+    downHosts.add(assignment)
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1529
+        </td>
+        <td>
+          1159
+          -
+          1159
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1520
+        </td>
+        <td>
+          1209
+          -
+          1237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashSet.add
+        </td>
+        <td style="background: #F0ADAD">
+          checkedHosts.add(assignment)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          1263
+          -
+          1287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.augmentString(assignment).split('.').apply(0)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1524
+        </td>
+        <td>
+          1290
+          -
+          1315
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.HashSet.add
+        </td>
+        <td style="background: #F0ADAD">
+          downHosts.add(assignment)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          1290
+          -
+          1315
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashSet.add
+        </td>
+        <td style="background: #F0ADAD">
+          downHosts.add(assignment)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1526
+        </td>
+        <td>
+          1246
+          -
+          1246
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1522
+        </td>
+        <td>
+          1250
+          -
+          1288
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.hostIsGreen(scala.this.Predef.augmentString(assignment).split('.').apply(0)).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1525
+        </td>
+        <td>
+          1246
+          -
+          1246
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1532
+        </td>
+        <td>
+          1334
+          -
+          1362
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources.apply(downHosts.toSet[String])
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1531
+        </td>
+        <td>
+          1346
+          -
+          1361
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSet
+        </td>
+        <td style="background: #F0ADAD">
+          downHosts.toSet[String]
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1543
+        </td>
+        <td>
+          1429
+          -
+          1814
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val response: Option[String] = SourceMonitor.this.getRestContent(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(SourceMonitor.this.nagiosServer, host));
+  response match {
+    case (x: String)Some[String]((resp @ _)) =&gt; {
+      val parsed: scala.util.parsing.json.JSONObject = scala.util.parsing.json.JSON.parseRaw(resp).get.asInstanceOf[scala.util.parsing.json.JSONObject].obj.apply(&quot;content&quot;).asInstanceOf[scala.util.parsing.json.JSONObject];
+      parsed.obj.apply(&quot;scheduled_downtime_depth&quot;).==(&quot;0&quot;)
+    }
+    case scala.None =&gt; true
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1536
+        </td>
+        <td>
+          1462
+          -
+          1474
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.SourceMonitor.nagiosServer
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.nagiosServer
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1533
+        </td>
+        <td>
+          1461
+          -
+          1462
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1535
+        </td>
+        <td>
+          1479
+          -
+          1480
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1538
+        </td>
+        <td>
+          1444
+          -
+          1481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.SourceMonitor.getRestContent
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.getRestContent(scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(SourceMonitor.this.nagiosServer, host))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1537
+        </td>
+        <td>
+          1459
+          -
+          1480
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;, &quot;&quot;).s(SourceMonitor.this.nagiosServer, host)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1534
+        </td>
+        <td>
+          1474
+          -
+          1475
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1539
+        </td>
+        <td>
+          1608
+          -
+          1617
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;content&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1540
+        </td>
+        <td>
+          1555
+          -
+          1643
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.parsing.json.JSON.parseRaw(resp).get.asInstanceOf[scala.util.parsing.json.JSONObject].obj.apply(&quot;content&quot;).asInstanceOf[scala.util.parsing.json.JSONObject]
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1541
+        </td>
+        <td>
+          1654
+          -
+          1699
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.==
+        </td>
+        <td style="background: #F0ADAD">
+          parsed.obj.apply(&quot;scheduled_downtime_depth&quot;).==(&quot;0&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1542
+        </td>
+        <td>
+          1721
+          -
+          1725
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          1869
+          -
+          1873
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1545
+        </td>
+        <td>
+          1978
+          -
+          2025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Error parsing nagios response for host &quot;, &quot;&quot;).s(host)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1546
+        </td>
+        <td>
+          1965
+          -
+          2026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.error
+        </td>
+        <td style="background: #F0ADAD">
+          SourceMonitor.this.log.error(e, scala.StringContext.apply(&quot;Error parsing nagios response for host &quot;, &quot;&quot;).s(host))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          2035
+          -
+          2039
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          2223
+          -
+          2227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1549
+        </td>
+        <td>
+          2249
+          -
+          2283
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.http.impl.client.HttpClientBuilder.build
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.http.impl.client.HttpClientBuilder.create().build()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1561
+        </td>
+        <td>
+          2300
+          -
+          2586
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val httpResponse: org.apache.http.client.methods.CloseableHttpResponse = httpClient.execute(new org.apache.http.client.methods.HttpGet(url));
+  val entity: org.apache.http.HttpEntity = httpResponse.getEntity();
+  if (entity.!=(null))
+    {
+      val inputStream: java.io.InputStream = entity.getContent();
+      content = scala.Some.apply[String](scala.io.Source.fromInputStream(inputStream)(io.this.Codec.fallbackSystemCodec).getLines().mkString);
+      inputStream.close()
+    }
+  else
+    ()
+}
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          2319
+          -
+          2355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.http.impl.client.CloseableHttpClient.execute
+        </td>
+        <td style="background: #F0ADAD">
+          httpClient.execute(new org.apache.http.client.methods.HttpGet(url))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1550
+        </td>
+        <td>
+          2338
+          -
+          2354
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.http.client.methods.HttpGet.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.http.client.methods.HttpGet(url)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1552
+        </td>
+        <td>
+          2375
+          -
+          2397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.http.HttpResponse.getEntity
+        </td>
+        <td style="background: #F0ADAD">
+          httpResponse.getEntity()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1560
+        </td>
+        <td>
+          2405
+          -
+          2405
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1559
+        </td>
+        <td>
+          2405
+          -
+          2405
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1553
+        </td>
+        <td>
+          2409
+          -
+          2423
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td style="background: #F0ADAD">
+          entity.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1558
+        </td>
+        <td>
+          2425
+          -
+          2586
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val inputStream: java.io.InputStream = entity.getContent();
+  content = scala.Some.apply[String](scala.io.Source.fromInputStream(inputStream)(io.this.Codec.fallbackSystemCodec).getLines().mkString);
+  inputStream.close()
+}
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1554
+        </td>
+        <td>
+          2453
+          -
+          2470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.http.HttpEntity.getContent
+        </td>
+        <td style="background: #F0ADAD">
+          entity.getContent()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1556
+        </td>
+        <td>
+          2489
+          -
+          2550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](scala.io.Source.fromInputStream(inputStream)(io.this.Codec.fallbackSystemCodec).getLines().mkString)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1555
+        </td>
+        <td>
+          2494
+          -
+          2549
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #F0ADAD">
+          scala.io.Source.fromInputStream(inputStream)(io.this.Codec.fallbackSystemCodec).getLines().mkString
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1557
+        </td>
+        <td>
+          2559
+          -
+          2578
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.InputStream.close
+        </td>
+        <td style="background: #F0ADAD">
+          inputStream.close()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1563
+        </td>
+        <td>
+          2609
+          -
+          2627
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.io.Closeable.close
+        </td>
+        <td style="background: #F0ADAD">
+          httpClient.close()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1562
+        </td>
+        <td>
+          2609
+          -
+          2627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.Closeable.close
+        </td>
+        <td style="background: #F0ADAD">
+          httpClient.close()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

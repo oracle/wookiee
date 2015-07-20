@@ -44,7 +44,7 @@
 </span>19 <span style=''>
 </span>20 <span style=''>package com.webtrends.harness.component.kafka.actor
 </span>21 <span style=''>
-</span>22 <span style=''>import akka.actor.{Actor, Props}
+</span>22 <span style=''>import akka.actor.{Actor, ActorRef, Props}
 </span>23 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 </span>24 <span style=''>import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 </span>25 <span style=''>import com.webtrends.harness.component.kafka.util.KafkaSettings
@@ -66,13 +66,13 @@
 </span>41 <span style=''>   * @param cluster The zookeeper cluster this broker belongs to
 </span>42 <span style=''>   */
 </span>43 <span style=''>  case class BrokerSpec(host: String, port: Int, cluster: String)
-</span>44 <span style=''>
+</span>44 <span style=''>  case class DownSources(sources: Set[String])
 </span>45 <span style=''>  case object TopicPartitionReq
 </span>46 <span style=''>
-</span>47 <span style=''>  def props() = </span><span style='background: #F0ADAD'>Props[KafkaTopicManager]</span><span style=''>
+</span>47 <span style=''>  def props(sourceMonitor: Option[ActorRef]) = </span><span style='background: #F0ADAD'>Props(classOf[KafkaTopicManager], sourceMonitor)</span><span style=''>
 </span>48 <span style=''>}
 </span>49 <span style=''>
-</span>50 <span style=''>class KafkaTopicManager extends Actor with KafkaSettings
+</span>50 <span style=''>class KafkaTopicManager(sourceMonitor: Option[ActorRef]) extends Actor with KafkaSettings
 </span>51 <span style=''>with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
 </span>52 <span style=''>  import KafkaTopicManager._
 </span>53 <span style=''>
@@ -80,59 +80,62 @@
 </span>55 <span style=''>
 </span>56 <span style=''>  // Holder of consumers connected to each kafka broker
 </span>57 <span style=''>  val consumersByHost = </span><span style='background: #F0ADAD'>new mutable.HashMap[String, SimpleConsumer]()</span><span style=''>
-</span>58 <span style=''>
-</span>59 <span style=''>  </span><span style='background: #F0ADAD'>context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Proxy has been started")</span><span style=''>
-</span>60 <span style=''>
-</span>61 <span style=''>  def receive: Receive = </span><span style='background: #F0ADAD'>configReceive orElse {
-</span>62 <span style=''></span><span style='background: #F0ADAD'>    case TopicPartitionReq =>
-</span>63 <span style=''></span><span style='background: #F0ADAD'>      sender ! TopicPartitionResp(getPartitionLeaders)
-</span>64 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
-</span>65 <span style=''>
-</span>66 <span style=''>  def getPartitionLeaders: Set[PartitionAssignment] = {
-</span>67 <span style=''>    val partitionsByTopic = </span><span style='background: #F0ADAD'>new mutable.HashSet[PartitionAssignment]()</span><span style=''>
-</span>68 <span style=''>    val topicMetaRequest = </span><span style='background: #F0ADAD'>new TopicMetadataRequest(versionId = 1, correlationId = 0, clientId = clientId, topics = Seq())</span><span style=''>
-</span>69 <span style=''>
-</span>70 <span style=''>    // Get our partition meta data for the configured topics
-</span>71 <span style=''>    val processedClusters = </span><span style='background: #F0ADAD'>new mutable.HashSet[String]()</span><span style=''>
-</span>72 <span style=''>    val brokers = </span><span style='background: #F0ADAD'>kafkaSources</span><span style=''>
-</span>73 <span style=''>    </span><span style='background: #F0ADAD'>for (bro <- brokers.values
-</span>74 <span style=''></span><span style='background: #F0ADAD'>         if !processedClusters.contains(bro.cluster)) {
-</span>75 <span style=''></span><span style='background: #F0ADAD'>      try {
-</span>76 <span style=''></span><span style='background: #F0ADAD'>        if (!consumersByHost.contains(bro.host)) {
-</span>77 <span style=''></span><span style='background: #F0ADAD'>          consumersByHost.put(bro.host, new SimpleConsumer(bro.host, bro.port, 15000, bufferSize, clientId))
-</span>78 <span style=''></span><span style='background: #F0ADAD'>        }
-</span>79 <span style=''></span><span style='background: #F0ADAD'>        val consumer = consumersByHost(bro.host)
-</span>80 <span style=''></span><span style='background: #F0ADAD'>        val topicsMetaResp = consumer.send(topicMetaRequest)
-</span>81 <span style=''></span><span style='background: #F0ADAD'>        for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => topicMap.keys.toList.contains(meta.topic) };
-</span>82 <span style=''></span><span style='background: #F0ADAD'>              partMeta <- topicMeta.partitionsMetadata )
-</span>83 <span style=''></span><span style='background: #F0ADAD'>          yield {
-</span>84 <span style=''></span><span style='background: #F0ADAD'>            partMeta.leader match {
-</span>85 <span style=''></span><span style='background: #F0ADAD'>              case Some(broker) =>
-</span>86 <span style=''></span><span style='background: #F0ADAD'>                log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
-</span>87 <span style=''></span><span style='background: #F0ADAD'>                partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, brokers(broker.host).cluster, broker.host))
-</span>88 <span style=''></span><span style='background: #F0ADAD'>              case None =>
-</span>89 <span style=''></span><span style='background: #F0ADAD'>                log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
-</span>90 <span style=''></span><span style='background: #F0ADAD'>            }
-</span>91 <span style=''></span><span style='background: #F0ADAD'>            processedClusters.add(bro.cluster)
-</span>92 <span style=''></span><span style='background: #F0ADAD'>          }
-</span>93 <span style=''></span><span style='background: #F0ADAD'>      } catch {
-</span>94 <span style=''></span><span style='background: #F0ADAD'>        case e: Throwable =>
-</span>95 <span style=''></span><span style='background: #F0ADAD'>          log.error(s"Unable to get topic meta data from ${bro.host}, will retry soon", e)
-</span>96 <span style=''></span><span style='background: #F0ADAD'>          consumersByHost.remove(bro.host).foreach(_.close())
-</span>97 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
-</span>98 <span style=''>    }
-</span>99 <span style=''>
-</span>100 <span style=''>    val unprocClusters = </span><span style='background: #F0ADAD'>brokers.filter(it => !processedClusters.contains(it._2.cluster)).map(_._2.cluster).toSet</span><span style=''>
-</span>101 <span style=''>    if (</span><span style='background: #F0ADAD'>unprocClusters.nonEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
-</span>102 <span style=''></span><span style='background: #F0ADAD'>      log.warn(s"Some brokers despondent: ${unprocClusters.mkString(",")}. Remaining brokers will start their workers.")
-</span>103 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! HealthComponent(actorName, ComponentState.DEGRADED, s"Brokers despondent: ${unprocClusters.mkString(",")}.")
-</span>104 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
-</span>105 <span style=''></span><span style='background: #F0ADAD'>      log.debug("Successfully processed brokers {}", brokers.toString())
-</span>106 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Successfully fetched broker data")
-</span>107 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>108 <span style=''>    </span><span style='background: #F0ADAD'>partitionsByTopic.toSet[PartitionAssignment]</span><span style=''>
-</span>109 <span style=''>  }
-</span>110 <span style=''>}
+</span>58 <span style=''>  var downSources = </span><span style='background: #F0ADAD'>Set[String]()</span><span style=''>
+</span>59 <span style=''>
+</span>60 <span style=''>  </span><span style='background: #F0ADAD'>context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Proxy has been started")</span><span style=''>
+</span>61 <span style=''>
+</span>62 <span style=''>  def receive: Receive = </span><span style='background: #F0ADAD'>configReceive orElse {
+</span>63 <span style=''></span><span style='background: #F0ADAD'>    case TopicPartitionReq =>
+</span>64 <span style=''></span><span style='background: #F0ADAD'>      sender ! TopicPartitionResp(getPartitionLeaders)
+</span>65 <span style=''></span><span style='background: #F0ADAD'>
+</span>66 <span style=''></span><span style='background: #F0ADAD'>    case msg: DownSources => downSources = msg.sources
+</span>67 <span style=''></span><span style='background: #F0ADAD'>  }</span><span style=''>
+</span>68 <span style=''>
+</span>69 <span style=''>  def getPartitionLeaders: Set[PartitionAssignment] = {
+</span>70 <span style=''>    val partitionsByTopic = </span><span style='background: #F0ADAD'>new mutable.HashSet[PartitionAssignment]()</span><span style=''>
+</span>71 <span style=''>    val topicMetaRequest = </span><span style='background: #F0ADAD'>new TopicMetadataRequest(versionId = 1, correlationId = 0, clientId = clientId, topics = Seq())</span><span style=''>
+</span>72 <span style=''>
+</span>73 <span style=''>    // Get our partition meta data for the configured topics
+</span>74 <span style=''>    val processedClusters = </span><span style='background: #F0ADAD'>new mutable.HashSet[String]()</span><span style=''>
+</span>75 <span style=''>    val brokers = </span><span style='background: #F0ADAD'>kafkaSources</span><span style=''>
+</span>76 <span style=''>    </span><span style='background: #F0ADAD'>sourceMonitor foreach(_ ! HostList(brokers.values.map(_.host).toList))</span><span style=''>
+</span>77 <span style=''>    </span><span style='background: #F0ADAD'>for (bro <- brokers.values
+</span>78 <span style=''></span><span style='background: #F0ADAD'>         if !processedClusters.contains(bro.cluster)) {
+</span>79 <span style=''></span><span style='background: #F0ADAD'>      try {
+</span>80 <span style=''></span><span style='background: #F0ADAD'>        val consumer = consumersByHost.getOrElseUpdate(bro.host, new SimpleConsumer(bro.host, bro.port, 15000, bufferSize, clientId))
+</span>81 <span style=''></span><span style='background: #F0ADAD'>        val topicsMetaResp = consumer.send(topicMetaRequest)
+</span>82 <span style=''></span><span style='background: #F0ADAD'>        for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => topicMap.keys.toList.contains(meta.topic) };
+</span>83 <span style=''></span><span style='background: #F0ADAD'>              partMeta <- topicMeta.partitionsMetadata )
+</span>84 <span style=''></span><span style='background: #F0ADAD'>          yield {
+</span>85 <span style=''></span><span style='background: #F0ADAD'>            partMeta.leader match {
+</span>86 <span style=''></span><span style='background: #F0ADAD'>              case Some(broker) =>
+</span>87 <span style=''></span><span style='background: #F0ADAD'>                log.debug(s"Leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]: ${broker.host}")
+</span>88 <span style=''></span><span style='background: #F0ADAD'>                partitionsByTopic.add(PartitionAssignment(topicMeta.topic, partMeta.partitionId, brokers(broker.host).cluster, broker.host))
+</span>89 <span style=''></span><span style='background: #F0ADAD'>              case None =>
+</span>90 <span style=''></span><span style='background: #F0ADAD'>                log.error(s"No leader found for topic [${topicMeta.topic}:${partMeta.partitionId}]")
+</span>91 <span style=''></span><span style='background: #F0ADAD'>            }
+</span>92 <span style=''></span><span style='background: #F0ADAD'>            processedClusters.add(bro.cluster)
+</span>93 <span style=''></span><span style='background: #F0ADAD'>          }
+</span>94 <span style=''></span><span style='background: #F0ADAD'>      } catch {
+</span>95 <span style=''></span><span style='background: #F0ADAD'>        case e: Throwable =>
+</span>96 <span style=''></span><span style='background: #F0ADAD'>          log.error(s"Unable to get topic meta data from ${bro.host}, will retry soon", e)
+</span>97 <span style=''></span><span style='background: #F0ADAD'>          consumersByHost.remove(bro.host).foreach(_.close())
+</span>98 <span style=''></span><span style='background: #F0ADAD'>      }</span><span style=''>
+</span>99 <span style=''>    }
+</span>100 <span style=''>
+</span>101 <span style=''>    val unprocClusters = </span><span style='background: #F0ADAD'>brokers.filter(it => !processedClusters.contains(it._2.cluster)).map(_._2).toSet</span><span style=''>
+</span>102 <span style=''>    if (</span><span style='background: #F0ADAD'>unprocClusters.nonEmpty</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>103 <span style=''></span><span style='background: #F0ADAD'>      log.warn(s"Some brokers despondent: ${unprocClusters.map(_.cluster).mkString(",")}. Remaining brokers will start their workers.")
+</span>104 <span style=''></span><span style='background: #F0ADAD'>      val okayAndDown = unprocClusters.partition(it => downSources.contains(it.host))
+</span>105 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! HealthComponent(actorName, if (okayAndDown._2.size > 0) ComponentState.DEGRADED else ComponentState.NORMAL,
+</span>106 <span style=''></span><span style='background: #F0ADAD'>        s"Despondent Clusters: [${okayAndDown._2.map(_.cluster).mkString(",")}], Scheduled Downtime: [${okayAndDown._1.map(_.cluster).mkString(",")}]")
+</span>107 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else </span><span style='background: #F0ADAD'>{
+</span>108 <span style=''></span><span style='background: #F0ADAD'>      log.debug("Successfully processed brokers {}", brokers.toString())
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Successfully fetched broker data")
+</span>110 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>111 <span style=''>    </span><span style='background: #F0ADAD'>partitionsByTopic.toSet[PartitionAssignment]</span><span style=''>
+</span>112 <span style=''>  }
+</span>113 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -149,33 +152,33 @@
           47
         </td>
         <td>
-          851
+          862
         </td>
         <td>
-          1835
+          1922
           -
-          1859
+          1970
         </td>
         <td>
-          ApplyToImplicitArgs
+          Apply
         </td>
         <td>
           akka.actor.Props.apply
         </td>
         <td style="background: #F0ADAD">
-          akka.actor.Props.apply[com.webtrends.harness.component.kafka.actor.KafkaTopicManager]()((ClassTag.apply[com.webtrends.harness.component.kafka.actor.KafkaTopicManager](classOf[com.webtrends.harness.component.kafka.actor.KafkaTopicManager]): scala.reflect.ClassTag[com.webtrends.harness.component.kafka.actor.KafkaTopicManager]))
+          akka.actor.Props.apply(classOf[com.webtrends.harness.component.kafka.actor.KafkaTopicManager], sourceMonitor)
         </td>
       </tr><tr>
         <td>
           54
         </td>
         <td>
-          852
+          863
         </td>
         <td>
-          2044
+          2188
           -
-          2065
+          2209
         </td>
         <td>
           Literal
@@ -191,12 +194,12 @@
           57
         </td>
         <td>
-          853
+          864
         </td>
         <td>
-          2147
+          2291
           -
-          2192
+          2336
         </td>
         <td>
           Apply
@@ -209,183 +212,36 @@
         </td>
       </tr><tr>
         <td>
-          59
+          58
         </td>
         <td>
-          855
+          865
         </td>
         <td>
-          2229
+          2357
           -
-          2238
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.actorName
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.actorName
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          857
-        </td>
-        <td>
-          2263
-          -
-          2287
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Proxy has been started&quot;
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          860
-        </td>
-        <td>
-          2213
-          -
-          2288
+          2370
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply
+          scala.collection.generic.GenericCompanion.apply
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Proxy has been started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+          scala.this.Predef.Set.apply[String]()
         </td>
       </tr><tr>
         <td>
-          59
+          60
         </td>
         <td>
-          854
+          873
         </td>
         <td>
-          2196
+          2389
           -
-          2210
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.parent
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.context.parent
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          862
-        </td>
-        <td>
-          2196
-          -
-          2288
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Proxy has been started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          856
-        </td>
-        <td>
-          2240
-          -
-          2261
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          859
-        </td>
-        <td>
-          2213
-          -
-          2213
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          858
-        </td>
-        <td>
-          2213
-          -
-          2213
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          59
-        </td>
-        <td>
-          861
-        </td>
-        <td>
-          2211
-          -
-          2211
+          2389
         </td>
         <td>
           Select
@@ -398,15 +254,204 @@
         </td>
       </tr><tr>
         <td>
-          61
+          60
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          2391
+          -
+          2466
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Proxy has been started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          2374
+          -
+          2388
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          60
         </td>
         <td>
           869
         </td>
         <td>
-          2315
+          2441
           -
-          2426
+          2465
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Proxy has been started&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          2391
+          -
+          2391
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          874
+        </td>
+        <td>
+          2374
+          -
+          2466
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Proxy has been started&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          2418
+          -
+          2439
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          2407
+          -
+          2416
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.actorName
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.actorName
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          2391
+          -
+          2391
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          2514
+          -
+          2514
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.$anonfun.&lt;init&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          2493
+          -
+          2660
         </td>
         <td>
           Apply
@@ -423,10 +468,12 @@
     };
     final override def applyOrElse[A1, B1 &gt;: Unit](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
       case KafkaTopicManager.TopicPartitionReq =&gt; akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.sender()).!(com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp.apply(KafkaTopicManager.this.getPartitionLeaders))(KafkaTopicManager.this.self)
+      case (msg @ (_: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources)) =&gt; KafkaTopicManager.this.downSources_=(msg.sources)
       case (defaultCase$ @ _) =&gt; default.apply(x1)
     };
     final def isDefinedAt(x1: Any): Boolean = ((x1.asInstanceOf[Any]: Any): Any @unchecked) match {
       case KafkaTopicManager.TopicPartitionReq =&gt; true
+      case (msg @ (_: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources)) =&gt; true
       case (defaultCase$ @ _) =&gt; false
     }
   };
@@ -435,57 +482,15 @@
         </td>
       </tr><tr>
         <td>
-          61
+          64
         </td>
         <td>
-          868
+          875
         </td>
         <td>
-          2336
+          2552
           -
-          2336
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.$anonfun.&lt;init&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          new $anonfun()
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          864
-        </td>
-        <td>
-          2402
-          -
-          2421
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.getPartitionLeaders
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.getPartitionLeaders
-        </td>
-      </tr><tr>
-        <td>
-          63
-        </td>
-        <td>
-          863
-        </td>
-        <td>
-          2374
-          -
-          2380
+          2558
         </td>
         <td>
           Apply
@@ -498,15 +503,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          866
+          878
         </td>
         <td>
-          2381
+          2559
           -
-          2381
+          2559
         </td>
         <td>
           Select
@@ -519,15 +524,15 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          865
+          877
         </td>
         <td>
-          2383
+          2561
           -
-          2422
+          2600
         </td>
         <td>
           Apply
@@ -540,15 +545,36 @@
         </td>
       </tr><tr>
         <td>
-          63
+          64
         </td>
         <td>
-          867
+          876
         </td>
         <td>
-          2374
+          2580
           -
-          2422
+          2599
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.getPartitionLeaders
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.getPartitionLeaders
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          2552
+          -
+          2600
         </td>
         <td>
           ApplyToImplicitArgs
@@ -561,15 +587,57 @@
         </td>
       </tr><tr>
         <td>
-          67
+          66
         </td>
         <td>
-          870
+          881
         </td>
         <td>
-          2512
+          2631
           -
-          2554
+          2656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.downSources_=
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.downSources_=(msg.sources)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          880
+        </td>
+        <td>
+          2645
+          -
+          2656
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources.sources
+        </td>
+        <td style="background: #F0ADAD">
+          msg.sources
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          2746
+          -
+          2788
         </td>
         <td>
           Apply
@@ -582,15 +650,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          873
+          887
         </td>
         <td>
-          2652
+          2886
           -
-          2660
+          2894
         </td>
         <td>
           Select
@@ -603,15 +671,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          872
+          886
         </td>
         <td>
-          2638
+          2872
           -
-          2639
+          2873
         </td>
         <td>
           Literal
@@ -624,15 +692,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          875
+          889
         </td>
         <td>
-          2582
+          2816
           -
-          2677
+          2911
         </td>
         <td>
           Apply
@@ -645,15 +713,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          871
+          885
         </td>
         <td>
-          2619
+          2853
           -
-          2620
+          2854
         </td>
         <td>
           Literal
@@ -666,15 +734,15 @@
         </td>
       </tr><tr>
         <td>
-          68
+          71
         </td>
         <td>
-          874
+          888
         </td>
         <td>
-          2671
+          2905
           -
-          2676
+          2910
         </td>
         <td>
           Apply
@@ -687,15 +755,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          74
         </td>
         <td>
-          876
+          890
         </td>
         <td>
-          2768
+          3002
           -
-          2797
+          3031
         </td>
         <td>
           Apply
@@ -708,15 +776,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          75
         </td>
         <td>
-          877
+          891
         </td>
         <td>
-          2816
+          3050
           -
-          2828
+          3062
         </td>
         <td>
           Select
@@ -729,15 +797,162 @@
         </td>
       </tr><tr>
         <td>
-          73
+          76
         </td>
         <td>
-          937
+          893
         </td>
         <td>
-          2833
+          3120
           -
-          4134
+          3120
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Iterable.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          3091
+          -
+          3091
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.self
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          3093
+          -
+          3136
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.HostList.apply
+        </td>
+        <td style="background: #F0ADAD">
+          HostList.apply(brokers.values.map[String, Iterable[String]](((x$2: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$2.host))(collection.this.Iterable.canBuildFrom[String]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          3067
+          -
+          3137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.sourceMonitor.foreach[Unit](((x$1: akka.actor.ActorRef) =&gt; akka.this.actor.`package`.actorRef2Scala(x$1).!(HostList.apply(brokers.values.map[String, Iterable[String]](((x$2: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$2.host))(collection.this.Iterable.canBuildFrom[String]).toList))(KafkaTopicManager.this.self)))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          3121
+          -
+          3127
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.host
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          3102
+          -
+          3135
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #F0ADAD">
+          brokers.values.map[String, Iterable[String]](((x$2: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$2.host))(collection.this.Iterable.canBuildFrom[String]).toList
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          3089
+          -
+          3136
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(x$1).!(HostList.apply(brokers.values.map[String, Iterable[String]](((x$2: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$2.host))(collection.this.Iterable.canBuildFrom[String]).toList))(KafkaTopicManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          951
+        </td>
+        <td>
+          3142
+          -
+          4358
         </td>
         <td>
           Apply
@@ -747,11 +962,7 @@
         </td>
         <td style="background: #F0ADAD">
           brokers.values.withFilter(((bro: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; processedClusters.contains(bro.cluster).unary_!)).foreach[Any](((bro: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; try {
-  if (KafkaTopicManager.this.consumersByHost.contains(bro.host).unary_!)
-    KafkaTopicManager.this.consumersByHost.put(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId))
-  else
-    ();
-  val consumer: kafka.consumer.SimpleConsumer = KafkaTopicManager.this.consumersByHost.apply(bro.host);
+  val consumer: kafka.consumer.SimpleConsumer = KafkaTopicManager.this.consumersByHost.getOrElseUpdate(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId));
   val topicsMetaResp: kafka.api.TopicMetadataResponse = consumer.send(topicMetaRequest);
   topicsMetaResp.topicsMetadata.filter(((meta: kafka.api.TopicMetadata) =&gt; KafkaTopicManager.this.topicMap.keys.toList.contains[String](meta.topic))).flatMap[Boolean, Seq[Boolean]](((topicMeta: kafka.api.TopicMetadata) =&gt; topicMeta.partitionsMetadata.map[Boolean, Seq[Boolean]](((partMeta: kafka.api.PartitionMetadata) =&gt; {
     partMeta.leader match {
@@ -766,21 +977,21 @@
 } catch {
   case (e @ (_: Throwable)) =&gt; {
     KafkaTopicManager.this.log.error(scala.StringContext.apply(&quot;Unable to get topic meta data from &quot;, &quot;, will retry soon&quot;).s(bro.host), e);
-    KafkaTopicManager.this.consumersByHost.remove(bro.host).foreach[Unit](((x$1: kafka.consumer.SimpleConsumer) =&gt; x$1.close()))
+    KafkaTopicManager.this.consumersByHost.remove(bro.host).foreach[Unit](((x$3: kafka.consumer.SimpleConsumer) =&gt; x$3.close()))
   }
 }))
         </td>
       </tr><tr>
         <td>
-          74
+          78
         </td>
         <td>
-          878
+          899
         </td>
         <td>
-          2900
+          3209
           -
-          2911
+          3220
         </td>
         <td>
           Select
@@ -793,15 +1004,15 @@
         </td>
       </tr><tr>
         <td>
-          74
+          78
         </td>
         <td>
-          879
+          900
         </td>
         <td>
-          2872
+          3181
           -
-          2912
+          3221
         </td>
         <td>
           Select
@@ -814,15 +1025,15 @@
         </td>
       </tr><tr>
         <td>
-          75
+          79
         </td>
         <td>
-          928
+          942
         </td>
         <td>
-          2936
+          3245
           -
-          3928
+          4152
         </td>
         <td>
           Block
@@ -832,11 +1043,7 @@
         </td>
         <td style="background: #F0ADAD">
           {
-  if (KafkaTopicManager.this.consumersByHost.contains(bro.host).unary_!)
-    KafkaTopicManager.this.consumersByHost.put(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId))
-  else
-    ();
-  val consumer: kafka.consumer.SimpleConsumer = KafkaTopicManager.this.consumersByHost.apply(bro.host);
+  val consumer: kafka.consumer.SimpleConsumer = KafkaTopicManager.this.consumersByHost.getOrElseUpdate(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId));
   val topicsMetaResp: kafka.api.TopicMetadataResponse = consumer.send(topicMetaRequest);
   topicsMetaResp.topicsMetadata.filter(((meta: kafka.api.TopicMetadata) =&gt; KafkaTopicManager.this.topicMap.keys.toList.contains[String](meta.topic))).flatMap[Boolean, Seq[Boolean]](((topicMeta: kafka.api.TopicMetadata) =&gt; topicMeta.partitionsMetadata.map[Boolean, Seq[Boolean]](((partMeta: kafka.api.PartitionMetadata) =&gt; {
     partMeta.leader match {
@@ -852,57 +1059,36 @@
         </td>
       </tr><tr>
         <td>
-          76
+          80
         </td>
         <td>
-          891
+          908
         </td>
         <td>
-          2936
+          3260
           -
-          2936
+          3370
         </td>
         <td>
-          Literal
+          Apply
         </td>
         <td>
-          &lt;nosymbol&gt;
+          scala.collection.mutable.MapLike.getOrElseUpdate
         </td>
         <td style="background: #F0ADAD">
-          ()
+          KafkaTopicManager.this.consumersByHost.getOrElseUpdate(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId))
         </td>
       </tr><tr>
         <td>
-          76
+          80
         </td>
         <td>
-          881
+          902
         </td>
         <td>
-          2940
+          3321
           -
-          2975
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Boolean.unary_!
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.consumersByHost.contains(bro.host).unary_!
-        </td>
-      </tr><tr>
-        <td>
-          76
-        </td>
-        <td>
-          880
-        </td>
-        <td>
-          2966
-          -
-          2974
+          3329
         </td>
         <td>
           Select
@@ -915,120 +1101,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          80
         </td>
         <td>
-          892
+          905
         </td>
         <td>
-          2936
+          3348
           -
-          2936
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          882
-        </td>
-        <td>
-          3009
-          -
-          3017
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
-        </td>
-        <td style="background: #F0ADAD">
-          bro.host
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          890
-        </td>
-        <td>
-          2989
-          -
-          3087
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          scala.collection.mutable.HashMap.put
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.consumersByHost.put(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId))
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          884
-        </td>
-        <td>
-          3048
-          -
-          3056
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.port
-        </td>
-        <td style="background: #F0ADAD">
-          bro.port
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          887
-        </td>
-        <td>
-          3077
-          -
-          3085
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.util.KafkaSettings.clientId
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.clientId
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          886
-        </td>
-        <td>
-          3065
-          -
-          3075
+          3358
         </td>
         <td>
           Select
@@ -1041,57 +1122,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          80
         </td>
         <td>
-          889
+          904
         </td>
         <td>
-          2989
+          3341
           -
-          3087
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.HashMap.put
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.consumersByHost.put(bro.host, new kafka.consumer.SimpleConsumer(bro.host, bro.port, 15000, KafkaTopicManager.this.bufferSize, KafkaTopicManager.this.clientId))
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          883
-        </td>
-        <td>
-          3038
-          -
-          3046
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
-        </td>
-        <td style="background: #F0ADAD">
-          bro.host
-        </td>
-      </tr><tr>
-        <td>
-          77
-        </td>
-        <td>
-          885
-        </td>
-        <td>
-          3058
-          -
-          3063
+          3346
         </td>
         <td>
           Literal
@@ -1104,15 +1143,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          80
         </td>
         <td>
-          888
+          907
         </td>
         <td>
-          3019
+          3302
           -
-          3086
+          3369
         </td>
         <td>
           Apply
@@ -1125,15 +1164,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
-          893
+          901
         </td>
         <td>
-          3137
+          3292
           -
-          3145
+          3300
         </td>
         <td>
           Select
@@ -1146,36 +1185,57 @@
         </td>
       </tr><tr>
         <td>
-          79
+          80
         </td>
         <td>
-          894
+          903
         </td>
         <td>
-          3121
+          3331
           -
-          3146
+          3339
         </td>
         <td>
-          Apply
+          Select
         </td>
         <td>
-          scala.collection.mutable.HashMap.apply
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.port
         </td>
         <td style="background: #F0ADAD">
-          KafkaTopicManager.this.consumersByHost.apply(bro.host)
+          bro.port
         </td>
       </tr><tr>
         <td>
           80
         </td>
         <td>
-          895
+          906
         </td>
         <td>
-          3176
+          3360
           -
-          3207
+          3368
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.clientId
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.clientId
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          3400
+          -
+          3431
         </td>
         <td>
           Apply
@@ -1188,57 +1248,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          82
         </td>
         <td>
-          926
+          941
         </td>
         <td>
-          3232
+          3440
           -
-          3232
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[Boolean]
-        </td>
-      </tr><tr>
-        <td>
-          81
-        </td>
-        <td>
-          896
-        </td>
-        <td>
-          3312
-          -
-          3322
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.TopicMetadata.topic
-        </td>
-        <td style="background: #F0ADAD">
-          meta.topic
-        </td>
-      </tr><tr>
-        <td>
-          81
-        </td>
-        <td>
-          927
-        </td>
-        <td>
-          3216
-          -
-          3928
+          4152
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1260,15 +1278,15 @@
         </td>
       </tr><tr>
         <td>
-          81
+          82
         </td>
         <td>
-          897
+          911
         </td>
         <td>
-          3282
+          3506
           -
-          3323
+          3547
         </td>
         <td>
           Apply
@@ -1284,12 +1302,75 @@
           82
         </td>
         <td>
-          925
+          940
         </td>
         <td>
-          3341
+          3456
           -
-          3928
+          3456
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          3536
+          -
+          3546
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.TopicMetadata.topic
+        </td>
+        <td style="background: #F0ADAD">
+          meta.topic
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          938
+        </td>
+        <td>
+          3574
+          -
+          3574
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[Boolean]
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          939
+        </td>
+        <td>
+          3565
+          -
+          4152
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1311,36 +1392,15 @@
         </td>
       </tr><tr>
         <td>
-          82
+          85
         </td>
         <td>
-          924
+          912
         </td>
         <td>
-          3350
+          3638
           -
-          3350
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.collection.Seq.canBuildFrom
-        </td>
-        <td style="background: #F0ADAD">
-          collection.this.Seq.canBuildFrom[Boolean]
-        </td>
-      </tr><tr>
-        <td>
-          84
-        </td>
-        <td>
-          898
-        </td>
-        <td>
-          3414
-          -
-          3429
+          3653
         </td>
         <td>
           Select
@@ -1353,162 +1413,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          899
+          917
         </td>
         <td>
-          3501
+          3751
           -
-          3526
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Leader found for topic [&quot;
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          902
-        </td>
-        <td>
-          3584
-          -
-          3585
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          905
-        </td>
-        <td>
-          3572
-          -
-          3583
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.cluster.Broker.host
-        </td>
-        <td style="background: #F0ADAD">
-          broker.host
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          904
-        </td>
-        <td>
-          3546
-          -
-          3566
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.PartitionMetadata.partitionId
-        </td>
-        <td style="background: #F0ADAD">
-          partMeta.partitionId
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          907
-        </td>
-        <td>
-          3489
-          -
-          3586
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.log.debug(scala.StringContext.apply(&quot;Leader found for topic [&quot;, &quot;:&quot;, &quot;]: &quot;, &quot;&quot;).s(topicMeta.topic, partMeta.partitionId, broker.host))
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          901
-        </td>
-        <td>
-          3567
-          -
-          3571
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;]: &quot;
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          900
-        </td>
-        <td>
-          3543
-          -
-          3545
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;:&quot;
-        </td>
-      </tr><tr>
-        <td>
-          86
-        </td>
-        <td>
-          903
-        </td>
-        <td>
-          3527
-          -
-          3542
+          3766
         </td>
         <td>
           Select
@@ -1521,15 +1434,15 @@
         </td>
       </tr><tr>
         <td>
-          86
+          87
         </td>
         <td>
-          906
+          920
         </td>
         <td>
-          3499
+          3723
           -
-          3585
+          3809
         </td>
         <td>
           Apply
@@ -1545,201 +1458,12 @@
           87
         </td>
         <td>
-          908
-        </td>
-        <td>
-          3645
-          -
-          3660
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.TopicMetadata.topic
-        </td>
-        <td style="background: #F0ADAD">
-          topicMeta.topic
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          911
-        </td>
-        <td>
-          3684
-          -
-          3712
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.cluster
-        </td>
-        <td style="background: #F0ADAD">
-          brokers.apply(broker.host).cluster
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
           914
         </td>
         <td>
-          3603
+          3767
           -
-          3727
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.HashSet.add
-        </td>
-        <td style="background: #F0ADAD">
-          partitionsByTopic.add(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply(topicMeta.topic, partMeta.partitionId, brokers.apply(broker.host).cluster, broker.host))
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          913
-        </td>
-        <td>
-          3625
-          -
-          3726
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply(topicMeta.topic, partMeta.partitionId, brokers.apply(broker.host).cluster, broker.host)
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          910
-        </td>
-        <td>
-          3692
-          -
-          3703
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.cluster.Broker.host
-        </td>
-        <td style="background: #F0ADAD">
-          broker.host
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          909
-        </td>
-        <td>
-          3662
-          -
-          3682
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.api.PartitionMetadata.partitionId
-        </td>
-        <td style="background: #F0ADAD">
-          partMeta.partitionId
-        </td>
-      </tr><tr>
-        <td>
-          87
-        </td>
-        <td>
-          912
-        </td>
-        <td>
-          3714
-          -
-          3725
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          kafka.cluster.Broker.host
-        </td>
-        <td style="background: #F0ADAD">
-          broker.host
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          917
-        </td>
-        <td>
-          3852
-          -
-          3854
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;]&quot;
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          920
-        </td>
-        <td>
-          3781
-          -
-          3854
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;No leader found for topic [&quot;, &quot;:&quot;, &quot;]&quot;).s(topicMeta.topic, partMeta.partitionId)
-        </td>
-      </tr><tr>
-        <td>
-          89
-        </td>
-        <td>
-          916
-        </td>
-        <td>
-          3828
-          -
-          3830
+          3769
         </td>
         <td>
           Literal
@@ -1752,15 +1476,78 @@
         </td>
       </tr><tr>
         <td>
-          89
+          87
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          3725
+          -
+          3750
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Leader found for topic [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          3808
+          -
+          3809
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
         </td>
         <td>
           919
         </td>
         <td>
-          3831
+          3796
           -
-          3851
+          3807
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.cluster.Broker.host
+        </td>
+        <td style="background: #F0ADAD">
+          broker.host
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          3770
+          -
+          3790
         </td>
         <td>
           Select
@@ -1773,15 +1560,99 @@
         </td>
       </tr><tr>
         <td>
-          89
+          87
         </td>
         <td>
-          918
+          921
         </td>
         <td>
-          3812
+          3713
           -
-          3827
+          3810
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.logging.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.log.debug(scala.StringContext.apply(&quot;Leader found for topic [&quot;, &quot;:&quot;, &quot;]: &quot;, &quot;&quot;).s(topicMeta.topic, partMeta.partitionId, broker.host))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          3791
+          -
+          3795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          3886
+          -
+          3906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.PartitionMetadata.partitionId
+        </td>
+        <td style="background: #F0ADAD">
+          partMeta.partitionId
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          3938
+          -
+          3949
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.cluster.Broker.host
+        </td>
+        <td style="background: #F0ADAD">
+          broker.host
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          922
+        </td>
+        <td>
+          3869
+          -
+          3884
         </td>
         <td>
           Select
@@ -1794,15 +1665,120 @@
         </td>
       </tr><tr>
         <td>
-          89
+          88
         </td>
         <td>
-          921
+          925
         </td>
         <td>
-          3771
+          3908
           -
-          3855
+          3936
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          brokers.apply(broker.host).cluster
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          3827
+          -
+          3951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.HashSet.add
+        </td>
+        <td style="background: #F0ADAD">
+          partitionsByTopic.add(com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply(topicMeta.topic, partMeta.partitionId, brokers.apply(broker.host).cluster, broker.host))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          3849
+          -
+          3950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment.apply(topicMeta.topic, partMeta.partitionId, brokers.apply(broker.host).cluster, broker.host)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          924
+        </td>
+        <td>
+          3916
+          -
+          3927
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.cluster.Broker.host
+        </td>
+        <td style="background: #F0ADAD">
+          broker.host
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          4036
+          -
+          4051
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.TopicMetadata.topic
+        </td>
+        <td style="background: #F0ADAD">
+          topicMeta.topic
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          3995
+          -
+          4079
         </td>
         <td>
           Apply
@@ -1815,15 +1791,15 @@
         </td>
       </tr><tr>
         <td>
-          89
+          90
         </td>
         <td>
-          915
+          929
         </td>
         <td>
-          3783
+          4007
           -
-          3811
+          4035
         </td>
         <td>
           Literal
@@ -1836,15 +1812,99 @@
         </td>
       </tr><tr>
         <td>
-          91
+          90
         </td>
         <td>
-          923
+          931
         </td>
         <td>
-          3882
+          4076
           -
-          3916
+          4078
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          4005
+          -
+          4078
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;No leader found for topic [&quot;, &quot;:&quot;, &quot;]&quot;).s(topicMeta.topic, partMeta.partitionId)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          4052
+          -
+          4054
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;:&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          933
+        </td>
+        <td>
+          4055
+          -
+          4075
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          kafka.api.PartitionMetadata.partitionId
+        </td>
+        <td style="background: #F0ADAD">
+          partMeta.partitionId
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          937
+        </td>
+        <td>
+          4106
+          -
+          4140
         </td>
         <td>
           Apply
@@ -1857,15 +1917,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          92
         </td>
         <td>
-          922
+          936
         </td>
         <td>
-          3904
+          4128
           -
-          3915
+          4139
         </td>
         <td>
           Select
@@ -1878,78 +1938,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
-          932
+          944
         </td>
         <td>
-          3994
+          4266
           -
-          4060
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Unable to get topic meta data from &quot;, &quot;, will retry soon&quot;).s(bro.host)
-        </td>
-      </tr><tr>
-        <td>
-          95
-        </td>
-        <td>
-          929
-        </td>
-        <td>
-          3996
-          -
-          4032
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Unable to get topic meta data from &quot;
-        </td>
-      </tr><tr>
-        <td>
-          95
-        </td>
-        <td>
-          931
-        </td>
-        <td>
-          4033
-          -
-          4041
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
-        </td>
-        <td style="background: #F0ADAD">
-          bro.host
-        </td>
-      </tr><tr>
-        <td>
-          95
-        </td>
-        <td>
-          930
-        </td>
-        <td>
-          4042
-          -
-          4060
+          4284
         </td>
         <td>
           Literal
@@ -1962,15 +1959,15 @@
         </td>
       </tr><tr>
         <td>
-          95
+          96
         </td>
         <td>
-          933
+          947
         </td>
         <td>
-          3984
+          4208
           -
-          4064
+          4288
         </td>
         <td>
           Apply
@@ -1986,33 +1983,54 @@
           96
         </td>
         <td>
-          935
+          946
         </td>
         <td>
-          4116
+          4218
           -
-          4125
+          4284
         </td>
         <td>
           Apply
         </td>
         <td>
-          kafka.consumer.SimpleConsumer.close
+          scala.StringContext.s
         </td>
         <td style="background: #F0ADAD">
-          x$1.close()
+          scala.StringContext.apply(&quot;Unable to get topic meta data from &quot;, &quot;, will retry soon&quot;).s(bro.host)
         </td>
       </tr><tr>
         <td>
           96
         </td>
         <td>
-          934
+          943
         </td>
         <td>
-          4098
+          4220
           -
-          4106
+          4256
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unable to get topic meta data from &quot;
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          945
+        </td>
+        <td>
+          4257
+          -
+          4265
         </td>
         <td>
           Select
@@ -2025,15 +2043,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          97
         </td>
         <td>
-          936
+          950
         </td>
         <td>
-          4075
+          4299
           -
-          4126
+          4350
         </td>
         <td>
           Apply
@@ -2042,82 +2060,61 @@
           scala.Option.foreach
         </td>
         <td style="background: #F0ADAD">
-          KafkaTopicManager.this.consumersByHost.remove(bro.host).foreach[Unit](((x$1: kafka.consumer.SimpleConsumer) =&gt; x$1.close()))
+          KafkaTopicManager.this.consumersByHost.remove(bro.host).foreach[Unit](((x$3: kafka.consumer.SimpleConsumer) =&gt; x$3.close()))
         </td>
       </tr><tr>
         <td>
-          100
+          97
         </td>
         <td>
-          941
+          949
         </td>
         <td>
-          4235
+          4340
           -
-          4235
+          4349
         </td>
         <td>
-          TypeApply
+          Apply
         </td>
         <td>
-          scala.collection.immutable.Iterable.canBuildFrom
+          kafka.consumer.SimpleConsumer.close
         </td>
         <td style="background: #F0ADAD">
-          immutable.this.Iterable.canBuildFrom[String]
+          x$3.close()
         </td>
       </tr><tr>
         <td>
-          100
+          97
         </td>
         <td>
-          938
+          948
         </td>
         <td>
-          4216
+          4322
           -
-          4229
+          4330
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.cluster
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
         </td>
         <td style="background: #F0ADAD">
-          it._2.cluster
+          bro.host
         </td>
       </tr><tr>
         <td>
-          100
+          101
         </td>
         <td>
-          940
+          953
         </td>
         <td>
-          4236
+          4412
           -
-          4248
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.cluster
-        </td>
-        <td style="background: #F0ADAD">
-          x$2._2.cluster
-        </td>
-      </tr><tr>
-        <td>
-          100
-        </td>
-        <td>
-          939
-        </td>
-        <td>
-          4188
-          -
-          4230
+          4454
         </td>
         <td>
           Select
@@ -2130,15 +2127,15 @@
         </td>
       </tr><tr>
         <td>
-          100
+          101
         </td>
         <td>
-          942
+          956
         </td>
         <td>
-          4167
+          4391
           -
-          4255
+          4471
         </td>
         <td>
           TypeApply
@@ -2147,19 +2144,110 @@
           scala.collection.TraversableOnce.toSet
         </td>
         <td style="background: #F0ADAD">
-          brokers.filter(((it: (String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)) =&gt; processedClusters.contains(it._2.cluster).unary_!)).map[String, scala.collection.immutable.Iterable[String]](((x$2: (String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)) =&gt; x$2._2.cluster))(immutable.this.Iterable.canBuildFrom[String]).toSet[String]
+          brokers.filter(((it: (String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)) =&gt; processedClusters.contains(it._2.cluster).unary_!)).map[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec, scala.collection.immutable.Iterable[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec]](((x$4: (String, com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec)) =&gt; x$4._2))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec]).toSet[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec]
         </td>
       </tr><tr>
         <td>
           101
         </td>
         <td>
-          943
+          955
         </td>
         <td>
-          4264
+          4459
           -
-          4287
+          4459
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec]
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          952
+        </td>
+        <td>
+          4440
+          -
+          4453
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.cluster
+        </td>
+        <td style="background: #F0ADAD">
+          it._2.cluster
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          954
+        </td>
+        <td>
+          4460
+          -
+          4464
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td style="background: #F0ADAD">
+          x$4._2
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          984
+        </td>
+        <td>
+          4505
+          -
+          5017
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  KafkaTopicManager.this.log.warn(scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.map[String, scala.collection.immutable.Set[String]](((x$5: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$5.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)));
+  val okayAndDown: (scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec], scala.collection.immutable.Set[com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec]) = unprocClusters.partition(((it: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; KafkaTopicManager.this.downSources.contains(it.host)));
+  akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, if (okayAndDown._2.size.&gt;(0))
+    com.webtrends.harness.health.ComponentState.DEGRADED
+  else
+    com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Despondent Clusters: [&quot;, &quot;], Scheduled Downtime: [&quot;, &quot;]&quot;).s(okayAndDown._2.map[String, scala.collection.immutable.Set[String]](((x$6: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$6.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;), okayAndDown._1.map[String, scala.collection.immutable.Set[String]](((x$7: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$7.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          957
+        </td>
+        <td>
+          4480
+          -
+          4503
         </td>
         <td>
           Select
@@ -2172,102 +2260,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          961
+          959
         </td>
         <td>
-          4289
+          4595
           -
-          4549
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          {
-  KafkaTopicManager.this.log.warn(scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.mkString(&quot;,&quot;)));
-  akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;Brokers despondent: &quot;, &quot;.&quot;).s(unprocClusters.mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
-}
-        </td>
-      </tr><tr>
-        <td>
-          102
-        </td>
-        <td>
-          944
-        </td>
-        <td>
-          4308
-          -
-          4334
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Some brokers despondent: &quot;
-        </td>
-      </tr><tr>
-        <td>
-          102
-        </td>
-        <td>
-          947
-        </td>
-        <td>
-          4306
-          -
-          4410
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.mkString(&quot;,&quot;))
-        </td>
-      </tr><tr>
-        <td>
-          102
-        </td>
-        <td>
-          946
-        </td>
-        <td>
-          4335
-          -
-          4363
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.TraversableOnce.mkString
-        </td>
-        <td style="background: #F0ADAD">
-          unprocClusters.mkString(&quot;,&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          102
-        </td>
-        <td>
-          945
-        </td>
-        <td>
-          4364
-          -
-          4410
+          4641
         </td>
         <td>
           Literal
@@ -2280,15 +2281,15 @@
         </td>
       </tr><tr>
         <td>
-          102
+          103
         </td>
         <td>
-          948
+          962
         </td>
         <td>
-          4297
+          4513
           -
-          4411
+          4642
         </td>
         <td>
           Apply
@@ -2297,40 +2298,232 @@
           com.webtrends.harness.logging.Logger.warn
         </td>
         <td style="background: #F0ADAD">
-          KafkaTopicManager.this.log.warn(scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.mkString(&quot;,&quot;)))
+          KafkaTopicManager.this.log.warn(scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.map[String, scala.collection.immutable.Set[String]](((x$5: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$5.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)))
         </td>
       </tr><tr>
         <td>
           103
         </td>
         <td>
-          950
+          958
         </td>
         <td>
-          4451
+          4524
           -
-          4460
+          4550
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Some brokers despondent: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          961
+        </td>
+        <td>
+          4522
+          -
+          4641
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Some brokers despondent: &quot;, &quot;. Remaining brokers will start their workers.&quot;).s(unprocClusters.map[String, scala.collection.immutable.Set[String]](((x$5: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$5.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          960
+        </td>
+        <td>
+          4551
+          -
+          4594
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #F0ADAD">
+          unprocClusters.map[String, scala.collection.immutable.Set[String]](((x$5: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$5.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          965
+        </td>
+        <td>
+          4667
+          -
+          4728
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.partition
+        </td>
+        <td style="background: #F0ADAD">
+          unprocClusters.partition(((it: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; KafkaTopicManager.this.downSources.contains(it.host)))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          964
+        </td>
+        <td>
+          4698
+          -
+          4727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SetLike.contains
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.downSources.contains(it.host)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          963
+        </td>
+        <td>
+          4719
+          -
+          4726
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.actorName
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec.host
         </td>
         <td style="background: #F0ADAD">
-          KafkaTopicManager.this.actorName
+          it.host
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          959
+          983
         </td>
         <td>
-          4433
+          4735
           -
-          4433
+          5011
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, if (okayAndDown._2.size.&gt;(0))
+  com.webtrends.harness.health.ComponentState.DEGRADED
+else
+  com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Despondent Clusters: [&quot;, &quot;], Scheduled Downtime: [&quot;, &quot;]&quot;).s(okayAndDown._2.map[String, scala.collection.immutable.Set[String]](((x$6: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$6.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;), okayAndDown._1.map[String, scala.collection.immutable.Set[String]](((x$7: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$7.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          968
+        </td>
+        <td>
+          4783
+          -
+          4806
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          okayAndDown._2.size.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          980
+        </td>
+        <td>
+          4752
+          -
+          4752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          971
+        </td>
+        <td>
+          4837
+          -
+          4858
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          982
+        </td>
+        <td>
+          4750
+          -
+          4750
         </td>
         <td>
           Select
@@ -2343,36 +2536,57 @@
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          953
+          967
         </td>
         <td>
-          4540
+          4768
           -
-          4542
+          4777
         </td>
         <td>
-          Literal
+          Select
         </td>
         <td>
-          &lt;nosymbol&gt;
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.actorName
         </td>
         <td style="background: #F0ADAD">
-          &quot;.&quot;
+          KafkaTopicManager.this.actorName
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          956
+          970
         </td>
         <td>
-          4435
+          4808
           -
-          4435
+          4831
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          4752
+          -
+          4752
         </td>
         <td>
           Select
@@ -2385,36 +2599,81 @@
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          955
+          969
         </td>
         <td>
-          4487
+          4808
           -
-          4542
+          4831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          972
+        </td>
+        <td>
+          4837
+          -
+          4858
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          981
+        </td>
+        <td>
+          4752
+          -
+          5011
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.StringContext.s
+          com.webtrends.harness.health.HealthComponent.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Brokers despondent: &quot;, &quot;.&quot;).s(unprocClusters.mkString(&quot;,&quot;))
+          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, if (okayAndDown._2.size.&gt;(0))
+  com.webtrends.harness.health.ComponentState.DEGRADED
+else
+  com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Despondent Clusters: [&quot;, &quot;], Scheduled Downtime: [&quot;, &quot;]&quot;).s(okayAndDown._2.map[String, scala.collection.immutable.Set[String]](((x$6: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$6.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;), okayAndDown._1.map[String, scala.collection.immutable.Set[String]](((x$7: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$7.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
         </td>
       </tr><tr>
         <td>
-          103
+          105
         </td>
         <td>
-          949
+          966
         </td>
         <td>
-          4418
+          4735
           -
-          4432
+          4749
         </td>
         <td>
           Select
@@ -2427,78 +2686,15 @@
         </td>
       </tr><tr>
         <td>
-          103
+          106
         </td>
         <td>
-          958
+          977
         </td>
         <td>
-          4435
+          4964
           -
-          4543
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;Brokers despondent: &quot;, &quot;.&quot;).s(unprocClusters.mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          952
-        </td>
-        <td>
-          4489
-          -
-          4510
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Brokers despondent: &quot;
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          960
-        </td>
-        <td>
-          4418
-          -
-          4543
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;Brokers despondent: &quot;, &quot;.&quot;).s(unprocClusters.mkString(&quot;,&quot;)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          954
-        </td>
-        <td>
-          4511
-          -
-          4539
+          5007
         </td>
         <td>
           Apply
@@ -2507,61 +2703,124 @@
           scala.collection.TraversableOnce.mkString
         </td>
         <td style="background: #F0ADAD">
-          unprocClusters.mkString(&quot;,&quot;)
+          okayAndDown._1.map[String, scala.collection.immutable.Set[String]](((x$7: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$7.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)
         </td>
       </tr><tr>
         <td>
-          103
-        </td>
-        <td>
-          957
-        </td>
-        <td>
-          4435
-          -
-          4435
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          103
-        </td>
-        <td>
-          951
-        </td>
-        <td>
-          4462
-          -
-          4485
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-      </tr><tr>
-        <td>
-          104
+          106
         </td>
         <td>
           974
         </td>
         <td>
-          4555
+          4938
           -
-          4744
+          4963
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;], Scheduled Downtime: [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          973
+        </td>
+        <td>
+          4870
+          -
+          4893
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Despondent Clusters: [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          976
+        </td>
+        <td>
+          4894
+          -
+          4937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td style="background: #F0ADAD">
+          okayAndDown._2.map[String, scala.collection.immutable.Set[String]](((x$6: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$6.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          978
+        </td>
+        <td>
+          4868
+          -
+          5010
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Despondent Clusters: [&quot;, &quot;], Scheduled Downtime: [&quot;, &quot;]&quot;).s(okayAndDown._2.map[String, scala.collection.immutable.Set[String]](((x$6: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$6.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;), okayAndDown._1.map[String, scala.collection.immutable.Set[String]](((x$7: com.webtrends.harness.component.kafka.actor.KafkaTopicManager.BrokerSpec) =&gt; x$7.cluster))(immutable.this.Set.canBuildFrom[String]).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          975
+        </td>
+        <td>
+          5008
+          -
+          5010
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          5023
+          -
+          5212
         </td>
         <td>
           Block
@@ -2577,57 +2836,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          108
         </td>
         <td>
-          962
+          986
         </td>
         <td>
-          4573
+          5078
           -
-          4608
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Successfully processed brokers {}&quot;
-        </td>
-      </tr><tr>
-        <td>
-          105
-        </td>
-        <td>
-          964
-        </td>
-        <td>
-          4563
-          -
-          4629
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.logging.Logger.debug
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.log.debug(&quot;Successfully processed brokers {}&quot;, brokers.toString())
-        </td>
-      </tr><tr>
-        <td>
-          105
-        </td>
-        <td>
-          963
-        </td>
-        <td>
-          4610
-          -
-          4628
+          5096
         </td>
         <td>
           Apply
@@ -2640,15 +2857,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          968
+          985
         </td>
         <td>
-          4703
+          5041
           -
-          4737
+          5076
         </td>
         <td>
           Literal
@@ -2657,124 +2874,40 @@
           &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          &quot;Successfully fetched broker data&quot;
+          &quot;Successfully processed brokers {}&quot;
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          971
+          987
         </td>
         <td>
-          4653
+          5031
           -
-          4738
+          5097
         </td>
         <td>
           Apply
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply
+          com.webtrends.harness.logging.Logger.debug
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Successfully fetched broker data&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+          KafkaTopicManager.this.log.debug(&quot;Successfully processed brokers {}&quot;, brokers.toString())
         </td>
       </tr><tr>
         <td>
-          106
+          109
         </td>
         <td>
-          965
+          992
         </td>
         <td>
-          4636
+          5121
           -
-          4650
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.ActorContext.parent
-        </td>
-        <td style="background: #F0ADAD">
-          KafkaTopicManager.this.context.parent
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          973
-        </td>
-        <td>
-          4636
-          -
-          4738
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Successfully fetched broker data&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          967
-        </td>
-        <td>
-          4680
-          -
-          4701
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          970
-        </td>
-        <td>
-          4653
-          -
-          4653
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          106
-        </td>
-        <td>
-          969
-        </td>
-        <td>
-          4653
-          -
-          4653
+          5121
         </td>
         <td>
           Select
@@ -2787,15 +2920,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          109
         </td>
         <td>
-          972
+          995
         </td>
         <td>
-          4651
+          5119
           -
-          4651
+          5119
         </td>
         <td>
           Select
@@ -2808,15 +2941,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          109
         </td>
         <td>
-          966
+          989
         </td>
         <td>
-          4669
+          5137
           -
-          4678
+          5146
         </td>
         <td>
           Select
@@ -2829,15 +2962,141 @@
         </td>
       </tr><tr>
         <td>
-          108
+          109
         </td>
         <td>
-          975
+          991
         </td>
         <td>
-          4749
+          5171
           -
-          4793
+          5205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Successfully fetched broker data&quot;
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          994
+        </td>
+        <td>
+          5121
+          -
+          5206
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Successfully fetched broker data&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          5104
+          -
+          5118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorContext.parent
+        </td>
+        <td style="background: #F0ADAD">
+          KafkaTopicManager.this.context.parent
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          5104
+          -
+          5206
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(KafkaTopicManager.this.context.parent).!(com.webtrends.harness.health.HealthComponent.apply(KafkaTopicManager.this.actorName, com.webtrends.harness.health.ComponentState.NORMAL, &quot;Successfully fetched broker data&quot;, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(KafkaTopicManager.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          990
+        </td>
+        <td>
+          5148
+          -
+          5169
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          993
+        </td>
+        <td>
+          5121
+          -
+          5121
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          998
+        </td>
+        <td>
+          5217
+          -
+          5261
         </td>
         <td>
           TypeApply
