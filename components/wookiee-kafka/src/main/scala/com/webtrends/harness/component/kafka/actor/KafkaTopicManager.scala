@@ -19,7 +19,7 @@
 
 package com.webtrends.harness.component.kafka.actor
 
-import akka.actor.{Actor, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.TopicPartitionResp
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
 import com.webtrends.harness.component.kafka.util.KafkaSettings
@@ -41,13 +41,13 @@ object KafkaTopicManager {
    * @param cluster The zookeeper cluster this broker belongs to
    */
   case class BrokerSpec(host: String, port: Int, cluster: String)
-
+  case class DownSources(sources: Set[String])
   case object TopicPartitionReq
 
-  def props() = Props[KafkaTopicManager]
+  def props(sourceMonitor: Option[ActorRef]) = Props(classOf[KafkaTopicManager], sourceMonitor)
 }
 
-class KafkaTopicManager extends Actor with KafkaSettings
+class KafkaTopicManager(sourceMonitor: Option[ActorRef]) extends Actor with KafkaSettings
 with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
   import KafkaTopicManager._
 
@@ -55,12 +55,15 @@ with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
 
   // Holder of consumers connected to each kafka broker
   val consumersByHost = new mutable.HashMap[String, SimpleConsumer]()
+  var downSources = Set[String]()
 
   context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Proxy has been started")
 
   def receive: Receive = configReceive orElse {
     case TopicPartitionReq =>
       sender ! TopicPartitionResp(getPartitionLeaders)
+
+    case msg: DownSources => downSources = msg.sources
   }
 
   def getPartitionLeaders: Set[PartitionAssignment] = {
@@ -70,13 +73,11 @@ with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
     // Get our partition meta data for the configured topics
     val processedClusters = new mutable.HashSet[String]()
     val brokers = kafkaSources
+    sourceMonitor foreach(_ ! HostList(brokers.values.map(_.host).toList))
     for (bro <- brokers.values
          if !processedClusters.contains(bro.cluster)) {
       try {
-        if (!consumersByHost.contains(bro.host)) {
-          consumersByHost.put(bro.host, new SimpleConsumer(bro.host, bro.port, 15000, bufferSize, clientId))
-        }
-        val consumer = consumersByHost(bro.host)
+        val consumer = consumersByHost.getOrElseUpdate(bro.host, new SimpleConsumer(bro.host, bro.port, 15000, bufferSize, clientId))
         val topicsMetaResp = consumer.send(topicMetaRequest)
         for ( topicMeta <- topicsMetaResp.topicsMetadata.filter { meta => topicMap.keys.toList.contains(meta.topic) };
               partMeta <- topicMeta.partitionsMetadata )
@@ -97,10 +98,12 @@ with ActorLoggingAdapter with ZookeeperAdapter with ZookeeperEventAdapter {
       }
     }
 
-    val unprocClusters = brokers.filter(it => !processedClusters.contains(it._2.cluster)).map(_._2.cluster).toSet
+    val unprocClusters = brokers.filter(it => !processedClusters.contains(it._2.cluster)).map(_._2).toSet
     if (unprocClusters.nonEmpty) {
-      log.warn(s"Some brokers despondent: ${unprocClusters.mkString(",")}. Remaining brokers will start their workers.")
-      context.parent ! HealthComponent(actorName, ComponentState.DEGRADED, s"Brokers despondent: ${unprocClusters.mkString(",")}.")
+      log.warn(s"Some brokers despondent: ${unprocClusters.map(_.cluster).mkString(",")}. Remaining brokers will start their workers.")
+      val okayAndDown = unprocClusters.partition(it => downSources.contains(it.host))
+      context.parent ! HealthComponent(actorName, if (okayAndDown._2.size > 0) ComponentState.DEGRADED else ComponentState.NORMAL,
+        s"Despondent Clusters: [${okayAndDown._2.map(_.cluster).mkString(",")}], Scheduled Downtime: [${okayAndDown._1.map(_.cluster).mkString(",")}]")
     } else {
       log.debug("Successfully processed brokers {}", brokers.toString())
       context.parent ! HealthComponent(actorName, ComponentState.NORMAL, "Successfully fetched broker data")

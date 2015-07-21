@@ -27,6 +27,7 @@ import com.webtrends.harness.component.socko.route.SockoRouteManager
 import com.webtrends.harness.component.{ComponentHelper, ComponentNotFoundException}
 import com.webtrends.harness.health.{ComponentState, HealthRequest, HealthResponseType}
 import com.webtrends.harness.utils.ConfigUtil
+import io.netty.handler.codec.TooLongFrameException
 import net.liftweb.json._
 import net.liftweb.json.ext.{EnumNameSerializer, JodaTimeSerializers}
 import org.joda.time.{DateTime, DateTimeZone}
@@ -74,6 +75,11 @@ class SockoHttpWorker extends HActor with ComponentHelper {
         event.response.write(HttpResponseStatus.NO_CONTENT)
       case GET(Path("/ping")) =>
         event.response.write("pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))
+      case GET(Path("/bad-request")) =>
+        event.request.nettyHttpRequest.getDecoderResult.cause() match {
+          case tl: TooLongFrameException => event.response.write(HttpResponseStatus.REQUEST_URI_TOO_LONG)
+          case _ => event.response.write(HttpResponseStatus.BAD_REQUEST)
+        }
       case GET(Path("/healthcheck/lb")) =>
         (healthActor ? HealthRequest(HealthResponseType.LB)).mapTo[String] onComplete {
           case Success(h) => event.response.write(h)
