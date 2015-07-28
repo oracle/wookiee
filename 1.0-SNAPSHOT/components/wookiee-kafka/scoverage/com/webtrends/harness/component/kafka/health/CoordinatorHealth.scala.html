@@ -46,166 +46,168 @@
 </span>21 <span style=''>
 </span>22 <span style=''>import com.typesafe.config.Config
 </span>23 <span style=''>import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
-</span>24 <span style=''>import com.webtrends.harness.health
-</span>25 <span style=''>import com.webtrends.harness.health.ComponentState._
-</span>26 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
-</span>27 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
-</span>28 <span style=''>
-</span>29 <span style=''>import scala.collection.mutable
-</span>30 <span style=''>
-</span>31 <span style=''>trait WorkerHealthState {
-</span>32 <span style=''>  def name: String
-</span>33 <span style=''>  def healthy: Boolean
-</span>34 <span style=''>  def status: String
-</span>35 <span style=''>}
-</span>36 <span style=''>case class KafkaHealthState(name: String, healthy: Boolean, status: String, topic: String) extends WorkerHealthState
-</span>37 <span style=''>case class ZKHealthState(name: String, healthy: Boolean, status: String) extends WorkerHealthState
-</span>38 <span style=''>
-</span>39 <span style=''>trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
-</span>40 <span style=''>
-</span>41 <span style=''>  // We need to keep track of the health of our partition workers. Each worker will notify the leader
-</span>42 <span style=''>  // of the status when a kafka fetch is performed. We can not have each individual worker
-</span>43 <span style=''>  // keep track of its own health because asking for that health will timeout if the worker is processing
-</span>44 <span style=''>  // a message which takes a significant amount of time
-</span>45 <span style=''>  val workerKafkaHealth = </span><span style='background: #F0ADAD'>mutable.Map[String, (WorkerHealthState, Long, String)]()</span><span style=''>
-</span>46 <span style=''>  val workerZKHealth = </span><span style='background: #F0ADAD'>mutable.Map[String, WorkerHealthState]()</span><span style=''>
-</span>47 <span style=''>  // Holds millis allowed before we say that a worker is starved
-</span>48 <span style=''>  var topicAgeThresholds = </span><span style='background: #F0ADAD'>mutable.Map[String, Long]()</span><span style=''>
-</span>49 <span style=''>
-</span>50 <span style=''>  // We need to report our health status as critical if the events being processed are too old.
-</span>51 <span style=''>  // There are a few scenarios where this could occur:
-</span>52 <span style=''>  //
-</span>53 <span style=''>  // 1. There is an issue copying data from one or more servers (or whole data centers.)
+</span>24 <span style=''>import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources
+</span>25 <span style=''>import com.webtrends.harness.health
+</span>26 <span style=''>import com.webtrends.harness.health.ComponentState._
+</span>27 <span style=''>import com.webtrends.harness.health.{ComponentState, HealthComponent}
+</span>28 <span style=''>import com.webtrends.harness.service.messages.CheckHealth
+</span>29 <span style=''>
+</span>30 <span style=''>import scala.collection.mutable
+</span>31 <span style=''>
+</span>32 <span style=''>trait WorkerHealthState {
+</span>33 <span style=''>  def name: String
+</span>34 <span style=''>  def healthy: Boolean
+</span>35 <span style=''>  def status: String
+</span>36 <span style=''>}
+</span>37 <span style=''>case class KafkaHealthState(name: String, healthy: Boolean, status: String, topic: String) extends WorkerHealthState
+</span>38 <span style=''>case class ZKHealthState(name: String, healthy: Boolean, status: String) extends WorkerHealthState
+</span>39 <span style=''>
+</span>40 <span style=''>trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
+</span>41 <span style=''>
+</span>42 <span style=''>  // We need to keep track of the health of our partition workers. Each worker will notify the leader
+</span>43 <span style=''>  // of the status when a kafka fetch is performed. We can not have each individual worker
+</span>44 <span style=''>  // keep track of its own health because asking for that health will timeout if the worker is processing
+</span>45 <span style=''>  // a message which takes a significant amount of time
+</span>46 <span style=''>  val workerKafkaHealth = </span><span style='background: #F0ADAD'>mutable.Map[String, (WorkerHealthState, Long, String)]()</span><span style=''>
+</span>47 <span style=''>  val workerZKHealth = </span><span style='background: #F0ADAD'>mutable.Map[String, WorkerHealthState]()</span><span style=''>
+</span>48 <span style=''>  // Holds millis allowed before we say that a worker is starved
+</span>49 <span style=''>  var topicAgeThresholds = </span><span style='background: #F0ADAD'>mutable.Map[String, Long]()</span><span style=''>
+</span>50 <span style=''>  var downSources = </span><span style='background: #F0ADAD'>Set[String]()</span><span style=''>
+</span>51 <span style=''>
+</span>52 <span style=''>  // We need to report our health status as critical if the events being processed are too old.
+</span>53 <span style=''>  // There are a few scenarios where this could occur:
 </span>54 <span style=''>  //
-</span>55 <span style=''>  // 2. We are backed up. This is the scenario where harness is down for a while or it can't process data fast enough.
-</span>56 <span style=''>  //    Its expected that all partitions will be backed up in this case, but its possible that only some partitions are
-</span>57 <span style=''>  //
-</span>58 <span style=''>  // To address these scenario we will be storing and reporting the partitions per topic and collection server that have
-</span>59 <span style=''>  // old events.
-</span>60 <span style=''>  //
-</span>61 <span style=''>  // If we are in scenario 1, we would see the troubled server(s) listed with all partitions called out.
+</span>55 <span style=''>  // 1. There is an issue copying data from one or more servers (or whole data centers.)
+</span>56 <span style=''>  //
+</span>57 <span style=''>  // 2. We are backed up. This is the scenario where harness is down for a while or it can't process data fast enough.
+</span>58 <span style=''>  //    Its expected that all partitions will be backed up in this case, but its possible that only some partitions are
+</span>59 <span style=''>  //
+</span>60 <span style=''>  // To address these scenario we will be storing and reporting the partitions per topic and collection server that have
+</span>61 <span style=''>  // old events.
 </span>62 <span style=''>  //
-</span>63 <span style=''>  // If we are in scenario 2, we will see all servers listed with the backed up partition(s) listed.
-</span>64 <span style=''>  val criticalPartsByTopicAndServer = </span><span style='background: #F0ADAD'>mutable.Map[String, mutable.Map[String, Set[Int]]]()</span><span style=''>
-</span>65 <span style=''>
-</span>66 <span style=''>  def healthReceive: Receive = {
-</span>67 <span style=''>    case CheckHealth =>
-</span>68 <span style=''>      try {
-</span>69 <span style=''>        </span><span style='background: #F0ADAD'>sender ! aggregateHealthStates()</span><span style=''>
-</span>70 <span style=''>      } catch {
-</span>71 <span style=''>        case ex: Exception => </span><span style='background: #F0ADAD'>sender ! HealthComponent("Coordinator Health",
-</span>72 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.CRITICAL, s"Could not get health: ${ex.getMessage}")</span><span style=''>
-</span>73 <span style=''>      }
-</span>74 <span style=''>
-</span>75 <span style=''>    case msg: KafkaHealthState =>
-</span>76 <span style=''>      if (</span><span style='background: #F0ADAD'>msg.topic.isEmpty && workers.contains(msg.name)</span><span style=''>) {
-</span>77 <span style=''>        </span><span style='background: #F0ADAD'>workers(msg.name).started = false</span><span style=''>
-</span>78 <span style=''>      } else {
-</span>79 <span style=''>        </span><span style='background: #F0ADAD'>workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))</span><span style=''>
-</span>80 <span style=''>      }
-</span>81 <span style=''>
-</span>82 <span style=''>    case msg: ZKHealthState =>
-</span>83 <span style=''>      </span><span style='background: #F0ADAD'>workerZKHealth.put(msg.name, msg)</span><span style=''>
-</span>84 <span style=''>  }
-</span>85 <span style=''>
-</span>86 <span style=''>  def eventAgeHealthByServer(): List[HealthComponent]  = {
-</span>87 <span style=''>
-</span>88 <span style=''>    (</span><span style='background: #F0ADAD'>for ((topic, partitionsByServer) <- criticalPartsByTopicAndServer) yield {
-</span>89 <span style=''></span><span style='background: #F0ADAD'>
-</span>90 <span style=''></span><span style='background: #F0ADAD'>      val serverHealths = for ( (server, partitions) <- partitionsByServer) yield {
-</span>91 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent(name = s"$server",
-</span>92 <span style=''></span><span style='background: #F0ADAD'>          state = ComponentState.CRITICAL,
-</span>93 <span style=''></span><span style='background: #F0ADAD'>          details = s"Lagging events found in partition(s) ${partitions.toList.sorted.mkString(",")}")
-</span>94 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>95 <span style=''></span><span style='background: #F0ADAD'>
-</span>96 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = s"$topic: Servers exceeding age threshold",
-</span>97 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
-</span>98 <span style=''></span><span style='background: #F0ADAD'>        details = s"Data from ${serverHealths.size} server(s) exceeded the age threshold",
-</span>99 <span style=''></span><span style='background: #F0ADAD'>        components = serverHealths.to[List]
-</span>100 <span style=''></span><span style='background: #F0ADAD'>      )
-</span>101 <span style=''></span><span style='background: #F0ADAD'>    }).to[List]</span><span style=''>
-</span>102 <span style=''>  }
-</span>103 <span style=''>
-</span>104 <span style=''>  def renewTopicAgeThresholds() {
-</span>105 <span style=''>    </span><span style='background: #F0ADAD'>topicAgeThresholds.clear()</span><span style=''>
-</span>106 <span style=''>    </span><span style='background: #F0ADAD'>topicMap foreach { case (s: String, c: Config) =>
-</span>107 <span style=''></span><span style='background: #F0ADAD'>      topicAgeThresholds(s) = c.hasPath("event-age-threshold-seconds") match {
-</span>108 <span style=''></span><span style='background: #F0ADAD'>        case true => c.getLong("event-age-threshold-seconds") * 1000
-</span>109 <span style=''></span><span style='background: #F0ADAD'>        case false => 0
-</span>110 <span style=''></span><span style='background: #F0ADAD'>      }
-</span>111 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>112 <span style=''>  }
-</span>113 <span style=''>
-</span>114 <span style=''>  def listActiveWorkers: List[String] = {
-</span>115 <span style=''>    </span><span style='background: #F0ADAD'>workers.filter(entry => entry._2.started).map(entry => entry._1).toList</span><span style=''>
-</span>116 <span style=''>  }
-</span>117 <span style=''>
-</span>118 <span style=''>  def aggregateHealthStates(): HealthComponent = {
-</span>119 <span style=''>    val workerList = </span><span style='background: #F0ADAD'>listActiveWorkers</span><span style=''>
-</span>120 <span style=''>    </span><span style='background: #F0ADAD'>mergeHealths(name = "Coordinator Health",
-</span>121 <span style=''></span><span style='background: #F0ADAD'>      desc = "Aggregate coordinator health",
-</span>122 <span style=''></span><span style='background: #F0ADAD'>      subComponents = List(
-</span>123 <span style=''></span><span style='background: #F0ADAD'>        collapseWithTimeCheck(workerKafkaHealth.toMap, "Kafka Health"),
-</span>124 <span style=''></span><span style='background: #F0ADAD'>        collapseHealthStates(workerZKHealth.toMap, "Zookeeper Health"),
-</span>125 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList.mkString(", "))))
-</span>126 <span style=''></span><span style='background: #F0ADAD'>        ++ eventAgeHealthByServer()
-</span>127 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
-</span>128 <span style=''>  }
-</span>129 <span style=''>
-</span>130 <span style=''>  def collapseWithTimeCheck(healths: Map[String, (WorkerHealthState, Long, String)], label: String): HealthComponent = {
-</span>131 <span style=''>    val filteredHealths = </span><span style='background: #F0ADAD'>healths.filter { h =>
-</span>132 <span style=''></span><span style='background: #F0ADAD'>      workers.contains(h._1) && (workers(h._1).started || (!workers(h._1).started && !h._2._1.healthy))
-</span>133 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
-</span>134 <span style=''>
-</span>135 <span style=''>    var unHealthy = </span><span style='background: #F0ADAD'>filteredHealths.filterNot { h => h._2._1.healthy }.map { h: (String, (WorkerHealthState, Long, String)) =>
-</span>136 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = h._2._1.name,
-</span>137 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
-</span>138 <span style=''></span><span style='background: #F0ADAD'>        details = h._2._1.status)
-</span>139 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
-</span>140 <span style=''>    val time = </span><span style='background: #F0ADAD'>System.currentTimeMillis()</span><span style=''>
-</span>141 <span style=''>    unHealthy = </span><span style='background: #F0ADAD'>unHealthy ++ filteredHealths.filter { h =>
-</span>142 <span style=''></span><span style='background: #F0ADAD'>      h._2._1.healthy && topicAgeThresholds(h._2._3) > 0 && (time - h._2._2) > topicAgeThresholds(h._2._3) }.map {
-</span>143 <span style=''></span><span style='background: #F0ADAD'>      h: (String, (WorkerHealthState, Long, String)) =>
-</span>144 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent(name = h._2._1.name,
-</span>145 <span style=''></span><span style='background: #F0ADAD'>          state = ComponentState.DEGRADED,
-</span>146 <span style=''></span><span style='background: #F0ADAD'>          details = s"No events in ${(time - h._2._2) / 1000} seconds")
-</span>147 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
-</span>148 <span style=''>    </span><span style='background: #F0ADAD'>aggregatedComponent(filteredHealths.toMap, label, unHealthy)</span><span style=''>
-</span>149 <span style=''>  }
-</span>150 <span style=''>
-</span>151 <span style=''>  def collapseHealthStates(healths: Map[String, WorkerHealthState], label: String): HealthComponent = {
-</span>152 <span style=''>    val unHealthy = </span><span style='background: #F0ADAD'>healths.filterNot { h => h._2.healthy }.map { h: (String, WorkerHealthState) =>
-</span>153 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = h._2.name,
-</span>154 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
-</span>155 <span style=''></span><span style='background: #F0ADAD'>        details = h._2.status)
-</span>156 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
-</span>157 <span style=''>    </span><span style='background: #F0ADAD'>aggregatedComponent(healths.toMap, label, unHealthy)</span><span style=''>
-</span>158 <span style=''>  }
-</span>159 <span style=''>
-</span>160 <span style=''>  def aggregatedComponent(healths: Map[String, Any], label: String, unHealthy: List[HealthComponent]): HealthComponent = {
-</span>161 <span style=''>    </span><span style='background: #F0ADAD'>HealthComponent(name = label,
-</span>162 <span style=''></span><span style='background: #F0ADAD'>      state = if (unHealthy.isEmpty) ComponentState.NORMAL else ComponentState.DEGRADED,
-</span>163 <span style=''></span><span style='background: #F0ADAD'>      details = s"${healths.size - unHealthy.size}/${healths.size} workers are healthy",
-</span>164 <span style=''></span><span style='background: #F0ADAD'>      components = unHealthy)</span><span style=''>
-</span>165 <span style=''>  }
-</span>166 <span style=''>
-</span>167 <span style=''>  def mergeHealths(name: String, desc: String = "", subComponents: List[HealthComponent]): HealthComponent = {
-</span>168 <span style=''>
-</span>169 <span style=''>    def worstState(): ComponentState = {
-</span>170 <span style=''>      val states = </span><span style='background: #F0ADAD'>subComponents.map { subComp => subComp.state }</span><span style=''>
-</span>171 <span style=''>      </span><span style='background: #F0ADAD'>states.sortWith{(lt: ComponentState, gt: ComponentState) =>
-</span>172 <span style=''></span><span style='background: #F0ADAD'>        if (lt == ComponentState.CRITICAL) true
-</span>173 <span style=''></span><span style='background: #F0ADAD'>        else if (lt == ComponentState.DEGRADED && gt == ComponentState.NORMAL) true
-</span>174 <span style=''></span><span style='background: #F0ADAD'>        else false
-</span>175 <span style=''></span><span style='background: #F0ADAD'>      }(0)</span><span style=''>
-</span>176 <span style=''>    }
-</span>177 <span style=''>
-</span>178 <span style=''>    </span><span style='background: #F0ADAD'>health.HealthComponent(name = name,
-</span>179 <span style=''></span><span style='background: #F0ADAD'>      state = worstState(),
-</span>180 <span style=''></span><span style='background: #F0ADAD'>      details = desc,
-</span>181 <span style=''></span><span style='background: #F0ADAD'>      components = subComponents.to[List])</span><span style=''>
-</span>182 <span style=''>  }
-</span>183 <span style=''>}
+</span>63 <span style=''>  // If we are in scenario 1, we would see the troubled server(s) listed with all partitions called out.
+</span>64 <span style=''>  //
+</span>65 <span style=''>  // If we are in scenario 2, we will see all servers listed with the backed up partition(s) listed.
+</span>66 <span style=''>  val criticalPartsByTopicAndServer = </span><span style='background: #F0ADAD'>mutable.Map[String, mutable.Map[String, Set[Int]]]()</span><span style=''>
+</span>67 <span style=''>
+</span>68 <span style=''>  def healthReceive: Receive = {
+</span>69 <span style=''>    case CheckHealth =>
+</span>70 <span style=''>      try {
+</span>71 <span style=''>        </span><span style='background: #F0ADAD'>sender ! aggregateHealthStates()</span><span style=''>
+</span>72 <span style=''>      } catch {
+</span>73 <span style=''>        case ex: Exception => </span><span style='background: #F0ADAD'>sender ! HealthComponent("Coordinator Health",
+</span>74 <span style=''></span><span style='background: #F0ADAD'>          ComponentState.CRITICAL, s"Could not get health: ${ex.getMessage}")</span><span style=''>
+</span>75 <span style=''>      }
+</span>76 <span style=''>
+</span>77 <span style=''>    case msg: KafkaHealthState =>
+</span>78 <span style=''>      if (</span><span style='background: #F0ADAD'>msg.topic.isEmpty && workers.contains(msg.name)</span><span style=''>) {
+</span>79 <span style=''>        </span><span style='background: #F0ADAD'>workers(msg.name).started = false</span><span style=''>
+</span>80 <span style=''>      } else {
+</span>81 <span style=''>        </span><span style='background: #F0ADAD'>workerKafkaHealth.put(msg.name, (msg, System.currentTimeMillis(), msg.topic))</span><span style=''>
+</span>82 <span style=''>      }
+</span>83 <span style=''>
+</span>84 <span style=''>    case msg: ZKHealthState =>
+</span>85 <span style=''>      </span><span style='background: #F0ADAD'>workerZKHealth.put(msg.name, msg)</span><span style=''>
+</span>86 <span style=''>
+</span>87 <span style=''>    case msg: DownSources => </span><span style='background: #F0ADAD'>downSources = msg.sources</span><span style=''>
+</span>88 <span style=''>  }
+</span>89 <span style=''>
+</span>90 <span style=''>  def eventAgeHealthByServer(): List[HealthComponent]  = {
+</span>91 <span style=''>    (</span><span style='background: #F0ADAD'>for ((topic, partitionsByServer) <- criticalPartsByTopicAndServer) yield {
+</span>92 <span style=''></span><span style='background: #F0ADAD'>      val serverHealths = for ( (server, partitions) <- partitionsByServer) yield {
+</span>93 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent(name = s"$server",
+</span>94 <span style=''></span><span style='background: #F0ADAD'>          state = ComponentState.CRITICAL,
+</span>95 <span style=''></span><span style='background: #F0ADAD'>          details = s"Lagging events found in partition(s) ${partitions.toList.sorted.mkString(",")}")
+</span>96 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>97 <span style=''></span><span style='background: #F0ADAD'>
+</span>98 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = s"$topic: Servers exceeding age threshold",
+</span>99 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
+</span>100 <span style=''></span><span style='background: #F0ADAD'>        details = s"Data from ${serverHealths.size} server(s) exceeded the age threshold",
+</span>101 <span style=''></span><span style='background: #F0ADAD'>        components = serverHealths.to[List]
+</span>102 <span style=''></span><span style='background: #F0ADAD'>      )
+</span>103 <span style=''></span><span style='background: #F0ADAD'>    }).to[List]</span><span style=''>
+</span>104 <span style=''>  }
+</span>105 <span style=''>
+</span>106 <span style=''>  def renewTopicAgeThresholds() {
+</span>107 <span style=''>    </span><span style='background: #F0ADAD'>topicAgeThresholds.clear()</span><span style=''>
+</span>108 <span style=''>    </span><span style='background: #F0ADAD'>topicMap foreach { case (s: String, c: Config) =>
+</span>109 <span style=''></span><span style='background: #F0ADAD'>      topicAgeThresholds(s) = c.hasPath("event-age-threshold-seconds") match {
+</span>110 <span style=''></span><span style='background: #F0ADAD'>        case true => c.getLong("event-age-threshold-seconds") * 1000
+</span>111 <span style=''></span><span style='background: #F0ADAD'>        case false => 0
+</span>112 <span style=''></span><span style='background: #F0ADAD'>      }
+</span>113 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>114 <span style=''>  }
+</span>115 <span style=''>
+</span>116 <span style=''>  def listActiveWorkers: List[String] = {
+</span>117 <span style=''>    </span><span style='background: #F0ADAD'>workers.filter(entry => entry._2.started).map(entry => entry._1).toList</span><span style=''>
+</span>118 <span style=''>  }
+</span>119 <span style=''>
+</span>120 <span style=''>  def aggregateHealthStates(): HealthComponent = {
+</span>121 <span style=''>    val workerList = </span><span style='background: #F0ADAD'>listActiveWorkers</span><span style=''>
+</span>122 <span style=''>    </span><span style='background: #F0ADAD'>mergeHealths(name = "Coordinator Health",
+</span>123 <span style=''></span><span style='background: #F0ADAD'>      desc = "Aggregate coordinator health",
+</span>124 <span style=''></span><span style='background: #F0ADAD'>      subComponents = List(
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        collapseWithTimeCheck(workerKafkaHealth.toMap, "Kafka Health"),
+</span>126 <span style=''></span><span style='background: #F0ADAD'>        collapseHealthStates(workerZKHealth.toMap, "Zookeeper Health"),
+</span>127 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent("Active Worker List", ComponentState.NORMAL, s"Workers = ${workerList.size}", Some(workerList.mkString(", "))))
+</span>128 <span style=''></span><span style='background: #F0ADAD'>        ++ eventAgeHealthByServer()
+</span>129 <span style=''></span><span style='background: #F0ADAD'>    )</span><span style=''>
+</span>130 <span style=''>  }
+</span>131 <span style=''>
+</span>132 <span style=''>  def collapseWithTimeCheck(healths: Map[String, (WorkerHealthState, Long, String)], label: String): HealthComponent = {
+</span>133 <span style=''>    val filteredHealths = </span><span style='background: #F0ADAD'>healths.filter { h =>
+</span>134 <span style=''></span><span style='background: #F0ADAD'>      workers.contains(h._1) && (workers(h._1).started || (!workers(h._1).started && !h._2._1.healthy))
+</span>135 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''>
+</span>136 <span style=''>
+</span>137 <span style=''>    var unHealthy = </span><span style='background: #F0ADAD'>filteredHealths.filter { h => !h._2._1.healthy && !downSources.contains(getAssignmentHost(h._2._1.name)) }.map { h: (String, (WorkerHealthState, Long, String)) =>
+</span>138 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = h._2._1.name,
+</span>139 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
+</span>140 <span style=''></span><span style='background: #F0ADAD'>        details = h._2._1.status)
+</span>141 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
+</span>142 <span style=''>    val time = </span><span style='background: #F0ADAD'>System.currentTimeMillis()</span><span style=''>
+</span>143 <span style=''>    unHealthy = </span><span style='background: #F0ADAD'>unHealthy ++ filteredHealths.filter { h =>
+</span>144 <span style=''></span><span style='background: #F0ADAD'>      h._2._1.healthy && topicAgeThresholds(h._2._3) > 0 && (time - h._2._2) > topicAgeThresholds(h._2._3) && !downSources.contains(getAssignmentHost(h._2._1.name))
+</span>145 <span style=''></span><span style='background: #F0ADAD'>    }.map {
+</span>146 <span style=''></span><span style='background: #F0ADAD'>      h: (String, (WorkerHealthState, Long, String)) =>
+</span>147 <span style=''></span><span style='background: #F0ADAD'>        HealthComponent(name = h._2._1.name,
+</span>148 <span style=''></span><span style='background: #F0ADAD'>          state = ComponentState.DEGRADED,
+</span>149 <span style=''></span><span style='background: #F0ADAD'>          details = s"No events in ${(time - h._2._2) / 1000} seconds")
+</span>150 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
+</span>151 <span style=''>    </span><span style='background: #F0ADAD'>aggregatedComponent(filteredHealths.toMap, label, unHealthy)</span><span style=''>
+</span>152 <span style=''>  }
+</span>153 <span style=''>
+</span>154 <span style=''>  def collapseHealthStates(healths: Map[String, WorkerHealthState], label: String): HealthComponent = {
+</span>155 <span style=''>    val unHealthy = </span><span style='background: #F0ADAD'>healths.filterNot { h => h._2.healthy }.map { h: (String, WorkerHealthState) =>
+</span>156 <span style=''></span><span style='background: #F0ADAD'>      HealthComponent(name = h._2.name,
+</span>157 <span style=''></span><span style='background: #F0ADAD'>        state = ComponentState.CRITICAL,
+</span>158 <span style=''></span><span style='background: #F0ADAD'>        details = h._2.status)
+</span>159 <span style=''></span><span style='background: #F0ADAD'>    }.toList</span><span style=''>
+</span>160 <span style=''>    </span><span style='background: #F0ADAD'>aggregatedComponent(healths.toMap, label, unHealthy)</span><span style=''>
+</span>161 <span style=''>  }
+</span>162 <span style=''>
+</span>163 <span style=''>  def aggregatedComponent(healths: Map[String, Any], label: String, unHealthy: List[HealthComponent]): HealthComponent = {
+</span>164 <span style=''>    </span><span style='background: #F0ADAD'>HealthComponent(name = label,
+</span>165 <span style=''></span><span style='background: #F0ADAD'>      state = if (unHealthy.isEmpty) ComponentState.NORMAL else ComponentState.DEGRADED,
+</span>166 <span style=''></span><span style='background: #F0ADAD'>      details = s"${healths.size - unHealthy.size}/${healths.size} workers are healthy",
+</span>167 <span style=''></span><span style='background: #F0ADAD'>      components = unHealthy)</span><span style=''>
+</span>168 <span style=''>  }
+</span>169 <span style=''>
+</span>170 <span style=''>  def mergeHealths(name: String, desc: String = "", subComponents: List[HealthComponent]): HealthComponent = {
+</span>171 <span style=''>    def worstState(): ComponentState = {
+</span>172 <span style=''>      val states = </span><span style='background: #F0ADAD'>subComponents.map { subComp => subComp.state }</span><span style=''>
+</span>173 <span style=''>      </span><span style='background: #F0ADAD'>states.sortWith{(lt: ComponentState, gt: ComponentState) =>
+</span>174 <span style=''></span><span style='background: #F0ADAD'>        if (lt == ComponentState.CRITICAL) true
+</span>175 <span style=''></span><span style='background: #F0ADAD'>        else if (lt == ComponentState.DEGRADED && gt == ComponentState.NORMAL) true
+</span>176 <span style=''></span><span style='background: #F0ADAD'>        else false
+</span>177 <span style=''></span><span style='background: #F0ADAD'>      }.head</span><span style=''>
+</span>178 <span style=''>    }
+</span>179 <span style=''>
+</span>180 <span style=''>    </span><span style='background: #F0ADAD'>health.HealthComponent(name = name,
+</span>181 <span style=''></span><span style='background: #F0ADAD'>      state = worstState(),
+</span>182 <span style=''></span><span style='background: #F0ADAD'>      details = desc,
+</span>183 <span style=''></span><span style='background: #F0ADAD'>      components = subComponents.to[List])</span><span style=''>
+</span>184 <span style=''>  }
+</span>185 <span style=''>}
 </span></pre>
           </div>
           <div class="tab-pane" id="statementlist">
@@ -219,15 +221,15 @@
         <th>Code</th>
       </tr><tr>
         <td>
-          45
+          46
         </td>
         <td>
-          1564
+          1582
         </td>
         <td>
-          1899
+          1980
           -
-          1955
+          2036
         </td>
         <td>
           Apply
@@ -240,15 +242,15 @@
         </td>
       </tr><tr>
         <td>
-          46
+          47
         </td>
         <td>
-          1565
+          1583
         </td>
         <td>
-          1979
+          2060
           -
-          2019
+          2100
         </td>
         <td>
           Apply
@@ -261,15 +263,15 @@
         </td>
       </tr><tr>
         <td>
-          48
+          49
         </td>
         <td>
-          1566
+          1584
         </td>
         <td>
-          2112
+          2193
           -
-          2139
+          2220
         </td>
         <td>
           Apply
@@ -282,15 +284,36 @@
         </td>
       </tr><tr>
         <td>
-          64
+          50
         </td>
         <td>
-          1567
+          1585
         </td>
         <td>
-          3027
+          2241
           -
-          3079
+          2254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenericCompanion.apply
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.Set.apply[String]()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1586
+        </td>
+        <td>
+          3142
+          -
+          3194
         </td>
         <td>
           Apply
@@ -303,15 +326,15 @@
         </td>
       </tr><tr>
         <td>
-          66
+          68
         </td>
         <td>
-          1600
+          1621
         </td>
         <td>
-          3112
+          3227
           -
-          3112
+          3227
         </td>
         <td>
           Apply
@@ -324,15 +347,99 @@
         </td>
       </tr><tr>
         <td>
-          69
+          71
         </td>
         <td>
-          1569
+          1587
         </td>
         <td>
-          3167
+          3273
           -
-          3190
+          3279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.Actor.sender
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.sender()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1590
+        </td>
+        <td>
+          3273
+          -
+          3305
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(CoordinatorHealth.this.aggregateHealthStates())(CoordinatorHealth.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1589
+        </td>
+        <td>
+          3280
+          -
+          3280
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.Actor.self
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.self
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1591
+        </td>
+        <td>
+          3273
+          -
+          3305
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(CoordinatorHealth.this.aggregateHealthStates())(CoordinatorHealth.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1588
+        </td>
+        <td>
+          3282
+          -
+          3305
         </td>
         <td>
           Apply
@@ -345,141 +452,36 @@
         </td>
       </tr><tr>
         <td>
-          69
+          73
         </td>
         <td>
-          1572
+          1599
         </td>
         <td>
-          3158
-          -
-          3190
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(CoordinatorHealth.this.aggregateHealthStates())(CoordinatorHealth.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          1568
-        </td>
-        <td>
-          3158
-          -
-          3164
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          akka.actor.Actor.sender
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.sender()
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          1571
-        </td>
-        <td>
-          3158
-          -
-          3190
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          akka.actor.ScalaActorRef.!
-        </td>
-        <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(CoordinatorHealth.this.aggregateHealthStates())(CoordinatorHealth.this.self)
-        </td>
-      </tr><tr>
-        <td>
-          69
-        </td>
-        <td>
-          1570
-        </td>
-        <td>
-          3165
-          -
-          3165
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          akka.actor.Actor.self
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.self
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1581
-        </td>
-        <td>
-          3246
-          -
-          3246
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1584
-        </td>
-        <td>
-          3237
+          3361
           -
           3361
         </td>
         <td>
-          ApplyToImplicitArgs
+          Select
         </td>
         <td>
-          akka.actor.ScalaActorRef.!
+          com.webtrends.harness.health.HealthComponent.apply$default$4
         </td>
         <td style="background: #F0ADAD">
-          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(com.webtrends.harness.health.HealthComponent.apply(&quot;Coordinator Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Could not get health: &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(CoordinatorHealth.this.self)
+          com.webtrends.harness.health.HealthComponent.apply$default$4
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1574
+          1593
         </td>
         <td>
-          3262
+          3377
           -
-          3282
+          3397
         </td>
         <td>
           Literal
@@ -492,15 +494,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1583
+          1602
         </td>
         <td>
-          3244
+          3359
           -
-          3244
+          3359
         </td>
         <td>
           Select
@@ -513,57 +515,15 @@
         </td>
       </tr><tr>
         <td>
-          71
+          73
         </td>
         <td>
-          1580
+          1592
         </td>
         <td>
-          3246
+          3352
           -
-          3246
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1582
-        </td>
-        <td>
-          3246
-          -
-          3361
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(&quot;Coordinator Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Could not get health: &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
-        </td>
-      </tr><tr>
-        <td>
-          71
-        </td>
-        <td>
-          1573
-        </td>
-        <td>
-          3237
-          -
-          3243
+          3358
         </td>
         <td>
           Apply
@@ -576,57 +536,78 @@
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          1578
+          1601
         </td>
         <td>
-          3345
+          3361
           -
-          3358
+          3476
         </td>
         <td>
           Apply
         </td>
         <td>
-          java.lang.Throwable.getMessage
+          com.webtrends.harness.health.HealthComponent.apply
         </td>
         <td style="background: #F0ADAD">
-          ex.getMessage()
+          com.webtrends.harness.health.HealthComponent.apply(&quot;Coordinator Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Could not get health: &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          1575
+          1600
         </td>
         <td>
-          3294
+          3361
           -
-          3317
+          3361
         </td>
         <td>
           Select
         </td>
         <td>
-          com.webtrends.harness.health.ComponentState.CRITICAL
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.CRITICAL
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
       </tr><tr>
         <td>
-          72
+          73
         </td>
         <td>
-          1577
+          1603
         </td>
         <td>
-          3359
+          3352
           -
-          3360
+          3476
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          akka.actor.ScalaActorRef.!
+        </td>
+        <td style="background: #F0ADAD">
+          akka.this.actor.`package`.actorRef2Scala(CoordinatorHealth.this.sender()).!(com.webtrends.harness.health.HealthComponent.apply(&quot;Coordinator Health&quot;, com.webtrends.harness.health.ComponentState.CRITICAL, scala.StringContext.apply(&quot;Could not get health: &quot;, &quot;&quot;).s(ex.getMessage()), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5))(CoordinatorHealth.this.self)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1596
+        </td>
+        <td>
+          3474
+          -
+          3475
         </td>
         <td>
           Literal
@@ -639,15 +620,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          74
         </td>
         <td>
-          1576
+          1595
         </td>
         <td>
-          3321
+          3436
           -
-          3344
+          3459
         </td>
         <td>
           Literal
@@ -660,15 +641,15 @@
         </td>
       </tr><tr>
         <td>
-          72
+          74
         </td>
         <td>
-          1579
+          1598
         </td>
         <td>
-          3319
+          3434
           -
-          3360
+          3475
         </td>
         <td>
           Apply
@@ -681,36 +662,57 @@
         </td>
       </tr><tr>
         <td>
-          76
+          74
         </td>
         <td>
-          1587
+          1597
         </td>
         <td>
-          3415
+          3460
           -
-          3462
+          3473
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.Boolean.&amp;&amp;
+          java.lang.Throwable.getMessage
         </td>
         <td style="background: #F0ADAD">
-          msg.topic.isEmpty().&amp;&amp;(CoordinatorHealth.this.workers.contains(msg.name))
+          ex.getMessage()
         </td>
       </tr><tr>
         <td>
-          76
+          74
         </td>
         <td>
-          1586
+          1594
         </td>
         <td>
-          3436
+          3409
           -
-          3462
+          3432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1605
+        </td>
+        <td>
+          3551
+          -
+          3577
         </td>
         <td>
           Apply
@@ -723,15 +725,15 @@
         </td>
       </tr><tr>
         <td>
-          76
+          78
         </td>
         <td>
-          1585
+          1604
         </td>
         <td>
-          3453
+          3568
           -
-          3461
+          3576
         </td>
         <td>
           Select
@@ -744,15 +746,36 @@
         </td>
       </tr><tr>
         <td>
-          77
+          78
         </td>
         <td>
-          1589
+          1606
         </td>
         <td>
-          3474
+          3530
           -
-          3507
+          3577
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          msg.topic.isEmpty().&amp;&amp;(CoordinatorHealth.this.workers.contains(msg.name))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1608
+        </td>
+        <td>
+          3589
+          -
+          3622
         </td>
         <td>
           Block
@@ -765,15 +788,15 @@
         </td>
       </tr><tr>
         <td>
-          77
+          79
         </td>
         <td>
-          1588
+          1607
         </td>
         <td>
-          3474
+          3589
           -
-          3507
+          3622
         </td>
         <td>
           Apply
@@ -786,15 +809,99 @@
         </td>
       </tr><tr>
         <td>
-          79
+          81
         </td>
         <td>
-          1596
+          1614
         </td>
         <td>
-          3531
+          3667
           -
-          3608
+          3667
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1611
+        </td>
+        <td>
+          3712
+          -
+          3721
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.KafkaHealthState.topic
+        </td>
+        <td style="background: #F0ADAD">
+          msg.topic
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1610
+        </td>
+        <td>
+          3684
+          -
+          3710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td style="background: #F0ADAD">
+          java.this.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1613
+        </td>
+        <td>
+          3646
+          -
+          3723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.put
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.workerKafkaHealth.put(msg.name, scala.Tuple3.apply[com.webtrends.harness.component.kafka.health.KafkaHealthState, Long, String](msg, java.this.lang.System.currentTimeMillis(), msg.topic))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1615
+        </td>
+        <td>
+          3646
+          -
+          3723
         </td>
         <td>
           Block
@@ -810,15 +917,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          81
         </td>
         <td>
-          1590
+          1609
         </td>
         <td>
-          3553
+          3668
           -
-          3561
+          3676
         </td>
         <td>
           Select
@@ -831,15 +938,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          81
         </td>
         <td>
-          1593
+          1612
         </td>
         <td>
-          3563
+          3678
           -
-          3607
+          3722
         </td>
         <td>
           Apply
@@ -852,120 +959,15 @@
         </td>
       </tr><tr>
         <td>
-          79
+          85
         </td>
         <td>
-          1592
+          1617
         </td>
         <td>
-          3597
+          3770
           -
-          3606
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.KafkaHealthState.topic
-        </td>
-        <td style="background: #F0ADAD">
-          msg.topic
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          1595
-        </td>
-        <td>
-          3552
-          -
-          3552
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          1591
-        </td>
-        <td>
-          3569
-          -
-          3595
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          java.lang.System.currentTimeMillis
-        </td>
-        <td style="background: #F0ADAD">
-          java.this.lang.System.currentTimeMillis()
-        </td>
-      </tr><tr>
-        <td>
-          79
-        </td>
-        <td>
-          1594
-        </td>
-        <td>
-          3531
-          -
-          3608
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.collection.mutable.MapLike.put
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.workerKafkaHealth.put(msg.name, scala.Tuple3.apply[com.webtrends.harness.component.kafka.health.KafkaHealthState, Long, String](msg, java.this.lang.System.currentTimeMillis(), msg.topic))
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1599
-        </td>
-        <td>
-          3673
-          -
-          3673
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          ()
-        </td>
-      </tr><tr>
-        <td>
-          83
-        </td>
-        <td>
-          1598
-        </td>
-        <td>
-          3655
-          -
-          3688
+          3803
         </td>
         <td>
           Apply
@@ -978,15 +980,15 @@
         </td>
       </tr><tr>
         <td>
-          83
+          85
         </td>
         <td>
-          1597
+          1616
         </td>
         <td>
-          3674
+          3789
           -
-          3682
+          3797
         </td>
         <td>
           Select
@@ -999,15 +1001,78 @@
         </td>
       </tr><tr>
         <td>
-          88
+          85
         </td>
         <td>
-          1623
+          1618
         </td>
         <td>
-          3792
+          3788
           -
-          3792
+          3788
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1620
+        </td>
+        <td>
+          3834
+          -
+          3859
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.CoordinatorHealth.downSources_=
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.downSources_=(msg.sources)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1619
+        </td>
+        <td>
+          3848
+          -
+          3859
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources.sources
+        </td>
+        <td style="background: #F0ADAD">
+          msg.sources
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1644
+        </td>
+        <td>
+          3962
+          -
+          3962
         </td>
         <td>
           TypeApply
@@ -1020,15 +1085,15 @@
         </td>
       </tr><tr>
         <td>
-          90
+          92
         </td>
         <td>
-          1611
+          1632
         </td>
         <td>
-          3888
+          4057
           -
-          3888
+          4057
         </td>
         <td>
           TypeApply
@@ -1041,15 +1106,15 @@
         </td>
       </tr><tr>
         <td>
-          90
+          92
         </td>
         <td>
-          1601
+          1622
         </td>
         <td>
-          3891
+          4060
           -
-          3891
+          4060
         </td>
         <td>
           Literal
@@ -1062,15 +1127,15 @@
         </td>
       </tr><tr>
         <td>
-          90
+          92
         </td>
         <td>
-          1612
+          1633
         </td>
         <td>
-          3861
+          4030
           -
-          4107
+          4276
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1088,15 +1153,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          93
         </td>
         <td>
-          1608
+          1629
         </td>
         <td>
-          3927
+          4096
           -
-          3927
+          4096
         </td>
         <td>
           Select
@@ -1109,15 +1174,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          93
         </td>
         <td>
-          1602
+          1623
         </td>
         <td>
-          3950
+          4119
           -
-          3960
+          4129
         </td>
         <td>
           Apply
@@ -1130,15 +1195,15 @@
         </td>
       </tr><tr>
         <td>
-          91
+          93
         </td>
         <td>
-          1610
+          1631
         </td>
         <td>
-          3927
+          4096
           -
-          4107
+          4276
         </td>
         <td>
           Apply
@@ -1151,57 +1216,57 @@
         </td>
       </tr><tr>
         <td>
-          91
-        </td>
-        <td>
-          1609
-        </td>
-        <td>
-          3927
-          -
-          3927
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          92
-        </td>
-        <td>
-          1603
-        </td>
-        <td>
-          3980
-          -
-          4003
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-      </tr><tr>
-        <td>
           93
         </td>
         <td>
-          1605
+          1630
         </td>
         <td>
-          4105
+          4096
           -
-          4106
+          4096
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1624
+        </td>
+        <td>
+          4149
+          -
+          4172
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1626
+        </td>
+        <td>
+          4274
+          -
+          4275
         </td>
         <td>
           Literal
@@ -1214,36 +1279,15 @@
         </td>
       </tr><tr>
         <td>
-          93
+          95
         </td>
         <td>
-          1604
+          1628
         </td>
         <td>
-          4027
+          4194
           -
-          4065
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Lagging events found in partition(s) &quot;
-        </td>
-      </tr><tr>
-        <td>
-          93
-        </td>
-        <td>
-          1607
-        </td>
-        <td>
-          4025
-          -
-          4106
+          4275
         </td>
         <td>
           Apply
@@ -1256,15 +1300,36 @@
         </td>
       </tr><tr>
         <td>
-          93
+          95
         </td>
         <td>
-          1606
+          1625
         </td>
         <td>
-          4066
+          4196
           -
-          4104
+          4234
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Lagging events found in partition(s) &quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1627
+        </td>
+        <td>
+          4235
+          -
+          4273
         </td>
         <td>
           Apply
@@ -1277,15 +1342,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          1613
+          1634
         </td>
         <td>
-          4146
+          4315
           -
-          4188
+          4357
         </td>
         <td>
           Apply
@@ -1298,15 +1363,15 @@
         </td>
       </tr><tr>
         <td>
-          96
+          98
         </td>
         <td>
-          1622
+          1643
         </td>
         <td>
-          4123
+          4292
           -
-          4373
+          4542
         </td>
         <td>
           Apply
@@ -1319,57 +1384,57 @@
         </td>
       </tr><tr>
         <td>
-          96
-        </td>
-        <td>
-          1621
-        </td>
-        <td>
-          4123
-          -
-          4123
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          97
-        </td>
-        <td>
-          1614
-        </td>
-        <td>
-          4206
-          -
-          4229
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.CRITICAL
-        </td>
-      </tr><tr>
-        <td>
           98
         </td>
         <td>
-          1617
+          1642
         </td>
         <td>
-          4263
+          4292
           -
-          4281
+          4292
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1635
+        </td>
+        <td>
+          4375
+          -
+          4398
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1638
+        </td>
+        <td>
+          4432
+          -
+          4450
         </td>
         <td>
           Select
@@ -1382,15 +1447,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          1616
+          1637
         </td>
         <td>
-          4282
+          4451
           -
-          4320
+          4489
         </td>
         <td>
           Literal
@@ -1403,15 +1468,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          1615
+          1636
         </td>
         <td>
-          4251
+          4420
           -
-          4262
+          4431
         </td>
         <td>
           Literal
@@ -1424,15 +1489,15 @@
         </td>
       </tr><tr>
         <td>
-          98
+          100
         </td>
         <td>
-          1618
+          1639
         </td>
         <td>
-          4249
+          4418
           -
-          4320
+          4489
         </td>
         <td>
           Apply
@@ -1445,15 +1510,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          1620
+          1641
         </td>
         <td>
-          4343
+          4512
           -
-          4365
+          4534
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1466,15 +1531,15 @@
         </td>
       </tr><tr>
         <td>
-          99
+          101
         </td>
         <td>
-          1619
+          1640
         </td>
         <td>
-          4359
+          4528
           -
-          4359
+          4528
         </td>
         <td>
           TypeApply
@@ -1487,15 +1552,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          1625
+          1646
         </td>
         <td>
-          3759
+          3929
           -
-          4389
+          4558
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1528,15 +1593,15 @@
         </td>
       </tr><tr>
         <td>
-          101
+          103
         </td>
         <td>
-          1624
+          1645
         </td>
         <td>
-          4383
+          4552
           -
-          4383
+          4552
         </td>
         <td>
           TypeApply
@@ -1549,15 +1614,15 @@
         </td>
       </tr><tr>
         <td>
-          105
+          107
         </td>
         <td>
-          1626
+          1647
         </td>
         <td>
-          4433
+          4602
           -
-          4459
+          4628
         </td>
         <td>
           Apply
@@ -1570,15 +1635,15 @@
         </td>
       </tr><tr>
         <td>
-          106
+          108
         </td>
         <td>
-          1631
+          1652
         </td>
         <td>
-          4464
+          4633
           -
-          4699
+          4868
         </td>
         <td>
           Apply
@@ -1596,36 +1661,15 @@
         </td>
       </tr><tr>
         <td>
-          107
+          109
         </td>
         <td>
-          1627
+          1651
         </td>
         <td>
-          4544
+          4689
           -
-          4584
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.typesafe.config.Config.hasPath
-        </td>
-        <td style="background: #F0ADAD">
-          c.hasPath(&quot;event-age-threshold-seconds&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          107
-        </td>
-        <td>
-          1630
-        </td>
-        <td>
-          4520
-          -
-          4693
+          4862
         </td>
         <td>
           Apply
@@ -1641,15 +1685,36 @@
         </td>
       </tr><tr>
         <td>
-          108
+          109
         </td>
         <td>
-          1628
+          1648
         </td>
         <td>
-          4614
+          4713
           -
-          4661
+          4753
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.typesafe.config.Config.hasPath
+        </td>
+        <td style="background: #F0ADAD">
+          c.hasPath(&quot;event-age-threshold-seconds&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1649
+        </td>
+        <td>
+          4783
+          -
+          4830
         </td>
         <td>
           Apply
@@ -1662,15 +1727,15 @@
         </td>
       </tr><tr>
         <td>
-          109
+          111
         </td>
         <td>
-          1629
+          1650
         </td>
         <td>
-          4684
+          4853
           -
-          4685
+          4854
         </td>
         <td>
           Literal
@@ -1683,36 +1748,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          1632
+          1656
         </td>
         <td>
-          4775
+          4920
           -
-          4791
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started
-        </td>
-        <td style="background: #F0ADAD">
-          entry._2.started
-        </td>
-      </tr><tr>
-        <td>
-          115
-        </td>
-        <td>
-          1635
-        </td>
-        <td>
-          4751
-          -
-          4822
+          4991
         </td>
         <td>
           Select
@@ -1725,15 +1769,36 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          1634
+          1653
         </td>
         <td>
-          4796
+          4944
           -
-          4796
+          4960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.KafkaConsumerCoordinator.WorkerRef.started
+        </td>
+        <td style="background: #F0ADAD">
+          entry._2.started
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          1655
+        </td>
+        <td>
+          4965
+          -
+          4965
         </td>
         <td>
           TypeApply
@@ -1746,15 +1811,15 @@
         </td>
       </tr><tr>
         <td>
-          115
+          117
         </td>
         <td>
-          1633
+          1654
         </td>
         <td>
-          4806
+          4975
           -
-          4814
+          4983
         </td>
         <td>
           Select
@@ -1767,15 +1832,15 @@
         </td>
       </tr><tr>
         <td>
-          119
+          121
         </td>
         <td>
-          1636
+          1657
         </td>
         <td>
-          4900
+          5069
           -
-          4917
+          5086
         </td>
         <td>
           Select
@@ -1788,15 +1853,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          1637
+          1658
         </td>
         <td>
-          4942
+          5111
           -
-          4962
+          5131
         </td>
         <td>
           Literal
@@ -1809,15 +1874,15 @@
         </td>
       </tr><tr>
         <td>
-          120
+          122
         </td>
         <td>
-          1660
+          1681
         </td>
         <td>
-          4922
+          5091
           -
-          5358
+          5527
         </td>
         <td>
           Apply
@@ -1830,15 +1895,15 @@
         </td>
       </tr><tr>
         <td>
-          121
+          123
         </td>
         <td>
-          1638
+          1659
         </td>
         <td>
-          4977
+          5146
           -
-          5007
+          5176
         </td>
         <td>
           Literal
@@ -1851,15 +1916,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          125
         </td>
         <td>
-          1641
+          1662
         </td>
         <td>
-          5092
+          5261
           -
-          5106
+          5275
         </td>
         <td>
           Literal
@@ -1872,15 +1937,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          125
         </td>
         <td>
-          1640
+          1661
         </td>
         <td>
-          5067
+          5236
           -
-          5090
+          5259
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1893,36 +1958,15 @@
         </td>
       </tr><tr>
         <td>
-          123
+          125
         </td>
         <td>
-          1642
+          1660
         </td>
         <td>
-          5045
+          5254
           -
-          5107
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.CoordinatorHealth.collapseWithTimeCheck
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.collapseWithTimeCheck(CoordinatorHealth.this.workerKafkaHealth.toMap[String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String)](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]), &quot;Kafka Health&quot;)
-        </td>
-      </tr><tr>
-        <td>
-          123
-        </td>
-        <td>
-          1639
-        </td>
-        <td>
-          5085
-          -
-          5085
+          5254
         </td>
         <td>
           TypeApply
@@ -1935,15 +1979,36 @@
         </td>
       </tr><tr>
         <td>
-          124
+          125
         </td>
         <td>
-          1644
+          1663
         </td>
         <td>
-          5138
+          5214
           -
-          5158
+          5276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.CoordinatorHealth.collapseWithTimeCheck
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.collapseWithTimeCheck(CoordinatorHealth.this.workerKafkaHealth.toMap[String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String)](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]), &quot;Kafka Health&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1665
+        </td>
+        <td>
+          5307
+          -
+          5327
         </td>
         <td>
           ApplyToImplicitArgs
@@ -1956,15 +2021,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          126
         </td>
         <td>
-          1643
+          1664
         </td>
         <td>
-          5153
+          5322
           -
-          5153
+          5322
         </td>
         <td>
           TypeApply
@@ -1977,15 +2042,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          126
         </td>
         <td>
-          1646
+          1667
         </td>
         <td>
-          5117
+          5286
           -
-          5179
+          5348
         </td>
         <td>
           Apply
@@ -1998,15 +2063,15 @@
         </td>
       </tr><tr>
         <td>
-          124
+          126
         </td>
         <td>
-          1645
+          1666
         </td>
         <td>
-          5160
+          5329
           -
-          5178
+          5347
         </td>
         <td>
           Literal
@@ -2019,78 +2084,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1656
+          1674
         </td>
         <td>
-          5189
+          5457
           -
-          5315
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(&quot;Active Worker List&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Workers = &quot;, &quot;&quot;).s(workerList.size), scala.Some.apply[String](workerList.mkString(&quot;, &quot;)), com.webtrends.harness.health.HealthComponent.apply$default$5)
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          1647
-        </td>
-        <td>
-          5205
-          -
-          5225
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;Active Worker List&quot;
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          1650
-        </td>
-        <td>
-          5280
-          -
-          5281
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;&quot;
-        </td>
-      </tr><tr>
-        <td>
-          125
-        </td>
-        <td>
-          1653
-        </td>
-        <td>
-          5288
-          -
-          5313
+          5482
         </td>
         <td>
           Apply
@@ -2103,57 +2105,78 @@
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1652
+          1668
         </td>
         <td>
-          5250
+          5374
           -
-          5281
+          5394
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Active Worker List&quot;
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1677
+        </td>
+        <td>
+          5358
+          -
+          5484
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.StringContext.s
+          com.webtrends.harness.health.HealthComponent.apply
         </td>
         <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;Workers = &quot;, &quot;&quot;).s(workerList.size)
+          com.webtrends.harness.health.HealthComponent.apply(&quot;Active Worker List&quot;, com.webtrends.harness.health.ComponentState.NORMAL, scala.StringContext.apply(&quot;Workers = &quot;, &quot;&quot;).s(workerList.size), scala.Some.apply[String](workerList.mkString(&quot;, &quot;)), com.webtrends.harness.health.HealthComponent.apply$default$5)
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1655
+          1671
         </td>
         <td>
-          5189
+          5449
           -
-          5189
+          5450
         </td>
         <td>
-          Select
+          Literal
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          &lt;nosymbol&gt;
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          &quot;&quot;
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1649
+          1670
         </td>
         <td>
-          5252
+          5421
           -
-          5263
+          5432
         </td>
         <td>
           Literal
@@ -2166,36 +2189,57 @@
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1651
+          1673
         </td>
         <td>
-          5264
+          5419
           -
-          5279
+          5450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Workers = &quot;, &quot;&quot;).s(workerList.size)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1676
+        </td>
+        <td>
+          5358
+          -
+          5358
         </td>
         <td>
           Select
         </td>
         <td>
-          scala.collection.SeqLike.size
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
         <td style="background: #F0ADAD">
-          workerList.size
+          com.webtrends.harness.health.HealthComponent.apply$default$5
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1654
+          1675
         </td>
         <td>
-          5283
+          5452
           -
-          5314
+          5483
         </td>
         <td>
           Apply
@@ -2208,15 +2252,15 @@
         </td>
       </tr><tr>
         <td>
-          125
+          127
         </td>
         <td>
-          1648
+          1669
         </td>
         <td>
-          5227
+          5396
           -
-          5248
+          5417
         </td>
         <td>
           Select
@@ -2229,15 +2273,36 @@
         </td>
       </tr><tr>
         <td>
-          126
+          127
         </td>
         <td>
-          1659
+          1672
         </td>
         <td>
-          5031
+          5433
           -
-          5352
+          5448
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td style="background: #F0ADAD">
+          workerList.size
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1680
+        </td>
+        <td>
+          5200
+          -
+          5521
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2250,15 +2315,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          128
         </td>
         <td>
-          1658
+          1679
         </td>
         <td>
-          5325
+          5494
           -
-          5325
+          5494
         </td>
         <td>
           TypeApply
@@ -2271,15 +2336,15 @@
         </td>
       </tr><tr>
         <td>
-          126
+          128
         </td>
         <td>
-          1657
+          1678
         </td>
         <td>
-          5328
+          5497
           -
-          5352
+          5521
         </td>
         <td>
           Apply
@@ -2292,15 +2357,15 @@
         </td>
       </tr><tr>
         <td>
-          131
+          133
         </td>
         <td>
-          1668
+          1689
         </td>
         <td>
-          5511
+          5680
           -
-          5642
+          5811
         </td>
         <td>
           Apply
@@ -2313,15 +2378,36 @@
         </td>
       </tr><tr>
         <td>
-          132
+          134
         </td>
         <td>
-          1665
+          1683
         </td>
         <td>
-          5592
+          5743
           -
-          5634
+          5747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          h._1
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1686
+        </td>
+        <td>
+          5761
+          -
+          5803
         </td>
         <td>
           Apply
@@ -2334,78 +2420,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          134
         </td>
         <td>
-          1662
+          1688
         </td>
         <td>
-          5574
+          5708
           -
-          5578
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td style="background: #F0ADAD">
-          h._1
-        </td>
-      </tr><tr>
-        <td>
-          132
-        </td>
-        <td>
-          1661
-        </td>
-        <td>
-          5556
-          -
-          5560
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple2._1
-        </td>
-        <td style="background: #F0ADAD">
-          h._1
-        </td>
-      </tr><tr>
-        <td>
-          132
-        </td>
-        <td>
-          1664
-        </td>
-        <td>
-          5618
-          -
-          5634
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Boolean.unary_!
-        </td>
-        <td style="background: #F0ADAD">
-          h._2._1.healthy.unary_!
-        </td>
-      </tr><tr>
-        <td>
-          132
-        </td>
-        <td>
-          1667
-        </td>
-        <td>
-          5539
-          -
-          5636
+          5805
         </td>
         <td>
           Apply
@@ -2418,36 +2441,15 @@
         </td>
       </tr><tr>
         <td>
-          132
+          134
         </td>
         <td>
-          1666
+          1682
         </td>
         <td>
-          5566
+          5725
           -
-          5635
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Boolean.||
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.workers.apply(h._1).started.||(CoordinatorHealth.this.workers.apply(h._1).started.unary_!.&amp;&amp;(h._2._1.healthy.unary_!))
-        </td>
-      </tr><tr>
-        <td>
-          132
-        </td>
-        <td>
-          1663
-        </td>
-        <td>
-          5601
-          -
-          5605
+          5729
         </td>
         <td>
           Select
@@ -2460,15 +2462,99 @@
         </td>
       </tr><tr>
         <td>
-          135
+          134
         </td>
         <td>
-          1676
+          1685
         </td>
         <td>
-          5719
+          5787
           -
-          5719
+          5803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          h._2._1.healthy.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1684
+        </td>
+        <td>
+          5770
+          -
+          5774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td style="background: #F0ADAD">
+          h._1
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          1687
+        </td>
+        <td>
+          5735
+          -
+          5804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.workers.apply(h._1).started.||(CoordinatorHealth.this.workers.apply(h._1).started.unary_!.&amp;&amp;(h._2._1.healthy.unary_!))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          5883
+          -
+          5937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1700
+        </td>
+        <td>
+          5944
+          -
+          5944
         </td>
         <td>
           TypeApply
@@ -2481,57 +2567,57 @@
         </td>
       </tr><tr>
         <td>
-          135
+          137
         </td>
         <td>
-          1669
+          1691
         </td>
         <td>
-          5697
+          5905
           -
-          5712
+          5936
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.component.kafka.health.WorkerHealthState.healthy
+          com.webtrends.harness.component.kafka.util.KafkaSettings.getAssignmentHost
         </td>
         <td style="background: #F0ADAD">
-          h._2._1.healthy
+          CoordinatorHealth.this.getAssignmentHost(h._2._1.name)
         </td>
       </tr><tr>
         <td>
-          136
+          137
         </td>
         <td>
-          1674
+          1693
         </td>
         <td>
-          5777
+          5863
           -
-          5777
+          5937
         </td>
         <td>
-          Select
+          Apply
         </td>
         <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          scala.Boolean.&amp;&amp;
         </td>
         <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
+          h._2._1.healthy.unary_!.&amp;&amp;(CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!)
         </td>
       </tr><tr>
         <td>
-          136
+          137
         </td>
         <td>
-          1670
+          1690
         </td>
         <td>
-          5800
+          5923
           -
-          5812
+          5935
         </td>
         <td>
           Select
@@ -2544,15 +2630,57 @@
         </td>
       </tr><tr>
         <td>
-          136
+          138
         </td>
         <td>
-          1673
+          1698
         </td>
         <td>
-          5777
+          6002
           -
-          5777
+          6002
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1694
+        </td>
+        <td>
+          6025
+          -
+          6037
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.WorkerHealthState.name
+        </td>
+        <td style="background: #F0ADAD">
+          h._2._1.name
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1697
+        </td>
+        <td>
+          6002
+          -
+          6002
         </td>
         <td>
           Select
@@ -2565,15 +2693,15 @@
         </td>
       </tr><tr>
         <td>
-          136
+          138
         </td>
         <td>
-          1675
+          1699
         </td>
         <td>
-          5777
+          6002
           -
-          5888
+          6113
         </td>
         <td>
           Apply
@@ -2586,15 +2714,15 @@
         </td>
       </tr><tr>
         <td>
-          137
+          139
         </td>
         <td>
-          1671
+          1695
         </td>
         <td>
-          5830
+          6055
           -
-          5853
+          6078
         </td>
         <td>
           Select
@@ -2607,15 +2735,15 @@
         </td>
       </tr><tr>
         <td>
-          138
+          140
         </td>
         <td>
-          1672
+          1696
         </td>
         <td>
-          5873
+          6098
           -
-          5887
+          6112
         </td>
         <td>
           Select
@@ -2628,15 +2756,15 @@
         </td>
       </tr><tr>
         <td>
-          139
+          141
         </td>
         <td>
-          1677
+          1701
         </td>
         <td>
-          5664
+          5833
           -
-          5901
+          6126
         </td>
         <td>
           Select
@@ -2645,19 +2773,19 @@
           scala.collection.TraversableOnce.toList
         </td>
         <td style="background: #F0ADAD">
-          filteredHealths.filterNot(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy)).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.CRITICAL, h._2._1.status, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList
+          filteredHealths.filter(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy.unary_!.&amp;&amp;(CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!))).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.CRITICAL, h._2._1.status, com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList
         </td>
       </tr><tr>
         <td>
-          140
+          142
         </td>
         <td>
-          1678
+          1702
         </td>
         <td>
-          5917
+          6142
           -
-          5943
+          6168
         </td>
         <td>
           Apply
@@ -2670,15 +2798,15 @@
         </td>
       </tr><tr>
         <td>
-          141
+          143
         </td>
         <td>
-          1697
+          1724
         </td>
         <td>
-          5960
+          6185
           -
-          6346
+          6633
         </td>
         <td>
           ApplyToImplicitArgs
@@ -2687,19 +2815,19 @@
           scala.collection.immutable.List.++
         </td>
         <td style="background: #F0ADAD">
-          unHealthy.++[com.webtrends.harness.health.HealthComponent, List[com.webtrends.harness.health.HealthComponent]](filteredHealths.filter(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3))))).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList)(immutable.this.List.canBuildFrom[com.webtrends.harness.health.HealthComponent])
+          unHealthy.++[com.webtrends.harness.health.HealthComponent, List[com.webtrends.harness.health.HealthComponent]](filteredHealths.filter(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3))).&amp;&amp;(CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!))).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList)(immutable.this.List.canBuildFrom[com.webtrends.harness.health.HealthComponent])
         </td>
       </tr><tr>
         <td>
-          141
+          143
         </td>
         <td>
-          1696
+          1723
         </td>
         <td>
-          5970
+          6195
           -
-          5970
+          6195
         </td>
         <td>
           TypeApply
@@ -2712,36 +2840,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1680
+          1707
         </td>
         <td>
-          6071
+          6288
           -
-          6078
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.Tuple3._2
-        </td>
-        <td style="background: #F0ADAD">
-          h._2._2
-        </td>
-      </tr><tr>
-        <td>
-          142
-        </td>
-        <td>
-          1683
-        </td>
-        <td>
-          6063
-          -
-          6109
+          6334
         </td>
         <td>
           Apply
@@ -2754,36 +2861,57 @@
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1694
+          1710
         </td>
         <td>
-          6116
+          6338
           -
-          6116
+          6392
         </td>
         <td>
-          TypeApply
+          Select
         </td>
         <td>
-          scala.collection.immutable.Iterable.canBuildFrom
+          scala.Boolean.unary_!
         </td>
         <td style="background: #F0ADAD">
-          immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]
+          CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1679
+          1704
         </td>
         <td>
-          6028
+          6296
           -
-          6059
+          6303
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple3._2
+        </td>
+        <td style="background: #F0ADAD">
+          h._2._2
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1703
+        </td>
+        <td>
+          6253
+          -
+          6284
         </td>
         <td>
           Apply
@@ -2796,15 +2924,15 @@
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1682
+          1706
         </td>
         <td>
-          6082
+          6307
           -
-          6109
+          6334
         </td>
         <td>
           Apply
@@ -2817,15 +2945,36 @@
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1684
+          1709
         </td>
         <td>
-          6009
+          6360
           -
-          6109
+          6391
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.util.KafkaSettings.getAssignmentHost
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.getAssignmentHost(h._2._1.name)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1711
+        </td>
+        <td>
+          6234
+          -
+          6392
         </td>
         <td>
           Apply
@@ -2834,19 +2983,19 @@
           scala.Boolean.&amp;&amp;
         </td>
         <td style="background: #F0ADAD">
-          h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3)))
+          h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3))).&amp;&amp;(CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!)
         </td>
       </tr><tr>
         <td>
-          142
+          144
         </td>
         <td>
-          1681
+          1705
         </td>
         <td>
-          6101
+          6326
           -
-          6108
+          6333
         </td>
         <td>
           Select
@@ -2862,54 +3011,12 @@
           144
         </td>
         <td>
-          1692
+          1708
         </td>
         <td>
-          6182
+          6378
           -
-          6182
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$5
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          1691
-        </td>
-        <td>
-          6182
-          -
-          6182
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          144
-        </td>
-        <td>
-          1685
-        </td>
-        <td>
-          6205
-          -
-          6217
+          6390
         </td>
         <td>
           Select
@@ -2922,246 +3029,15 @@
         </td>
       </tr><tr>
         <td>
-          144
-        </td>
-        <td>
-          1693
-        </td>
-        <td>
-          6182
-          -
-          6333
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
-        </td>
-      </tr><tr>
-        <td>
           145
         </td>
         <td>
-          1686
+          1721
         </td>
         <td>
-          6237
+          6403
           -
-          6260
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          1689
-        </td>
-        <td>
-          6299
-          -
-          6322
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Long./
-        </td>
-        <td style="background: #F0ADAD">
-          time.-(h._2._2)./(1000)
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          1688
-        </td>
-        <td>
-          6323
-          -
-          6332
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot; seconds&quot;
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          1687
-        </td>
-        <td>
-          6284
-          -
-          6298
-        </td>
-        <td>
-          Literal
-        </td>
-        <td>
-          &lt;nosymbol&gt;
-        </td>
-        <td style="background: #F0ADAD">
-          &quot;No events in &quot;
-        </td>
-      </tr><tr>
-        <td>
-          146
-        </td>
-        <td>
-          1690
-        </td>
-        <td>
-          6282
-          -
-          6332
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.StringContext.s
-        </td>
-        <td style="background: #F0ADAD">
-          scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000))
-        </td>
-      </tr><tr>
-        <td>
-          147
-        </td>
-        <td>
-          1695
-        </td>
-        <td>
-          5973
-          -
-          6346
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          scala.collection.TraversableOnce.toList
-        </td>
-        <td style="background: #F0ADAD">
-          filteredHealths.filter(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3))))).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          1698
-        </td>
-        <td>
-          6387
-          -
-          6387
-        </td>
-        <td>
-          TypeApply
-        </td>
-        <td>
-          scala.Predef.$conforms
-        </td>
-        <td style="background: #F0ADAD">
-          scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          1700
-        </td>
-        <td>
-          6351
-          -
-          6411
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.CoordinatorHealth.aggregatedComponent
-        </td>
-        <td style="background: #F0ADAD">
-          CoordinatorHealth.this.aggregatedComponent(filteredHealths.toMap[String, Any](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]), label, unHealthy)
-        </td>
-      </tr><tr>
-        <td>
-          148
-        </td>
-        <td>
-          1699
-        </td>
-        <td>
-          6371
-          -
-          6392
-        </td>
-        <td>
-          ApplyToImplicitArgs
-        </td>
-        <td>
-          scala.collection.immutable.Map.toMap
-        </td>
-        <td style="background: #F0ADAD">
-          filteredHealths.toMap[String, Any](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))])
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          1701
-        </td>
-        <td>
-          6566
-          -
-          6578
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.component.kafka.health.WorkerHealthState.healthy
-        </td>
-        <td style="background: #F0ADAD">
-          h._2.healthy
-        </td>
-      </tr><tr>
-        <td>
-          152
-        </td>
-        <td>
-          1708
-        </td>
-        <td>
-          6585
-          -
-          6585
+          6403
         </td>
         <td>
           TypeApply
@@ -3174,15 +3050,330 @@
         </td>
       </tr><tr>
         <td>
-          153
+          147
         </td>
         <td>
-          1707
+          1719
         </td>
         <td>
-          6627
+          6469
           -
-          6732
+          6469
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$5
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1712
+        </td>
+        <td>
+          6492
+          -
+          6504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.WorkerHealthState.name
+        </td>
+        <td style="background: #F0ADAD">
+          h._2._1.name
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          6469
+          -
+          6469
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1720
+        </td>
+        <td>
+          6469
+          -
+          6620
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          1713
+        </td>
+        <td>
+          6524
+          -
+          6547
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1716
+        </td>
+        <td>
+          6586
+          -
+          6609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long./
+        </td>
+        <td style="background: #F0ADAD">
+          time.-(h._2._2)./(1000)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1715
+        </td>
+        <td>
+          6610
+          -
+          6619
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; seconds&quot;
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1717
+        </td>
+        <td>
+          6569
+          -
+          6619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000))
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1714
+        </td>
+        <td>
+          6571
+          -
+          6585
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;No events in &quot;
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1722
+        </td>
+        <td>
+          6198
+          -
+          6633
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td style="background: #F0ADAD">
+          filteredHealths.filter(((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; h._2._1.healthy.&amp;&amp;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3).&gt;(0)).&amp;&amp;(time.-(h._2._2).&gt;(CoordinatorHealth.this.topicAgeThresholds.apply(h._2._3))).&amp;&amp;(CoordinatorHealth.this.downSources.contains(CoordinatorHealth.this.getAssignmentHost(h._2._1.name)).unary_!))).map[com.webtrends.harness.health.HealthComponent, scala.collection.immutable.Iterable[com.webtrends.harness.health.HealthComponent]](((h: (String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))) =&gt; com.webtrends.harness.health.HealthComponent.apply(h._2._1.name, com.webtrends.harness.health.ComponentState.DEGRADED, scala.StringContext.apply(&quot;No events in &quot;, &quot; seconds&quot;).s(time.-(h._2._2)./(1000)), com.webtrends.harness.health.HealthComponent.apply$default$4, com.webtrends.harness.health.HealthComponent.apply$default$5)))(immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]).toList
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1725
+        </td>
+        <td>
+          6674
+          -
+          6674
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1727
+        </td>
+        <td>
+          6638
+          -
+          6698
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.CoordinatorHealth.aggregatedComponent
+        </td>
+        <td style="background: #F0ADAD">
+          CoordinatorHealth.this.aggregatedComponent(filteredHealths.toMap[String, Any](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))]), label, unHealthy)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1726
+        </td>
+        <td>
+          6658
+          -
+          6679
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.Map.toMap
+        </td>
+        <td style="background: #F0ADAD">
+          filteredHealths.toMap[String, Any](scala.this.Predef.$conforms[(String, (com.webtrends.harness.component.kafka.health.WorkerHealthState, Long, String))])
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1728
+        </td>
+        <td>
+          6853
+          -
+          6865
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.component.kafka.health.WorkerHealthState.healthy
+        </td>
+        <td style="background: #F0ADAD">
+          h._2.healthy
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1735
+        </td>
+        <td>
+          6872
+          -
+          6872
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[com.webtrends.harness.health.HealthComponent]
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          6914
+          -
+          7019
         </td>
         <td>
           Apply
@@ -3195,15 +3386,15 @@
         </td>
       </tr><tr>
         <td>
-          153
+          156
         </td>
         <td>
-          1706
+          1733
         </td>
         <td>
-          6627
+          6914
           -
-          6627
+          6914
         </td>
         <td>
           Select
@@ -3216,15 +3407,15 @@
         </td>
       </tr><tr>
         <td>
-          153
+          156
         </td>
         <td>
-          1702
+          1729
         </td>
         <td>
-          6650
+          6937
           -
-          6659
+          6946
         </td>
         <td>
           Select
@@ -3237,15 +3428,15 @@
         </td>
       </tr><tr>
         <td>
-          153
+          156
         </td>
         <td>
-          1705
+          1732
         </td>
         <td>
-          6627
+          6914
           -
-          6627
+          6914
         </td>
         <td>
           Select
@@ -3258,15 +3449,15 @@
         </td>
       </tr><tr>
         <td>
-          154
+          157
         </td>
         <td>
-          1703
+          1730
         </td>
         <td>
-          6677
+          6964
           -
-          6700
+          6987
         </td>
         <td>
           Select
@@ -3279,15 +3470,15 @@
         </td>
       </tr><tr>
         <td>
-          155
+          158
         </td>
         <td>
-          1704
+          1731
         </td>
         <td>
-          6720
+          7007
           -
-          6731
+          7018
         </td>
         <td>
           Select
@@ -3300,15 +3491,15 @@
         </td>
       </tr><tr>
         <td>
-          156
+          159
         </td>
         <td>
-          1709
+          1736
         </td>
         <td>
-          6541
+          6828
           -
-          6745
+          7032
         </td>
         <td>
           Select
@@ -3321,15 +3512,15 @@
         </td>
       </tr><tr>
         <td>
-          157
+          160
         </td>
         <td>
-          1710
+          1737
         </td>
         <td>
-          6778
+          7065
           -
-          6778
+          7065
         </td>
         <td>
           TypeApply
@@ -3342,15 +3533,15 @@
         </td>
       </tr><tr>
         <td>
-          157
+          160
         </td>
         <td>
-          1712
+          1739
         </td>
         <td>
-          6750
+          7037
           -
-          6802
+          7089
         </td>
         <td>
           Apply
@@ -3363,15 +3554,15 @@
         </td>
       </tr><tr>
         <td>
-          157
+          160
         </td>
         <td>
-          1711
+          1738
         </td>
         <td>
-          6770
+          7057
           -
-          6783
+          7070
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3384,15 +3575,15 @@
         </td>
       </tr><tr>
         <td>
-          161
+          164
         </td>
         <td>
-          1725
+          1752
         </td>
         <td>
-          6935
+          7222
           -
-          6935
+          7222
         </td>
         <td>
           Select
@@ -3405,15 +3596,15 @@
         </td>
       </tr><tr>
         <td>
-          161
+          164
         </td>
         <td>
-          1726
+          1753
         </td>
         <td>
-          6935
+          7222
           -
-          7172
+          7459
         </td>
         <td>
           Apply
@@ -3426,15 +3617,15 @@
         </td>
       </tr><tr>
         <td>
-          162
+          165
         </td>
         <td>
-          1716
+          1743
         </td>
         <td>
-          7029
+          7316
           -
-          7052
+          7339
         </td>
         <td>
           Select
@@ -3447,15 +3638,78 @@
         </td>
       </tr><tr>
         <td>
-          162
+          165
         </td>
         <td>
-          1713
+          1742
         </td>
         <td>
-          6983
+          7289
           -
-          7000
+          7310
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1744
+        </td>
+        <td>
+          7316
+          -
+          7339
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1741
+        </td>
+        <td>
+          7289
+          -
+          7310
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1740
+        </td>
+        <td>
+          7270
+          -
+          7287
         </td>
         <td>
           Select
@@ -3468,78 +3722,15 @@
         </td>
       </tr><tr>
         <td>
-          162
+          166
         </td>
         <td>
-          1715
+          1746
         </td>
         <td>
-          7002
+          7391
           -
-          7023
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          1717
-        </td>
-        <td>
-          7029
-          -
-          7052
-        </td>
-        <td>
-          Block
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.DEGRADED
-        </td>
-      </tr><tr>
-        <td>
-          162
-        </td>
-        <td>
-          1714
-        </td>
-        <td>
-          7002
-          -
-          7023
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.ComponentState.NORMAL
-        </td>
-      </tr><tr>
-        <td>
-          163
-        </td>
-        <td>
-          1719
-        </td>
-        <td>
-          7104
-          -
-          7106
+          7393
         </td>
         <td>
           Literal
@@ -3552,36 +3743,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          166
         </td>
         <td>
-          1722
+          1748
         </td>
         <td>
-          7074
+          7376
           -
-          7103
-        </td>
-        <td>
-          Apply
-        </td>
-        <td>
-          scala.Int.-
-        </td>
-        <td style="background: #F0ADAD">
-          healths.size.-(unHealthy.size)
-        </td>
-      </tr><tr>
-        <td>
-          163
-        </td>
-        <td>
-          1721
-        </td>
-        <td>
-          7089
-          -
-          7103
+          7390
         </td>
         <td>
           Select
@@ -3594,15 +3764,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          166
         </td>
         <td>
-          1724
+          1751
         </td>
         <td>
-          7070
+          7357
           -
-          7141
+          7428
         </td>
         <td>
           Apply
@@ -3615,15 +3785,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          166
         </td>
         <td>
-          1718
+          1745
         </td>
         <td>
-          7072
+          7359
           -
-          7073
+          7360
         </td>
         <td>
           Literal
@@ -3636,15 +3806,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          166
         </td>
         <td>
-          1720
+          1747
         </td>
         <td>
-          7120
+          7407
           -
-          7141
+          7428
         </td>
         <td>
           Literal
@@ -3657,15 +3827,15 @@
         </td>
       </tr><tr>
         <td>
-          163
+          166
         </td>
         <td>
-          1723
+          1750
         </td>
         <td>
-          7107
+          7394
           -
-          7119
+          7406
         </td>
         <td>
           Select
@@ -3678,15 +3848,36 @@
         </td>
       </tr><tr>
         <td>
-          170
+          166
         </td>
         <td>
-          1728
+          1749
         </td>
         <td>
-          7368
+          7361
           -
-          7368
+          7390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td style="background: #F0ADAD">
+          healths.size.-(unHealthy.size)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1755
+        </td>
+        <td>
+          7654
+          -
+          7654
         </td>
         <td>
           TypeApply
@@ -3699,15 +3890,15 @@
         </td>
       </tr><tr>
         <td>
-          170
+          172
         </td>
         <td>
-          1727
+          1754
         </td>
         <td>
-          7381
+          7667
           -
-          7394
+          7680
         </td>
         <td>
           Select
@@ -3720,15 +3911,15 @@
         </td>
       </tr><tr>
         <td>
-          170
+          172
         </td>
         <td>
-          1729
+          1756
         </td>
         <td>
-          7350
+          7636
           -
-          7396
+          7682
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3741,21 +3932,297 @@
         </td>
       </tr><tr>
         <td>
-          175
+          174
         </td>
         <td>
-          1730
+          1757
         </td>
         <td>
-          7403
+          7767
           -
-          7624
+          7790
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.CRITICAL
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          1760
+        </td>
+        <td>
+          7792
+          -
+          7796
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          1759
+        </td>
+        <td>
+          7792
+          -
+          7796
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          174
+        </td>
+        <td>
+          1758
+        </td>
+        <td>
+          7761
+          -
+          7790
         </td>
         <td>
           Apply
         </td>
         <td>
-          scala.collection.LinearSeqOptimized.apply
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          lt.==(com.webtrends.harness.health.ComponentState.CRITICAL)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1761
+        </td>
+        <td>
+          7820
+          -
+          7843
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.DEGRADED
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1764
+        </td>
+        <td>
+          7814
+          -
+          7874
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td style="background: #F0ADAD">
+          lt.==(com.webtrends.harness.health.ComponentState.DEGRADED).&amp;&amp;(gt.==(com.webtrends.harness.health.ComponentState.NORMAL))
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1763
+        </td>
+        <td>
+          7847
+          -
+          7874
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td style="background: #F0ADAD">
+          gt.==(com.webtrends.harness.health.ComponentState.NORMAL)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1766
+        </td>
+        <td>
+          7876
+          -
+          7880
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1769
+        </td>
+        <td>
+          7810
+          -
+          7899
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          if (lt.==(com.webtrends.harness.health.ComponentState.DEGRADED).&amp;&amp;(gt.==(com.webtrends.harness.health.ComponentState.NORMAL)))
+  true
+else
+  false
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1762
+        </td>
+        <td>
+          7853
+          -
+          7874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.ComponentState.NORMAL
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          7876
+          -
+          7880
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1768
+        </td>
+        <td>
+          7894
+          -
+          7899
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          7894
+          -
+          7899
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          1770
+        </td>
+        <td>
+          7689
+          -
+          7912
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
         </td>
         <td style="background: #F0ADAD">
           states.sortWith(((lt: com.webtrends.harness.health.ComponentState.ComponentState, gt: com.webtrends.harness.health.ComponentState.ComponentState) =&gt; if (lt.==(com.webtrends.harness.health.ComponentState.CRITICAL))
@@ -3764,40 +4231,19 @@ else
   if (lt.==(com.webtrends.harness.health.ComponentState.DEGRADED).&amp;&amp;(gt.==(com.webtrends.harness.health.ComponentState.NORMAL)))
     true
   else
-    false)).apply(0)
+    false)).head
         </td>
       </tr><tr>
         <td>
-          178
+          180
         </td>
         <td>
-          1734
+          1775
         </td>
         <td>
-          7643
+          7924
           -
-          7643
-        </td>
-        <td>
-          Select
-        </td>
-        <td>
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-        <td style="background: #F0ADAD">
-          com.webtrends.harness.health.HealthComponent.apply$default$4
-        </td>
-      </tr><tr>
-        <td>
-          178
-        </td>
-        <td>
-          1735
-        </td>
-        <td>
-          7636
-          -
-          7764
+          8052
         </td>
         <td>
           Apply
@@ -3810,15 +4256,36 @@ else
         </td>
       </tr><tr>
         <td>
-          179
+          180
         </td>
         <td>
-          1731
+          1774
         </td>
         <td>
-          7686
+          7931
           -
-          7698
+          7931
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+        <td style="background: #F0ADAD">
+          com.webtrends.harness.health.HealthComponent.apply$default$4
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          1771
+        </td>
+        <td>
+          7974
+          -
+          7986
         </td>
         <td>
           Apply
@@ -3831,15 +4298,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          183
         </td>
         <td>
-          1733
+          1773
         </td>
         <td>
-          7741
+          8029
           -
-          7763
+          8051
         </td>
         <td>
           ApplyToImplicitArgs
@@ -3852,15 +4319,15 @@ else
         </td>
       </tr><tr>
         <td>
-          181
+          183
         </td>
         <td>
-          1732
+          1772
         </td>
         <td>
-          7757
+          8045
           -
-          7757
+          8045
         </td>
         <td>
           TypeApply
