@@ -23,8 +23,9 @@ import akka.actor._
 import akka.util.Timeout
 import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown}
 import com.webtrends.harness.component.kafka.actor.AssignmentDistributorLeader.PartitionAssignment
+import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources
 import com.webtrends.harness.component.kafka.actor.PartitionConsumerWorker._
-import com.webtrends.harness.component.kafka.actor.{AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
+import com.webtrends.harness.component.kafka.actor.{HostList, AssignmentDistributorLeader, OffsetManager, PartitionConsumerWorker}
 import com.webtrends.harness.component.kafka.health.CoordinatorHealth
 import com.webtrends.harness.component.kafka.util.KafkaSettings
 import com.webtrends.harness.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
@@ -35,19 +36,18 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent.Type._
 
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.util.Try
 
 object KafkaConsumerCoordinator {
 
-  def props(sourceProxy: ActorRef) =
-    Props(new KafkaConsumerCoordinator(sourceProxy))
+  def props(sourceProxy: ActorRef, sourceMonitor: Option[ActorRef] = None) =
+    Props(new KafkaConsumerCoordinator(sourceProxy, sourceMonitor))
 
   case class NodeData(nodeId: String, data: String)
   case class TopicPartitionResp(partitionsByTopic: Set[PartitionAssignment])
   case class BroadcastToWorkers(msg: Any)
 }
 
-class KafkaConsumerCoordinator(kafkaProxy: ActorRef) extends Actor
+class KafkaConsumerCoordinator(kafkaProxy: ActorRef, sourceMonitor: Option[ActorRef] = None) extends Actor
 with ActorLoggingAdapter
 with CoordinatorHealth
 with KafkaSettings
@@ -80,13 +80,10 @@ with ZookeeperEventAdapter {
 
   def receive = initial
 
-  /**
-   *
-   * @return
-   */
   def initial:Receive = healthReceive orElse configReceive orElse {
     case NodeData(nodeId, data) =>
       val assignments = Serialization.read(data)(formats, manifest[List[PartitionAssignment]])
+      sourceMonitor foreach (_ ! HostList(assignments.map(_.host)))
       processAssignmentEvent(assignments)
 
     // ZK data has changed
@@ -107,7 +104,7 @@ with ZookeeperEventAdapter {
 
     case PrepareForShutdown =>
       //Stop all workers
-      stopAllWorkers
+      stopAllWorkers()
       context.become(awaitingShutdown)
 
     case BroadcastToWorkers(msg) =>
@@ -124,7 +121,7 @@ with ZookeeperEventAdapter {
   }
 
 
-  def stopAllWorkers = {
+  def stopAllWorkers() = {
     log.info(s"Stopping ${workers.size} workers")
     workers foreach(_._2.stopWorker())
   }

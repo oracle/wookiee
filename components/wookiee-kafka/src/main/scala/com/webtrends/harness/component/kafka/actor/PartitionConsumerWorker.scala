@@ -147,12 +147,16 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
   }
 
   onTransition {
-    case (Consuming | Starting) -> Stopped =>
-      log.info(s"$name: Transitioning state to Stopped")
+    case Starting -> Stopped =>
+      log.info(s"$name: Transitioning from Starting to Stopped")
+      stopWorker(write = false)
+
+    case Consuming -> Stopped =>
+      log.info(s"$name: Transitioning from Consuming to Stopped")
       stopWorker()
 
     case Stopped -> Starting =>
-      log.debug(s"$name: Transitioning state to Starting")
+      log.info(s"$name: Transitioning from Stopped to Starting")
       offsetManager ! GetOffsetData(partitionName(assign))
 
     case Starting -> Consuming =>
@@ -228,16 +232,17 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
 
   initialize()
 
+
+  override def postStop(): Unit = {
+    stopWorker(stateName == Consuming)
+  }
+
   // Will only store if the ackedOffset has changed or force is true
   protected def storeOffsetAndUpdateHealth(force: Boolean = false): Unit = {
     if (force || (ackedOffset > 0 && lastSentToStorage != ackedOffset)) {
       context.parent ! KafkaHealthState(name, healthy = true, s"Successfully fetched to $ackedOffset", topic)
       offsetManager ! StoreOffsetData(partitionName(assign), OffsetData(formatAckedOffset().getBytes(utf8)))
     }
-  }
-
-  override def postStop(): Unit = {
-    stopWorker()
   }
 
   // Override to process initial offsets differently
@@ -258,8 +263,8 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
     if(data.isEmpty) 0L else data.toLong
   }
 
-  def stopWorker() = {
-    if(ackedOffset > 0) {
+  def stopWorker(write: Boolean = true) = {
+    if (ackedOffset > 0 && write) {
       log.debug(s"Shutdown %s, storage offset=%d, proxy offset=%d, acked offset=%d"
         .format(name, lastSentToStorage, lastSentToProxyOffset, ackedOffset))
 
@@ -277,6 +282,7 @@ class PartitionConsumerWorker(kafkaProxy: ActorRef, assign: PartitionAssignment,
     consumer.foreach(_.close())
     consumer = None
     context.parent ! KafkaHealthState(name, healthy = true, "", "")
+    ackedOffset = 0L
   }
 
   def acquireLock(): Option[Acquired] = {

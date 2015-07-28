@@ -94,6 +94,10 @@ trait KafkaSettings extends ConfigHelper { this: Actor =>
     s"${spec.cluster}-${spec.topic}-${spec.partition}"
   }
 
+  def getAssignmentHost(assign: String): String = {
+    assign.split('-')(0)
+  }
+
   override def renewConfiguration() = {
     super.renewConfiguration()
     kafkaConfig = ConfigUtil.prepareSubConfig(renewableConfig, "wookiee-kafka")
