@@ -144,7 +144,7 @@ class KafkaManager(name: String) extends Component(name) with KafkaSettings {
         sourceMonitor = Some(context.actorOf(Props(classOf[SourceMonitor]), "source-monitor"))
       }
       consumerManager = Some(context.actorOf(KafkaTopicManager.props(sourceMonitor), "consumer-manager"))
-      coordinator = Some(context.actorOf(Props(leader, consumerManager.get), "consumer-coordinator"))
+      coordinator = Some(context.actorOf(Props(leader, consumerManager.get, sourceMonitor), "consumer-coordinator"))
       distributor = Some(context.actorOf(KafkaConsumerDistributor.props(consumerManager.get), "consumer-distributor"))
     }
   }

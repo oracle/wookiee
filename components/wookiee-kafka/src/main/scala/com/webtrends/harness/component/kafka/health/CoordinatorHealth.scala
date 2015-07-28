@@ -21,6 +21,7 @@ package com.webtrends.harness.component.kafka.health
 
 import com.typesafe.config.Config
 import com.webtrends.harness.component.kafka.KafkaConsumerCoordinator
+import com.webtrends.harness.component.kafka.actor.KafkaTopicManager.DownSources
 import com.webtrends.harness.health
 import com.webtrends.harness.health.ComponentState._
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
@@ -46,6 +47,7 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
   val workerZKHealth = mutable.Map[String, WorkerHealthState]()
   // Holds millis allowed before we say that a worker is starved
   var topicAgeThresholds = mutable.Map[String, Long]()
+  var downSources = Set[String]()
 
   // We need to report our health status as critical if the events being processed are too old.
   // There are a few scenarios where this could occur:
@@ -81,12 +83,12 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
 
     case msg: ZKHealthState =>
       workerZKHealth.put(msg.name, msg)
+
+    case msg: DownSources => downSources = msg.sources
   }
 
   def eventAgeHealthByServer(): List[HealthComponent]  = {
-
     (for ((topic, partitionsByServer) <- criticalPartsByTopicAndServer) yield {
-
       val serverHealths = for ( (server, partitions) <- partitionsByServer) yield {
         HealthComponent(name = s"$server",
           state = ComponentState.CRITICAL,
@@ -132,14 +134,15 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
       workers.contains(h._1) && (workers(h._1).started || (!workers(h._1).started && !h._2._1.healthy))
     }
 
-    var unHealthy = filteredHealths.filterNot { h => h._2._1.healthy }.map { h: (String, (WorkerHealthState, Long, String)) =>
+    var unHealthy = filteredHealths.filter { h => !h._2._1.healthy && !downSources.contains(getAssignmentHost(h._2._1.name)) }.map { h: (String, (WorkerHealthState, Long, String)) =>
       HealthComponent(name = h._2._1.name,
         state = ComponentState.CRITICAL,
         details = h._2._1.status)
     }.toList
     val time = System.currentTimeMillis()
     unHealthy = unHealthy ++ filteredHealths.filter { h =>
-      h._2._1.healthy && topicAgeThresholds(h._2._3) > 0 && (time - h._2._2) > topicAgeThresholds(h._2._3) }.map {
+      h._2._1.healthy && topicAgeThresholds(h._2._3) > 0 && (time - h._2._2) > topicAgeThresholds(h._2._3) && !downSources.contains(getAssignmentHost(h._2._1.name))
+    }.map {
       h: (String, (WorkerHealthState, Long, String)) =>
         HealthComponent(name = h._2._1.name,
           state = ComponentState.DEGRADED,
@@ -165,14 +168,13 @@ trait CoordinatorHealth { this: KafkaConsumerCoordinator =>
   }
 
   def mergeHealths(name: String, desc: String = "", subComponents: List[HealthComponent]): HealthComponent = {
-
     def worstState(): ComponentState = {
       val states = subComponents.map { subComp => subComp.state }
       states.sortWith{(lt: ComponentState, gt: ComponentState) =>
         if (lt == ComponentState.CRITICAL) true
         else if (lt == ComponentState.DEGRADED && gt == ComponentState.NORMAL) true
         else false
-      }(0)
+      }.head
     }
 
     health.HealthComponent(name = name,
