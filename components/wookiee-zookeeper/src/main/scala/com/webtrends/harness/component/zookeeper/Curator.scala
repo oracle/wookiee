@@ -85,7 +85,7 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
     discoveries.foreach(x => x._2.close())
   }
 
-  def discovery(basePath:String): ServiceDiscovery[Void] = {
+  def discovery(basePath:String, service: Option[ServiceInstance[Void]] = None): ServiceDiscovery[Void] = {
     if (discoveries.contains(basePath)) {
       discoveries(basePath)
     } else {
@@ -93,6 +93,7 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
         .client(client)
         .basePath(basePath)
         .build()
+      service.foreach(it => discovery.registerService(it))
       discovery.start()
       discoveries.put(basePath, discovery)
       discovery
@@ -121,10 +122,13 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
     }.toMap
   }
 
-  def registerService(basePath:String, instance:ServiceInstance[Void]) = {
-    discovery(basePath).registerService(instance)
+  def registerService(basePath:String, instance:ServiceInstance[Void]): Unit = {
     // create a provider for the service if one has not already been created for it
-    createServiceProvider(basePath, instance.getName)
+    val key = ProviderKey(basePath, instance.getName)
+    if (!providers.contains(key)) {
+      val provider = discovery(basePath, Some(instance))
+      providers.put(key, provider.serviceProviderBuilder().serviceName(instance.getName).build())
+    }
   }
 }
 
