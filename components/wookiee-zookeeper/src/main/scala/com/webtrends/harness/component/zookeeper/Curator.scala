@@ -85,27 +85,28 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
     discoveries.foreach(x => x._2.close())
   }
 
-  def discovery(basePath:String, service: Option[ServiceInstance[Void]] = None): ServiceDiscovery[Void] = {
-    if (discoveries.contains(basePath)) {
-      discoveries(basePath)
+  def discovery(basePath:String): ServiceDiscovery[Void] = {
+    val bp = getBasePath(basePath)
+    if (discoveries.contains(bp)) {
+      discoveries(bp)
     } else {
       val discovery = ServiceDiscoveryBuilder.builder(classOf[Void])
         .client(client)
-        .basePath(basePath)
+        .basePath(bp)
         .build()
-      service.foreach(it => discovery.registerService(it))
       discovery.start()
-      discoveries.put(basePath, discovery)
+      discoveries.put(bp, discovery)
       discovery
     }
   }
 
   def createServiceProvider(basePath:String, name:String) : ServiceProvider[Void] = {
-    val key = ProviderKey(basePath, name)
+    val bp = getBasePath(basePath)
+    val key = ProviderKey(bp, name)
     if (providers.contains(key)) {
       providers(key)
     } else {
-      val provider = discovery(basePath).serviceProviderBuilder().serviceName(name).build()
+      val provider = discovery(bp).serviceProviderBuilder().serviceName(name).build()
       provider.start()
       providers.put(key, provider)
       provider
@@ -122,14 +123,14 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
     }.toMap
   }
 
-  def registerService(basePath:String, instance:ServiceInstance[Void]): Unit = {
+  def registerService(basePath:String, instance:ServiceInstance[Void]) = {
+    val bp = getBasePath(basePath)
+    discovery(bp).registerService(instance)
     // create a provider for the service if one has not already been created for it
-    val key = ProviderKey(basePath, instance.getName)
-    if (!providers.contains(key)) {
-      val provider = discovery(basePath, Some(instance))
-      providers.put(key, provider.serviceProviderBuilder().serviceName(instance.getName).build())
-    }
+    createServiceProvider(bp, instance.getName)
   }
+
+  private def getBasePath(basePath:String) : String = s"/${settings.dataCenter}/${settings.pod}${basePath}"
 }
 
 /**
