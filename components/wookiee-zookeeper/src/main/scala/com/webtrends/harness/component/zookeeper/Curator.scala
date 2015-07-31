@@ -101,12 +101,11 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
   }
 
   def createServiceProvider(basePath:String, name:String) : ServiceProvider[Void] = {
-    val bp = getBasePath(basePath)
-    val key = ProviderKey(bp, name)
+    val key = ProviderKey(getBasePath(basePath), name)
     if (providers.contains(key)) {
       providers(key)
     } else {
-      val provider = discovery(bp).serviceProviderBuilder().serviceName(name).build()
+      val provider = discovery(basePath).serviceProviderBuilder().serviceName(name).build()
       provider.start()
       providers.put(key, provider)
       provider
@@ -124,10 +123,9 @@ private[zookeeper] class Curator(settings: ZookeeperSettings) extends LoggingAda
   }
 
   def registerService(basePath:String, instance:ServiceInstance[Void]) = {
-    val bp = getBasePath(basePath)
-    discovery(bp).registerService(instance)
+    discovery(basePath).registerService(instance)
     // create a provider for the service if one has not already been created for it
-    createServiceProvider(bp, instance.getName)
+    createServiceProvider(basePath, instance.getName)
   }
 
   private def getBasePath(basePath:String) : String = s"/${settings.dataCenter}/${settings.pod}${basePath}"
