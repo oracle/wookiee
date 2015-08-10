@@ -96,7 +96,6 @@ In your config file, the one that you point to using config.file, you can overri
 * [wookiee-kafka](../components/wookiee-kafka/docs/config.md)
 * [wookiee-metrics](../components/wookiee-metrics/docs/config.md)
 * [wookiee-netty](../components/wookiee-netty/docs/config.md)
-* [wookiee-sift](../components/wookiee-sift/docs/config.md)
 * [wookiee-socko](../components/wookiee-socko/docs/config.md)
 * [wookiee-spray](../components/wookiee-spray/docs/config.md)
 * [wookiee-zookeeper](../components/wookiee-zookeeper/docs/config.md)
