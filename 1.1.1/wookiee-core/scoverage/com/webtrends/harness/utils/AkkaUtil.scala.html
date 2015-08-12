@@ -1,0 +1,464 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/webtrends/harness/utils/AkkaUtil.scala.html
+        </title>
+        <link rel="stylesheet" href="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css"/>
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+        <script src="http://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script>
+        <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.18.3/addons/pager/jquery.tablesorter.pager.min.js"></script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier;'>1 <span style=''>/*
+</span>2 <span style=''> * Copyright 2015 Webtrends (http://www.webtrends.com)
+</span>3 <span style=''> *
+</span>4 <span style=''> * See the LICENCE.txt file distributed with this work for additional
+</span>5 <span style=''> * information regarding copyright ownership.
+</span>6 <span style=''> *
+</span>7 <span style=''> * Licensed under the Apache License, Version 2.0 (the "License");
+</span>8 <span style=''> * you may not use this file except in compliance with the License.
+</span>9 <span style=''> * You may obtain a copy of the License at
+</span>10 <span style=''> *
+</span>11 <span style=''> *     http://www.apache.org/licenses/LICENSE-2.0
+</span>12 <span style=''> *
+</span>13 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>14 <span style=''> * distributed under the License is distributed on an "AS IS" BASIS,
+</span>15 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>16 <span style=''> * See the License for the specific language governing permissions and
+</span>17 <span style=''> * limitations under the License.
+</span>18 <span style=''> */
+</span>19 <span style=''>
+</span>20 <span style=''>package com.webtrends.harness.utils
+</span>21 <span style=''>
+</span>22 <span style=''>import akka.actor.{ActorRef, ActorContext, Props}
+</span>23 <span style=''>import akka.routing.{FromConfig, RoundRobinPool}
+</span>24 <span style=''>import org.slf4j.LoggerFactory
+</span>25 <span style=''>
+</span>26 <span style=''>/**
+</span>27 <span style=''> * @author Michael Cuthbert on 1/28/15.
+</span>28 <span style=''> */
+</span>29 <span style=''>object AkkaUtil {
+</span>30 <span style=''>
+</span>31 <span style=''>  val externalLogger = </span><span style='background: #F0ADAD'>LoggerFactory.getLogger(this.getClass)</span><span style=''>
+</span>32 <span style=''>
+</span>33 <span style=''>  /**
+</span>34 <span style=''>   * This function helps a user create a actor based on Config from the system configuration using
+</span>35 <span style=''>   * akka.actor.deployment {
+</span>36 <span style=''>   *  /[ACTOR_PATH]/[ACTOR_NAME] {
+</span>37 <span style=''>   *    router = round-robin
+</span>38 <span style=''>   *    nr-of-instances = 5
+</span>39 <span style=''>   *  }
+</span>40 <span style=''>   * }
+</span>41 <span style=''>   * This is based on the Akka FromConfig function and functionality around actor routees. This function
+</span>42 <span style=''>   * is useful because it checks to see if configuration is available for the routees, and if not if defaults
+</span>43 <span style=''>   * to using Round-Robin with 3 routees.
+</span>44 <span style=''>   *
+</span>45 <span style=''>   * @param props The props for the actor class, using defined like Props[ActorClass] or Props(clazz, construtor_arg1, ...)
+</span>46 <span style=''>   * @param actorName The name that you wish the actor to be
+</span>47 <span style=''>   * @param defNumRoutees DEFAULT=3 If config not found, then will default to the number of routees you put in
+</span>48 <span style=''>   * @param context this is the implicit context that would be usually defined by the actor that you are calling this function from
+</span>49 <span style=''>   * @return
+</span>50 <span style=''>   */
+</span>51 <span style=''>  def initActorFromConfig(props:Props, actorName:String, defNumRoutees:Int=3)(implicit context:ActorContext) : ActorRef = {
+</span>52 <span style=''>    val config = </span><span style='background: #F0ADAD'>context.system.settings.config</span><span style=''>
+</span>53 <span style=''>    val deployPath = </span><span style='background: #F0ADAD'>s"akka.actor.deployment.${context.self.path.toStringWithoutAddress}/$actorName"</span><span style=''>
+</span>54 <span style=''>    if (</span><span style='background: #F0ADAD'>!config.hasPath(deployPath)</span><span style=''>) </span><span style='background: #F0ADAD'>{
+</span>55 <span style=''></span><span style='background: #F0ADAD'>      // message primarily for debugging so that you can see immediately if your actor found the config
+</span>56 <span style=''></span><span style='background: #F0ADAD'>      externalLogger.debug(s"Could not find deployment config for path [$deployPath], deploying default round robin with $defNumRoutees routees")
+</span>57 <span style=''></span><span style='background: #F0ADAD'>      context.actorOf(RoundRobinPool(defNumRoutees).props(props), actorName)
+</span>58 <span style=''></span><span style='background: #F0ADAD'>    }</span><span style=''> else {
+</span>59 <span style=''>      </span><span style='background: #F0ADAD'>context.actorOf(FromConfig.props(props), actorName)</span><span style=''>
+</span>60 <span style=''>    }
+</span>61 <span style=''>  }
+</span>62 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          3295
+        </td>
+        <td>
+          998
+          -
+          1036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.LoggerFactory.getLogger
+        </td>
+        <td style="background: #F0ADAD">
+          org.slf4j.LoggerFactory.getLogger(this.getClass())
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          3294
+        </td>
+        <td>
+          1022
+          -
+          1035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.getClass
+        </td>
+        <td style="background: #F0ADAD">
+          this.getClass()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          3296
+        </td>
+        <td>
+          2129
+          -
+          2159
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorSystem.Settings.config
+        </td>
+        <td style="background: #F0ADAD">
+          context.system.settings.config
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3298
+        </td>
+        <td>
+          2248
+          -
+          2250
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;/&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3301
+        </td>
+        <td>
+          2181
+          -
+          2260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;akka.actor.deployment.&quot;, &quot;/&quot;, &quot;&quot;).s(context.self.path.toStringWithoutAddress, actorName)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3300
+        </td>
+        <td>
+          2207
+          -
+          2247
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          akka.actor.ActorPath.toStringWithoutAddress
+        </td>
+        <td style="background: #F0ADAD">
+          context.self.path.toStringWithoutAddress
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3297
+        </td>
+        <td>
+          2183
+          -
+          2206
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;akka.actor.deployment.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          3299
+        </td>
+        <td>
+          2259
+          -
+          2260
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3307
+        </td>
+        <td>
+          2298
+          -
+          2632
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  AkkaUtil.this.externalLogger.debug(scala.StringContext.apply(&quot;Could not find deployment config for path [&quot;, &quot;], deploying default round robin with &quot;, &quot; routees&quot;).s(deployPath, defNumRoutees));
+  context.actorOf(akka.routing.RoundRobinPool.apply(defNumRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props), actorName)
+}
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          3302
+        </td>
+        <td>
+          2269
+          -
+          2296
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td style="background: #F0ADAD">
+          config.hasPath(deployPath).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          3304
+        </td>
+        <td>
+          2410
+          -
+          2549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td style="background: #F0ADAD">
+          AkkaUtil.this.externalLogger.debug(scala.StringContext.apply(&quot;Could not find deployment config for path [&quot;, &quot;], deploying default round robin with &quot;, &quot; routees&quot;).s(deployPath, defNumRoutees))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          3303
+        </td>
+        <td>
+          2431
+          -
+          2548
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Could not find deployment config for path [&quot;, &quot;], deploying default round robin with &quot;, &quot; routees&quot;).s(deployPath, defNumRoutees)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          3306
+        </td>
+        <td>
+          2556
+          -
+          2626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          context.actorOf(akka.routing.RoundRobinPool.apply(defNumRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props), actorName)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          3305
+        </td>
+        <td>
+          2572
+          -
+          2614
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Pool.props
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.RoundRobinPool.apply(defNumRoutees, akka.routing.RoundRobinPool.apply$default$2, akka.routing.RoundRobinPool.apply$default$3, akka.routing.RoundRobinPool.apply$default$4, akka.routing.RoundRobinPool.apply$default$5).props(props)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3310
+        </td>
+        <td>
+          2646
+          -
+          2697
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          context.actorOf(akka.routing.FromConfig.props(props), actorName)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3309
+        </td>
+        <td>
+          2646
+          -
+          2697
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.actor.ActorRefFactory.actorOf
+        </td>
+        <td style="background: #F0ADAD">
+          context.actorOf(akka.routing.FromConfig.props(props), actorName)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          3308
+        </td>
+        <td>
+          2662
+          -
+          2685
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          akka.routing.Pool.props
+        </td>
+        <td style="background: #F0ADAD">
+          akka.routing.FromConfig.props(props)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
