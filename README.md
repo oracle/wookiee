@@ -1,6 +1,6 @@
 # Wookiee Platform
 
-[![Build Status](https://travis-ci.org/Webtrends/wookiee.svg?branch=master)](https://travis-ci.org/Webtrends/wookiee?branch=master) [![Coverage Status](https://coveralls.io/repos/Webtrends/wookiee/badge.svg)](https://coveralls.io/r/Webtrends/wookiee) [![License](http://img.shields.io/:license-Apache%202-red.svg)](http://www.apache.org/licenses/LICENSE-2.0.txt)
+[![Build Status](https://travis-ci.org/Webtrends/wookiee.svg?branch=master)](https://travis-ci.org/Webtrends/wookiee?branch=master) [![Coverage Status](https://coveralls.io/repos/Webtrends/wookiee/badge.svg?branch=master&service=github)](https://coveralls.io/github/Webtrends/wookiee?branch=master) [![Latest Release](https://img.shields.io/github/release/webtrends/wookiee.svg)](https://github.com/Webtrends/wookiee/releases) [![License](http://img.shields.io/:license-Apache%202-red.svg)](http://www.apache.org/licenses/LICENSE-2.0.txt)
 
 Fastest way to get going with Wookiee check out the [Quickstart Guide](docs/quickstart.md).
 
