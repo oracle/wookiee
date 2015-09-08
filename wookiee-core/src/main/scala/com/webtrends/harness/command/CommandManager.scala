@@ -33,9 +33,9 @@ import scala.util.{Success, Failure}
 
 case class AddCommandWithProps[T<:Command](name:String, props:Props)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T])
-case class ExecuteCommand(name:String, bean:Option[CommandBean]=None)
-case class ExecuteRemoteCommand(name:String, server:String, port:Int, bean:Option[CommandBean]=None)
-case class CommandResponse[T](data:Option[T], responseType:String="json")
+case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
+case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
+case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json")
 
 /**
  * @author Michael Cuthbert on 12/1/14.
@@ -92,7 +92,7 @@ class CommandManager extends PrepareForShutdown {
    * @param port the port that the server is listening on
    * @param bean
    */
-  protected def executeRemoteCommand[T](name:String, server:String, port:Int=2552, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
+  protected def executeRemoteCommand[T:Manifest](name:String, server:String, port:Int=2552, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
     val p = Promise[CommandResponse[T]]
     context.system.settings.config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
@@ -115,7 +115,7 @@ class CommandManager extends PrepareForShutdown {
    * @param name
    * @param bean
    */
-  protected def executeCommand[T](name:String, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
+  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
     val p = Promise[CommandResponse[T]]
     CommandManager.getCommand(name) match {
       case Some(ref) =>
@@ -153,6 +153,8 @@ object CommandManager {
   }
 
   def getCommand(name:String) : Option[ActorRef] = commandMap.get(name)
+
+  def getCommands() : Option[Map[String, ActorRef]] = Some(commandMap.toMap)
 
   def getRemoteAkkaPath(server:String, port:Int) : String = s"akka.tcp://server@$server:$port${HarnessConstants.CommandFullName}"
 }

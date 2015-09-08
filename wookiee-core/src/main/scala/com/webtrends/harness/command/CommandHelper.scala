@@ -22,22 +22,29 @@ package com.webtrends.harness.command
 import akka.actor.{Props, ActorRef, Actor}
 import akka.pattern.ask
 import akka.util.Timeout
+import com.webtrends.harness.app.Harness
 import scala.concurrent.duration._
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import scala.concurrent.{Promise, Future}
 import scala.util.{Failure, Success}
 
+trait CommandHelper extends ActorLoggingAdapter with BaseCommandHelper {
+  this: Actor =>
+  override implicit val actorSystem = context.system
+
+}
 /**
  * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily
  * and execute commands at will
  *
  * @author Michael Cuthbert on 12/10/14.
  */
-trait CommandHelper extends ActorLoggingAdapter {
-  this: Actor =>
+trait BaseCommandHelper  {
+  import scala.concurrent.ExecutionContext.Implicits.global
 
-  import context.dispatcher
+  implicit val actorSystem = Harness.getActorSystem.get
+
   var commandManagerInitialized = false
   var commandManager:Option[ActorRef] = None
 
@@ -50,7 +57,7 @@ trait CommandHelper extends ActorLoggingAdapter {
     commandManagerInitialized match {
       case true => p success commandManagerInitialized
       case false =>
-        context.actorSelection(HarnessConstants.CommandFullName).resolveOne()(2 seconds) onComplete {
+        actorSystem.actorSelection(HarnessConstants.CommandFullName).resolveOne()(2 seconds) onComplete {
           case Success(s) =>
             commandManagerInitialized = true
             commandManager = Some(s)

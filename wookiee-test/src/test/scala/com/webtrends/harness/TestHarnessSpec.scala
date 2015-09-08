@@ -24,11 +24,17 @@ import akka.actor.ActorRef
 import akka.testkit.TestProbe
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
+import com.webtrends.harness.command.{CommandManager, CommandResponse, ExecuteCommand}
 import com.webtrends.harness.component.messages.StatusRequest
+import com.webtrends.harness.policy.{Policy, PolicyManager}
 import com.webtrends.harness.service.messages.Ready
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
+import com.webtrends.harness.service.test.command.TestCommand
+import com.webtrends.harness.service.test.policy.TestPolicy
 import com.webtrends.harness.service.test.{TestComponent, TestService, TestHarness}
 import org.specs2.mutable.SpecificationWithJUnit
+import scala.concurrent.duration.Duration
+
 
 /**
  * woods
@@ -67,6 +73,42 @@ class TestHarnessSpec extends SpecificationWithJUnit {
       TestComponent.ComponentMessage must beEqualTo(probe.expectMsg(TestComponent.ComponentMessage))
     }
 
+    "load policy manager" in {
+      val policyManager = sys.policyManager
+      assert(policyManager.isDefined, "Policy Manager was not registered")
+      TestHarnessSpec.GetPolicy("TestPolicy", TestPolicy.getClass) must equalTo(TestPolicy)
+    }
+
+    "load policy manager and policy size equals 1" in {
+      val policyManager = sys.policyManager
+      assert(policyManager.isDefined, "Policy Manager was not registered")
+      PolicyManager.getPolicies.get.size equals 1
+    }
+
+    "load command manager and commands size equals 1" in {
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      CommandManager.getCommands().get.size equals 1
+    }
+
+    "load test command and equal Test OK" in {
+      val probe = TestProbe()
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      probe.send(commandManager.get, ExecuteCommand[CommandResponse[String]](TestCommand.CommandName))
+      "Test OK" equals probe.expectMsgPF[String](Duration(2, TimeUnit.SECONDS)) {
+        case r:CommandResponse[String] =>
+          r.data.get
+        case _ =>
+          "Test NOT OK"
+      }
+    }
+
+
+    "be able to call a policy and equal ok" in {
+      TestPolicy.testPolicy().get equals "Test OK"
+    }
+
     "shutdown services and components" in {
       val probe = TestProbe()
       val testService = sys.getService("testservice")
@@ -82,5 +124,12 @@ class TestHarnessSpec extends SpecificationWithJUnit {
       TestHarness.log.foreach(_.debug(s"Results $results"))
       results must contain(be_==("GotShutdown")).foreach
     }
+  }
+}
+
+object TestHarnessSpec {
+
+  def GetPolicy[T<:Policy](value: String, policyClass: Class[T]) : T = {
+    PolicyManager.getPolicy(value).get.asInstanceOf[T]
   }
 }
