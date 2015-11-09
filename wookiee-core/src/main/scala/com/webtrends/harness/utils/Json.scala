@@ -19,11 +19,25 @@
 
 package com.webtrends.harness.utils
 
+import java.text.NumberFormat
+
 import scala.util.Sorting
 import scala.util.parsing.combinator._
 
+import java.util.Locale
+
 trait JsonSerializable {
   def toJson(): String
+}
+
+trait JsonLocalization {
+  JsonSerializable =>
+
+  def toJson(): String = {
+    toJson(None)
+  }
+
+  def toJson(l:Option[Locale]): String
 }
 
 /**
@@ -145,22 +159,23 @@ object Json {
   /**
    * Returns a JSON representation of the given object, as a JsonQuoted object.
    */
-  def build(obj: Any, sort: Boolean = true): JsonQuoted = {
+  def build(obj: Any, sort: Boolean = true, locale:Option[Locale] = None): JsonQuoted = {
     val rv = obj match {
       case JsonQuoted(body) => body
       case null => "null"
       case x: Boolean => x.toString
-      case x: Number => x.toString
-      case array: Array[_] => array.map(build(_, sort).body).mkString("[", ",", "]")
+      case x: Number => locale.fold(x.toString)((l) => quote(NumberFormat.getInstance(l).format(x)))
+      case array: Array[_] => array.map(build(_, sort, locale).body).mkString("[", ",", "]")
       case list: Seq[_] =>
-        list.map(build(_, sort).body).mkString("[", ",", "]")
+        list.map(build(_, sort, locale).body).mkString("[", ",", "]")
       case map: collection.mutable.LinkedHashMap[_, _] =>
-        map.map { case (k, v) => quote(k.toString) + ":" + build(v, sort).body }.mkString("{", ",", "}")
+        map.map { case (k, v) => quote(k.toString) + ":" + build(v, sort, locale).body }.mkString("{", ",", "}")
       case map: scala.collection.Map[_, _] =>
         val finalMap = if (sort) Sorting.stableSort[(Any, Any), String](map.iterator.toList, { case (k, v) => k.toString }).toMap else map
         finalMap.map { case (k, v) =>
-          quote(k.toString) + ":" + build(v, sort).body
+          quote(k.toString) + ":" + build(v, sort, locale).body
         }.mkString("{", ",", "}")
+      case x: JsonLocalization => x.toJson(locale)
       case x: JsonSerializable => x.toJson()
       case x =>
         quote(x.toString)
@@ -169,7 +184,7 @@ object Json {
   }
 
   /**
-   * Parses a JSON String representation into its native Scala reprsentation.
+   * Parses a JSON String representation into its native Scala representation.
    */
   def parse(s: String): Any = (new JsonParser).parse(s)
 }
