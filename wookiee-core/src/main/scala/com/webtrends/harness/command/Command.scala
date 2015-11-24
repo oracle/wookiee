@@ -67,7 +67,7 @@ trait Command extends HActor {
    *
    * @return
    */
-  def execute[T](bean:Option[CommandBean]=None) : Future[CommandResponse[T]]
+  def execute[T](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
 }
 
 object Command {
