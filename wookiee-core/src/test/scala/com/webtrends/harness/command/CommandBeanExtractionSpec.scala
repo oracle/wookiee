@@ -1,6 +1,5 @@
 package com.webtrends.harness.command
 
-import com.webtrends.harness.command.CommandBean
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.specs2.mutable.Specification
