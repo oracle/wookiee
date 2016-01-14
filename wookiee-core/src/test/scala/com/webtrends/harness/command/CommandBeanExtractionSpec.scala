@@ -36,7 +36,7 @@ class CommandBeanExtractionSpec extends Specification {
 
         val testExtractor = new CommandBeanExtraction {
           override val CommandBeanExtractParameters = List[CommandBeanExtractParameter[_]](
-            OptionalStringCommandBeanExtractParameter("optionalString", () => "defaultValue")
+            OptionalStringCommandBeanExtractParameter("optionalString", Some(() => "defaultValue"))
           )
         }
 
@@ -54,7 +54,7 @@ class CommandBeanExtractionSpec extends Specification {
 
         val testExtractor = new CommandBeanExtraction {
           override val CommandBeanExtractParameters = List[CommandBeanExtractParameter[_]](
-            OptionalStringCommandBeanExtractParameter("optionalString", () => "defaultValue")
+            OptionalStringCommandBeanExtractParameter("optionalString", Some(() => "defaultValue"))
           )
         }
 
@@ -64,6 +64,22 @@ class CommandBeanExtractionSpec extends Specification {
         extractPromise must beSuccessfulTry
 
         extractPromise.get("optionalString") mustEqual "defaultValue"
+      }
+
+      "Support optional parameters without a default " in {
+
+        val testExtractor = new CommandBeanExtraction {
+          override val CommandBeanExtractParameters = List[CommandBeanExtractParameter[_]](
+            OptionalStringCommandBeanExtractParameter("optionalString")
+          )
+        }
+
+        val bean = CommandBean(Map())
+
+        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        extractPromise must beSuccessfulTry
+
+        extractPromise.get.get("optionalString") mustEqual None
       }
 
       "Convert values to Strings if possible" in {
@@ -182,7 +198,7 @@ class CommandBeanExtractionSpec extends Specification {
 
         val testExtractor = new CommandBeanExtraction {
           override val CommandBeanExtractParameters = List[CommandBeanExtractParameter[_]](
-            OptionalStringCommandBeanExtractParameter("optionalString", () => {throw new Exception("failed")})
+            OptionalStringCommandBeanExtractParameter("optionalString", Some(() => {throw new Exception("failed")}))
           )
         }
 
@@ -229,7 +245,7 @@ class CommandBeanExtractionSpec extends Specification {
         val testExtractor = new CommandBeanExtraction {
           override val CommandBeanExtractParameters = List[CommandBeanExtractParameter[_]](
             RequiredStringCommandBeanExtractParameter("requiredButMissingStringParameter"),
-            OptionalStringCommandBeanExtractParameter("optionalStringParameter", () => {throw new Exception()}),
+            OptionalStringCommandBeanExtractParameter("optionalStringParameter", Some(() => {throw new Exception()})),
             CustomCommandBeanExtractParameter("requiredCustomCommandParameter")
           )
 
