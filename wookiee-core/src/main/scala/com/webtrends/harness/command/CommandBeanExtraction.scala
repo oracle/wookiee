@@ -80,7 +80,7 @@ sealed trait CommandBeanExtractParameter[T] {
 trait RequiredCommandBeanExtractParameter[T] extends CommandBeanExtractParameter[T]
 
 trait OptionalCommandBeanExtractParameter[T] extends CommandBeanExtractParameter[T] {
-  def defaultValue: T
+  def defaultValue: Option[T]
 }
 
 sealed trait ExtractString extends CommandBeanExtractParameter[String]{
@@ -109,26 +109,35 @@ sealed trait ExtractDateTime extends CommandBeanExtractParameter[DateTime]{
 case class RequiredStringCommandBeanExtractParameter(key: String) extends RequiredCommandBeanExtractParameter[String]
 with ExtractString
 
-case class OptionalStringCommandBeanExtractParameter(key: String, val default: () => String)
+case class OptionalStringCommandBeanExtractParameter(key: String, val default: Option[() => String] = None)
   extends OptionalCommandBeanExtractParameter[String] with ExtractString {
 
-  override def defaultValue = default()
+  override def defaultValue = default match {
+    case Some(d) => Some(d())
+    case None => None
+  }
 }
 
 case class RequiredIntCommandBeanExtractParameter(key: String) extends RequiredCommandBeanExtractParameter[Int]
 with ExtractInt
 
-case class OptionalIntCommandBeanExtractParameter(key: String, val default: () => Int)
+case class OptionalIntCommandBeanExtractParameter(key: String, val default: Option[() => Int] = None)
   extends OptionalCommandBeanExtractParameter[Int] with ExtractInt {
 
-  override def defaultValue = default()
+  override def defaultValue = default match {
+    case Some(d) => Some(d())
+    case None => None
+  }
 }
 
 case class RequiredDateTimeCommandBeanExtractParameter(key: String, override val formatter: DateTimeFormatter)
   extends RequiredCommandBeanExtractParameter[DateTime] with ExtractDateTime
 
-case class OptionalDateTimeCommandBeanExtractParameter(key: String, val default: () => DateTime, override val formatter: DateTimeFormatter)
+case class OptionalDateTimeCommandBeanExtractParameter(key: String, override val formatter: DateTimeFormatter, val default: Option[() => DateTime] = None)
   extends OptionalCommandBeanExtractParameter[DateTime] with ExtractDateTime {
 
-  override def defaultValue = default()
+  override def defaultValue = default match {
+    case Some(d) => Some(d())
+    case None => None
+  }
 }
