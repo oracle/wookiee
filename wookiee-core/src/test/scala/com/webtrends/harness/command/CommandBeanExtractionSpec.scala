@@ -6,7 +6,8 @@ import org.specs2.mutable.Specification
 import java.lang.Double
 
 
-class CommandBeanExtractionSpec extends Specification {
+class CommandBeanExtractionSpec extends Specification
+{
 
   def passThroughFac(v: Map[String, Any]): Map[String, Any] = v
 
