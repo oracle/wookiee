@@ -40,9 +40,13 @@ trait CommandBeanExtraction {
           case p: RequiredCommandBeanExtractParameter[_] if (!bean.contains(p.key)) =>
             exceptions += new IllegalArgumentException(s"Missing required parameter '${p.key}'")
             None
-          case p: OptionalCommandBeanExtractParameter[_] if (!bean.contains(p.key)) =>
+          case p: OptionalCommandBeanExtractParameter[_] if (!bean.contains(p.key) ) =>
             try {
-              Some(p.key -> p.defaultValue)
+              p.defaultValue match {
+                case Some(d) => Some(p.key -> d)
+                case _ => None
+              }
+
             } catch {
               case ex: Exception =>
                 exceptions += new IllegalArgumentException(s"Invalid value for '${p.key}'")
