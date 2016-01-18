@@ -2,11 +2,10 @@ package com.webtrends.harness.command
 
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
-import org.specs2.mutable.Specification
+import org.specs2.mutable.SpecificationWithJUnit
 import java.lang.Double
 
-
-class CommandBeanExtractionSpec extends Specification
+class CommandBeanExtractionSpec extends SpecificationWithJUnit
 {
 
   def passThroughFac(v: Map[String, Any]): Map[String, Any] = v
