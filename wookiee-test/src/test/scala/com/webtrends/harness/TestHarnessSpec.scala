@@ -41,7 +41,7 @@ import scala.concurrent.duration.Duration
  * 12/31/14
  */
 class TestHarnessSpec extends SpecificationWithJUnit {
-  implicit val timeout = Timeout(2000, TimeUnit.MILLISECONDS)
+  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   val sys = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent])))
   implicit val actorSystem = TestHarness.system.get

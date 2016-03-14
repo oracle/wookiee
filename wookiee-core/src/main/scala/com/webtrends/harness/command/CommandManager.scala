@@ -31,15 +31,21 @@ import scala.collection.mutable
 import scala.concurrent.{Future, Promise}
 import scala.util.{Success, Failure}
 
+/**
+  * @author Michael Cuthbert on 12/1/14.
+  */
+
 case class AddCommandWithProps[T<:Command](name:String, props:Props)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T])
 case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
 case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
-case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json")
+case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json") extends BaseCommandResponse[T]
 
-/**
- * @author Michael Cuthbert on 12/1/14.
- */
+trait BaseCommandResponse[T] {
+  val data:Option[T]
+  val responseType: String
+}
+
 class CommandManager extends PrepareForShutdown {
 
   import context.dispatcher
@@ -85,20 +91,21 @@ class CommandManager extends PrepareForShutdown {
   }
 
   /**
-   * Executes a remote command and will return a commandResponse to the sender
+   * Executes a remote command and will return a BaseCommandResponse to the sender
    *
    * @param name The name of the command you want to execute
    * @param server The server that has the command on
    * @param port the port that the server is listening on
    * @param bean
    */
-  protected def executeRemoteCommand[T:Manifest](name:String, server:String, port:Int=2552, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
-    val p = Promise[CommandResponse[T]]
+  protected def executeRemoteCommand[T:Manifest](name:String, server:String,
+                                        port:Int=2552, bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]] = {
+    val p = Promise[BaseCommandResponse[T]]
     context.system.settings.config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
         context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>
-            (ref ? ExecuteCommand(name, bean)).mapTo[CommandResponse[T]] onComplete {
+            (ref ? ExecuteCommand(name, bean)).mapTo[BaseCommandResponse[T]] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure f
             }
@@ -110,16 +117,16 @@ class CommandManager extends PrepareForShutdown {
   }
 
   /**
-   * Executes a command and will return a CommandResponse to the sender
+   * Executes a command and will return a BaseCommandResponse to the sender
    *
    * @param name
    * @param bean
    */
-  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None) : Future[CommandResponse[T]] = {
-    val p = Promise[CommandResponse[T]]
+  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]] = {
+    val p = Promise[BaseCommandResponse[T]]
     CommandManager.getCommand(name) match {
       case Some(ref) =>
-        (ref ? ExecuteCommand(name, bean)).mapTo[CommandResponse[T]] onComplete {
+        (ref ? ExecuteCommand(name, bean)).mapTo[BaseCommandResponse[T]] onComplete {
           case Success(s) => p success s
           case Failure(f) => p failure f
         }

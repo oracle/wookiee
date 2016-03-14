@@ -18,7 +18,7 @@ The design is fairly simple and relies on Akka quite heavily by hiding some of t
 	```
 4. Service - The base service object contains helper functions that enable developers to easily use the Commands. Alternatively you can include the trait CommandHelper that includes the helper functions. Below is a list of those commands:
 	* ```addCommand(name:String, actorClass:Class[T], remote:Boolean=false)``` - This function allows you to easily add commands to the CommandManager, generally should not be used outside of the addCommands function. See below.
-	* ```executeCommand(name:String, bean:Option[CommandBean]=None, server:Option[String]=None, port:Int=0) : Future[CommandResponse]``` - Executes commands. Include the server and port if you want the command executed on a remote server.
+	* ```executeCommand(name:String, bean:Option[CommandBean]=None, server:Option[String]=None, port:Int=0) : Future[BaseCommandResponse]``` - Executes commands. Include the server and port if you want the command executed on a remote server.
 	* ```addCommands``` - This function is called once the service resolves the actorRef for the CommandManager, so you would add your commands by overriding this function.
 ```scala 
 override def addCommands = {
@@ -32,7 +32,7 @@ executeCommand(PingCommand.CommandName) onComplete {
     case Failure(f) => ctx.complete(f.getMessage)
 }
 ```	
-Above is an example of how you would execute your commands and get a response of type CommandResponse.
+Above is an example of how you would execute your commands and get a response of type BaseCommandResponse.
 
 ###Example
 For an example on how all this will work in the code you can see the example "example-http" for specific detail. However a basic Command would look as follows:

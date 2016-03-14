@@ -26,12 +26,12 @@ import akka.pattern._
 import akka.util.Timeout
 import ch.qos.logback.classic.Level
 import com.typesafe.config.{Config, ConfigFactory}
-import com.webtrends.harness.app.HarnessActor.{SystemReady, GetManagers, ReadyCheck}
-import com.webtrends.harness.app.Harness
-import com.webtrends.harness.component.{LoadComponent, Component}
-import com.webtrends.harness.service.Service
-import com.webtrends.harness.service.messages.{Ready, LoadService}
 import com.webtrends.harness.HarnessConstants._
+import com.webtrends.harness.app.Harness
+import com.webtrends.harness.app.HarnessActor.{GetManagers, ReadyCheck, SystemReady}
+import com.webtrends.harness.component.{Component, LoadComponent}
+import com.webtrends.harness.service.Service
+import com.webtrends.harness.service.messages.LoadService
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -41,12 +41,13 @@ object TestHarness {
 
   /**
    * Create a new instance of the test harness and start all of it's components
-   * @param config the config to use
+    *
+    * @param config the config to use
    * @return
    */
   def apply(config:Config,
             serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
-            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
+            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.INFO) : TestHarness = {
     harness match {
       case Some(h) => h
       case None =>
@@ -107,7 +108,7 @@ class TestHarness(conf:Config) {
   }
 
   def stop = {
-    Harness.shutdownActorSystem(false) {
+    Harness.shutdownActorSystem(block = false) {
       // wait a second to make sure it shutdown correctly
       Thread.sleep(1000)
     }

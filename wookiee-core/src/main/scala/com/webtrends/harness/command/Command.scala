@@ -67,8 +67,7 @@ trait Command extends HActor with CommandHelper {
    *
    * @return
    */
-  def execute[T:Manifest](bean:Option[CommandBean]=None) : Future[CommandResponse[T]]
-
+  def execute[T:Manifest](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
 }
 
 object Command {

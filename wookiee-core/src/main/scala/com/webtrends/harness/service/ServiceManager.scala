@@ -18,23 +18,24 @@
  */
 package com.webtrends.harness.service
 
+import java.io.{File, FilenameFilter}
+import java.nio.file._
+
 import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
-import com.typesafe.config.{ConfigFactory, Config}
+import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.HarnessConstants
-import com.webtrends.harness.app.{PrepareForShutdown, HActor}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, SystemReady}
+import com.webtrends.harness.app.PrepareForShutdown
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.logging.LoggingAdapter
-import com.webtrends.harness.service.ServiceManager.RestartService
-import com.webtrends.harness.service.ServiceManager.{GetMetaDataByName, ServicesReady}
-import com.webtrends.harness.service.messages.{LoadService, GetMetaData, Ready}
+import com.webtrends.harness.service.ServiceManager.{GetMetaDataByName, RestartService, ServicesReady}
+import com.webtrends.harness.service.messages.{GetMetaData, LoadService, Ready}
 import com.webtrends.harness.service.meta.ServiceMetaData
-import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, ConfigChange, SystemReady}
-import java.io.{FilenameFilter, File}
-import java.nio.file._
+
 import scala.Predef._
-import scala.concurrent.duration._
 import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.util.control.Exception._
 
 /**
@@ -66,7 +67,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     // Kill any custom class loaders
     services.values foreach {
       p =>
-        if (p._2.isDefined) p._2.get.close
+        if (p._2.isDefined) p._2.get.close()
     }
     services.clear
     log.info("Service manager stopped: {}", context.self.path)
@@ -89,7 +90,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
     case LoadService(name, clazz) =>
       log.info(s"We have received a message to load service $name")
-      sender ! loadService(name, clazz)
+      sender ! context.child(name).orElse(context.child(clazz.getSimpleName)).orElse(loadService(name, clazz))
 
     case GetMetaDataByName(service) =>
       log.info("We have received a message to get service meta data")
@@ -99,9 +100,9 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
       }
 
     case RestartService(service) =>
-      log.info(s"We have received a message to restart the service ${service}")
-      val meta = services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
-        case Some(meta) => services.get(meta).get._1 ! Kill
+      log.info(s"We have received a message to restart the service $service")
+     services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
+        case Some(m) => services.get(m).get._1 ! Kill
         case None =>
       }
 
@@ -114,10 +115,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     case Terminated(service) =>
       log.info("Service {} terminated", service.path.name)
       // Find and nuke the classloader
-      services.filter(_._1.akkaPath.equals(service.path.toString)) foreach {
+      services.filter(_._1.akkaPath == service.path.toString) foreach {
         p =>
           if (p._2._2.isDefined) {
-            p._2._2.get.close
+            p._2._2.get.close()
           }
           services.remove(p._1)
       }
@@ -152,7 +153,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
   override protected def getHealth: Future[HealthComponent] = {
     log.debug("Service health requested")
     Future {
-      if (services.size == 0) {
+      if (services.isEmpty) {
           HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, "There are no services currently installed")
       } else if (context.children.size != services.size) {
           HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, s"There are ${services.size} installed, but only ${context.children.size} that were successfully loaded")
@@ -177,7 +178,7 @@ object ServiceManager extends LoggingAdapter {
 
   /**
    * Load the configuration files for the deployed services
-   * @param sysConfig
+   * @param sysConfig System level config for wookiee
    * @return
    */
   def loadConfigs(sysConfig: Config): Seq[Config] = {
@@ -191,11 +192,11 @@ object ServiceManager extends LoggingAdapter {
             log.info("Checking the directory {} for any *.conf files to load", path)
             for {
               file <- getConfigFiles(path)
-              conf = allCatch either (ConfigFactory.parseFile(file)) match {
+              conf = allCatch either ConfigFactory.parseFile(file) match {
                 case Left(fail) => log.error(s"Could not load the config file ${file.getAbsolutePath}", fail); None
                 case Right(value) => Some(value)
               }
-              if (conf.isDefined)
+              if conf.isDefined
             } yield conf.get
         }
         configs
