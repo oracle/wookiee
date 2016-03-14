@@ -20,7 +20,7 @@
 package com.webtrends.harness.policy
 
 import akka.util.Timeout
-import com.webtrends.harness.command.CommandResponse
+import com.webtrends.harness.command.{BaseCommandResponse, CommandResponse}
 import scala.concurrent.{Promise, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
@@ -44,7 +44,7 @@ trait Policy extends AnyRef with PolicyHelper {
   def policyName : String = getClass.getSimpleName
 
 
-  def decomposeCommandResponse[T<:AnyRef:Manifest](bean:Future[CommandResponse[T]]) : Future[T] = {
+  def decomposeCommandResponse[T<:AnyRef:Manifest](bean:Future[BaseCommandResponse[T]]) : Future[T] = {
     import scala.concurrent.ExecutionContext.Implicits.global
 
     val f = Promise[T]()
