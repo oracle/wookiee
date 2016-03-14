@@ -72,6 +72,7 @@ class TestHarness(conf:Config) {
   var serviceManager: Option[ActorRef] = None
   var componentManager: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
+  var policyManager: Option[ActorRef] = None
   var config = conf.withFallback(defaultConfig)
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
 
@@ -89,6 +90,7 @@ class TestHarness(conf:Config) {
       case m =>
         val map = m.asInstanceOf[Map[String, ActorRef]]
         serviceManager = map.get(ServicesName)
+        policyManager = map.get(PolicyName)
         commandManager = map.get(CommandName)
         componentManager = map.get(ComponentName)
         TestHarness.log.get.info("Managers all accounted for")

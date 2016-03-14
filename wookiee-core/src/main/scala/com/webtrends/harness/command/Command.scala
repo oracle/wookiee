@@ -33,7 +33,7 @@ import scala.concurrent.Future
  *
  * @author Michael Cuthbert on 12/1/14.
  */
-trait Command extends HActor {
+trait Command extends HActor with CommandHelper {
   import context.dispatcher
 
   override def receive = health orElse ({
@@ -67,7 +67,7 @@ trait Command extends HActor {
    *
    * @return
    */
-  def execute[T](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
+  def execute[T:Manifest](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
 }
 
 object Command {

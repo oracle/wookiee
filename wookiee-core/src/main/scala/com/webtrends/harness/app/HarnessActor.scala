@@ -30,6 +30,7 @@ import com.webtrends.harness.config.ConfigWatcher
 import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
 import com.webtrends.harness.http.InternalHTTP
 import com.webtrends.harness.logging.ActorLoggingAdapter
+import com.webtrends.harness.policy.PolicyManager
 import com.webtrends.harness.service.ServiceManager
 import com.webtrends.harness.service.ServiceManager.ServicesReady
 import com.webtrends.harness.service.messages.CheckHealth
@@ -98,6 +99,7 @@ class HarnessActor extends Actor
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
+  var policyManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
   var configWatcherActor: Option[ActorRef] = None
@@ -131,10 +133,15 @@ class HarnessActor extends Actor
         case Some(cm) => cm ! SystemReady
         case None => // ignore
       }
+      policyManager match {
+        case Some(pm) => pm ! SystemReady
+        case None => // ignore
+      }
     case ReadyCheck => sender ! running.get
     case GetManagers =>
       sender ! Map[String, Option[ActorRef]](
         HarnessConstants.CommandName -> commandManager,
+        HarnessConstants.PolicyName -> policyManager,
         HarnessConstants.ServicesName -> serviceActor,
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
@@ -156,6 +163,9 @@ class HarnessActor extends Actor
       // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
       log.info("Command Manager started: {}", commandManager)
+      // initialize the command manager right at the beginning
+      policyManager = Some(context.actorOf(PolicyManager.props, HarnessConstants.PolicyName))
+      log.info("Policy Manager started: {}", policyManager)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
     log.info("Component manager started: {}", componentActor)
@@ -190,8 +200,9 @@ class HarnessActor extends Actor
     if (running.isDefined && running.get) {
       val tmpService = serviceActor
       val tmpComp = componentActor
-      val tmpCmd = commandManager;
-      prepareForShutdown(tmpService, tmpCmd, tmpComp) andThen {
+      val tmpCmd = commandManager
+      val tmpPol = policyManager
+      prepareForShutdown(tmpService, tmpPol, tmpCmd, tmpComp) andThen {
         case _ => gracefulShutdown
       }
     }

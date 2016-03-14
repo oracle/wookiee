@@ -26,11 +26,13 @@ object HarnessConstants {
   val ServicesName = "services"
   val ComponentName = "component"
   val CommandName = "command"
+  val PolicyName = "policy"
   // full actor names
   val ServicesFullName = ActorPrefix + "/" + ServicesName
   val HealthFullName = ActorPrefix + "/" + Health.HealthName
   val ComponentFullName = ActorPrefix + "/" + ComponentName
   val CommandFullName = ActorPrefix + "/" + CommandName
+  val PolicyFullName = ActorPrefix + "/" + PolicyName
 
   val KeyStartupTimeout = "startup-timeout"
   val KeyDefaultTimeout = "default-timeout"

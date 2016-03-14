@@ -17,14 +17,13 @@
  * limitations under the License.
  */
 package com.webtrends.harness.service.test
-
-import akka.actor.ActorRef
-import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
+import com.webtrends.harness.policy.PolicyManager
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
+import com.webtrends.harness.service.test.command.TestCommand
+import com.webtrends.harness.service.test.policy.TestPolicy
 
 import scala.concurrent.Future
 
@@ -48,6 +47,14 @@ class TestService extends Service with ShutdownListener {
       metaData = Some(meta)
       log.info("I am now ready, meta data set: " + self.path)
     case GetMetaDetails => sender ! ServiceMetaDetails(supportsHttp = false)
+  }
+
+  /**
+   * This function should be implemented by any service that wants to add
+   * any commands to make available for use
+   */
+  override def addPolicies: Unit = {
+    PolicyManager.addPolicy(TestPolicy.PolicyName, TestPolicy)
   }
 
 }
