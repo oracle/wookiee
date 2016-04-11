@@ -134,7 +134,7 @@ trait BaseCommandHelper  {
    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
    * @return
    */
-  def executeCommand[T](name:String, bean:Option[CommandBean]=None, server:Option[String]=None,
+  def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, server:Option[String]=None,
                         port:Int=2552)(implicit timeout:Timeout) : Future[BaseCommandResponse[T]] = {
 
     val p = Promise[BaseCommandResponse[T]]
