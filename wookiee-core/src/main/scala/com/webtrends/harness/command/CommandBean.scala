@@ -28,6 +28,7 @@ import scala.collection.mutable
  *
  * @author Michael Cuthbert on 12/1/14.
  */
+@SerialVersionUID(100L)
 class CommandBean extends mutable.HashMap[String, AnyRef] {
 
   def appendMap(params:Map[String, AnyRef]) = params foreach { this += _ }

@@ -39,6 +39,8 @@ case class AddCommandWithProps[T<:Command](name:String, props:Props)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T])
 case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
 case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
+
+@SerialVersionUID(100L)
 case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json") extends BaseCommandResponse[T]
 
 trait BaseCommandResponse[T] {
