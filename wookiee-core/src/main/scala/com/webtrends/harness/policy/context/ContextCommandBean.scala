@@ -7,6 +7,7 @@ import scala.collection.mutable
 /**
  * Created by crossleyp on 8/24/15.
  */
+@SerialVersionUID(100L)
 class ContextCommandBean extends CommandBean {
 
   private val context:mutable.Map[String, AnyRef] = mutable.Map[String, AnyRef]()
