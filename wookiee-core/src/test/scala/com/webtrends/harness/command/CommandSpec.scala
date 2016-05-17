@@ -43,7 +43,7 @@ class CommandSpec extends SpecificationWithJUnit {
       Command.matchPath("/v1|v2/foo|bar/baz",  "/v2/bar/baz") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
     }
 
-    "Extract String values" in {
+    "Extract String values using $" in {
       Command.matchPath("/$ver",  "/v2") shouldEqual Some(CommandBean(Map("ver" -> "v2")))
       Command.matchPath("/$ver/foo/bar",  "/v2/foo/bar") shouldEqual Some(CommandBean(Map("ver" -> "v2")))
       Command.matchPath("/foo/$ver/bar",  "foo/v2/bar") shouldEqual Some(CommandBean(Map("ver" -> "v2")))
@@ -53,11 +53,21 @@ class CommandSpec extends SpecificationWithJUnit {
       Command.matchPath("/foo/bar/$ver",  "/foo/bar/" + numStr) shouldEqual Some(CommandBean(Map("ver" -> numStr)))
     }
 
-    "Extract Integer values" in {
+    "Extract Integer values using $" in {
       Command.matchPath("/$ver",  "/123") shouldEqual Some(CommandBean(Map("ver" -> new Integer(123))))
       Command.matchPath("/$ver/foo/bar",  "/123/foo/bar") shouldEqual Some(CommandBean(Map("ver" -> new Integer(123))))
       Command.matchPath("/foo/$ver/bar",  "foo/123/bar") shouldEqual Some(CommandBean(Map("ver" -> new Integer(123))))
       Command.matchPath("/foo/bar/$ver",  "/foo/bar/-123") shouldEqual Some(CommandBean(Map("ver" -> new Integer(-123))))
+    }
+
+    "Extract String values using %" in {
+      Command.matchPath("/%ver",  "/123") shouldEqual Some(CommandBean(Map("ver" -> "123")))
+      Command.matchPath("/%ver",  "/foo") shouldEqual Some(CommandBean(Map("ver" -> "foo")))
+    }
+
+    "Extract Integer values using # and don't match if value is not an integer" in {
+      Command.matchPath("/#ver",  "/123") shouldEqual Some(CommandBean(Map("ver" -> new Integer(123))))
+      Command.matchPath("/#ver",  "/foo") shouldEqual None
     }
   }
 

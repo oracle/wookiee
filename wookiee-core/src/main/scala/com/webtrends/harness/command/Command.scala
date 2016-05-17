@@ -81,34 +81,42 @@ object Command {
    *         key var1 will equal 1 as per the example above
    */
   def matchPath(test:String, uri:String) : Option[CommandBean] = {
+
+    import com.webtrends.harness.utils.StringPathUtil._
+
     val bean = new CommandBean()
-    val testPath = test.split("/") filter { x => x.nonEmpty }
-    val urlPath = uri.split("/") filter { x => x.nonEmpty }
+    val testPath = test.splitPath()
+    val urlPath = uri.splitPath()
 
     val m = urlPath.corresponds(testPath) {
-      // case for grabbing variable from the url
-      case (x, y) if y.charAt(0) == '$' =>
-        // try to normalize the segment into an INT or STRING
-        val key = y.substring(1)
-        Try(x.toInt) match {
+
+      // Convert the segment into an Integer if possible, otherwise leave it as a String
+      case (uri, test) if test.head == '$' =>
+        val key = test.substring(1)
+        Try(uri.toInt) match {
           case Success(v) => bean.addValue(key, v.asInstanceOf[Integer])
-          case Failure(_) => bean.addValue(key, x)
+          case Failure(_) => bean.addValue(key, uri)
         }
         true
-      // case if you want optional path values
-      case (x, y) if y.contains("|") =>
-        val matches = y.split("\\|") flatMap {
-          _ == x match {
-            case true => Some(true)
-            case false => None
-          }
-        } groupBy(_ == true)
-        // the flatMap and groupBy function will return a map with a single element pointing to all the
-        // matched path elements, all false matches will be thrown out. So if there is no matches the
-        // size of the map would be 0 otherwise it would be 1
-        matches.size == 1
-      // standard case
-      case (x, y) => x == y
+
+      // Treat the value as a string
+      case (uri, test) if test.head == '%' =>
+        bean.addValue(test.drop(1), uri)
+        true
+
+      // Only match if the value is an INT
+      case (uri, test) if test.head == '#' =>
+        Try(uri.toInt) match {
+          case Success(v) =>
+            bean.addValue(test.drop(1), v.asInstanceOf[Integer])
+            true
+          case Failure(_) =>
+            false
+        }
+
+      case (uri, test) =>
+        test.split('|').contains(uri)
+
     }
 
     m match {
