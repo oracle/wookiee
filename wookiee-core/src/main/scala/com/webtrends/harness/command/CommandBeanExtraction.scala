@@ -101,6 +101,18 @@ sealed trait ExtractInt extends CommandBeanExtractParameter[Int]{
   }
 }
 
+sealed trait ExtractBoolean extends CommandBeanExtractParameter[Boolean]{
+  def extractor(v: AnyRef): Boolean = {
+    v match {
+      case i: Integer => i > 0
+      case b: java.lang.Boolean => b
+      case s: String if s.equalsIgnoreCase("true") => true
+      case s: String if s.equalsIgnoreCase("false") => false
+      case _ => throw new IllegalArgumentException(s"Invalid boolean value for '$key'")
+    }
+  }
+}
+
 sealed trait ExtractDateTime extends CommandBeanExtractParameter[DateTime]{
 
   val formatter: DateTimeFormatter
@@ -115,6 +127,18 @@ with ExtractString
 
 case class OptionalStringCommandBeanExtractParameter(key: String, val default: Option[() => String] = None)
   extends OptionalCommandBeanExtractParameter[String] with ExtractString {
+
+  override def defaultValue = default match {
+    case Some(d) => Some(d())
+    case None => None
+  }
+}
+
+case class RequiredBooleanCommandBeanExtractParameter(key: String) extends RequiredCommandBeanExtractParameter[Boolean]
+  with ExtractBoolean
+
+case class OptionalBooleanCommandBeanExtractParameter(key: String, val default: Option[() => Boolean] = None)
+  extends OptionalCommandBeanExtractParameter[Boolean] with ExtractBoolean {
 
   override def defaultValue = default match {
     case Some(d) => Some(d())
