@@ -81,14 +81,14 @@ trait BaseCommandHelper  {
    * @param props the props for that command actor class
    * @return
    */
-  def addCommandWithProps[T<:Command](name:String, props:Props) : Future[ActorRef] = {
+  def addCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout = Timeout(2 seconds)
     val p = Promise[ActorRef]
     initCommandManager onComplete {
       case Success(_) =>
         commandManager match {
           case Some(cm) =>
-            (cm ? AddCommandWithProps(name, props)).mapTo[ActorRef] onComplete {
+            (cm ? AddCommandWithProps(name, props, checkHealth)).mapTo[ActorRef] onComplete {
               case Success(r) => p success r
               case Failure(f) => p failure f
             }
@@ -105,14 +105,14 @@ trait BaseCommandHelper  {
    * @param name name of the command you want to add
    * @param actorClass the class for the actor
    */
-  def addCommand[T<:Command](name:String, actorClass:Class[T]) : Future[ActorRef] = {
+  def addCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout = Timeout(2 seconds)
     val p = Promise[ActorRef]
     initCommandManager onComplete {
       case Success(_) =>
         commandManager match {
           case Some(cm) =>
-            (cm ? AddCommand(name, actorClass)).mapTo[ActorRef] onComplete {
+            (cm ? AddCommand(name, actorClass, checkHealth)).mapTo[ActorRef] onComplete {
               case Success(r) => p success r
               case Failure(f) => p failure f
             }

@@ -35,8 +35,8 @@ import scala.util.{Success, Failure}
   * @author Michael Cuthbert on 12/1/14.
   */
 
-case class AddCommandWithProps[T<:Command](name:String, props:Props)
-case class AddCommand[T<:Command](name:String, actorClass:Class[T])
+case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean)
+case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean)
 case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
 case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
 
@@ -52,9 +52,19 @@ class CommandManager extends PrepareForShutdown {
 
   import context.dispatcher
 
+  val healthCheckChildren = mutable.ArrayBuffer.empty[ActorRef]
+
+  /** Only check the health of commands that have specified that they are going to provide health information
+    *
+    * @return An Iterable[ActorRef] for the commands to send health check requests to
+    */
+  override def getHealthChildren: Iterable[ActorRef] = {
+    healthCheckChildren
+  }
+
   override def receive = super.receive orElse {
-    case AddCommandWithProps(name, props) => pipe(addCommand(name, props)) to sender
-    case AddCommand(name, actorClass) => pipe(addCommand(name, actorClass)) to sender
+    case AddCommandWithProps(name, props, checkHealth) => pipe(addCommand(name, props, checkHealth)) to sender
+    case AddCommand(name, actorClass, checkHealth) => pipe(addCommand(name, actorClass, checkHealth)) to sender
     case ExecuteCommand(name, bean) => pipe(executeCommand(name, bean)) to sender
     case ExecuteRemoteCommand(name, server, port, bean) => pipe(executeRemoteCommand(name, server, port, bean)) to sender
     case SystemReady => // ignore
@@ -69,7 +79,9 @@ class CommandManager extends PrepareForShutdown {
    * @tparam T
    * @return
    */
-  protected def addCommand[T<:Command](name:String, actorClass:Class[T]) : Future[ActorRef] = addCommand[T](name, Props(actorClass))
+  protected def addCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
+    addCommand[T](name, Props(actorClass), checkHealth)
+  }
 
   /**
    * We add commands as children to the CommandManager, based on default routing
@@ -78,7 +90,7 @@ class CommandManager extends PrepareForShutdown {
    * @param name
    * @param props
    */
-  protected def addCommand[T<:Command](name:String, props:Props) : Future[ActorRef] = {
+  protected def addCommand[T<:Command](name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
     val config = context.system.settings.config
@@ -88,6 +100,11 @@ class CommandManager extends PrepareForShutdown {
     } else {
       context.actorOf(FromConfig.props(props), name)
     }
+
+    if (checkHealth) {
+      healthCheckChildren += aRef
+    }
+
     CommandManager.addCommand(name, aRef)
     Future { aRef }
   }
@@ -149,16 +166,6 @@ object CommandManager {
   def addCommand(name:String, ref:ActorRef) = {
     externalLogger.debug(s"Command $name with path ${ref.path} inserted into Command Manager map.")
     commandMap += (name -> ref)
-  }
-
-  protected def removeCommand(name:String) : Boolean = {
-    commandMap.get(name) match {
-      case Some(n) =>
-        externalLogger.debug(s"Command $name with path ${n.path} removed from Command Manager map.")
-        commandMap -= name
-        true
-      case None => false
-    }
   }
 
   def getCommand(name:String) : Option[ActorRef] = commandMap.get(name)
