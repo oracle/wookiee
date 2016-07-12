@@ -35,8 +35,8 @@ import scala.util.{Success, Failure}
   * @author Michael Cuthbert on 12/1/14.
   */
 
-case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean)
-case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean)
+case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false)
+case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false)
 case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
 case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
 
