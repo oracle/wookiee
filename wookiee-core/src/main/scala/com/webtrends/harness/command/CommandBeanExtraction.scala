@@ -4,6 +4,8 @@ import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormatter
 import scala.util.Try
 
+class CommandBeanExtractionException(message: String) extends Exception(message)
+
 trait CommandBeanExtraction {
 
   // List of parameters to attempt to extract from the bean.
@@ -23,7 +25,12 @@ trait CommandBeanExtraction {
           try {
             Some(p.key -> p.extractor(bean(p.key)))
           } catch {
+            case ex: CommandBeanExtractionException =>
+              exceptions += ex
+              None
             case ex: Exception =>
+              // Swallow generic exceptions to prevent accidental leaking of information or "ugly" responses to the user
+              // Explicit response messages can be set using CommandBeanExtractionException
               exceptions += new IllegalArgumentException(s"Invalid value for '${p.key}'")
               None
           }
@@ -37,10 +44,10 @@ trait CommandBeanExtraction {
 
       val defaults = CommandBeanExtractParameters.flatMap { param =>
         param match {
-          case p: RequiredCommandBeanExtractParameter[_] if (!bean.contains(p.key)) =>
+          case p: RequiredCommandBeanExtractParameter[_] if !bean.contains(p.key) =>
             exceptions += new IllegalArgumentException(s"Missing required parameter '${p.key}'")
             None
-          case p: OptionalCommandBeanExtractParameter[_] if (!bean.contains(p.key) ) =>
+          case p: OptionalCommandBeanExtractParameter[_] if !bean.contains(p.key) =>
             try {
               p.defaultValue match {
                 case Some(d) => Some(p.key -> d)
@@ -48,7 +55,12 @@ trait CommandBeanExtraction {
               }
 
             } catch {
+              case ex: CommandBeanExtractionException =>
+                exceptions += ex
+                None
               case ex: Exception =>
+                // Swallow generic exceptions to prevent accidental leaking of information or "ugly" responses to the user
+                // Explicit response messages can be set using CommandBeanExtractionException
                 exceptions += new IllegalArgumentException(s"Invalid value for '${p.key}'")
                 None
             }
