@@ -95,7 +95,7 @@ class TestHarnessSpec extends SpecificationWithJUnit {
       val probe = TestProbe()
       val commandManager = sys.commandManager
       assert(commandManager.isDefined, "Command Manager was not registered")
-      probe.send(commandManager.get, ExecuteCommand[CommandResponse[String]](TestCommand.CommandName))
+      probe.send(commandManager.get, ExecuteCommand[CommandResponse[String]](TestCommand.CommandName, timeout = timeout))
       "Test OK" equals probe.expectMsgPF[String](Duration(2, TimeUnit.SECONDS)) {
         case r:CommandResponse[String] =>
           r.data.get

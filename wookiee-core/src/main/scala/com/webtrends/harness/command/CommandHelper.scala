@@ -143,8 +143,8 @@ trait BaseCommandHelper  {
         commandManager match {
           case Some(cm) =>
             val msg = server match {
-              case Some(srv) => ExecuteRemoteCommand(name, srv, port, bean)
-              case None => ExecuteCommand(name, bean)
+              case Some(srv) => ExecuteRemoteCommand(name, srv, port, bean, timeout)
+              case None => ExecuteCommand(name, bean, timeout)
             }
             (cm ? msg)(timeout).mapTo[BaseCommandResponse[T]] onComplete {
               case Success(s) => p success s
