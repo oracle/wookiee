@@ -37,7 +37,7 @@ trait Command extends HActor with CommandHelper {
   import context.dispatcher
 
   override def receive = health orElse ({
-    case ExecuteCommand(name, bean) => pipe(execute(bean)) to sender
+    case ExecuteCommand(name, bean, _) => pipe(execute(bean)) to sender
     case _ => // ignore all other messages to this actor
   } : Receive)
 

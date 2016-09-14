@@ -22,6 +22,7 @@ package com.webtrends.harness.command
 import akka.pattern.{ask, pipe}
 import akka.actor.{ActorRef, Props}
 import akka.routing.{RoundRobinPool, FromConfig}
+import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.{PrepareForShutdown, HActor}
 import com.webtrends.harness.app.HarnessActor.SystemReady
@@ -37,8 +38,8 @@ import scala.util.{Success, Failure}
 
 case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false)
-case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None)
-case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None)
+case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout)
+case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None, timeout: Timeout)
 
 @SerialVersionUID(100L)
 case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json") extends BaseCommandResponse[T]
@@ -65,8 +66,8 @@ class CommandManager extends PrepareForShutdown {
   override def receive = super.receive orElse {
     case AddCommandWithProps(name, props, checkHealth) => pipe(addCommand(name, props, checkHealth)) to sender
     case AddCommand(name, actorClass, checkHealth) => pipe(addCommand(name, actorClass, checkHealth)) to sender
-    case ExecuteCommand(name, bean) => pipe(executeCommand(name, bean)) to sender
-    case ExecuteRemoteCommand(name, server, port, bean) => pipe(executeRemoteCommand(name, server, port, bean)) to sender
+    case ExecuteCommand(name, bean, timeout) => pipe(executeCommand(name, bean, timeout)) to sender
+    case ExecuteRemoteCommand(name, server, port, bean, timeout) => pipe(executeRemoteCommand(name, server, port, bean, timeout)) to sender
     case SystemReady => // ignore
   }
 
@@ -118,13 +119,13 @@ class CommandManager extends PrepareForShutdown {
    * @param bean
    */
   protected def executeRemoteCommand[T:Manifest](name:String, server:String,
-                                        port:Int=2552, bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]] = {
+                                        port:Int=2552, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
     val p = Promise[BaseCommandResponse[T]]
     context.system.settings.config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
         context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>
-            (ref ? ExecuteCommand(name, bean)).mapTo[BaseCommandResponse[T]] onComplete {
+            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[BaseCommandResponse[T]] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure f
             }
@@ -141,11 +142,11 @@ class CommandManager extends PrepareForShutdown {
    * @param name
    * @param bean
    */
-  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]] = {
+  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
     val p = Promise[BaseCommandResponse[T]]
     CommandManager.getCommand(name) match {
       case Some(ref) =>
-        (ref ? ExecuteCommand(name, bean)).mapTo[BaseCommandResponse[T]] onComplete {
+        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[BaseCommandResponse[T]] onComplete {
           case Success(s) => p success s
           case Failure(f) => p failure f
         }
