@@ -30,6 +30,7 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages.CheckHealth
 import org.specs2.mutable.SpecificationWithJUnit
 
+import scala.concurrent.ExecutionContextExecutor
 import scala.concurrent.duration.FiniteDuration
 import scala.reflect.io.{Directory, Path}
 
@@ -40,6 +41,8 @@ class ConfigSpec extends SpecificationWithJUnit {
     akka.actor.provider = "akka.actor.LocalActorRefProvider"
     services { path = "services" }
     """).withFallback(ConfigFactory.load))
+
+  implicit val ec: ExecutionContextExecutor =  sys.dispatcher
 
   val probe = TestProbe()
   val parent = sys.actorOf(Props(new Actor {
@@ -70,8 +73,9 @@ class ConfigSpec extends SpecificationWithJUnit {
   }
 
   step {
-    sys.shutdown()
-    Directory(Path(new File("services"))).deleteRecursively()
+    sys.terminate().onComplete { _ =>
+        Directory(Path(new File("services"))).deleteRecursively()
+    }
   }
 }
 
