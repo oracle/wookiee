@@ -109,13 +109,15 @@ object Harness {
     // We will tell the main actor that we are shutting down. This allows it to shutdown
     // its children and perform any needed cleanup.
     val fut = gracefulStop(rootActor.get, 15 seconds, ShutdownSystem)
-    fut.onComplete {
-      case Success(shutdown) =>
-        log.get.info("Now shutting down the the system itself")
-        system.get.shutdown
-        // Wait for termination if it is not already complete
-        system.get.awaitTermination()
+      .andThen {
+        case Success(_) =>
+          log.get.info("Now shutting down the the system itself")
+      }
+      // Now shutdown the system
+      .flatMap(_ => system.get.terminate())
 
+    fut.onComplete {
+      case Success(_) =>
         // Set our flags
         system = None
         log = None

@@ -27,6 +27,7 @@ import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.service.messages.CheckHealth
 import org.specs2.mutable.SpecificationWithJUnit
 
+import scala.concurrent.ExecutionContextExecutor
 import scala.concurrent.duration._
 
 class HealthCheckActorSpec extends SpecificationWithJUnit {
@@ -36,6 +37,7 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
   implicit val sys = ActorSystem("system", ConfigFactory.parseString( """
     akka.actor.provider = "akka.actor.LocalActorRefProvider"
                                                                       """).withFallback(ConfigFactory.load))
+  implicit val ec: ExecutionContextExecutor =  sys.dispatcher
 
   step {
     val sysActor =
@@ -60,6 +62,6 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
   }
 
   step {
-    sys.shutdown
+    sys.terminate().onComplete(_ => {})
   }
 }
