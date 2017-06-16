@@ -18,17 +18,17 @@
  */
 package com.webtrends.harness.health
 
+import akka.actor.{Actor, ActorRef}
 import akka.pattern._
-import akka.actor.{ActorRef, Actor}
 import akka.util.Timeout
-import scala.concurrent.duration._
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.Logger
 import com.webtrends.harness.service.messages.CheckHealth
 import com.webtrends.harness.utils.ConfigUtil
 
-import scala.concurrent.{Await, Promise, Future}
-import scala.util.{Try, Success, Failure}
+import scala.concurrent.duration._
+import scala.concurrent.{Future, Promise}
+import scala.util.{Failure, Success, Try}
 
 trait ActorHealth {
   this: Actor =>
@@ -45,9 +45,9 @@ trait ActorHealth {
       pipe(Try(checkHealth)
         .recover({
         case e: Exception =>
-          HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
-            "Exception when trying to check the health: %s".format(e.getMessage))
-      }).get.asInstanceOf[Future[HealthComponent]]
+          Future.successful(HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
+            "Exception when trying to check the health: %s".format(e.getMessage)))
+      }).get
       ) to sender()
   }
 
