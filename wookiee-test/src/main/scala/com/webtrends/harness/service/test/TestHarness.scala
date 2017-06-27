@@ -131,8 +131,18 @@ class TestHarness(conf:Config) {
     services.get(service)
   }
 
+  def getServiceOrDie(service: String): ActorRef = {
+    services.getOrElse(service,
+      throw new IllegalStateException(s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"))
+  }
+
   def getComponent(component: String): Option[ActorRef] = {
     components.get(component)
+  }
+
+  def getComponentOrDie(component: String): ActorRef = {
+    components.getOrElse(component,
+      throw new IllegalStateException(s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"))
   }
 
   def loadComponents(componentMap: Map[String, Class[_ <: Component]]) = {
