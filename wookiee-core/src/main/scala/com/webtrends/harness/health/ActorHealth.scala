@@ -76,7 +76,7 @@ trait ActorHealth {
    * @return
    */
   protected def getHealthChildren: Iterable[ActorRef] = {
-    context.children
+    if (context != null) context.children else Iterable()
   }
 
   /**
