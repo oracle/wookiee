@@ -237,7 +237,7 @@ class HarnessActor extends Actor
           _ => // We don't care if we could not shutdown properly. Any errors were logged so
             // just continue
             // Shutdown the children
-            if (context.children.nonEmpty) {
+            if (context != null && context.children.nonEmpty) {
               Future.sequence(context.children map (a => gracefulStop(a, 10 seconds)))
                 .onComplete {
                   case Success(_) =>
