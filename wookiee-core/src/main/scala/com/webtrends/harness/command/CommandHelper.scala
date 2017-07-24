@@ -31,7 +31,7 @@ import scala.util.{Failure, Success}
 
 trait CommandHelper extends ActorLoggingAdapter with BaseCommandHelper {
   this: Actor =>
-  override implicit val actorSystem = context.system
+  override lazy implicit val actorSystem = context.system
 
 }
 /**
@@ -43,7 +43,7 @@ trait CommandHelper extends ActorLoggingAdapter with BaseCommandHelper {
 trait BaseCommandHelper  {
   import scala.concurrent.ExecutionContext.Implicits.global
 
-  implicit val actorSystem = Harness.getActorSystem.get
+  lazy implicit val actorSystem = Harness.getActorSystem.get
 
   var commandManagerInitialized = false
   var commandManager:Option[ActorRef] = None
