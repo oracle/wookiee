@@ -89,7 +89,6 @@ object Command {
     val urlPath = uri.splitPath()
 
     val m = urlPath.corresponds(testPath) {
-
       // Convert the segment into an Integer if possible, otherwise leave it as a String
       case (uri, test) if test.head == '$' =>
         val key = test.substring(1)
@@ -115,8 +114,7 @@ object Command {
         }
 
       case (uri, test) =>
-        test.split('|').contains(uri)
-
+        test.toLowerCase.split('|').contains(uri.toLowerCase)
     }
 
     m match {
