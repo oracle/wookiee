@@ -14,6 +14,12 @@ class CommandSpec extends SpecificationWithJUnit {
       Command.matchPath("///v1//",  "/v1") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
     }
 
+    "match single element paths regardless of case" in {
+      Command.matchPath("/v1/foo/bar",  "/v1/foo/bar") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
+      Command.matchPath("/V1/Foo/BAr",  "/v1/foo/bar") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
+      Command.matchPath("/v1/foO/baR",  "/V1/fOo/bAr") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
+    }
+
     "match multiple element paths with or without leading and trailing slashes" in {
       Command.matchPath("/v1/foo/bar",  "/v1/foo/bar") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
       Command.matchPath("/v1/foo/bar/",  "/v1/foo/bar") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
@@ -41,6 +47,7 @@ class CommandSpec extends SpecificationWithJUnit {
       Command.matchPath("/v1|v2/foo|bar/baz",  "/v1/bar/baz") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
       Command.matchPath("/v1|v2/foo|bar/baz",  "/v2/foo/baz") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
       Command.matchPath("/v1|v2/foo|bar/baz",  "/v2/bar/baz") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
+      Command.matchPath("/v1|v2/foo|bar/baz",  "/v2/bar/BAZ") shouldEqual Some(CommandBean(Map.empty[String, AnyRef]))
     }
 
     "Extract String values using $" in {
