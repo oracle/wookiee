@@ -24,21 +24,24 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.GetMetaDetails
-import com.webtrends.harness.service.meta.{ServiceMetaDetails, ServiceMetaData}
+import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.app.HarnessClassLoader
 import java.io.File
 import java.nio.file.FileSystems
+import java.util.jar.Attributes.Name
 import java.util.jar.JarFile
+
 import com.webtrends.harness.utils.ConfigUtil
 import org.joda.time.DateTime
+
 import scala.collection.JavaConversions._
 import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.util.{Success, Failure, Try}
+import scala.util.{Failure, Success, Try}
 import scala.concurrent.ExecutionContext.Implicits.global
 
 trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
-
+  val config = context.system.settings.config
   val services = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
   private val userDir = System.getProperty("user.dir")
   private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
@@ -53,13 +56,13 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
    */
   def load(context: ActorContext) {
     Try({
-      val internalService = ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalService, context.system.settings.config.getString, "")
+      val internalService = ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalService, config.getString, "")
       if (internalService.nonEmpty) {
         val loader = Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
         val serviceName = internalService.split("\\.").reverse(0)
         loadService(serviceName, loader.loadClass(internalService))
       } else {
-          ServiceManager.serviceDir(context.system.settings.config) match {
+          ServiceManager.serviceDir(config) match {
             case Some(s) =>
               val dirs = s.listFiles.filter(_.isDirectory).sortBy(f => f.getName)
               if (dirs.length > 0) {
@@ -103,14 +106,14 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
       val harnessLoader = Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
 
       // Load the urls into the class loader
-      val loader = ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader, context.system.settings.config.getBoolean, true) match {
-        case true =>
-          val pcl = new ServiceClassLoader(urls, harnessLoader)
-          harnessLoader.addChildLoader(pcl)
-          pcl
-        case false =>
-          harnessLoader.addURLs(urls)
-          harnessLoader
+      val loader = if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader,
+        config.getBoolean, true)) {
+        val pcl = new ServiceClassLoader(urls, harnessLoader)
+        harnessLoader.addChildLoader(pcl)
+        pcl
+      } else {
+        harnessLoader.addURLs(urls)
+        harnessLoader
       }
 
       jars.foreach(file => processJar(context, rootPath, file, loader))
@@ -134,9 +137,9 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
 
     // Open the jar file
     val jarFile = new JarFile(jar)
-    val loaderOpt = loader.isInstanceOf[ServiceClassLoader] match {
-      case true => Some(loader.asInstanceOf[ServiceClassLoader])
-      case false => None
+    val loaderOpt = loader match {
+      case loader1: ServiceClassLoader => Some(loader1)
+      case _ => None
     }
 
     try {
@@ -194,7 +197,7 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
               }
 
               serv match {
-                case Failure(t) => None
+                case Failure(_) => None
                 case Success(None) => None
                 case Success(meta) =>
                   log.debug(s"Loaded service $name")
@@ -231,9 +234,9 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
       case None => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
       case Some(t) => t
     }
-    val loaderOpt = classLoaderFinal.isInstanceOf[ServiceClassLoader] match {
-      case true => Some(classLoaderFinal.asInstanceOf[ServiceClassLoader])
-      case false => None
+    val loaderOpt = classLoaderFinal match {
+      case loader: ServiceClassLoader => Some(loader)
+      case _ => None
     }
     var serviceActor: Option[ActorRef] = None
     val serv = Try {
@@ -243,8 +246,12 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
       context watch serviceActor.get
       // Get the meta data
       val meta = getServiceMetaDetails(context, serviceActor.get)
+      val file = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
+      val version = if (file.endsWith(".jar")) {
+        new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
+      } else "1.0"
       ServiceMetaData(name,
-        "1.0",
+        version,
         DateTime.now(),
         "",
         serviceActor.get.path.toString,
@@ -253,7 +260,7 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
         null) -> (context.actorSelection(serviceActor.get.path), loaderOpt)
 
     }.recover {
-      case f: InvalidActorNameException =>
+      case _: InvalidActorNameException =>
         log.info(s"Service $name already started")
         serviceActor = getServiceByName(name)
         None
@@ -286,7 +293,7 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
         }
       }
     }
-    if (!ref.isDefined) {
+    if (ref.isEmpty) {
       log.error(s"Was not able to find service $name")
     }
     ref
