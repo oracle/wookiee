@@ -26,7 +26,6 @@ import akka.japi.Util._
 import com.typesafe.config.Config
 import com.webtrends.harness.logging.Logger
 import com.webtrends.harness.utils.ConfigUtil
-import scala.collection.JavaConverters._
 
 /**
  * @author Michael Cuthbert on 2/23/15.

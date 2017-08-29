@@ -18,7 +18,7 @@
  */
 package com.webtrends.harness.http
 
-import java.net.{Inet4Address, InetAddress}
+import java.net.InetAddress
 
 import com.webtrends.harness.authentication.CIDRRules
 import org.specs2.mutable.SpecificationWithJUnit
@@ -27,6 +27,11 @@ class CIDRRulesSpec extends SpecificationWithJUnit {
   sequential
 
   "CIDRRules " should {
+    "allow ipv4 requests through" in {
+      val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
+      rules.checkCidrRules(InetAddress.getByName("localhost")) equals true
+    }
+
     "allow ipv4 requests through" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
       rules.checkCidrRules(InetAddress.getByName("127.0.0.1")) equals true
