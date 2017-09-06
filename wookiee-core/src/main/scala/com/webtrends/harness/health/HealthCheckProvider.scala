@@ -53,18 +53,18 @@ trait HealthCheckProvider {
       man
   }
 
-  val application = manifest.getMainAttributes().getValue(Name.IMPLEMENTATION_TITLE)
-  val version = manifest.getMainAttributes().getValue("Implementation-Version") + "." + manifest.getMainAttributes().getValue("Implementation-Build")
+  val application = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_TITLE)
+  val version = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
   val alerts: mutable.Buffer[ComponentHealth] = mutable.Buffer()
 
   /**
    * Rollup the overall status and critical alerts for each component
-   * @param checks
-   * @return
+   * @param checks List of status objects for each component and service
+   * @return Parent status that is only NOMRAL if all children were NORMAL
    */
   private def rollupStatuses(checks: mutable.Buffer[ComponentHealth]): ComponentHealth = {
     // Check if all components are running normal
-    if (alerts.length == 0) {
+    if (alerts.isEmpty) {
       ComponentHealth(ComponentState.NORMAL, "Thunderbirds are GO")
     }
     else {
@@ -77,7 +77,7 @@ trait HealthCheckProvider {
 
   /**
    * Rollup alerts for all components that have a CRITICAL or DEGRADED state
-   * @param component
+   * @param component Component that has children
    */
   private def checkComponents(component: HealthComponent) {
     def alertComponent(state: ComponentState.ComponentState): Boolean = {
@@ -88,14 +88,14 @@ trait HealthCheckProvider {
       component.name + "[" + component.state + "] - " + component.details
     }
 
-    if (component.components.length == 0 && alertComponent(component.state)) {
+    if (component.components.isEmpty && alertComponent(component.state)) {
       alerts += ComponentHealth(component.state, healthDetails(component))
     }
     else {
       if (alertComponent(component.state)) {
         alerts += ComponentHealth(component.state, healthDetails(component))
       }
-      component.components.foreach(checkComponents(_))
+      component.components.foreach(checkComponents)
     }
   }
 
@@ -114,14 +114,14 @@ trait HealthCheckProvider {
     future.onComplete({
       case Success(checks) =>
         // Rollup alerts for any critical or degraded components
-        checks.foreach(checkComponents(_))
+        checks.foreach(checkComponents)
         // Rollup the statuses
         val overallHealth = rollupStatuses(alerts)
         alerts.clear()
-        p success new ApplicationHealth(application, version, upTime, overallHealth.state, overallHealth.details, checks)
+        p success ApplicationHealth(application, version, upTime, overallHealth.state, overallHealth.details, checks)
       case Failure(e) =>
         log.error("An error occurred while fetching the health request results", e)
-        p success new ApplicationHealth(application, version, upTime, ComponentState.CRITICAL, e.getMessage, Nil)
+        p success ApplicationHealth(application, version, upTime, ComponentState.CRITICAL, e.getMessage, Nil)
     })
 
     p.future
