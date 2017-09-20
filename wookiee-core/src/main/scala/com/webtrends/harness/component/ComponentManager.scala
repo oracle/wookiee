@@ -23,19 +23,19 @@ import java.nio.file.FileSystems
 
 import akka.actor._
 import akka.pattern._
-import com.typesafe.config.{ConfigValueType, ConfigException, Config, ConfigFactory}
+import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.webtrends.harness.HarnessConstants
+import com.webtrends.harness.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
+import com.webtrends.harness.app.{Harness, HarnessClassLoader, PrepareForShutdown}
 import com.webtrends.harness.logging.Logger
-import scala.util.control.Exception._
 import com.webtrends.harness.utils.{ConfigUtil, FileUtil}
-import com.webtrends.harness.app.HarnessActor.{ConfigChange, SystemReady, ComponentInitializationComplete}
-import com.webtrends.harness.app.{PrepareForShutdown, HActor, Harness, HarnessClassLoader}
 
+import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.concurrent.{Promise, Future}
-import scala.util.{Success, Failure}
-import scala.collection.JavaConverters._
+import scala.concurrent.{Future, Promise}
+import scala.util.control.Exception._
+import scala.util.{Failure, Success}
 
 case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
@@ -48,7 +48,7 @@ private[component] object ComponentState extends Enumeration {
   type ComponentState = Value
   val Initializing, Started, Failed = Value
 }
-import ComponentState._
+import com.webtrends.harness.component.ComponentState._
 
 object ComponentManager {
   private val externalLogger = Logger.getLogger(this.getClass)
@@ -65,7 +65,7 @@ object ComponentManager {
   def isAllComponentsStarted : Boolean = {
     val groupedMap = components.groupBy(_._2).toList
     if (groupedMap.size == 1) {
-      groupedMap(0)._1 == Started
+      groupedMap.head._1 == Started
     } else {
       false
     }
@@ -158,10 +158,9 @@ object ComponentManager {
 
   def getComponentPath(config:Config) : Option[File] = {
     val compDir = FileSystems.getDefault.getPath(ConfigUtil.getDefaultValue(HarnessConstants.KeyPathComponents, config.getString, "")).toFile
-    compDir.exists() match {
-      case true => Some(compDir)
-      case false => None
-    }
+    if (compDir.exists()) {
+      Some(compDir)
+    } else None
   }
 
   /**
@@ -174,14 +173,14 @@ object ComponentManager {
    */
   def validateComponentDir(componentName:String, folder:File) : (File, File) = {
     val confFile = folder.listFiles.filter(_.getName.equalsIgnoreCase("reference.conf"))
-    require(confFile.size == 1, "Conf file not found.")
+    require(confFile.length == 1, "Conf file not found.")
     // check the config file and if disabled then fail
     val config = ConfigFactory.parseFile(confFile(0))
     if (config.hasPath(s"$componentName.enabled")) {
       require(config.getBoolean(s"$componentName.enabled"), s"$componentName not enabled")
     }
     val libDir = folder.listFiles.filter(f => f.isDirectory && f.getName.equalsIgnoreCase("lib"))
-    require(libDir.size == 1, "Lib directory not found.")
+    require(libDir.length == 1, "Lib directory not found.")
     (confFile(0), libDir(0))
   }
 }
@@ -227,8 +226,8 @@ class ComponentManager extends PrepareForShutdown {
       validateComponentStartup()
     } else {
       ComponentManager.failedComponents match {
-        case Some(name) =>
-          log.error(s"Failed to load component [$name]")
+        case Some(n) =>
+          log.error(s"Failed to load component [$n]")
           Harness.shutdown
         case None => //ignore
       }
@@ -268,13 +267,17 @@ class ComponentManager extends PrepareForShutdown {
 
   private def validateComponentStartup() = {
     // Wait for the child actors above to be loaded before calling on the services
-    Future.traverse(context.children)(child => (child ? Identify("xyz123"))(componentTimeout)) onComplete {
-      case Success(_) =>
-        sendComponentInitMessage()
-      case Failure(t) =>
-        log.error("Error loading the component actors", t)
-        // if the components failed to load then we will need to shutdown the system
-        Harness.shutdown
+    if (context != null && context.children != null) {
+      Future.traverse(context.children) { child =>
+        (child ? Identify("xyz123")) (componentTimeout)
+      } onComplete {
+        case Success(_) =>
+          sendComponentInitMessage()
+        case Failure(t) =>
+          log.error("Error loading the component actors", t)
+          // if the components failed to load then we will need to shutdown the system
+          Harness.shutdown
+      }
     }
   }
 
@@ -319,7 +322,7 @@ class ComponentManager extends PrepareForShutdown {
               case _ => //ignore
             }
           } catch {
-            case e:ConfigException => // if this exception occurs we know for sure that it is not a dynamic component
+            case _:ConfigException => // if this exception occurs we know for sure that it is not a dynamic component
           }
       }
       tempList.toList
@@ -351,7 +354,7 @@ class ComponentManager extends PrepareForShutdown {
               componentsLoaded += componentName
             }
           } catch {
-            case d:NoClassDefFoundError =>
+            case _:NoClassDefFoundError =>
               componentLoadFailed(cfName, s"Could not load component [$compFolder]. No Class Def. This could be because the JAR for the component was not found in the component-path")
             case e:ClassNotFoundException =>
               componentLoadFailed(cfName, s"Could not load component [$cfName]. Class not found. This could be because the JAR for the component was not found in the component-path", Some(e))
@@ -370,7 +373,7 @@ class ComponentManager extends PrepareForShutdown {
       val startTimeout = componentTimeout.duration
       context.system.scheduler.scheduleOnce(startTimeout,
         new Runnable() {
-          def run = {
+          def run() = {
             checkStartupStatus()
           }
         })
@@ -441,11 +444,6 @@ class ComponentManager extends PrepareForShutdown {
 
   /**
    * Initializes the component actor
-   *
-   * @param componentName
-   * @param clazz
-   * @tparam T
-   * @return
    */
   def initComponentActor[T](componentName:String, clazz:Class[T]) : Option[ActorRef] = {
     // check to see if the actor exists
