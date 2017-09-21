@@ -76,8 +76,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
   override def receive = super.receive orElse {
     case SystemReady =>
       log.info("Notifying Services that we are completely ready.")
-      context.children foreach {
-        p => p ! Ready(getServiceMeta(Some(p.path)).head)
+      context.children foreach { p =>
+        val meta = getServiceMeta(Some(p.path))
+        if (meta.nonEmpty) p ! Ready(meta.head)
+        else log.warn(s"No Service Path to Send Ready Message for ${p.path}")
       }
 
     case GetMetaData(path) =>
@@ -101,8 +103,8 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
     case RestartService(service) =>
       log.info(s"We have received a message to restart the service $service")
-     services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
-        case Some(m) => services.get(m).get._1 ! Kill
+      services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
+        case Some(m) => services(m)._1 ! Kill
         case None =>
       }
 
@@ -131,7 +133,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         case None =>
           services.keys.toSeq
         case _ =>
-          Seq(services.filter(p => ActorPath.fromString(p._1.akkaPath).equals(servicePath.get)).keys.headOption.get)
+          services.filter(p => ActorPath.fromString(p._1.akkaPath).equals(servicePath.get)).keys.toSeq
       }
     } catch {
       case e: Throwable =>
@@ -220,14 +222,11 @@ object ServiceManager extends LoggingAdapter {
 
   private def getConfigFiles(path: String): Seq[File] = {
     val root = new File(path)
-    root.exists match {
-      case true =>
-        root.listFiles(new FilenameFilter {
-          def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
-        })
-      case false =>
-        Seq.empty
-    }
+    if (root.exists) {
+      root.listFiles(new FilenameFilter {
+        def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
+      })
+    } else Seq.empty
   }
 
 }

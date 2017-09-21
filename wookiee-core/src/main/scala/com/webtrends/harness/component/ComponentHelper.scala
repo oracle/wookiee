@@ -19,14 +19,13 @@
 
 package com.webtrends.harness.component
 
-import akka.actor.{ActorRef, Actor}
+import akka.actor.{Actor, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
-import com.webtrends.harness.logging.Logger
-import scala.concurrent.duration._
 import com.webtrends.harness.HarnessConstants
 
-import scala.concurrent.{Await, Promise, Future}
+import scala.concurrent.duration._
+import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
 
 /**
@@ -51,15 +50,15 @@ trait ComponentHelper {
       if (timeOut.isOverdue() && !componentManagerInitialized) {
         componentManagerInitialized = true
         p failure ComponentException("Component Manager", "Failed to get component manager")
-      } else {
+      } else if (context != null) {
         context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
           case Success(s) =>
             componentManager = Some(s)
             componentManagerInitialized = true
             p success s
-          case Failure(f) => awaitComponentManager(timeOut)
+          case Failure(_) => awaitComponentManager(timeOut)
         }
-      }
+      } else p failure ComponentException("Component Manager", "Context set to null, must have shut down")
     }
 
     componentManager match {

@@ -19,23 +19,22 @@
 
 package com.webtrends.harness.command
 
-import akka.pattern.{ask, pipe}
 import akka.actor.{ActorRef, Props}
-import akka.routing.{RoundRobinPool, FromConfig}
+import akka.pattern.{ask, pipe}
+import akka.routing.{FromConfig, RoundRobinPool}
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
-import com.webtrends.harness.app.{PrepareForShutdown, HActor}
 import com.webtrends.harness.app.HarnessActor.SystemReady
+import com.webtrends.harness.app.PrepareForShutdown
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.concurrent.{Future, Promise}
-import scala.util.{Success, Failure}
+import scala.util.{Failure, Success}
 
 /**
-  * @author Michael Cuthbert on 12/1/14.
+  * @author Michael Cuthbert & Spencer Wood
   */
-
 case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false)
 case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout)
@@ -77,8 +76,6 @@ class CommandManager extends PrepareForShutdown {
    *
    * @param name name of the command you want to add
    * @param actorClass the actor class for the command
-   * @tparam T
-   * @return
    */
   protected def addCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
     addCommand[T](name, Props(actorClass), checkHealth)
@@ -87,27 +84,30 @@ class CommandManager extends PrepareForShutdown {
   /**
    * We add commands as children to the CommandManager, based on default routing
    * or we use the setup defined for the command
-   *
-   * @param name
-   * @param props
    */
   protected def addCommand[T<:Command](name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
-    val config = context.system.settings.config
-    val aRef = if (!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")) {
-      val nrRoutees = config.getInt(HarnessConstants.KeyCommandsNrRoutees)
-      context.actorOf(RoundRobinPool(nrRoutees).props(props), name)
-    } else {
-      context.actorOf(FromConfig.props(props), name)
-    }
+    CommandManager.getCommand(name) match {
+      case Some(ref) =>
+        log.warn(s"Command $name has already been added, not re-adding it.")
+        Future.successful(ref)
+      case None =>
+        val config = context.system.settings.config
+        val aRef = if (!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")) {
+          val nrRoutees = config.getInt(HarnessConstants.KeyCommandsNrRoutees)
+          context.actorOf(RoundRobinPool(nrRoutees).props(props), name)
+        } else {
+          context.actorOf(FromConfig.props(props), name)
+        }
 
-    if (checkHealth) {
-      healthCheckChildren += aRef
-    }
+        if (checkHealth) {
+          healthCheckChildren += aRef
+        }
 
-    CommandManager.addCommand(name, aRef)
-    Future { aRef }
+        CommandManager.addCommand(name, aRef)
+        Future { aRef }
+    }
   }
 
   /**
@@ -116,7 +116,7 @@ class CommandManager extends PrepareForShutdown {
    * @param name The name of the command you want to execute
    * @param server The server that has the command on
    * @param port the port that the server is listening on
-   * @param bean
+   * @param bean Map of parameters
    */
   protected def executeRemoteCommand[T:Manifest](name:String, server:String,
                                         port:Int=2552, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
@@ -138,9 +138,6 @@ class CommandManager extends PrepareForShutdown {
 
   /**
    * Executes a command and will return a BaseCommandResponse to the sender
-   *
-   * @param name
-   * @param bean
    */
   protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
     val p = Promise[BaseCommandResponse[T]]
