@@ -18,13 +18,14 @@
  */
 package com.webtrends.harness.app
 
-import akka.actor.{UnhandledMessage, Props, ActorRef, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem, Props, UnhandledMessage}
 import akka.pattern._
 import com.typesafe.config.Config
 import com.webtrends.harness.UnhandledEventListener
 import com.webtrends.harness.app.HarnessActor.ShutdownSystem
 import com.webtrends.harness.logging.Logger
-import scala.concurrent.Await
+
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 import scala.util.Failure
 import scala.util.Success
@@ -48,7 +49,7 @@ object Harness {
     log.get.info("Restarting the actor system")
     system match {
       case Some(sys) =>
-        shutdownActorSystem(false) {
+        shutdownActorSystem(block = false) {
           startActorSystem()
         }
       case _ =>
@@ -65,7 +66,7 @@ object Harness {
     new Thread("lifecycle") {
       override def run() {
         Thread.sleep(10)
-        shutdownActorSystem(false) {
+        shutdownActorSystem(block = false) {
           System.exit(0)
         }
       }
@@ -114,7 +115,7 @@ object Harness {
           log.get.info("Now shutting down the the system itself")
       }
       // Now shutdown the system
-      .flatMap(_ => system.get.terminate())
+      .flatMap(_ => system.map(_.terminate()).getOrElse(Future.successful(true)))
 
     fut.onComplete {
       case Success(_) =>
@@ -144,7 +145,7 @@ object Harness {
         system match {
           case Some(sys) =>
             sys.log.info("The shutdown hook has been called")
-            shutdownActorSystem(true) {
+            shutdownActorSystem(block = true) {
               externalLogger.info("Successfully shut down")
             }
           case _ => externalLogger.info("Successfully shut down")
