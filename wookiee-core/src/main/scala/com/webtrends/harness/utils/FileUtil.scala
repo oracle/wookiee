@@ -59,7 +59,12 @@ object FileUtil {
    * @return
    */
   def getFileAsString(f:File) : String = {
-    Source.fromFile(f).mkString
+    val src = Source.fromFile(f)
+    try {
+      src.mkString
+    } finally {
+      src.close()
+    }
   }
 
   /**
