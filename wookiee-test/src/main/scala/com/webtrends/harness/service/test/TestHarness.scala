@@ -76,7 +76,7 @@ class TestHarness(conf:Config) {
   var config = conf.withFallback(defaultConfig)
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
 
-  implicit val timeout = Timeout(4000, TimeUnit.MILLISECONDS)
+  implicit val timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
   def start(serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
             componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
