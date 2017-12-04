@@ -1,6 +1,6 @@
 # Wookiee Platform
 
-[![Build Status](https://travis-ci.org/Webtrends/wookiee.svg?branch=master)](https://travis-ci.org/Webtrends/wookiee?branch=master) [![Coverage Status](https://coveralls.io/repos/Webtrends/wookiee/badge.svg?branch=master&service=github)](https://coveralls.io/github/Webtrends/wookiee?branch=master) [![Latest Release](https://img.shields.io/github/release/webtrends/wookiee.svg)](https://github.com/Webtrends/wookiee/releases) [![License](http://img.shields.io/:license-Apache%202-red.svg)](http://www.apache.org/licenses/LICENSE-2.0.txt)
+[![Build Status](https://api.travis-ci.org/oracle/wookiee.svg?branch=master)](https://travis-ci.org/Webtrends/wookiee?branch=master) [![Latest Release](https://img.shields.io/github/release/webtrends/wookiee.svg)](https://github.com/Webtrends/wookiee/releases) [![License](http://img.shields.io/:license-Apache%202-red.svg)](http://www.apache.org/licenses/LICENSE-2.0.txt)
 
 Fastest way to get going with Wookiee check out the [Quickstart Guide](docs/quickstart.md).
 
@@ -81,7 +81,7 @@ Standardized logging is provided by the library. This can be applied to any acto
 
 Wookiee can be used as both a library and a service. To use it as a service a developer would be required to simply execute the HarnessService app, for use as a library the developer would be required to add a dependency in the project's pom and then initialize Wookiee manually. Alternatively the developer could add a dependency for a single component to the POM and use it separetely. For more information on leveraging a single component see the doc specific to that component.
 
-[**Release Notes**](docs/ReleaseNotes.md)
+[**Releases**](https://github.com/oracle/wookiee/releases)
 
 # How To
 There are several aspects to utilizing the functionality contained with Wookiee and it's supporting libraries. This
@@ -96,12 +96,12 @@ The purpose of this section is to aggregate notes and processes in setting up de
 As services are what provides functionality to the Wookiee container, this section provides information on how to
 create a basic service.
 
-[Instructions](archetypes/wookiee-service-archetypes/README.md)
+[Instructions](archetypes/wookiee-service-archetype/README.md)
 
 ### Creating a component
 Components provide pluggable core functionality in to Wookiee. This allows developers to pick and choose the kind of functionality that they want.
 
-[Instructions](archetypes/wookiee-component-archetypes/README.md)
+[Instructions](archetypes/wookiee-component-archetype/README.md)
 
 ### Components
 A component is dynamically loaded in Wookiee. This allows for a developer to then only load the components that they wish to use as part of the Wookiee Platform. A component is defined by a class object with the Component trait found in the wookiee-core project. Wookiee will start up any component that is found in location that is defined by the component-path key in the harness configuration file.
