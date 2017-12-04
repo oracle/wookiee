@@ -90,7 +90,6 @@ Click Run or Debug.
 *NOTE:
 In your config file, the one that you point to using config.file, you can override any values from any of the components or Wookiee itself. For more information on the configurations for Wookiee see [Wookiee Config](config.md) and for each individual component see the component config docs 
 
-* [wookiee-zookeeper](https://github.com/oracle/wookiee-zookeeper)
 * [wookiee-akka-http](https://github.com/oracle/wookiee-akka-http)
 * [wookiee-cache-memcache](https://github.com/oracle/wookiee-cache-memcache)
 * [wookiee-cache](https://github.com/oracle/wookiee-cache)
@@ -103,3 +102,4 @@ In your config file, the one that you point to using config.file, you can overri
 * [wookiee-netty](https://github.com/oracle/wookiee-netty)
 * [wookiee-socko](https://github.com/oracle/wookiee-socko)
 * [wookiee-spray](https://github.com/oracle/wookiee-spray)
+* [wookiee-zookeeper](https://github.com/oracle/wookiee-zookeeper)

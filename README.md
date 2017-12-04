@@ -114,15 +114,19 @@ wookiee-system {
 }
 ```
 
-1. [Http Component](components/wookiee-spray/README.md)
-2. [Metrics Component](components/wookiee-metrics/README.md)
-3. [Zookeeper Component](components/wookiee-zookeeper/README.md)
-4. [Cluster Component](components/wookiee-cluster/README.md)
-5. [Cache Component](components/wookiee-cache/README.md)
-6. [Memcache Component](components/wookiee-cache-memcache/README.md)
-8. [Kafka Component](components/wookiee-kafka/README.md)
-9. [Netty Component](components/wookiee-netty/README.md)
-9. [Socko Component](components/wookiee-socko/README.md)
+1.  [Akka Http Component](https://github.com/oracle/wookiee-akka-http)
+2.  [Memcache Component](https://github.com/oracle/wookiee-cache-memcache)
+3.  [Cache Component](https://github.com/oracle/wookiee-cache)
+4.  [Cluster Component](https://github.com/oracle/wookiee-cluster)
+5.  [Colossus Component](https://github.com/oracle/wookiee-colossus)
+6.  [ETCD Component](https://github.com/oracle/wookiee-etcd)
+7.  [JSON Component](https://github.com/oracle/wookiee-json)
+8.  [Kafka Component](https://github.com/oracle/wookiee-kafka)
+9. [Metrics Component](https://github.com/oracle/wookiee-metrics)
+10. [Netty Component](https://github.com/oracle/wookiee-netty)
+11. [Socko Component](https://github.com/oracle/wookiee-socko)
+12. [Spray Component](https://github.com/oracle/wookiee-spray)
+13.  [Zookeeper Component](https://github.com/oracle/wookiee-zookeeper)
 
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform
