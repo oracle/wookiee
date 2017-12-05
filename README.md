@@ -9,6 +9,25 @@ Wookiee is Licensed under the Apache 2.0 License, for more information see [LICE
 ## Usage
 
 Wookiee is meant to save you from the endless tedium of creating yet another micro service. 
+It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/com/webtrends/harness/app/HarnessService.scala)) 
+and tacks on a ton of out of the box conveniences.
+
+<b>So think of Wookiee when you...</b>
+* ...are trying to track down what library you put the eleventh health check 
+implementation of your career for you to copy paste
+* ...just aren't sure whether you want to use Colossus or Akka Http and you'd like to be
+able to swap between the two in a few minutes or just run both at once!
+* ...need to get metrics recording in your service and reporting out to Graphite 
+and you want to be able to do it with zero lines of setup code
+* ...have found that interacting with the old school Scala(Java) main() method reminds
+you too much of being in college and you begin to doubt you've improved at all
+* ...don't have the patience to throw together an artisanal configuration reader for the
+hundredth time because your cycles are more important, dang it!
+* ...want the new intern to be able to create their own new Services using a really simple
+template with tons of examples since your company runs all their Services on one framework
+* ...would rather focus on the functionality of your Akka Actors than worrying about
+linking up health checks, starting everything up, and sending out PoisonPills on shutdown
+* ...have no appetite for creating a new logger for every single class you want to hear from
 
 
 ### What's Included
