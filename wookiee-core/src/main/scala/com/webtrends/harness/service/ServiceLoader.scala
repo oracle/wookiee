@@ -25,7 +25,7 @@ import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.GetMetaDetails
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.app.HarnessClassLoader
+import com.webtrends.harness.app.{HActor, HarnessClassLoader}
 import java.io.File
 import java.nio.file.FileSystems
 import java.util.jar.Attributes.Name
@@ -40,8 +40,7 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 import scala.concurrent.ExecutionContext.Implicits.global
 
-trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
-  val config = context.system.settings.config
+trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
   val services = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
   private val userDir = System.getProperty("user.dir")
   private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
