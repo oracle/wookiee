@@ -27,7 +27,8 @@ hundredth time because your cycles are more important, dang it!
 template with tons of examples since your company runs all their Services on one framework
 * ...would rather focus on the functionality of your Akka Actors than worrying about
 linking up health checks, starting everything up, and sending out PoisonPills on shutdown
-* ...have no appetite for creating a new logger for every single class you want to hear from
+* ...have no appetite for creating a new logger variable for every single class you want to hear from
+* ...just want to be able to get straight to the fun stuff!
 
 
 ### What's Included
