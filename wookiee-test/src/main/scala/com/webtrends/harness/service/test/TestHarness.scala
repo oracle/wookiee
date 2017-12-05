@@ -82,7 +82,7 @@ class TestHarness(conf:Config) {
             componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
     Harness.externalLogger.info("Starting Harness...")
     Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
-    Harness.addShutdownHook
+    Harness.addShutdownHook()
     Harness.startActorSystem(Some(config))
     // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
     harnessReadyCheck(10.seconds.fromNow)

@@ -93,7 +93,6 @@ class CommandManager extends PrepareForShutdown {
         log.warn(s"Command $name has already been added, not re-adding it.")
         Future.successful(ref)
       case None =>
-        val config = context.system.settings.config
         val aRef = if (!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")) {
           val nrRoutees = config.getInt(HarnessConstants.KeyCommandsNrRoutees)
           context.actorOf(RoundRobinPool(nrRoutees).props(props), name)
@@ -121,7 +120,7 @@ class CommandManager extends PrepareForShutdown {
   protected def executeRemoteCommand[T:Manifest](name:String, server:String,
                                         port:Int=2552, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
     val p = Promise[BaseCommandResponse[T]]
-    context.system.settings.config.getString("akka.actor.provider") match {
+    config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
         context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>

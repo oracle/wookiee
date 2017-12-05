@@ -48,7 +48,7 @@ object Harness {
   def restartActorSystem = {
     log.get.info("Restarting the actor system")
     system match {
-      case Some(sys) =>
+      case Some(_) =>
         shutdownActorSystem(block = false) {
           startActorSystem()
         }
@@ -61,7 +61,7 @@ object Harness {
   /**
    * Force a shutdown of the ActorSystem and the application's process.
    */
-  def shutdown = {
+  def shutdown() = {
     log.get.info("Shutting down the harness")
     new Thread("lifecycle") {
       override def run() {
@@ -139,12 +139,12 @@ object Harness {
   /**
    * Add a shutdown hook so when the process is shut down that we cleanup cleanly
    */
-  def addShutdownHook: Unit = {
+  def addShutdownHook(): Unit = {
     Runtime.getRuntime.addShutdownHook(new Thread(new Runnable {
-      def run = {
+      def run() = {
         system match {
           case Some(sys) =>
-            sys.log.info("The shutdown hook has been called")
+            sys.log.debug("The shutdown hook has been called")
             shutdownActorSystem(block = true) {
               externalLogger.info("Successfully shut down")
             }

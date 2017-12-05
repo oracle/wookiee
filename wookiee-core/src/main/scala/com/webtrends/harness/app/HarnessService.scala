@@ -19,22 +19,20 @@
 package com.webtrends.harness.app
 
 object HarnessService extends App {
-  execute
+  execute()
 
-  def execute = {
+  def execute() = {
     // Main body which gets run at startup
     try {
       Harness.externalLogger.info("Starting Harness...")
-      Harness.addShutdownHook
+      Harness.addShutdownHook()
 
       Harness.startActorSystem()
       var keepRunning = true
       while (keepRunning) {
-        try {
-          Thread.sleep(200)
-        }
+        try Thread.sleep(200)
         catch {
-          case ex: InterruptedException =>
+          case _: InterruptedException =>
             keepRunning = false
             Harness.externalLogger.info("Caught interrupt, exiting.")
           case ex: Throwable =>
@@ -43,7 +41,7 @@ object HarnessService extends App {
       }
     } catch {
       case t: Throwable =>
-        Harness.externalLogger.error(s"An error occured while running the application: ${t.getMessage}", t)
+        Harness.externalLogger.error(s"An error occurred while running the application: ${t.getMessage}", t)
         sys.exit(0)
     }
   }

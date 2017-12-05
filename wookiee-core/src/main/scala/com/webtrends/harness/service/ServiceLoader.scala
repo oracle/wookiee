@@ -18,30 +18,28 @@
  */
 package com.webtrends.harness.service
 
-import akka.actor._
-import akka.pattern.ask
-import akka.util.Timeout
-import com.webtrends.harness.HarnessConstants
-import com.webtrends.harness.logging.ActorLoggingAdapter
-import com.webtrends.harness.service.messages.GetMetaDetails
-import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.app.HarnessClassLoader
 import java.io.File
 import java.nio.file.FileSystems
 import java.util.jar.Attributes.Name
 import java.util.jar.JarFile
 
+import akka.actor._
+import akka.pattern.ask
+import com.webtrends.harness.HarnessConstants
+import com.webtrends.harness.app.{HActor, HarnessClassLoader}
+import com.webtrends.harness.logging.ActorLoggingAdapter
+import com.webtrends.harness.service.messages.GetMetaDetails
+import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.utils.ConfigUtil
 import org.joda.time.DateTime
 
 import scala.collection.JavaConversions._
 import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
-import scala.concurrent.ExecutionContext.Implicits.global
 
-trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
-  val config = context.system.settings.config
+trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
   val services = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
   private val userDir = System.getProperty("user.dir")
   private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
@@ -275,7 +273,7 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
     }
 
     serv match {
-      case Failure(t) =>
+      case Failure(_) =>
       case Success(None) =>
       case Success(meta) =>
           services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))])
@@ -289,7 +287,7 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
       if (s._1.name.equals(name)) {
         s._2._1.resolveOne(4 seconds) onComplete {
           case Success(some) => ref = Some(some.asInstanceOf[ActorRef])
-          case Failure(f) => log.warn(s"Failed to get service $name")
+          case Failure(_) => log.warn(s"Failed to get service $name")
         }
       }
     }
@@ -305,11 +303,9 @@ trait ServiceLoader { this: Actor with ActorLoggingAdapter =>
    * @return An instance of ServiceMetaData
    */
   private def getServiceMetaDetails(context: ActorContext, serviceActor: ActorRef): ServiceMetaDetails = {
-    implicit val timeout = Timeout(5 seconds)
-
     val future = (serviceActor ? GetMetaDetails).mapTo[ServiceMetaDetails]
     // Since we are starting up the service and loading services, we shall block to make
     // sure that everything has run its course
-    Await.result(future, timeout.duration)
+    Await.result(future, checkTimeout.duration)
   }
 }

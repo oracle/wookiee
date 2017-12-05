@@ -40,9 +40,7 @@ case class ComponentResponse[T](resp:T)
  * Each system component needs to extend this class so that it is loaded up correctly
  */
 abstract class Component(name:String) extends HActor with ComponentHelper {
-
   import context.dispatcher
-  lazy val config = context.system.settings.config
 
   protected def defaultChildName:Option[String] = None
 

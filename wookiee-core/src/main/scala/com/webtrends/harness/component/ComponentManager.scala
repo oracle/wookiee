@@ -187,8 +187,7 @@ object ComponentManager {
 
 class ComponentManager extends PrepareForShutdown {
   import context.dispatcher
-  val sysConfig = context.system.settings.config
-  val componentTimeout = ConfigUtil.getDefaultTimeout(sysConfig, HarnessConstants.KeyComponentStartTimeout, 20 seconds)
+  val componentTimeout = ConfigUtil.getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20 seconds)
 
   var componentsInitialized = false
 
@@ -228,7 +227,7 @@ class ComponentManager extends PrepareForShutdown {
       ComponentManager.failedComponents match {
         case Some(n) =>
           log.error(s"Failed to load component [$n]")
-          Harness.shutdown
+          Harness.shutdown()
         case None => //ignore
       }
     }
@@ -276,7 +275,7 @@ class ComponentManager extends PrepareForShutdown {
         case Failure(t) =>
           log.error("Error loading the component actors", t)
           // if the components failed to load then we will need to shutdown the system
-          Harness.shutdown
+          Harness.shutdown()
       }
     }
   }
@@ -297,22 +296,22 @@ class ComponentManager extends PrepareForShutdown {
    * prior to anything else happening. This function will only be executed once.
    */
   private def initializeComponents = {
-    val cList = ComponentManager.getComponentPath(sysConfig) match {
+    val cList = ComponentManager.getComponentPath(config) match {
       case Some(dir) => dir.listFiles.filter(x => x.isDirectory || FileUtil.getExtension(x).equalsIgnoreCase("jar"))
       case None => Array[File]()
     }
 
-    val libList = if (sysConfig.hasPath(HarnessConstants.KeyComponents)) {
-      sysConfig.getStringList(HarnessConstants.KeyComponents).asScala
+    val libList = if (config.hasPath(HarnessConstants.KeyComponents)) {
+      config.getStringList(HarnessConstants.KeyComponents).asScala
     } else {
       val tempList = mutable.MutableList[String]()
       // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
-      sysConfig.root().asScala foreach {
+      config.root().asScala foreach {
         entry =>
           try {
             entry._2.valueType() match {
               case ConfigValueType.OBJECT =>
-                val c = sysConfig.getConfig(entry._1)
+                val c = config.getConfig(entry._1)
                 if (c.hasPath(HarnessConstants.KeyDynamicComponent)) {
                   if (c.getBoolean(HarnessConstants.KeyDynamicComponent)) {
                     log.info(s"Dynamic Component detected [${entry._1}]")
@@ -343,12 +342,12 @@ class ComponentManager extends PrepareForShutdown {
               case x => x.toString
             }
             if (!componentsLoaded.contains(componentName)) {
-              val config = ConfigUtil.prepareSubConfig(sysConfig, componentName)
-              if (config.hasPath(ComponentManager.KeyEnabled) && !config.getBoolean(ComponentManager.KeyEnabled)) {
+              val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
+              if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
                 log.info(s"Component $componentName not enabled, skipping.")
               } else {
-                require(config.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
-                val className = config.getString(ComponentManager.KeyManagerClass)
+                require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
+                val className = compConfig.getString(ComponentManager.KeyManagerClass)
                 loadComponentClass(componentName, className)
               }
               componentsLoaded += componentName
@@ -395,7 +394,6 @@ class ComponentManager extends PrepareForShutdown {
    * @return String option if found the name, None otherwise
    */
   def getComponentName(file:File) : String = {
-    val config = context.system.settings.config
     val name = file.getName
     if (file.isDirectory) {
       ComponentManager.validateComponentDir(name, file)
@@ -473,7 +471,7 @@ class ComponentManager extends PrepareForShutdown {
       validateComponentStartup()
     } else {
       log.info("Failed to startup components: " + ComponentManager.components.toString())
-      Harness.shutdown
+      Harness.shutdown()
     }
   }
 
