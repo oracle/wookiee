@@ -13,6 +13,7 @@ It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/co
 and tacks on a ton of out of the box conveniences.
 
 <b>So think of Wookiee when you...</b>
+<i>
 * ...are trying to track down what library you put the eleventh health check 
 implementation of your career for you to copy paste
 * ...just aren't sure whether you want to use Colossus or Akka Http and you'd like to be
@@ -29,7 +30,7 @@ template with tons of examples since your company runs all their Services on one
 linking up health checks, starting everything up, and sending out PoisonPills on shutdown
 * ...have no appetite for creating a new logger variable for every single class you want to hear from
 * ...just want to be able to get straight to the fun stuff!
-
+</i>
 
 ### What's Included
 
