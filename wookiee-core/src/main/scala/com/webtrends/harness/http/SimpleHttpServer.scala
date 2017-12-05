@@ -23,20 +23,20 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 
-import com.sun.net.httpserver.{HttpHandler, HttpExchange, HttpServer}
+import akka.pattern.ask
+import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HActor
 import com.webtrends.harness.authentication.CIDRRules
-import com.webtrends.harness.component.{ComponentRequest, ComponentHelper}
 import com.webtrends.harness.component.messages.StatusRequest
+import com.webtrends.harness.component.{ComponentHelper, ComponentRequest}
 import com.webtrends.harness.health.HealthResponseType.HealthResponseType
 import com.webtrends.harness.health._
-import akka.pattern.ask
 import com.webtrends.harness.service.ServiceManager.GetMetaDataByName
 import com.webtrends.harness.service.messages.GetMetaData
-import com.webtrends.harness.service.meta.ServiceMetaData
 import com.webtrends.harness.utils.Json
-import org.joda.time.{DateTimeZone, DateTime}
+import org.joda.time.{DateTime, DateTimeZone}
+
 import scala.concurrent.Future
 import scala.util.{Failure, Success}
 
@@ -57,8 +57,8 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
   var httpServer:Option[HttpServer] = None
   val healthActor = context.actorSelection(HarnessConstants.HealthFullName)
   val servicesActor = context.actorSelection(HarnessConstants.ServicesFullName)
-  val cidrRules = if (context.system.settings.config.hasPath("cidr-rules")) {
-    Some(CIDRRules(context.system.settings.config))
+  val cidrRules = if (config.hasPath("cidr-rules")) {
+    Some(CIDRRules(config))
   } else {
     None
   }
@@ -125,10 +125,10 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
             if (checkCidrRules(httpExchange)) {
               httpExchange.getRequestURI.getPath match {
                 case "/healthcheck" | "/healthcheck/full" =>
-                  httpExchange.getRequestURI.getQuery != null && httpExchange.getRequestURI.getQuery.contains("type=lb") match {
-                    case true => handleHealthMessage(httpExchange, HealthResponseType.LB)
-                    case false => handleHealthMessage(httpExchange, HealthResponseType.FULL)
-                  }
+                  val query = httpExchange.getRequestURI.getQuery
+                  if (query != null && query.contains("type=lb")) {
+                    handleHealthMessage(httpExchange, HealthResponseType.LB)
+                  } else handleHealthMessage(httpExchange, HealthResponseType.FULL)
                 case "/healthcheck/lb" => handleHealthMessage(httpExchange, HealthResponseType.LB)
                 case "/healthcheck/nagios" => handleHealthMessage(httpExchange, HealthResponseType.NAGIOS)
                 case "/ping" => respond(httpExchange, "pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString))
@@ -170,7 +170,7 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
 
   def isStarted : Boolean = {
     httpServer match {
-      case Some(s) => true
+      case Some(_) => true
       case None => false
     }
   }
@@ -200,7 +200,7 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
   override protected def getHealth: Future[HealthComponent] = {
     Future {
       httpServer match {
-        case Some(s) => HealthComponent(self.path.toString, ComponentState.NORMAL, s"Internal HTTP Server started on port $port")
+        case Some(_) => HealthComponent(self.path.toString, ComponentState.NORMAL, s"Internal HTTP Server started on port $port")
         case None if portBound => HealthComponent(self.path.toString, ComponentState.NORMAL, s"Internal HTTP server not started, port [$port] already bound by http component")
         case None => HealthComponent(self.path.toString, ComponentState.CRITICAL, "Internal HTTP Server not started")
       }

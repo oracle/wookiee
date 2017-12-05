@@ -43,8 +43,7 @@ class ConfigWatcherActor extends HActor {
 
   override def preStart(): Unit = {
     super.preStart()
-    val conf = context.system.settings.config
-    ServiceManager.serviceDir(conf) match {
+    ServiceManager.serviceDir(config) match {
       case Some(s) =>
         configDir = s.toPath
         val dirs = s.listFiles.filter(_.isDirectory)
