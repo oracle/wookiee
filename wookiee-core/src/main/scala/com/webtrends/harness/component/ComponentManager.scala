@@ -342,12 +342,12 @@ class ComponentManager extends PrepareForShutdown {
               case x => x.toString
             }
             if (!componentsLoaded.contains(componentName)) {
-              val config = ConfigUtil.prepareSubConfig(config, componentName)
-              if (config.hasPath(ComponentManager.KeyEnabled) && !config.getBoolean(ComponentManager.KeyEnabled)) {
+              val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
+              if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
                 log.info(s"Component $componentName not enabled, skipping.")
               } else {
-                require(config.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
-                val className = config.getString(ComponentManager.KeyManagerClass)
+                require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
+                val className = compConfig.getString(ComponentManager.KeyManagerClass)
                 loadComponentClass(componentName, className)
               }
               componentsLoaded += componentName
