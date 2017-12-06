@@ -106,14 +106,14 @@ class HarnessActor extends Actor
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
   var configWatcherActor: Option[ActorRef] = None
 
-  override def preStart(): Unit = initialize
+  override def preStart(): Unit = initialize()
 
   override def receive = initializing
 
   def initializing: Receive = {
     case CheckHealth => pipe(getHealth(true)) to sender
-    case ComponentInitializationComplete => initializationComplete
-    case ShutdownSystem => shutdownCoreServices
+    case ComponentInitializationComplete => initializationComplete()
+    case ShutdownSystem => shutdownCoreServices()
     case ReadyCheck => sender ! running.get
   }
 
@@ -152,13 +152,13 @@ class HarnessActor extends Actor
       log.info("Received message to reload services/components due to config change")
       serviceActor.get ! c
       componentActor.get ! c
-    case ShutdownSystem => shutdownCoreServices
+    case ShutdownSystem => shutdownCoreServices()
   }
 
   /**
    * Start the core services
    */
-  private def initialize = {
+  private def initialize() = {
     startHealth
     startConfigWatcher
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
@@ -174,7 +174,7 @@ class HarnessActor extends Actor
     componentActor.get ! InitializeComponents
   }
 
-  private def initializationComplete: Unit = {
+  private def initializationComplete(): Unit = {
     // Wait for the child actors above to be loaded before calling on the services
     Future.traverse(context.children)(child => (child ? Identify("xyz123"))(startupTimeout)) onComplete {
       case Success(_) =>
@@ -197,7 +197,7 @@ class HarnessActor extends Actor
   /**
    * Complete the shutdown process. This will be called after clustering has been shutdown.
    */
-  private def shutdownCoreServices: Unit = {
+  private def shutdownCoreServices(): Unit = {
     log.info("Starting the shutdown process")
     if (running.isDefined && running.get) {
       val tmpService = serviceActor
@@ -205,9 +205,9 @@ class HarnessActor extends Actor
       val tmpCmd = commandManager
       val tmpPol = policyManager
       prepareForShutdown(tmpService, tmpPol, tmpCmd, tmpComp) andThen {
-        case _ => gracefulShutdown
+        case _ => gracefulShutdown()
       }
-    } else gracefulShutdown
+    } else gracefulShutdown()
   }
 
   private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
@@ -225,7 +225,7 @@ class HarnessActor extends Actor
   }
 
 
-  private def gracefulShutdown:Unit = {
+  private def gracefulShutdown():Unit = {
     def gStop(actOpt: Option[ActorRef], timeout: FiniteDuration): Future[Boolean] = {
       if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, timeout)
       else Future.successful(true)
@@ -246,7 +246,7 @@ class HarnessActor extends Actor
                     log.info("Harness subsystems have been shutdown")
                     context.stop(self)
                     running = Some(false)
-                  case Failure(fail) =>
+                  case Failure(_) =>
                     log.info("Harness subsystems have not been shutdown properly")
                     context.stop(self)
                     running = Some(false)
@@ -269,16 +269,16 @@ class HarnessActor extends Actor
       }
     } else {
       // Call the sections and get their health
-      val future = Future.traverse(context.children)(sys => sys match {
-        case a: ActorRef =>
+      val future = Future.traverse(context.children) {
+        a: ActorRef =>
           (a ? CheckHealth).mapTo[HealthComponent]
-      })
+      }
 
       val p = Promise[Seq[HealthComponent]]()
       future.onComplete({
         case Failure(f) =>
           log.error("Error fetching health", f)
-          p failure (f)
+          p failure f
         case Success(answers) =>
           p success answers.toSeq
       })
