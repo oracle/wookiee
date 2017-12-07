@@ -56,7 +56,7 @@ object HarnessActor {
 // Below are actor traits that are commonly used for actors in the Harness
 trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
   // Globally accessible config loaded from -Dconfig.file=$file_path
-  val config = context.system.settings.config
+  lazy val config = context.system.settings.config
   // By default routes to health check, should make sure to orElse to here if overriding
   override def receive = health
 }
