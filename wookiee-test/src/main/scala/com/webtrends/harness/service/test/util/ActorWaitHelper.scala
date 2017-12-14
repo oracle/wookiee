@@ -8,14 +8,16 @@ import akka.util.Timeout
 import scala.concurrent.Await
 
 object ActorWaitHelper {
-  def awaitActor(props: Props, system: ActorSystem): ActorRef = {
-    implicit val waitTime = Timeout(5, TimeUnit.SECONDS)
+  // Will wait until an actor has come up before returning its ActorRef
+  def awaitActor(props: Props, system: ActorSystem)(implicit timeout: Timeout): ActorRef = {
     val actor = system.actorOf(props)
-    Await.result(system.actorSelection(actor.path).resolveOne(), waitTime.duration)
+    Await.result(system.actorSelection(actor.path).resolveOne(), timeout.duration)
     actor
   }
 }
 
 trait ActorWaitHelper { this: Actor =>
-  def awaitActor(props: Props): ActorRef = ActorWaitHelper.awaitActor(props, context.system)
+  // Will wait until an actor has come up before returning its ActorRef
+  def awaitActor(props: Props)(implicit timeout: Timeout = Timeout(5, TimeUnit.SECONDS)): ActorRef =
+    ActorWaitHelper.awaitActor(props, context.system)
 }
