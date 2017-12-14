@@ -35,6 +35,27 @@ linking up health checks, starting everything up, and sending out PoisonPills on
 
 </i>
 
+### Adding to Pom
+
+Add the jfrog repo to your project first:
+~~~~
+<repositories>
+    <repository>
+        <id>JFrog</id>
+        <url>http://oss.jfrog.org/oss-release-local</url>
+    </repository>
+</repositories>
+~~~~
+
+Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee:
+~~~~
+<dependency>
+    <groupId>com.webtrends</groupId>
+    <artifactId>wookiee-core</artifactId>
+    <version>${wookiee.version}</version>
+</dependency>
+~~~~
+
 ### What's Included
 
 The Wookiee platform repository contains the core, supporting components and a test library. It is built primarily on Scala and [Akka](http://akka.io). It contains example projects as well as Maven archetypes for creating various service and creating a component. Wookiee is split into 2 primary components, the Wookiee library and the system components. The Wookiee library is comprised of the of the following components:
