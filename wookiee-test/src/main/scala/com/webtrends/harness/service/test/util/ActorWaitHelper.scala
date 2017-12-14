@@ -9,7 +9,7 @@ import scala.concurrent.Await
 
 object ActorWaitHelper {
   // Will wait until an actor has come up before returning its ActorRef
-  def awaitActor(props: Props, system: ActorSystem)(implicit timeout: Timeout): ActorRef = {
+  def awaitActor(props: Props, system: ActorSystem)(implicit timeout: Timeout = Timeout(5, TimeUnit.SECONDS)): ActorRef = {
     val actor = system.actorOf(props)
     Await.result(system.actorSelection(actor.path).resolveOne(), timeout.duration)
     actor
@@ -19,5 +19,5 @@ object ActorWaitHelper {
 trait ActorWaitHelper { this: Actor =>
   // Will wait until an actor has come up before returning its ActorRef
   def awaitActor(props: Props)(implicit timeout: Timeout = Timeout(5, TimeUnit.SECONDS)): ActorRef =
-    ActorWaitHelper.awaitActor(props, context.system)
+    ActorWaitHelper.awaitActor(props, context.system)(timeout)
 }
