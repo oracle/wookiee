@@ -62,7 +62,7 @@ object Harness {
    * Force a shutdown of the ActorSystem and the application's process.
    */
   def shutdown() = {
-    log.get.info("Shutting down the harness")
+    log.get.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run() {
         Thread.sleep(10)
@@ -78,7 +78,7 @@ object Harness {
    */
   def startActorSystem(config:Option[Config]=None) = {
     try {
-      externalLogger.info("Creating the actor system")
+      externalLogger.debug("Creating the actor system")
       system = config match {
         case None => Some(HarnessActorSystem())
         case c => Some(HarnessActorSystem(c))
@@ -88,10 +88,9 @@ object Harness {
       system.get.eventStream.subscribe(listener, classOf[UnhandledMessage])
 
       log = Some(Logger(this.getClass, system.get))
-      log.get.info("Creating main harness actor")
+      log.get.debug("Creating main Wookiee actor")
       implicit val sys = system.get
       rootActor = Some(system.get.actorOf(HarnessActor.props, "system"))
-      log.get.info("Harness Started")
     }
     catch {
       case t: Throwable =>
@@ -104,7 +103,7 @@ object Harness {
    * Shutdown the actor system
    */
   def shutdownActorSystem(block: Boolean)(f: => Unit) = {
-    log.get.info("Shutting down the main actor")
+    log.get.debug("Shutting down the main actor")
     import scala.concurrent.ExecutionContext.Implicits.global
 
     // We will tell the main actor that we are shutting down. This allows it to shutdown
@@ -112,7 +111,7 @@ object Harness {
     val fut = gracefulStop(rootActor.get, 15 seconds, ShutdownSystem)
       .andThen {
         case Success(_) =>
-          log.get.info("Now shutting down the the system itself")
+          log.get.debug("Now shutting down the the system itself")
       }
       // Now shutdown the system
       .flatMap(_ => system.map(_.terminate()).getOrElse(Future.successful(true)))
@@ -123,7 +122,7 @@ object Harness {
         system = None
         log = None
         rootActor = None
-        externalLogger.info("The actor system has terminated")
+        externalLogger.debug("The actor system has terminated")
         // Call the passed function
         f
       case Failure(reason) =>
@@ -146,10 +145,9 @@ object Harness {
           case Some(sys) =>
             sys.log.debug("The shutdown hook has been called")
             shutdownActorSystem(block = true) {
-              externalLogger.info("Successfully shut down")
+              externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
             }
-          case _ => externalLogger.info("Successfully shut down")
-
+          case _ =>
         }
       }
     }))

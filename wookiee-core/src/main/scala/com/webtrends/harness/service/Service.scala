@@ -38,6 +38,7 @@ trait Service extends HActor
   // To be defined in service actor
   def serviceReceive = {
     case GetMetaDetails => sender ! ServiceMetaDetails(false)
+    case Ready(_) => // Meta info received
   }: Receive
 
   override def preStart() {
@@ -54,8 +55,8 @@ trait Service extends HActor
     case Ping =>
       sender() ! Pong
 
-    case ConfigChange =>
-      log.info("No special config change functionality for this service.")
+    case ConfigChange() =>
+      // User can receive this themselves to renew their config
 
     case GetMetaData => (context.parent ! GetMetaData(Some(self.path)))(sender())
   }: Receive) orElse serviceReceive

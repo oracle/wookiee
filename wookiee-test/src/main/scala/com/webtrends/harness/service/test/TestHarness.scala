@@ -102,8 +102,6 @@ class TestHarness(conf:Config) {
     if (serviceMap.isDefined) {
       loadServices(serviceMap.get)
     }
-    componentManager.foreach {_ ! SystemReady}
-    serviceManager.foreach {_ ! SystemReady}
     this
   }
 

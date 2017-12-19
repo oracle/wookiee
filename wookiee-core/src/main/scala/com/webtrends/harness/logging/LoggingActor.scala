@@ -31,14 +31,14 @@ class LoggingActor extends Actor with ActorHealth with Slf4jLogging with ActorLo
     if (routeLogging) {
       Logger.registerMediator(self)
     }
-    log.info("Logging manager started: {}", context.self.path)
+    log.info("Logging Manager started: {}", context.self.path)
   }
 
   override def postStop(): Unit = {
     if (routeLogging) {
      Logger.unregisterMediator(self)
     }
-    log.info("Logging manager started: {}", context.self.path)
+    log.info("Logging Manager started: {}", context.self.path)
   }
 
   def receive = health orElse {

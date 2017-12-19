@@ -33,7 +33,6 @@ import com.webtrends.harness.service.ServiceManager.{GetMetaDataByName, RestartS
 import com.webtrends.harness.service.messages.{GetMetaData, LoadService, Ready}
 import com.webtrends.harness.service.meta.ServiceMetaData
 
-import scala.Predef._
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.Exception._
@@ -60,7 +59,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     // Tell the harness that the services are loaded. The parent will then
     // tell us when it is ready so that the services can be notified
     context.parent ! ServicesReady
-    log.info("Service manager started: {}", context.self.path)
+    log.info("Service Manager started: {}", context.self.path)
   }
 
   override def postStop(): Unit = {
@@ -70,17 +69,18 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         if (p._2.isDefined) p._2.get.close()
     }
     services.clear
-    if (context != null) log.info("Service manager stopped: {}", context.self.path)
+    if (context != null) log.info("Service Manager stopped: {}", context.self.path)
   }
 
   override def receive = super.receive orElse {
     case SystemReady =>
-      log.info("Notifying Services that we are completely ready.")
+      log.debug("Notifying Services that we are completely ready.")
       context.children foreach { p =>
         val meta = getServiceMeta(Some(p.path))
         if (meta.nonEmpty) p ! Ready(meta.head)
         else log.warn(s"No Service Path to Send Ready Message for ${p.path}")
       }
+      log.info("Wookiee Started, Let's Go")
 
     case GetMetaData(path) =>
       log.info("We have received a message to get service meta data")
@@ -108,10 +108,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         case None =>
       }
 
-    case c: ConfigChange =>
-      log.info("Sending config change message to all services...")
+    case ConfigChange() =>
+      log.debug("Sending config change message to all services...")
       context.children foreach {
-        p => p ! c
+        p => p ! ConfigChange()
       }
 
     case Terminated(service) =>

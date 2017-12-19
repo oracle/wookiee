@@ -54,7 +54,7 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
   override def receive = health orElse {
     case StartComponent => start
     case StopComponent => stop
-    case ConfigChange => log.info("No special config change functionality for this component.")
+    case ConfigChange() => // User can receive to do something
     case ComponentRequest(msg, name, timeout) =>
       val caller = sender
       getChildActor(name) match {

@@ -38,7 +38,7 @@ import com.webtrends.harness.utils.ConfigUtil
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 object HarnessActor {
   def props()(implicit system: ActorSystem): Props = Props[HarnessActor]
@@ -65,7 +65,7 @@ trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
 trait PrepareForShutdown extends HActor {
   override def receive = health orElse {
     case PrepareForShutdown =>
-      log.info("Preparing for shutdown")
+      log.debug("Preparing for shutdown of self and children")
       context.children foreach(_ ! PrepareForShutdown)
   }
 }
@@ -148,10 +148,10 @@ class HarnessActor extends Actor
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
     case RestartSystem => Harness.restartActorSystem
-    case c: ConfigChange =>
-      log.info("Received message to reload services/components due to config change")
-      serviceActor.get ! c
-      componentActor.get ! c
+    case ConfigChange() =>
+      log.debug("Received message to reload services/components due to config change")
+      serviceActor.get ! ConfigChange()
+      componentActor.get ! ConfigChange()
     case ShutdownSystem => shutdownCoreServices()
   }
 
@@ -164,13 +164,13 @@ class HarnessActor extends Actor
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
       // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager)
+      log.info("Command Manager started: {}", commandManager.get.path)
       // initialize the command manager right at the beginning
       policyManager = Some(context.actorOf(PolicyManager.props, HarnessConstants.PolicyName))
-      log.info("Policy Manager started: {}", policyManager)
+      log.info("Policy Manager started: {}", policyManager.get.path)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component manager started: {}", componentActor)
+    log.info("Component Manager started: {}", componentActor.get.path)
     componentActor.get ! InitializeComponents
   }
 
@@ -181,7 +181,7 @@ class HarnessActor extends Actor
         context.become(processing)
         // Load any services
         serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
-        log.info("Harness manager started: {}", context.self.path)
+        log.debug("Harness Manager started: {}", context.self.path)
         // in general the internal http should always start, but in the cases where you want to turn it off
         // you can just disable it in the config using internal-http.enable = false
         // it will also fail silently with a warning if another http component is using the same port as it.
@@ -205,14 +205,14 @@ class HarnessActor extends Actor
       val tmpCmd = commandManager
       val tmpPol = policyManager
       prepareForShutdown(tmpService, tmpPol, tmpCmd, tmpComp) andThen {
-        case _ => gracefulShutdown()
+        case _ => Try(gracefulShutdown())
       }
-    } else gracefulShutdown()
+    } else Try(gracefulShutdown())
   }
 
   private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
     Future {
-      log.info(s"Prepare For Shutdown")
+      log.debug(s"Prepare For Shutdown")
       for {
         optRef <- actorRefs
         ref <- optRef
@@ -230,17 +230,17 @@ class HarnessActor extends Actor
       if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, timeout)
       else Future.successful(true)
     }
+    val waitTime = 5 seconds
 
-    log.info(s"Starting graceful shutdown")
-    gStop(serviceActor, 5 seconds).onComplete {
-      _ => // in the case of a failure just continue shutting down
+    log.debug(s"Starting graceful shutdown of Service and Component Managers.")
+    Try(gStop(serviceActor, waitTime)).map(_.onComplete {
+      _ => // In the case of a failure just continue shutting down
         // Shutdown the components second
-        gStop(componentActor, 5 seconds) onComplete {
-          _ => // We don't care if we could not shutdown properly. Any errors were logged so
-            // just continue
+        Try(gStop(componentActor, waitTime)).map(_.onComplete {
+          _ => // We don't care if we could not shutdown properly. Any errors were logged so just continue
             // Shutdown the children
-            if (context != null && context.children.nonEmpty) {
-              Future.sequence(context.children map (a => gracefulStop(a, 10 seconds)))
+            if (context != null) {
+              Future.sequence(context.children map (a => gStop(Option(a), waitTime)))
                 .onComplete {
                   case Success(_) =>
                     log.info("Harness subsystems have been shutdown")
@@ -252,8 +252,8 @@ class HarnessActor extends Actor
                     running = Some(false)
                 }
             }
-        }
-    }
+        })
+    })
   }
 
 
