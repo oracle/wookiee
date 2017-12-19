@@ -21,7 +21,7 @@ this repo up in IntelliJ Idea and do the following...
 * Hit the "+" and select Application
 * Input the Following:
     * Main Class: com.webtrends.harness.app.HarnessService
-    * VM Options: -Dconfig.file=src/main/resources/application.conf
+    * VM Options: -Dconfig.file=src/main/resources/application.conf -Dlogback.configurationFile=src/main/resources/logback.xml
     * Working Directory: ${your path to ../wookiee/examples/basic-service}
     * Use Classpath of Module: basic-service
 * Press "OK"

@@ -62,7 +62,7 @@ object Harness {
    * Force a shutdown of the ActorSystem and the application's process.
    */
   def shutdown() = {
-    log.get.info("Shutting down the harness")
+    log.get.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run() {
         Thread.sleep(10)
@@ -78,7 +78,7 @@ object Harness {
    */
   def startActorSystem(config:Option[Config]=None) = {
     try {
-      externalLogger.info("Creating the actor system")
+      externalLogger.debug("Creating the actor system")
       system = config match {
         case None => Some(HarnessActorSystem())
         case c => Some(HarnessActorSystem(c))
@@ -88,10 +88,9 @@ object Harness {
       system.get.eventStream.subscribe(listener, classOf[UnhandledMessage])
 
       log = Some(Logger(this.getClass, system.get))
-      log.get.info("Creating main harness actor")
+      log.get.debug("Creating main Wookiee actor")
       implicit val sys = system.get
       rootActor = Some(system.get.actorOf(HarnessActor.props, "system"))
-      log.get.info("Harness Started")
     }
     catch {
       case t: Throwable =>

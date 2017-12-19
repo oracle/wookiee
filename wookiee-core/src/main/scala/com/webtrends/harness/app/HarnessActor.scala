@@ -164,13 +164,13 @@ class HarnessActor extends Actor
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
       // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager.get)
+      log.info("Command Manager started: {}", commandManager.get.path)
       // initialize the command manager right at the beginning
       policyManager = Some(context.actorOf(PolicyManager.props, HarnessConstants.PolicyName))
-      log.info("Policy Manager started: {}", policyManager.get)
+      log.info("Policy Manager started: {}", policyManager.get.path)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component Manager started: {}", componentActor.get)
+    log.info("Component Manager started: {}", componentActor.get.path)
     componentActor.get ! InitializeComponents
   }
 

@@ -33,7 +33,6 @@ import com.webtrends.harness.service.ServiceManager.{GetMetaDataByName, RestartS
 import com.webtrends.harness.service.messages.{GetMetaData, LoadService, Ready}
 import com.webtrends.harness.service.meta.ServiceMetaData
 
-import scala.Predef._
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.Exception._
@@ -75,12 +74,13 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
   override def receive = super.receive orElse {
     case SystemReady =>
-      log.info("Notifying Services that we are completely ready.")
+      log.debug("Notifying Services that we are completely ready.")
       context.children foreach { p =>
         val meta = getServiceMeta(Some(p.path))
         if (meta.nonEmpty) p ! Ready(meta.head)
         else log.warn(s"No Service Path to Send Ready Message for ${p.path}")
       }
+      log.info("Wookiee Started, Let's Go")
 
     case GetMetaData(path) =>
       log.info("We have received a message to get service meta data")

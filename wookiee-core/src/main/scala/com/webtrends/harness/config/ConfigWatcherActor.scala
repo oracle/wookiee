@@ -60,7 +60,7 @@ class ConfigWatcherActor extends HActor {
           configExists = true
           watchThread.start()
         }
-      case None => log.warn("Service dir does not exist, not starting watchers")
+      case None => log.debug("Service dir does not exist, not starting watchers")
     }
     System.getProperty("config.file") match {
       case s: String =>
@@ -89,10 +89,9 @@ class ConfigWatcherActor extends HActor {
 
   override def checkHealth: Future[HealthComponent] = {
     Future {
-      !configExists || (watchThread.isAlive && !watchThread.isInterrupted) match {
-        case true => HealthComponent("Config Watcher Health", ComponentState.NORMAL, "Config being watched as expected")
-        case false => HealthComponent("Config Watcher Health", ComponentState.CRITICAL, "Config changes are no longer being watched")
-      }
+      if (!configExists || (watchThread.isAlive && !watchThread.isInterrupted)) {
+        HealthComponent("Config Watcher Health", ComponentState.NORMAL, "Config being watched as expected")
+      } else HealthComponent("Config Watcher Health", ComponentState.CRITICAL, "Config changes are no longer being watched")
     }
   }
 
@@ -105,13 +104,13 @@ class ConfigWatcherActor extends HActor {
         try {
           key = Some(configWatcher.take())
         } catch {
-          case x: InterruptedException =>
+          case _: InterruptedException =>
             return
         }
 
         key.get.pollEvents().toStream.takeWhile(_.kind() != OVERFLOW) foreach {
           event =>
-            log.info("Detected alteration on file {}", event.context().toString)
+            log.debug("Detected alteration on file {}", event.context().toString)
             // The filename is the context of the event.
             val ev = event.asInstanceOf[WatchEvent[Path]]
             val filename = ev.context()
@@ -120,7 +119,7 @@ class ConfigWatcherActor extends HActor {
               // Resolve the filename against the directory.
               val child = configDir.resolve(filename)
               if (filename.toString.endsWith(".conf")) {
-                log.debug("Config file change detected, {}, sending message to services/components to reload if applicable.", child.toString)
+                log.info("Config file change detected, {}, sending message to services/components to reload if applicable.", filename.toString)
                 context.parent ! ConfigChange()
               } else {
                 log.debug("Ignoring change to {} as it is not a .conf file", child.toString)
