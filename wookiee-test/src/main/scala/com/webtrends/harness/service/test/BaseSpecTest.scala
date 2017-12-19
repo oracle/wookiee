@@ -13,8 +13,9 @@ trait BaseSpecTest extends SpecificationLike {
   def config:Config = ConfigFactory.empty()
   def componentMap:Option[Map[String, Class[_<:Component]]] = None
   def servicesMap:Option[Map[String, Class[_<:Service]]] = None
+  def logLevel: Level = Level.INFO
 
-  TestHarness(config, servicesMap, componentMap, Level.ALL)
+  TestHarness(config, servicesMap, componentMap, logLevel)
   Thread.sleep(1000)
   implicit val system = TestHarness.system.get
 }
