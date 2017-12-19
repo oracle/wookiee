@@ -30,11 +30,11 @@ object HealthCheckActor {
 class HealthCheckActor extends HActor with HealthCheckProvider {
 
   override def preStart() {
-    log.info("Health manager started: {}", context.self.path)
+    log.info("Health Manager started: {}", context.self.path)
   }
 
   override def postStop(): Unit = {
-    log.info("Health manager stopped: {}", context.self.path)
+    log.info("Health Manager stopped: {}", context.self.path)
   }
 
   override def receive = health orElse {

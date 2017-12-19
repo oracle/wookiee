@@ -164,13 +164,13 @@ class HarnessActor extends Actor
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
       // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager)
+      log.info("Command Manager started: {}", commandManager.get)
       // initialize the command manager right at the beginning
       policyManager = Some(context.actorOf(PolicyManager.props, HarnessConstants.PolicyName))
-      log.info("Policy Manager started: {}", policyManager)
+      log.info("Policy Manager started: {}", policyManager.get)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component manager started: {}", componentActor)
+    log.info("Component Manager started: {}", componentActor.get)
     componentActor.get ! InitializeComponents
   }
 
@@ -181,7 +181,7 @@ class HarnessActor extends Actor
         context.become(processing)
         // Load any services
         serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
-        log.info("Harness manager started: {}", context.self.path)
+        log.info("Harness Manager started: {}", context.self.path)
         // in general the internal http should always start, but in the cases where you want to turn it off
         // you can just disable it in the config using internal-http.enable = false
         // it will also fail silently with a warning if another http component is using the same port as it.

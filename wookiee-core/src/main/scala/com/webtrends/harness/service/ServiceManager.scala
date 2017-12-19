@@ -60,7 +60,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     // Tell the harness that the services are loaded. The parent will then
     // tell us when it is ready so that the services can be notified
     context.parent ! ServicesReady
-    log.info("Service manager started: {}", context.self.path)
+    log.info("Service Manager started: {}", context.self.path)
   }
 
   override def postStop(): Unit = {
