@@ -65,7 +65,7 @@ trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
 trait PrepareForShutdown extends HActor {
   override def receive = health orElse {
     case PrepareForShutdown =>
-      log.info("Preparing for shutdown")
+      log.debug("Preparing for shutdown of self and children")
       context.children foreach(_ ! PrepareForShutdown)
   }
 }
@@ -148,10 +148,10 @@ class HarnessActor extends Actor
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
     case RestartSystem => Harness.restartActorSystem
-    case c: ConfigChange =>
-      log.info("Received message to reload services/components due to config change")
-      serviceActor.get ! c
-      componentActor.get ! c
+    case ConfigChange() =>
+      log.debug("Received message to reload services/components due to config change")
+      serviceActor.get ! ConfigChange()
+      componentActor.get ! ConfigChange()
     case ShutdownSystem => shutdownCoreServices()
   }
 
@@ -212,7 +212,7 @@ class HarnessActor extends Actor
 
   private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
     Future {
-      log.info(s"Prepare For Shutdown")
+      log.debug(s"Prepare For Shutdown")
       for {
         optRef <- actorRefs
         ref <- optRef
@@ -227,20 +227,25 @@ class HarnessActor extends Actor
 
   private def gracefulShutdown():Unit = {
     def gStop(actOpt: Option[ActorRef], timeout: FiniteDuration): Future[Boolean] = {
-      if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, timeout)
-      else Future.successful(true)
+      try {
+        if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, timeout)
+        else Future.successful(true)
+      } catch {
+        case _: Throwable => Future.successful(true)
+      }
     }
+    val waitTime = 5 seconds
 
-    log.info(s"Starting graceful shutdown")
-    gStop(serviceActor, 5 seconds).onComplete {
+    log.info(s"Starting graceful shutdown of Service and Component Managers.")
+    gStop(serviceActor, waitTime) onComplete {
       _ => // in the case of a failure just continue shutting down
         // Shutdown the components second
-        gStop(componentActor, 5 seconds) onComplete {
+        gStop(componentActor, waitTime) onComplete {
           _ => // We don't care if we could not shutdown properly. Any errors were logged so
             // just continue
             // Shutdown the children
-            if (context != null && context.children.nonEmpty) {
-              Future.sequence(context.children map (a => gracefulStop(a, 10 seconds)))
+            if (context != null) {
+              Future.sequence(context.children map (a => gStop(Some(a), waitTime)))
                 .onComplete {
                   case Success(_) =>
                     log.info("Harness subsystems have been shutdown")

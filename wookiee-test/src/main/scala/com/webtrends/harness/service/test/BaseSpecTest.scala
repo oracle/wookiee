@@ -5,11 +5,9 @@ import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.service.Service
 import org.specs2.mutable.SpecificationLike
+import org.scalatest.{MustMatchers, WordSpecLike}
 
-/**
- * @author Michael Cuthbert on 5/28/15.
- */
-trait BaseSpecTest extends SpecificationLike {
+trait BaseWookieeTest {
   def config:Config = ConfigFactory.empty()
   def componentMap:Option[Map[String, Class[_<:Component]]] = None
   def servicesMap:Option[Map[String, Class[_<:Service]]] = None
@@ -19,3 +17,6 @@ trait BaseSpecTest extends SpecificationLike {
   Thread.sleep(1000)
   implicit val system = TestHarness.system.get
 }
+
+trait BaseWookieeSpecTest extends BaseWookieeTest with SpecificationLike
+trait BaseWookieeScalaTest extends BaseWookieeTest with WordSpecLike with MustMatchers

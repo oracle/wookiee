@@ -108,10 +108,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         case None =>
       }
 
-    case c: ConfigChange =>
-      log.info("Sending config change message to all services...")
+    case ConfigChange() =>
+      log.debug("Sending config change message to all services...")
       context.children foreach {
-        p => p ! c
+        p => p ! ConfigChange()
       }
 
     case Terminated(service) =>

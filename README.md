@@ -125,6 +125,23 @@ Generally a developer would want to override the getHealth function to give cust
 This code will create a random health check result based on the value of the random int. As shown the ComponentState can be either NORMAL, DEGRADED or CRITICAL. 
 Lastly if needed a developer can override the checkHealth function that will handle the message, which will by default use getHealth to get the health of the current actor and then traverse the children to get their health, however if there is a requirement to modify this behavior you can simply override it.
 
+### Configuration Watching
+The file specified in config.file will actually be watched for any changes to it and a message
+will be sent to all HActors (message: ConfigChange()). To hook into this most easily, extend
+the ConfigHelper class like so:
+
+```java
+import com.webtrends.harness.config.ConfigHelper
+import com.webtrends.harness.app.HActor
+
+class ConfigWatchingActor extends HActor with ConfigHelper {
+    override def renewConfiguration() {
+        super.renewConfiguration()
+        renewableConfig // Do something with your updated config object
+    }
+}
+```
+
 ### Logging
 Standardized logging is provided by the library. This can be applied to any actor using the trait ActorLoggingAdapter. This will give you the "log" variable which will allow you to write info, debug, warn, error and trace messages to the log. If you need to add logging to a non-actor based class, possibly like an object you can use the following code.
 ```java
