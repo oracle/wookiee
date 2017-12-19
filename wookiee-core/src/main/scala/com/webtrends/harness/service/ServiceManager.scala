@@ -69,7 +69,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         if (p._2.isDefined) p._2.get.close()
     }
     services.clear
-    if (context != null) log.info("Service manager stopped: {}", context.self.path)
+    if (context != null) log.info("Service Manager stopped: {}", context.self.path)
   }
 
   override def receive = super.receive orElse {
