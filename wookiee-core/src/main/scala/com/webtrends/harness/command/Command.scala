@@ -37,7 +37,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
   import context.dispatcher
 
   override def receive = health orElse ({
-    case ExecuteCommand(name, bean, _) => pipe(execute(bean)) to sender
+    case ExecuteCommand(_, bean, _) => pipe(execute(bean)) to sender
     case _ => // ignore all other messages to this actor
   } : Receive)
 
@@ -49,46 +49,38 @@ trait Command extends BaseCommand with HActor with CommandHelper {
    * given name so that you can find out which path was mapped in the end. By default it
    * will simply be a map of 1 element being retrieved from the default "path" function.
    * So if you only require a single path you wouldn't worry about this function at all
-   *
-   * @return
    */
   def paths : Map[String, String] =  Map("default" -> path)
 
   /**
    * Name of the command that will be used for the actor name
-   *
-   * @return
    */
   def commandName : String
 
   /**
    * The primary entry point for the command, the actor for this command
    * will ignore all other messaging and only execute through this
-   *
-   * @return
    */
   def execute[T:Manifest](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
 }
 
 object Command {
-
   /**
    * Checks the match between a test path and url path
    *
-   * @param test The test path, like /test/$var1/ping
-   * @param uri The uri, like /test/1/ping
+   * @param commandPath The test path of the command, like /test/$var1/ping
+   * @param requestPath The uri requested, like /test/1/ping
    * @return Will return a command bean if matched, None if not and in the command bean the
    *         key var1 will equal 1 as per the example above
    */
-  def matchPath(test:String, uri:String) : Option[CommandBean] = {
+  def matchPath(commandPath:String, requestPath:String) : Option[CommandBean] = {
 
     import com.webtrends.harness.utils.StringPathUtil._
 
     val bean = new CommandBean()
-    val testPath = test.splitPath()
-    val urlPath = uri.splitPath()
+    val urlPath = requestPath.splitPath()
 
-    val m = urlPath.corresponds(testPath) {
+    val matched = urlPath.corresponds(commandPath.splitPath()) {
       // Convert the segment into an Integer if possible, otherwise leave it as a String
       case (uri, test) if test.head == '$' =>
         val key = test.substring(1)
@@ -117,9 +109,7 @@ object Command {
         test.toLowerCase.split('|').contains(uri.toLowerCase)
     }
 
-    m match {
-      case true => Some(bean)
-      case false => None
-    }
+    if (matched) Some(bean)
+    else None
   }
 }
