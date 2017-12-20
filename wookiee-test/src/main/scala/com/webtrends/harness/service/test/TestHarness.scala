@@ -28,7 +28,7 @@ import ch.qos.logback.classic.Level
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.HarnessConstants._
 import com.webtrends.harness.app.Harness
-import com.webtrends.harness.app.HarnessActor.{GetManagers, ReadyCheck, SystemReady}
+import com.webtrends.harness.app.HarnessActor.{GetManagers, ReadyCheck}
 import com.webtrends.harness.component.{Component, LoadComponent}
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.LoadService
@@ -218,7 +218,7 @@ class TestHarness(conf:Config) {
         commands {
           # generally this should be enabled
           enabled = true
-          default-nr-routees = 5
+          default-nr-routees = 1
         }
       """)
   }
