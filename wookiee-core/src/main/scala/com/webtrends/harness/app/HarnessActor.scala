@@ -239,18 +239,19 @@ class HarnessActor extends Actor
         Try(gStop(componentActor, waitTime)).map(_.onComplete {
           _ => // We don't care if we could not shutdown properly. Any errors were logged so just continue
             // Shutdown the children
-            if (context != null) {
-              Future.sequence(context.children map (a => gStop(Option(a), waitTime)))
-                .onComplete {
-                  case Success(_) =>
-                    log.info("Harness subsystems have been shutdown")
-                    context.stop(self)
-                    running = Some(false)
-                  case Failure(_) =>
-                    log.info("Harness subsystems have not been shutdown properly")
-                    context.stop(self)
-                    running = Some(false)
-                }
+            Future.sequence {
+              Try(context.children).getOrElse(List()) map { a =>
+                gStop(Option(a), waitTime)
+              }
+            } onComplete {
+              case Success(_) =>
+                log.info("Harness subsystems have been shutdown")
+                context.stop(self)
+                running = Some(false)
+              case Failure(_) =>
+                log.info("Harness subsystems have not been shutdown properly")
+                context.stop(self)
+                running = Some(false)
             }
         })
     })

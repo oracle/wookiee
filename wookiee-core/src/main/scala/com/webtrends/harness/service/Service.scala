@@ -45,7 +45,7 @@ trait Service extends HActor
     initPolicyHelper
     initCommandHelper
     initComponentHelper
-    log.info("The service {} started", context.self.path)
+    log.info("The service {} started", serviceName)
   }
 
   def serviceName : String = this.getClass.getSimpleName

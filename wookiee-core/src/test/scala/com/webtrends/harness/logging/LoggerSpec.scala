@@ -24,10 +24,10 @@ import ch.qos.logback.classic.Level
 import com.webtrends.harness.TestKitSpecificationWithJUnit
 import org.slf4j.LoggerFactory
 
-class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) {
+class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) with LoggingAdapter {
 
   val probe = new TestProbe(system)
-  val appender = setupAppender
+  val appender = setupAppender()
   sequential
 
   "logging" should {
@@ -70,6 +70,20 @@ class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) {
       logger.error("testing {}123...", 0)
       appender.lastMessage.get must be equalTo "testing 0123..."
     }
+
+    "don't log if try succeeds" in {
+      val logger = Logger("test")
+      logger.error("testing {}123...", 0)
+      tryAndLogError({ true })
+      appender.lastMessage.get must be equalTo "testing 0123..."
+    }
+
+    "do log if try fails" in {
+      val logger = Logger("test")
+      logger.error("testing {}123...", 0)
+      tryAndLogError({ 5 / 0 })
+      appender.lastMessage.get must be equalTo "/ by zero"
+    }
   }
 
   step {
@@ -80,7 +94,7 @@ class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) {
     val root = LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[ch.qos.logback.classic.Logger]
     root.setLevel(Level.ALL)
     val appender = new TestingAppender()
-    appender.start
+    appender.start()
     root.addAppender(appender)
     appender
   }

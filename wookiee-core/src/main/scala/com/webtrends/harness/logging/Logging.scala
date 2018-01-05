@@ -18,16 +18,21 @@
  */
 package com.webtrends.harness.logging
 
+import java.util.logging.Level
+import java.util.logging.Level._
+
 import akka.actor.Actor
+
+import scala.util.Try
 
 /**
  * Use this trait to include in your actor so that there is logging support.
  * This is a substitute for akka's ActorLogging trait
  */
-trait ActorLoggingAdapter {
+trait ActorLoggingAdapter extends LoggingAdapter {
   this: Actor =>
   @transient
-  protected lazy val log: Logger = Logger(this, context.system)
+  override protected lazy val log: Logger = Logger(this, context.system)
 }
 
 /**
@@ -36,4 +41,25 @@ trait ActorLoggingAdapter {
 trait LoggingAdapter {
   @transient
   protected lazy val log: Logger = Logger(getClass)
+
+  // Will log the error if the input function throws one and return a Try
+  def tryAndLogError[A](f: => A, messageOnFail: Option[String] = None, level: Level = WARNING): Try[A] = {
+    val tried = Try(f)
+    if (tried.isFailure) {
+      val ex = tried.failed.get
+      val message = messageOnFail.getOrElse(ex.getMessage)
+
+      level match {
+        case SEVERE => log.error(message, ex)
+        case INFO => log.info(message, ex)
+        case FINE => log.info(message, ex)
+        case CONFIG => log.debug(message, ex)
+        case FINER => log.debug(message, ex)
+        case FINEST => log.trace(message, ex)
+        case WARNING => log.warn(message, ex)
+        case _ => log.warn(message, ex)
+      }
+    }
+    tried
+  }
 }
