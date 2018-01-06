@@ -36,10 +36,6 @@ import org.specs2.mutable.SpecificationWithJUnit
 import scala.concurrent.duration.Duration
 
 
-/**
- * woods
- * 12/31/14
- */
 class TestHarnessSpec extends SpecificationWithJUnit {
   implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   val sys = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
@@ -118,10 +114,10 @@ class TestHarnessSpec extends SpecificationWithJUnit {
       probe.send(testComponent.get, RegisterShutdownListener(probe.ref))
 
       sys.stop
-      val results = probe.receiveN(2, timeout.duration)
 
+      val results = probe.receiveN(2, timeout.duration)
+      TestHarness.log.debug(s"Results $results")
       results must have size(2)
-      TestHarness.log.foreach(_.debug(s"Results $results"))
       results must contain(be_==("GotShutdown")).foreach
     }
   }

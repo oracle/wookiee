@@ -45,8 +45,8 @@ class TestComponent(name:String) extends Component(name) with ShutdownListener {
    *
    * @return
    */
-  override def receive: Receive = super.receive orElse shutdownReceive orElse {
+  override def receive: Receive = (shutdownReceive orElse {
       case StatusRequest => sender ! TestComponent.ComponentMessage
       case SystemReady => log.info("Test component ready for duty")
-    }
+    }: Receive) orElse super.receive
 }

@@ -93,7 +93,7 @@ class TestHarness(conf:Config) {
         policyManager = map.get(PolicyName)
         commandManager = map.get(CommandName)
         componentManager = map.get(ComponentName)
-        TestHarness.log.get.info("Managers all accounted for")
+        TestHarness.log.info("Managers all accounted for")
     }
     setLogLevel(logLevel)
     if (componentMap.isDefined) {
@@ -113,7 +113,7 @@ class TestHarness(conf:Config) {
   }
 
   def setLogLevel(level:Level) = {
-    TestHarness.log.get.setLogLevel(level)
+    TestHarness.log.setLogLevel(level)
   }
 
   def harnessReadyCheck(timeOut: Deadline) {
@@ -162,7 +162,7 @@ class TestHarness(conf:Config) {
     Await.result(componentManager.get ? LoadComponent(componentName, componentClass), 5.seconds) match {
       case Some(m) =>
         val component = m.asInstanceOf[ActorRef]
-        TestHarness.log.get.info(s"Loaded component $componentName, ${component.path.toString}")
+        TestHarness.log.info(s"Loaded component $componentName, ${component.path.toString}")
         components += (componentName -> component)
       case None =>
         throw new Exception("Component not returned")
@@ -176,7 +176,7 @@ class TestHarness(conf:Config) {
     Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), 3.seconds) match {
       case Some(m) =>
         val service = m.asInstanceOf[ActorRef]
-        TestHarness.log.get.info(s"Loaded service $serviceName, ${service.path.toString}")
+        TestHarness.log.info(s"Loaded service $serviceName, ${service.path.toString}")
         services += (serviceName -> service)
       case None =>
         throw new Exception("Service not returned")

@@ -20,7 +20,6 @@ package com.webtrends.harness.service.test
 
 import java.net.{URI, URLEncoder}
 
-import akka.actor.Actor.Receive
 import akka.actor.ActorDSL._
 import akka.actor._
 import akka.pattern.ask
