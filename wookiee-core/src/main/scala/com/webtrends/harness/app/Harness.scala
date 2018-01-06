@@ -36,7 +36,7 @@ import scala.util.Success
 object Harness {
   protected[harness] var system: Option[ActorSystem] = None
   def getActorSystem = system
-  protected[harness] var log: Option[Logger] = None
+  protected[harness] var log: Logger = Logger(this.getClass)
   def getLogger = log
   protected[harness] var rootActor: Option[ActorRef] = None
   def getRootActor = rootActor
@@ -46,7 +46,7 @@ object Harness {
    * Restart the actor system
    */
   def restartActorSystem = {
-    log.get.info("Restarting the actor system")
+    log.info("Restarting the actor system")
     system match {
       case Some(_) =>
         shutdownActorSystem(block = false) {
@@ -62,7 +62,7 @@ object Harness {
    * Force a shutdown of the ActorSystem and the application's process.
    */
   def shutdown() = {
-    log.get.info("Shutting down Wookiee")
+    log.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run() {
         Thread.sleep(10)
@@ -87,8 +87,8 @@ object Harness {
       val listener = system.get.actorOf(Props(new UnhandledEventListener))
       system.get.eventStream.subscribe(listener, classOf[UnhandledMessage])
 
-      log = Some(Logger(this.getClass, system.get))
-      log.get.debug("Creating main Wookiee actor")
+      log = Logger(this.getClass, system.get)
+      log.debug("Creating main Wookiee actor")
       implicit val sys = system.get
       rootActor = Some(system.get.actorOf(HarnessActor.props, "system"))
     }
@@ -103,7 +103,7 @@ object Harness {
    * Shutdown the actor system
    */
   def shutdownActorSystem(block: Boolean)(f: => Unit) = {
-    log.get.debug("Shutting down the main actor")
+    log.debug("Shutting down the main actor")
     import scala.concurrent.ExecutionContext.Implicits.global
 
     // We will tell the main actor that we are shutting down. This allows it to shutdown
@@ -111,7 +111,7 @@ object Harness {
     val fut = gracefulStop(rootActor.get, 15 seconds, ShutdownSystem)
       .andThen {
         case Success(_) =>
-          log.get.debug("Now shutting down the the system itself")
+          log.debug("Now shutting down the the system itself")
       }
       // Now shutdown the system
       .flatMap(_ => system.map(_.terminate()).getOrElse(Future.successful(true)))
@@ -120,13 +120,12 @@ object Harness {
       case Success(_) =>
         // Set our flags
         system = None
-        log = None
         rootActor = None
         externalLogger.debug("The actor system has terminated")
         // Call the passed function
         f
       case Failure(reason) =>
-        log.get.error("We were unable to properly shutdown the main actor", reason)
+        log.error("We were unable to properly shutdown the main actor", reason)
         System.exit(0)
     }
 

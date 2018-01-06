@@ -21,11 +21,11 @@ package com.webtrends.harness.component
 import akka.actor.{ActorRef, Status}
 import akka.pattern.ask
 import akka.util.Timeout
-import scala.concurrent.duration._
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HActor
-import com.webtrends.harness.app.HarnessActor.ConfigChange
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 
+import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 sealed class ComponentMessages()
@@ -69,15 +69,14 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
         case Some(a) => a ! msg
         case None => log.warn("Failed to send message to child actor [$name] for Component")
       }
+    case SystemReady => systemReady
+    case PrepareForShutdown => prepareForShutdown
   }
 
   /**
    * Gets the child actor based on a name, if name is None then checks the default child name,
    * if default child name is none then if will check to see if there is only a single child
    * and return that single child
-   *
-   * @param name
-   * @return
    */
   protected def getChildActor(name:Option[String]) : Option[ActorRef] = {
     name match {
@@ -108,6 +107,16 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
    * Any logic to stop the component
    */
   def stop = {}
+
+  /**
+    * Any logic to run once all components and services are up
+    */
+  def systemReady = {}
+
+  /**
+    * Any logic to run once we get the shutdown message but before we begin killing actors
+    */
+  def prepareForShutdown = {}
 }
 
 object Component {
