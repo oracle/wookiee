@@ -23,7 +23,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HActor
-import com.webtrends.harness.app.HarnessActor.{ConfigChange, SystemReady}
+import com.webtrends.harness.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
@@ -70,6 +70,7 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
         case None => log.warn("Failed to send message to child actor [$name] for Component")
       }
     case SystemReady => systemReady
+    case PrepareForShutdown => prepareForShutdown
   }
 
   /**
@@ -111,6 +112,11 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
     * Any logic to run once all components and services are up
     */
   def systemReady = {}
+
+  /**
+    * Any logic to run once we get the shutdown message but before we begin killing actors
+    */
+  def prepareForShutdown = {}
 }
 
 object Component {
