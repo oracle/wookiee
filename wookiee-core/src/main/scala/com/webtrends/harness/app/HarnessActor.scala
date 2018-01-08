@@ -226,34 +226,29 @@ class HarnessActor extends Actor
 
 
   private def gracefulShutdown():Unit = {
-    def gStop(actOpt: Option[ActorRef], timeout: FiniteDuration): Future[Boolean] = {
-      if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, timeout)
+    def gStop(actOpt: Option[ActorRef]): Future[Boolean] = {
+      if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, checkTimeout.duration)
       else Future.successful(true)
     }
-    val waitTime = 5 seconds
 
     log.debug(s"Starting graceful shutdown of Service and Component Managers.")
-    Try(gStop(serviceActor, waitTime)).map(_.onComplete {
-      _ => // In the case of a failure just continue shutting down
-        // Shutdown the components second
-        Try(gStop(componentActor, waitTime)).map(_.onComplete {
-          _ => // We don't care if we could not shutdown properly. Any errors were logged so just continue
-            // Shutdown the children
-            Future.sequence {
-              Try(context.children).getOrElse(List()) map { a =>
-                gStop(Option(a), waitTime)
-              }
-            } onComplete {
-              case Success(_) =>
-                log.info("Harness subsystems have been shutdown")
-                context.stop(self)
-                running = Some(false)
-              case Failure(_) =>
-                log.info("Harness subsystems have not been shutdown properly")
-                context.stop(self)
-                running = Some(false)
-            }
-        })
+    // Shutdown the Services
+    Try(gStop(serviceActor)).map(_.onComplete { _ =>
+      // Shutdown the Components
+      Try(gStop(componentActor)).map(_.onComplete { _ =>
+        // Shutdown the children
+        Future.sequence {
+          Try(context.children).getOrElse(List()) map { a =>
+            gStop(Option(a))
+          }
+        } onComplete { _ =>
+          Try {
+            log.info("Harness subsystems have been shutdown")
+            context.stop(self)
+          }
+          running = Some(false)
+        }
+      })
     })
   }
 

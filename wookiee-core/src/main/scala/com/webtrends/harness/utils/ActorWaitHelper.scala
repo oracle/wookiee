@@ -1,4 +1,4 @@
-package com.webtrends.harness.service.test.util
+package com.webtrends.harness.utils
 
 import java.util.concurrent.TimeUnit
 
@@ -26,6 +26,6 @@ object ActorWaitHelper {
 
 trait ActorWaitHelper { this: Actor =>
   // Will wait until an actor has come up before returning its ActorRef
-  def awaitActor(props: Props)(implicit timeout: Timeout = Timeout(5, TimeUnit.SECONDS)): ActorRef =
-    ActorWaitHelper.awaitActor(props, context.system)(timeout)
+  def awaitActor(props: Props, actorName: Option[String] = None)(implicit timeout: Timeout = Timeout(5, TimeUnit.SECONDS)): ActorRef =
+    ActorWaitHelper.awaitActor(props, context.system, actorName)(timeout)
 }
