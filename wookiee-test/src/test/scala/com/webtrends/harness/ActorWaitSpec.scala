@@ -25,7 +25,7 @@ import akka.actor.{Actor, ActorSystem, PoisonPill, Props}
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
-import com.webtrends.harness.service.test.util.ActorWaitHelper
+import com.webtrends.harness.utils.ActorWaitHelper
 import org.specs2.mutable.SpecificationLike
 
 import scala.concurrent.Await
