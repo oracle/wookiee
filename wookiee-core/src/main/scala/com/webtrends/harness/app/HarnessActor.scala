@@ -86,7 +86,7 @@ class HarnessActor extends Actor
   val startupTimeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))
   val prepareShutdownTimeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))
 
-  var running: Option[Boolean] = Some(false)
+  var running: Boolean = false
 
   override val supervisorStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute, loggingEnabled = true) {
@@ -114,7 +114,7 @@ class HarnessActor extends Actor
     case CheckHealth => pipe(getHealth(true)) to sender
     case ComponentInitializationComplete => initializationComplete()
     case ShutdownSystem => shutdownCoreServices()
-    case ReadyCheck => sender ! running.get
+    case ReadyCheck => sender ! running
   }
 
   def processing: Receive = {
@@ -139,7 +139,7 @@ class HarnessActor extends Actor
         case Some(pm) => pm ! SystemReady
         case None => // ignore
       }
-    case ReadyCheck => sender ! running.get
+    case ReadyCheck => sender ! running
     case GetManagers =>
       sender ! Map[String, Option[ActorRef]](
         HarnessConstants.CommandName -> commandManager,
@@ -188,7 +188,7 @@ class HarnessActor extends Actor
         if (ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalHttpEnabled, config.getBoolean, true)) {
           startInternalHTTP(ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalHttpPort, config.getInt, 8080))
         }
-        running = Some(true)
+        running = true
       case Failure(t) =>
         log.error("Error loading the main harness actors", t)
     }
@@ -199,7 +199,7 @@ class HarnessActor extends Actor
    */
   private def shutdownCoreServices(): Unit = {
     log.info("Starting the shutdown process")
-    if (running.isDefined && running.get) {
+    if (running) {
       val tmpService = serviceActor
       val tmpComp = componentActor
       val tmpCmd = commandManager
@@ -246,7 +246,7 @@ class HarnessActor extends Actor
             log.info("Harness subsystems have been shutdown")
             context.stop(self)
           }
-          running = Some(false)
+          running = false
         }
       })
     })
