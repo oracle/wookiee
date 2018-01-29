@@ -207,14 +207,6 @@ class TestHarness(conf:Config) {
           # This is a list of IP ranges to specifically deny access. Can be empty.
           deny = []
         }
-        message-processor {
-          # How often the MessageProcessor should share it's subscription information
-          share-interval = 1s
-          # When should MessageTopicProcessor instances be removed after there are no longer any subscribers for that topic
-          trash-interval = 30s
-          # The default send timeout
-          default-send-timeout = 2s
-        }
         commands {
           # generally this should be enabled
           enabled = true

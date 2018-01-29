@@ -108,29 +108,31 @@ object Harness {
 
     // We will tell the main actor that we are shutting down. This allows it to shutdown
     // its children and perform any needed cleanup.
-    val fut = gracefulStop(rootActor.get, 15 seconds, ShutdownSystem)
-      .andThen {
+    rootActor foreach { root =>
+      val fut = gracefulStop(root, 15 seconds, ShutdownSystem)
+        .andThen {
+          case Success(_) =>
+            log.debug("Now shutting down the the system itself")
+        }
+        // Now shutdown the system
+        .flatMap(_ => system.map(_.terminate()).getOrElse(Future.successful(true)))
+
+      fut.onComplete {
         case Success(_) =>
-          log.debug("Now shutting down the the system itself")
+          // Set our flags
+          system = None
+          rootActor = None
+          externalLogger.debug("The actor system has terminated")
+          // Call the passed function
+          f
+        case Failure(reason) =>
+          log.error("We were unable to properly shutdown the main actor", reason)
+          System.exit(0)
       }
-      // Now shutdown the system
-      .flatMap(_ => system.map(_.terminate()).getOrElse(Future.successful(true)))
 
-    fut.onComplete {
-      case Success(_) =>
-        // Set our flags
-        system = None
-        rootActor = None
-        externalLogger.debug("The actor system has terminated")
-        // Call the passed function
-        f
-      case Failure(reason) =>
-        log.error("We were unable to properly shutdown the main actor", reason)
-        System.exit(0)
-    }
-
-    if (block) {
-      Await.result(fut, 15 seconds)
+      if (block) {
+        Await.result(fut, 15 seconds)
+      }
     }
   }
 
