@@ -25,6 +25,7 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.command.CommandManager
+import com.webtrends.harness.command.typed.TypedCommandManager
 import com.webtrends.harness.component.{ComponentManager, InitializeComponents}
 import com.webtrends.harness.config.ConfigWatcher
 import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -101,6 +102,7 @@ class HarnessActor extends Actor
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
+  var typedCommandManager: Option[ActorRef] = None
   var policyManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
@@ -164,6 +166,7 @@ class HarnessActor extends Actor
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
       // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
+      typedCommandManager = Some(context.actorOf(TypedCommandManager.props, HarnessConstants.TypedCommandName))
       log.info("Command Manager started: {}", commandManager.get.path)
       // initialize the command manager right at the beginning
       policyManager = Some(context.actorOf(PolicyManager.props, HarnessConstants.PolicyName))
