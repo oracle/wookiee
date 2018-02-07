@@ -8,9 +8,9 @@ import scala.concurrent.{ExecutionContext, Future}
 
 trait TypedCommand[T, V] extends Actor with ActorLoggingAdapter {
 
-  implicit val executionContext: ExecutionContext = context.dispatcher
+  implicit def executionContext: ExecutionContext = context.dispatcher
 
-  val commandName: String
+  def commandName: String
 
   def receive: Receive = {
     case ExecuteTypedCommand(args) => pipe(execute(args.asInstanceOf[T])) to sender

@@ -11,7 +11,7 @@ import scala.concurrent.{ExecutionContext, Future}
 trait TypedCommandHelper { this: Actor =>
 
   var typedCommandManager: Option[ActorRef] = None
-  implicit val ec: ExecutionContext = context.dispatcher
+  implicit def ec: ExecutionContext = context.dispatcher
 
   def registerTypedCommand[T<:TypedCommand[_,_]](name: String, actorClass: Class[T], checkHealth: Boolean = false): Future[ActorRef] = {
     implicit val timeout = Timeout(2 seconds)
