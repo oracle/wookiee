@@ -24,7 +24,7 @@ import com.webtrends.harness.command._
 import com.webtrends.harness.component.ComponentHelper
 import com.webtrends.harness.policy.PolicyHelper
 import com.webtrends.harness.service.messages._
-import com.webtrends.harness.service.meta.ServiceMetaDetails
+import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 
 trait Service extends HActor
     with CommandHelper
@@ -35,10 +35,11 @@ trait Service extends HActor
 
   def actorRefFactory = context
 
-  // To be defined in service actor
+  // To be defined in service actor, be sure to route through super.serviceRecieve like so:
+  //
   def serviceReceive = {
-    case GetMetaDetails => sender ! ServiceMetaDetails(false)
-    case Ready(_) => // Meta info received
+    case GetMetaDetails => sender ! getMetaDetails()
+    case Ready(meta) => ready(meta) // Meta info received
   }: Receive
 
   override def preStart() {
@@ -46,6 +47,15 @@ trait Service extends HActor
     initCommandHelper
     initComponentHelper
     log.info("The service {} started", serviceName)
+  }
+
+  // Override to act after Service and Component actors are started
+  def ready(meta: ServiceMetaData): Unit = {}
+
+  // Override to act right after Service has been started (after preStart)
+  // Return whether or not this Service supports HTTP requests in any form (for the /services endpoint)
+  protected def getMetaDetails(): ServiceMetaDetails = {
+    ServiceMetaDetails(false)
   }
 
   def serviceName : String = this.getClass.getSimpleName

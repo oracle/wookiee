@@ -53,7 +53,7 @@ class ConfigWatcherActor extends HActor {
           dir =>
             val path = Paths.get(dir.getPath.concat("/conf"))
             if (Files.exists(path)) {
-              log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+              log.info("Adding watcher to existing service directory {} for any *.conf file changes", path)
               path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
             }
         }
@@ -68,7 +68,7 @@ class ConfigWatcherActor extends HActor {
         val cPath = new File(s)
         if (cPath.exists()) {
           Try(cPath.getParentFile.toPath) map { path =>
-            log.info("Adding watcher to existing directory {} for any *.conf file changes", path)
+            log.info("Adding watcher to existing config directory {} for any *.conf file changes", path)
             path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
 
             if (!configExists) {

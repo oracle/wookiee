@@ -286,7 +286,7 @@ class ComponentManager extends PrepareForShutdown {
       context.parent ! ComponentInitializationComplete
       componentsInitialized = true
       context.become(started)
-      log.debug("Component Manager Started")
+      log.info("Component Manager started: {}", context.self.path)
     }
   }
 

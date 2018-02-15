@@ -41,7 +41,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
     case _ => // ignore all other messages to this actor
   } : Receive)
 
-  def path : String = s"_wt_internal/${commandName.toLowerCase}"
+  def path : String = s"_wt_internal/${getClass.getSimpleName}"
 
   /**
    * This allows for extra functionality in your command path. Basically it will allow
@@ -53,9 +53,9 @@ trait Command extends BaseCommand with HActor with CommandHelper {
   def paths : Map[String, String] =  Map("default" -> path)
 
   /**
-   * Name of the command that will be used for the actor name
+   * @deprecated Does nothing, free to stop overriding in your Command
    */
-  def commandName : String
+  def commandName : String = getClass.getSimpleName
 
   /**
    * The primary entry point for the command, the actor for this command
