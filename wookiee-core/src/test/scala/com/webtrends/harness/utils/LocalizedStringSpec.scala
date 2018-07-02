@@ -19,6 +19,20 @@ class LocalizedStringSpec extends SpecificationWithJUnit {
       LocalizedString("greet", "world")(Locale.forLanguageTag("ru")) must be equalTo "Привет, world"
     }
 
+  "localized message in custom path" should {
+    LocalizedString("custom_path.hello")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "Hello"
+    LocalizedString("custom_path.hello")(Locale.forLanguageTag("ru"), "com.custom.path.messages")  must be equalTo "Привет"
+  }
+  "fallback to default in custom path" should {
+    LocalizedString("custom_path.world")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "World"
+    LocalizedString("custom_path.world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") must be equalTo "World"
+  }
+  "format in custom path" should {
+    LocalizedString("custom_path.greet", "world")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "Hello, world"
+    LocalizedString("custom_path.greet", "world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") must be equalTo "Привет, world"
+  }
+
+
   "custom localized message" should {
     LocalizedString("custom.hello")(Locale.ENGLISH, "custom") must be equalTo "Hello"
     LocalizedString("custom.hello")(Locale.forLanguageTag("ru"), "custom")  must be equalTo "Привет"
