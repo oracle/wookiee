@@ -94,7 +94,12 @@ trait ActorHealth {
       case Success(s) =>
         val healthFutures = getHealthChildren map { ref =>
           (ref ? CheckHealth).mapTo[HealthComponent] recover {
-            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+            case _: AskTimeoutException =>
+              _log.warn(s"Health Check time out on child actor ${ref.path.toStringWithoutAddress}")
+              HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
+                "Time out on child: %s".format(ref.path.toStringWithoutAddress))
+            case ex: Exception =>
+              HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
           }
         }
 
