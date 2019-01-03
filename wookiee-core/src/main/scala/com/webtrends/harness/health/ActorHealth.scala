@@ -38,13 +38,14 @@ trait ActorHealth {
   import context.dispatcher
 
   implicit val checkTimeout:Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(10 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
 
   def health:Receive = {
     case CheckHealth =>
       pipe(Try(checkHealth)
         .recover({
         case e: Exception =>
+          _log.error("Error fetching health", e)
           Future.successful(HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
             "Exception when trying to check the health: %s".format(e.getMessage)))
       }).get

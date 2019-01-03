@@ -27,6 +27,7 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.ActorLoggingAdapter
 import com.webtrends.harness.service.messages.CheckHealth
+import com.webtrends.harness.utils.ConfigUtil
 import org.joda.time.DateTime
 
 import scala.collection.mutable
@@ -37,7 +38,8 @@ import scala.util.{Failure, Success}
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
   val upTime = DateTime.now
-  implicit val timeout = Timeout(5 seconds)
+  implicit val timeout =
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
 
   val scalaVersion = util.Properties.versionString
   val file = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
