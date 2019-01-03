@@ -83,7 +83,7 @@ class HarnessActor extends Actor
 
   private val config = context.system.settings.config
 
-  implicit val checkTimeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(5 seconds))
+  implicit val checkTimeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
   val startupTimeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))
   val prepareShutdownTimeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))
 
@@ -276,7 +276,6 @@ class HarnessActor extends Actor
       val p = Promise[Seq[HealthComponent]]()
       future.onComplete({
         case Failure(f) =>
-          log.error("Error fetching health", f)
           p failure f
         case Success(answers) =>
           p success answers.toSeq
