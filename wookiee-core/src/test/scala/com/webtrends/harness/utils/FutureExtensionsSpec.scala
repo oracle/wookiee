@@ -13,7 +13,7 @@ class FutureExtensionsSpec(implicit ee: ExecutionEnv) extends SpecificationWithJ
   case class FutureException(message: String) extends Exception(message)
 
   import com.webtrends.harness.utils.FutureExtensions._
-  val duration = Duration.fromNanos(1)
+  val duration = Duration.fromNanos(10000000000L)
 
   "flatMapAll" should {
     "Successfully flatMap Success case" in {
