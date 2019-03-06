@@ -37,7 +37,15 @@ object FutureExtensions {
     //    }
     def flatMapAll[Target](m: Try[T] => Future[Target])(implicit ec: ExecutionContext): Future[Target] = {
       val p = Promise[Target]()
-      f.onComplete { r => m(r).onComplete { z => p complete z }(ec) }(ec)
+      f.onComplete { r =>
+        try {
+          m(r).onComplete { z =>
+            p complete z
+          }(ec)
+        }catch {
+          case ex: Exception => p failure(ex)
+        }
+      }(ec)
       p.future
     }
   }
