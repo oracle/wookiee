@@ -38,13 +38,14 @@ trait ActorHealth {
   import context.dispatcher
 
   implicit val checkTimeout:Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(10 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
 
   def health:Receive = {
     case CheckHealth =>
       pipe(Try(checkHealth)
         .recover({
         case e: Exception =>
+          _log.error("Error fetching health", e)
           Future.successful(HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
             "Exception when trying to check the health: %s".format(e.getMessage)))
       }).get
@@ -94,7 +95,12 @@ trait ActorHealth {
       case Success(s) =>
         val healthFutures = getHealthChildren map { ref =>
           (ref ? CheckHealth).mapTo[HealthComponent] recover {
-            case ex: Exception => HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+            case _: AskTimeoutException =>
+              _log.warn(s"Health Check time out on child actor ${ref.path.toStringWithoutAddress}")
+              HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
+                "Time out on child: %s".format(ref.path.toStringWithoutAddress))
+            case ex: Exception =>
+              HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
           }
         }
 

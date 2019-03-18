@@ -148,7 +148,7 @@ Standardized logging is provided by the library. This can be applied to any acto
 	val externalLogger = LoggerFactory.getLogger(this.getClass)
 ```
 
-Wookiee can be used as both a library and a service. To use it as a service a developer would be required to simply execute the HarnessService app, for use as a library the developer would be required to add a dependency in the project's pom and then initialize Wookiee manually. Alternatively the developer could add a dependency for a single component to the POM and use it separetely. For more information on leveraging a single component see the doc specific to that component.
+Wookiee can be used as both a library and a service. To use it as a service a developer would be required to simply execute the HarnessService app, for use as a library the developer would be required to add a dependency in the project's pom and then initialize Wookiee manually. Alternatively the developer could add a dependency for a single component to the POM and use it separately. For more information on leveraging a single component see the doc specific to that component.
 
 [**Releases**](https://github.com/oracle/wookiee/releases)
 
