@@ -33,53 +33,27 @@ cache:
   directories:
   - $HOME/.m2
 
-jobs:
-  include:
-    - stage: test
-      name: 'Checkout Travis and Log'
-      script: git clone -b travis `git config --get remote.origin.url` target/travis
-    - script: echo "Is tag build $TRAVIS_TAG"
-      if: tag IS present
-    - script: echo "Pull request build"
-      if: type = pull_request
-    - script: echo "Branch build, ${TRAVIS_BRANCH}"
-      if: type = push
+before_install:
+  - git clone -b travis `git config --get remote.origin.url` target/travis
+  - if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then "Branch build, ${TRAVIS_BRANCH}"; fi
+  - if [ "$TRAVIS_TAG" != "" ]; then "Tag build, ${TRAVIS_TAG}"; fi
+  - if [ "${TRAVIS_PULL_REQUEST}" = "true" ]; then "Pull request build"; fi
 
-    - stage: version
-      name: 'Set Version'
-      script: mvn versions:set "-DnewVersion=${TRAVIS_TAG}" "-Dscala.artifact.version=${SCALA_MINOR}" "-Dscala.version=${TRAVIS_SCALA_VERSION}"
-
-    - stage: branchBuild
-      name: 'Build Branch'
-      install: mvn test -B "-Dscala.artifact.version=${SCALA_MINOR}" "-Dscala.version=${TRAVIS_SCALA_VERSION}"
-
-    - stage: tagDeploy
-      name: 'Publish Release'
-      install: mvn deploy --settings target/travis/settings.xml "-Dscala.artifact.version=${SCALA_MINOR}" "-Dscala.version=${TRAVIS_SCALA_VERSION}"
-
-    - stage: siteDeploy
-      name: 'Deploy Github Site'
-      script: mvn site-deploy -P github-site "-Dgithub.global.oauth2Token=${GITHUB_TOKEN}"
-
-    - stage: scoverage
-      name: 'Scoverage Report'
-      script: mvn scoverage:report
-
-    - stage: coveralls
-      name: 'Coveralls Report'
-      script: mvn coveralls:report
-
-stages:
-  - test
-  - name: version
-    if: tag IS present
-  - name: branchBuild
-    if: tag IS blank
-  - name: tagDeploy
-    if: tag IS present
-  - name: siteDeploy
-    if: tag IS present
-  - name: scoverage
-    if: type != pull_request AND tag IS blank
-  - name: coveralls
-    if: type != pull_request
+install:
+  - |
+    if [ "$TRAVIS_TAG" != "" ]; then
+      mvn versions:set "-DnewVersion=${TRAVIS_TAG}" "-Dscala.artifact.version=${SCALA_MINOR}" "-Dscala.version=${TRAVIS_SCALA_VERSION}"
+    fi
+  - |
+    if [ "$TRAVIS_TAG" != "" ]; then
+      mvn deploy --settings target/travis/settings.xml "-Dscala.artifact.version=${SCALA_MINOR}" "-Dscala.version=${TRAVIS_SCALA_VERSION}"
+      mvn site-deploy -P github-site "-Dgithub.global.oauth2Token=${GITHUB_TOKEN}"
+    fi
+  - |
+    if [ "${TRAVIS_PULL_REQUEST}" = "false" ] && [ "$TRAVIS_TAG" = "" ]; then
+      mvn scoverage:report
+    fi
+  - |
+    if [ "${TRAVIS_PULL_REQUEST}" = "false" ]; then
+      mvn coveralls:report
+    fi
