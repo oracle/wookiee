@@ -47,11 +47,11 @@ Add the jfrog repo to your project first:
 </repositories>
 ~~~~
 
-Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee:
+Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee, either Scala 2.11 or 2.12 varietals:
 ~~~~
 <dependency>
     <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-core</artifactId>
+    <artifactId>wookiee-core_2.11</artifactId>
     <version>${wookiee.version}</version>
 </dependency>
 ~~~~
