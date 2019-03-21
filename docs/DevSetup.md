@@ -23,6 +23,7 @@ You can fork this code into your own repository and work with it from there.
 
 - Supported Profiles 
 	* core (default)
+	* dev (needed for setting scala version)
 	* all
 	* examples
 	* components
