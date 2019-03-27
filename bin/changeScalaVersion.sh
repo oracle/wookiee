@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 echo "Changing Scala Version to $1, and Scala Artifact Version to $2"
 
