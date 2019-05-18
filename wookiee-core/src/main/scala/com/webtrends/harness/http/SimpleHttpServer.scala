@@ -69,7 +69,11 @@ class SimpleHttpServer(port:Int=8008) extends HActor with ComponentHelper {
     httpExchange.getResponseHeaders.set("Content-Type", contentType)
     httpExchange.sendResponseHeaders(responseStatus, response.length())
     if (response.length > 0) {
-      httpExchange.getResponseBody.write(response.getBytes)
+      try {
+        httpExchange.getResponseBody.write(response.getBytes)
+      } catch {
+        case _: IOException => log.debug("Broken Pipe, client-side must have severed connection...")
+      }
     }
     httpExchange.close()
   }
