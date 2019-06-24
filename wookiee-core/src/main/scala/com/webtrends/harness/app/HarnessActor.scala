@@ -240,7 +240,7 @@ class HarnessActor extends Actor
       // Shutdown the Components
       Try(gStop(componentActor)).map(_.onComplete { _ =>
         // Shutdown the children
-        Future.sequence {
+        Try(Future.sequence {
           Try(context.children).getOrElse(List()) map { a =>
             gStop(Option(a))
           }
@@ -250,7 +250,7 @@ class HarnessActor extends Actor
             context.stop(self)
           }
           running = false
-        }
+        })
       })
     })
   }
