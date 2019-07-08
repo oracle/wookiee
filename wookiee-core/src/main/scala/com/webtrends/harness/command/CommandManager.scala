@@ -41,11 +41,10 @@ case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None
 case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None, timeout: Timeout)
 
 @SerialVersionUID(100L)
-case class CommandResponse[T:Manifest](data:Option[T], responseType:String="json") extends BaseCommandResponse[T]
+case class CommandResponse[T:Manifest](data:Option[T]) extends BaseCommandResponse[T]
 
 trait BaseCommandResponse[T] {
   val data:Option[T]
-  val responseType: String
 }
 
 class CommandManager extends PrepareForShutdown {

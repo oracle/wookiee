@@ -23,7 +23,7 @@ class TestCommand extends Command {
    */
   override def execute[T:Manifest](bean: Option[CommandBean]): Future[CommandResponse[T]] = {
     val p = Promise[CommandResponse[T]]
-    p success CommandResponse[T](Some("Test OK".asInstanceOf[T]), "plain/text")
+    p success CommandResponse[T](Some("Test OK".asInstanceOf[T]))
     p.future
   }
 }
