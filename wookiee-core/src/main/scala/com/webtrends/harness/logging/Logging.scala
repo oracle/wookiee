@@ -32,7 +32,14 @@ import scala.util.Try
 trait ActorLoggingAdapter extends LoggingAdapter {
   this: Actor =>
   @transient
-  override protected lazy val log: Logger = Logger(this, context.system)
+  override protected lazy val log: Logger = context match {
+    case null =>
+      // log may not be called until an asynchronous callback in which case
+      // context will be null if the actor has already been stopped
+      Logger(getClass)
+    case _ =>
+      Logger(this, context.system)
+  }
 }
 
 /**
