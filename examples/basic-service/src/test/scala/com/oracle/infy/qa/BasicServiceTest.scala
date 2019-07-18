@@ -1,4 +1,4 @@
-package com.wookiee.basic
+package com.oracle.infy.qa
 
 import akka.testkit.TestProbe
 import com.typesafe.config.ConfigFactory
