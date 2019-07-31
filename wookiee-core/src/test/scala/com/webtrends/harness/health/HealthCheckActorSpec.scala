@@ -33,6 +33,7 @@ import org.joda.time.DateTime
 
 import scala.concurrent.{Await, ExecutionContextExecutor}
 import scala.concurrent.duration._
+import scala.collection.mutable
 
 class HealthCheckActorSpec extends SpecificationWithJUnit {
 
@@ -77,36 +78,41 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
     sys.terminate().onComplete(_ => {})
   }
 
+  // TODO: Refactor the following tests once we get a better testing library
   "healthChecksDiffer" should {
     val baseHealth = ApplicationHealth("a", "", DateTime.now, ComponentState.NORMAL, "", Seq())
     val baseComponentA = HealthComponent("subA", ComponentState.NORMAL, "")
     val baseComponentB = HealthComponent("subB", ComponentState.NORMAL, "")
 
     "return true when applicationState goes from one state to another" in {
-      (for ((previousHealth, newHealth) <- Seq(
+      val changedStates = Seq(
         (baseHealth, baseHealth.copy(state = ComponentState.CRITICAL)),
         (baseHealth, baseHealth.copy(state = ComponentState.DEGRADED)),
         (baseHealth.copy(state = ComponentState.CRITICAL), baseHealth),
         (baseHealth.copy(state = ComponentState.CRITICAL), baseHealth.copy(state = ComponentState.DEGRADED)),
         (baseHealth.copy(state = ComponentState.DEGRADED), baseHealth),
         (baseHealth.copy(state = ComponentState.DEGRADED), baseHealth.copy(state = ComponentState.CRITICAL))
-      )) yield {
+      )
+
+      (for ((previousHealth, newHealth) <- changedStates) yield {
         HealthCheckActor.healthChecksDiffer(previousHealth, newHealth)
       }).forall(x => x)
     }
 
     "return false when application state doesn't change" in {
-      (for ((previousHealth, newHealth) <- Seq(
+      val unchangedStates = Seq(
         (baseHealth, baseHealth.copy(state = ComponentState.NORMAL)),
         (baseHealth.copy(state = ComponentState.DEGRADED), baseHealth.copy(state = ComponentState.DEGRADED)),
         (baseHealth.copy(state = ComponentState.CRITICAL), baseHealth.copy(state = ComponentState.CRITICAL))
-      )) yield {
+      )
+
+      (for ((previousHealth, newHealth) <- unchangedStates) yield {
         HealthCheckActor.healthChecksDiffer(previousHealth, newHealth)
       }).forall(x => !x)
     }
 
     "return true when sub component state changes" in {
-      (for ((previousHealth, newHealth) <- Seq(
+      val changedComplexStates = Seq(
         (baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
           baseHealth.copy(components = Seq(baseComponentA.copy(state = ComponentState.CRITICAL), baseComponentB))),
         (baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
@@ -115,18 +121,22 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
           baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))),
         (baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentB)))),
           baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentB.copy(state = ComponentState.DEGRADED))))))
-      )) yield {
+      )
+
+      (for ((previousHealth, newHealth) <- changedComplexStates) yield {
         HealthCheckActor.healthChecksDiffer(previousHealth, newHealth)
       }).forall(x => x)
     }
 
     "return false when sub component state remains same" in {
-      (for ((previousHealth, newHealth) <- Seq(
+      val unchangedComplexStates = Seq(
         (baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL))),
           baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))),
         (baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))),
           baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))))
-      )) yield {
+      )
+
+      (for ((previousHealth, newHealth) <- unchangedComplexStates) yield {
         HealthCheckActor.healthChecksDiffer(previousHealth, newHealth)
       }).forall(x => !x)
     }
@@ -137,21 +147,25 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
     val baseComponent = HealthComponent("subA", ComponentState.CRITICAL, "")
 
     "map out ApplicationHealth objects" in {
-      (for ((input, expected) <- Seq(
-        (baseHealth, collection.mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL)),
-        (baseHealth.copy(components = Seq(baseComponent)), collection.mutable.Map(
-          Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
-          Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL
-        )),
-        (baseHealth.copy(components = Seq(baseComponent,
-          baseComponent.copy(name = "b", state = ComponentState.DEGRADED, components = List(baseComponent)))),
-          collection.mutable.Map(
-            Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
-            Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL,
-            Seq(baseHealth.applicationName, "b") -> ComponentState.DEGRADED,
-            Seq(baseHealth.applicationName, "b", baseComponent.name) -> ComponentState.CRITICAL
-          ))
-      )) yield (HealthCheckActor.collectHealthStates(input), expected))
+      val baseMap = mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL)
+
+      val baseWithSubComponent = baseHealth.copy(components = Seq(baseComponent))
+      val baseWithSubComponentMap = mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
+        Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL)
+
+      val baseWithMultipleSubLevels = baseHealth.copy(components = Seq(baseComponent,
+        baseComponent.copy(name = "b", state = ComponentState.DEGRADED, components = List(baseComponent))))
+      val baseWithMultipleSubLevelsMap = mutable.Map(
+        Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
+        Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL,
+        Seq(baseHealth.applicationName, "b") -> ComponentState.DEGRADED,
+        Seq(baseHealth.applicationName, "b", baseComponent.name) -> ComponentState.CRITICAL
+      )
+
+      val testPairs = Seq((baseHealth, baseMap), (baseWithSubComponent, baseWithSubComponentMap),
+        (baseWithMultipleSubLevels,baseWithMultipleSubLevelsMap))
+
+      (for ((input, expected) <- testPairs) yield (HealthCheckActor.collectHealthStates(input), expected))
         .forall(x => x._1 == x._2)
     }
   }
