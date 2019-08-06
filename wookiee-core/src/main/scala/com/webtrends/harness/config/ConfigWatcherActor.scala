@@ -121,7 +121,7 @@ class ConfigWatcherActor extends HActor {
               // Resolve the filename against the directory.
               val child = configDir.resolve(filename)
               if (filename.toString.endsWith(".conf")) {
-                log.info("Config file change detected, {}, sending message to services/components to reload if applicable.", filename.toString)
+                log.debug("Config file change detected, {}, sending message to services/components to reload if applicable.", filename.toString)
                 context.parent ! ConfigChange()
               } else {
                 log.debug("Ignoring change to {} as it is not a .conf file", child.toString)

@@ -59,4 +59,6 @@ object HarnessConstants {
   val KeyInternalServiceConfig = "services.internal-config"
   val KeyServiceCheckTimeout = "services.check-timeout"
   val KeyServiceDistinctClassLoader = "services.distinct-classloader"
+
+  val LogHealthCheckDiffs = "logging.health-check.diff-compare"
 }
