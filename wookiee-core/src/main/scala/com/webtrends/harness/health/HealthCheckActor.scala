@@ -95,7 +95,7 @@ class HealthCheckActor extends HActor with HealthCheckProvider {
       previousCheck match {
         case Some(c) =>
           if (HealthCheckActor.healthChecksDiffer(c, health))
-            log.debug(s"Health check status changed: ${health.toString}")
+            log.info(s"Health check status changed. Old: ${c.toJson()} New: ${health.toJson()}")
         case None => // Not much use checking against nothing
       }
       previousCheck = Some(health)
