@@ -30,6 +30,7 @@ import com.webtrends.harness.HarnessConstants._
 import com.webtrends.harness.app.Harness
 import com.webtrends.harness.app.HarnessActor.{GetManagers, ReadyCheck}
 import com.webtrends.harness.component.{Component, LoadComponent}
+import com.webtrends.harness.logging.Logger
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.LoadService
 
@@ -41,9 +42,7 @@ object TestHarness {
 
   /**
    * Create a new instance of the test harness and start all of it's components
-    *
-    * @param config the config to use
-   * @return
+   * @param config the config to use
    */
   def apply(config:Config,
             serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
@@ -56,36 +55,38 @@ object TestHarness {
     }
   }
 
-  def system = Harness.getActorSystem
-  def log = Harness.getLogger
-  def rootActor = Harness.getRootActor
+  def system: Option[ActorSystem] = Harness.getActorSystem
+  def log: Logger = Harness.getLogger
+  def rootActor: Option[ActorRef] = Harness.getRootActor
 
-  def shutdown = harness match {
+  def shutdown: Unit = harness match {
     case Some(h) => h.stop
     case None => // ignore
   }
 }
 
 class TestHarness(conf:Config) {
-  var services = Map[String, ActorRef]()
-  var components = Map[String, ActorRef]()
+  var services: Map[String, ActorRef] = Map[String, ActorRef]()
+  var components: Map[String, ActorRef] = Map[String, ActorRef]()
   var serviceManager: Option[ActorRef] = None
   var componentManager: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
   var policyManager: Option[ActorRef] = None
-  var config = conf.withFallback(defaultConfig)
+  var config: Config = conf.withFallback(defaultConfig)
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
 
-  implicit val timeout = Timeout(4000, TimeUnit.MILLISECONDS)
+  implicit val timeout: Timeout = Timeout(4000, TimeUnit.MILLISECONDS)
 
   def start(serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
-            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.ERROR) : TestHarness = {
+            componentMap:Option[Map[String, Class[_ <: Component]]]=None,
+            logLevel:Level=Level.ERROR,
+            timeToWait:FiniteDuration=15.seconds) : TestHarness = {
     Harness.externalLogger.info("Starting Harness...")
     Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
     Harness.addShutdownHook()
     Harness.startActorSystem(Some(config))
     // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
-    harnessReadyCheck(10.seconds.fromNow)
+    harnessReadyCheck(timeToWait.fromNow)
     Await.result(TestHarness.rootActor.get ? GetManagers, 5.seconds) match {
       case m =>
         val map = m.asInstanceOf[Map[String, ActorRef]]
@@ -105,14 +106,14 @@ class TestHarness(conf:Config) {
     this
   }
 
-  def stop = {
+  def stop: Unit = {
     Harness.shutdownActorSystem(block = false) {
       // wait a second to make sure it shutdown correctly
       Thread.sleep(1000)
     }
   }
 
-  def setLogLevel(level:Level) = {
+  def setLogLevel(level:Level): Unit = {
     TestHarness.log.setLogLevel(level)
   }
 
@@ -143,13 +144,13 @@ class TestHarness(conf:Config) {
       throw new IllegalStateException(s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"))
   }
 
-  def loadComponents(componentMap: Map[String, Class[_ <: Component]]) = {
+  def loadComponents(componentMap: Map[String, Class[_ <: Component]]): Unit = {
     componentMap foreach { p =>
       componentReady(5.seconds.fromNow, p._1, p._2.getCanonicalName)
     }
   }
   
-  def loadServices(serviceMap: Map[String, Class[_ <: Service]]) = {
+  def loadServices(serviceMap: Map[String, Class[_ <: Service]]): Unit = {
     serviceMap foreach { p =>
       serviceReady(5.seconds.fromNow, p._1, p._2)
     }
