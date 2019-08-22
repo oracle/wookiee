@@ -46,11 +46,13 @@ object TestHarness {
    */
   def apply(config:Config,
             serviceMap:Option[Map[String, Class[_ <: Service]]]=None,
-            componentMap:Option[Map[String, Class[_ <: Component]]]=None, logLevel:Level=Level.INFO) : TestHarness = {
+            componentMap:Option[Map[String, Class[_ <: Component]]]=None,
+            logLevel:Level=Level.INFO,
+            timeToWait:FiniteDuration=15.seconds) : TestHarness = {
     harness match {
       case Some(h) => h
       case None =>
-        harness = Some(new TestHarness(config).start(serviceMap, componentMap, logLevel))
+        harness = Some(new TestHarness(config).start(serviceMap, componentMap, logLevel, timeToWait))
         harness.get
     }
   }
