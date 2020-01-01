@@ -48,7 +48,7 @@ trait BaseCommandHelper  {
   var commandManagerInitialized = false
   var commandManager:Option[ActorRef] = None
 
-  def initCommandHelper = {
+  def initCommandHelper() = {
     addCommands
   }
 
@@ -72,7 +72,7 @@ trait BaseCommandHelper  {
    * This function should be implemented by any service that wants to add
    * any commands to make available for use
    */
-  def addCommands = {}
+  def addCommands() = {}
 
   /**
    * Wrapper that allows services to add commands to the command manager with a single command

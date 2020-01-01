@@ -98,7 +98,7 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
   /**
    * Starts the component
    */
-  def start = {
+  def start() = {
     // after completion of this, we need to send the started message from the component
     context.parent ! ComponentStarted(self.path.name)
   }
@@ -106,17 +106,17 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
   /**
    * Any logic to stop the component
    */
-  def stop = {}
+  def stop() = {}
 
   /**
     * Any logic to run once all components and services are up
     */
-  def systemReady = {}
+  def systemReady() = {}
 
   /**
     * Any logic to run once we get the shutdown message but before we begin killing actors
     */
-  def prepareForShutdown = {}
+  def prepareForShutdown() = {}
 }
 
 object Component {
