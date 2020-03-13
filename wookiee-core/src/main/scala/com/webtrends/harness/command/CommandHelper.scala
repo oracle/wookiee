@@ -134,10 +134,10 @@ trait BaseCommandHelper  {
    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
    * @return
    */
-  def executeCommand[T:Manifest](name:String, bean: CommandBean[Product], server:Option[String]=None,
-                        port:Int=2552)(implicit timeout:Timeout) : Future[CommandResponse[T]] = {
+  def executeCommand[T<:CommandBeanData, R<:AnyRef](name:String, bean: CommandBean[T], server:Option[String]=None,
+                        port:Int=2552)(implicit timeout:Timeout) : Future[CommandResponse[R]] = {
 
-    val p = Promise[CommandResponse[T]]
+    val p = Promise[CommandResponse[R]]
     initCommandManager onComplete {
       case Success(_) =>
         commandManager match {
@@ -146,7 +146,7 @@ trait BaseCommandHelper  {
               case Some(srv) => ExecuteRemoteCommand(name, srv, port, bean, timeout)
               case None => ExecuteCommand(name, bean, timeout)
             }
-            (cm ? msg)(timeout).mapTo[CommandResponse[T]] onComplete {
+            (cm ? msg)(timeout).mapTo[CommandResponse[R]] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure CommandException("CommandManager", f)
             }

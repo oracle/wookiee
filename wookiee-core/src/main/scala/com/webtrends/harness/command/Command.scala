@@ -38,7 +38,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
   import context.dispatcher
 
   override def receive = health orElse ({
-    case ExecuteCommand(_, bean, _) => pipe(execute(bean)) to sender
+    case ExecuteCommand(_, bean, _) => pipe(execute( bean)) to sender
     case _ => // ignore all other messages to this actor
   } : Receive)
 
@@ -62,7 +62,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
    * The primary entry point for the command, the actor for this command
    * will ignore all other messaging and only execute through this
    */
-  def execute[T:Manifest](bean:CommandBean[Product]) : Future[CommandResponse[T]]
+  def execute[T<:CommandBeanData, R<:AnyRef](bean:CommandBean[T]) : Future[CommandResponse[R]]
 }
 
 object Command {
@@ -73,7 +73,7 @@ object Command {
    * @param requestPath The uri requested, like /test/1/ping
    * @return True or False if the command matched
    */
-  def matchPath[T:Manifest](commandPath:String, requestPath:String, bean: CommandBean[Product]) : Option[CommandBean[Product]] = {
+  def matchPath[T<:CommandBeanData](commandPath:String, requestPath:String, bean: CommandBean[T]) : Option[CommandBean[T]] = {
 
     import com.webtrends.harness.utils.StringPathUtil._
     val urlPath = requestPath.splitPath()

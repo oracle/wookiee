@@ -15,7 +15,7 @@ trait CommandBeanExtraction {
   // but before defaults have been added. Each validation should throw an Exception if it fails
   val CommandBeanExtractValidationSteps: Seq[ (Map[String, Any]) => Unit] = Seq.empty
 
-  def extractFromCommandBean[T:Manifest](bean: CommandBean[T], fac: (Map[String, Any]) => T): Try[T] = {
+  def extractFromCommandBean[T<:CommandBeanData](bean: CommandBean[T], fac: (Map[String, Any]) => T): Try[T] = {
 
     val exceptions = new scala.collection.mutable.ArrayBuffer[Exception]
 

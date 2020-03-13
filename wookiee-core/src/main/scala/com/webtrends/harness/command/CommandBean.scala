@@ -18,9 +18,13 @@
  */
 
 package com.webtrends.harness.command
-import com.webtrends.harness.macros.mapper.Mappable
+
+import java.lang.reflect.{Constructor, Parameter}
+
+import com.google.common.primitives.Primitives
 
 import scala.collection.mutable
+import scala.reflect.ClassTag
 
 /**
  * This commandBean should be extended for specific implementation,
@@ -30,28 +34,96 @@ import scala.collection.mutable
  * @author Pete Crossley
  */
 
-case class CommandBean[T:Product](override val map: Map[String, Any] = Map.empty) extends BaseCommandBean[T]
+trait CommandBean[T] extends BaseCommandBean[T]
 
-trait BaseCommandBean[T] extends mutable.HashMap[String, Any] {
-  protected[this] implicit def map: Map[String, Any] = Map.empty
+class DefaultCommandBean[T:ClassTag] extends CommandBean[T]
 
-  //add request map to self
-  if (map.nonEmpty) {
-    this.addValues(map)
-  }
+class MapCommandBean(map:Map[String, Any]) extends CommandBean[MapBeanData] {
+  override implicit def materialize: Option[MapBeanData] = Some(MapBeanData(map))
 
-  val data:T = materialize[T](map)
+  //add to the data bag
+  this ++= map
 
-  private def materialize[T: Mappable](map: Map[String, Any]) = implicitly[Mappable[T]].fromMap(map)
+}
+
+case class MapBeanData(map: Map[String, Any]) extends CommandBeanData
+
+abstract class BaseCommandBean[T:ClassTag] extends mutable.HashMap[String, Any] {
+
+  implicit def materialize: Option[T] = { None }
+
+  private val _data: Option[T] = materialize
+
+  def hasData = _data.isDefined
+
+  def data: T = _data.get
 
   def addValues(map: Map[String, Any]) = this ++= map
 
-  def addValue(key:String, value:Any) = this += key -> value
+  def addValue(key: String, value: Any) = this += key -> value
 
-  def getValue[T](key:String) : Option[T] = {
+  def getValue[V](key: String): Option[V] = {
     this.get(key) match {
-      case Some(k) => Some(k.asInstanceOf[T])
+      case Some(k) => Some(k.asInstanceOf[V])
       case None => None
     }
   }
+}
+
+trait CommandBeanData extends Product
+
+trait ClassSpawner[I] {
+  def apply[T: ClassTag](input: I): T
+
+  // gets constructor for T
+  protected def ctor[T: ClassTag]: Constructor[_] = {
+    val clazz: Class[T] = implicitly[reflect.ClassTag[T]]
+      .runtimeClass
+      .asInstanceOf[Class[T]]
+    val ctors: Array[Constructor[_]] = clazz
+      .getConstructors
+      .filter(_.getParameterTypes.nonEmpty)
+    if (ctors.isEmpty) {
+      throw new RuntimeException("Constructor not available")
+    }
+    ctors.head
+  }
+}
+
+object ArraySpawner extends ClassSpawner[Array[Any]] {
+  override def apply[T: ClassTag](input: Array[Any]): T = {
+    val params: Array[Parameter] = ctor.getParameters
+    // validate that types are compatible
+    for (i: Int <- params.indices) {
+      if (Primitives.wrap(input(i).getClass) != Primitives.wrap(params(i).getType)) {
+        throw new IllegalArgumentException(
+          s"Field: ${params(i).getName} found with Type: ${input(i).getClass}. should be of Type: ${params(i).getType}"
+        )
+      }
+    }
+    ctor.
+      newInstance(input.map(_.asInstanceOf[Object]).toArray: _*)
+      .asInstanceOf[T]
+  }
+}
+
+object MapSpawner extends ClassSpawner[Map[String, Any]] {
+  override def apply[T: ClassTag](input: Map[String, Any]): T = {
+    val params: Array[Parameter] = ctor.getParameters
+    val marshalled: Array[Any] = new Array[Any](params.length)
+    for (i: Int <- params.indices) {
+      input.get(params(i).getName) match {
+        case Some(value: Any) =>
+          marshalled(i) = value
+        case None =>
+          throw new IllegalArgumentException(s"Missing field: ${params(i).getName}")
+      }
+    }
+    ArraySpawner(marshalled)
+  }
+}
+
+object Create {
+  def apply[T: ClassTag](items: Array[Any]): T = ArraySpawner[T](items)
+  def apply[T: ClassTag](m: Map[String, Any]): T = MapSpawner[T](m)
 }
