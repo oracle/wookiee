@@ -15,7 +15,7 @@ trait CommandBeanExtraction {
   // but before defaults have been added. Each validation should throw an Exception if it fails
   val CommandBeanExtractValidationSteps: Seq[ (Map[String, Any]) => Unit] = Seq.empty
 
-  def extractFromCommandBean[T](bean: CommandBean, fac: (Map[String, Any]) => T): Try[T] = {
+  def extractFromCommandBean[T:Manifest](bean: CommandBean[T], fac: (Map[String, Any]) => T): Try[T] = {
 
     val exceptions = new scala.collection.mutable.ArrayBuffer[Exception]
 
@@ -90,7 +90,7 @@ trait CommandBeanExtraction {
 
 sealed trait CommandBeanExtractParameter[T] {
   val key: String
-  def extractor(v: AnyRef): T
+  def extractor(v: Any): T
 }
 
 trait RequiredCommandBeanExtractParameter[T] extends CommandBeanExtractParameter[T]
@@ -100,11 +100,11 @@ trait OptionalCommandBeanExtractParameter[T] extends CommandBeanExtractParameter
 }
 
 sealed trait ExtractString extends CommandBeanExtractParameter[String]{
-  def extractor(v: AnyRef) = String.valueOf(v)
+  def extractor(v: Any) = String.valueOf(v)
 }
 
 sealed trait ExtractInt extends CommandBeanExtractParameter[Int]{
-  def extractor(v: AnyRef): Int = {
+  def extractor(v: Any): Int = {
     v match {
       case i: Integer => i
       case s: String => s.toInt
@@ -114,7 +114,7 @@ sealed trait ExtractInt extends CommandBeanExtractParameter[Int]{
 }
 
 sealed trait ExtractBoolean extends CommandBeanExtractParameter[Boolean]{
-  def extractor(v: AnyRef): Boolean = {
+  def extractor(v: Any): Boolean = {
     v match {
       case i: Integer => i > 0
       case b: java.lang.Boolean => b
@@ -129,7 +129,7 @@ sealed trait ExtractDateTime extends CommandBeanExtractParameter[DateTime]{
 
   val formatter: DateTimeFormatter
 
-  def extractor(v: AnyRef): DateTime = {
+  def extractor(v: Any): DateTime = {
     formatter.parseDateTime(String.valueOf(v))
   }
 }

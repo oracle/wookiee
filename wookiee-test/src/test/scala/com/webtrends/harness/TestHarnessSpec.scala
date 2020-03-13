@@ -29,7 +29,7 @@ import com.webtrends.harness.component.messages.StatusRequest
 import com.webtrends.harness.policy.{Policy, PolicyManager}
 import com.webtrends.harness.service.messages.Ready
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
-import com.webtrends.harness.service.test.command.TestCommand
+import com.webtrends.harness.service.test.command.WeatherCommand
 import com.webtrends.harness.service.test.policy.TestPolicy
 import com.webtrends.harness.service.test.{TestComponent, TestService, TestHarness}
 import org.specs2.mutable.SpecificationWithJUnit

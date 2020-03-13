@@ -22,7 +22,7 @@ import com.webtrends.harness.policy.PolicyManager
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.service.test.command.TestCommand
+import com.webtrends.harness.service.test.command.WeatherCommand
 import com.webtrends.harness.service.test.policy.TestPolicy
 
 import scala.concurrent.Future

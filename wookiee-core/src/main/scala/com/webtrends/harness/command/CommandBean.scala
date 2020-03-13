@@ -18,6 +18,7 @@
  */
 
 package com.webtrends.harness.command
+import com.webtrends.harness.macros.mapper.Mappable
 
 import scala.collection.mutable
 
@@ -26,32 +27,31 @@ import scala.collection.mutable
  * however can be used just as is. Allows a standard base class to
  * work with though.
  *
- * @author Michael Cuthbert on 12/1/14.
+ * @author Pete Crossley
  */
-@SerialVersionUID(100L)
-class CommandBean extends mutable.HashMap[String, AnyRef] {
 
-  def appendMap(params:Map[String, AnyRef]) = params foreach { this += _ }
+case class CommandBean[T:Product](override val map: Map[String, Any] = Map.empty) extends BaseCommandBean[T]
 
-  def addValue(key:String, value:AnyRef) = this += key -> value
+trait BaseCommandBean[T] extends mutable.HashMap[String, Any] {
+  protected[this] implicit def map: Map[String, Any] = Map.empty
+
+  //add request map to self
+  if (map.nonEmpty) {
+    this.addValues(map)
+  }
+
+  val data:T = materialize[T](map)
+
+  private def materialize[T: Mappable](map: Map[String, Any]) = implicitly[Mappable[T]].fromMap(map)
+
+  def addValues(map: Map[String, Any]) = this ++= map
+
+  def addValue(key:String, value:Any) = this += key -> value
 
   def getValue[T](key:String) : Option[T] = {
-    get(key) match {
+    this.get(key) match {
       case Some(k) => Some(k.asInstanceOf[T])
       case None => None
     }
-  }
-}
-
-object CommandBean {
-  val KeyEntity = "Request-Entity"
-  val KeyPath = "Selected-Path"
-
-  def apply(params:Map[String, AnyRef]) = {
-    val bean = new CommandBean()
-    params foreach {
-      bean += _
-    }
-    bean
   }
 }

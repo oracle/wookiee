@@ -21,8 +21,9 @@ package com.webtrends.harness.command
 
 import akka.pattern.pipe
 import com.webtrends.harness.app.HActor
-import scala.util.{Try, Success, Failure}
+import com.webtrends.harness.macros.mapper.Mappable
 
+import scala.util.{Failure, Success, Try}
 import scala.concurrent.Future
 
 /**
@@ -41,7 +42,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
     case _ => // ignore all other messages to this actor
   } : Receive)
 
-  def path : String = s"_wt_internal/${getClass.getSimpleName}"
+  def path : String = s"_internal/${commandName}"
 
   /**
    * This allows for extra functionality in your command path. Basically it will allow
@@ -53,7 +54,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
   def paths : Map[String, String] =  Map("default" -> path)
 
   /**
-   * @deprecated Does nothing, free to stop overriding in your Command
+   * Sets the default command name to the simple classname
    */
   def commandName : String = getClass.getSimpleName
 
@@ -61,7 +62,7 @@ trait Command extends BaseCommand with HActor with CommandHelper {
    * The primary entry point for the command, the actor for this command
    * will ignore all other messaging and only execute through this
    */
-  def execute[T:Manifest](bean:Option[CommandBean]=None) : Future[BaseCommandResponse[T]]
+  def execute[T:Manifest](bean:CommandBean[Product]) : Future[CommandResponse[T]]
 }
 
 object Command {
@@ -70,14 +71,11 @@ object Command {
    *
    * @param commandPath The test path of the command, like /test/$var1/ping
    * @param requestPath The uri requested, like /test/1/ping
-   * @return Will return a command bean if matched, None if not and in the command bean the
-   *         key var1 will equal 1 as per the example above
+   * @return True or False if the command matched
    */
-  def matchPath(commandPath:String, requestPath:String) : Option[CommandBean] = {
+  def matchPath[T:Manifest](commandPath:String, requestPath:String, bean: CommandBean[Product]) : Option[CommandBean[Product]] = {
 
     import com.webtrends.harness.utils.StringPathUtil._
-
-    val bean = new CommandBean()
     val urlPath = requestPath.splitPath()
 
     val matched = urlPath.corresponds(commandPath.splitPath()) {
@@ -109,7 +107,6 @@ object Command {
         test.toLowerCase.split('|').contains(uri.toLowerCase)
     }
 
-    if (matched) Some(bean)
-    else None
+   if (matched) Some(bean) else None
   }
 }

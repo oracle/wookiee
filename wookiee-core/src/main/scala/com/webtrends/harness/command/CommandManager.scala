@@ -37,13 +37,13 @@ import scala.util.{Failure, Success}
   */
 case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false)
 case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false)
-case class ExecuteCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout)
-case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:Option[CommandBean]=None, timeout: Timeout)
+case class ExecuteCommand[T:Manifest](name:String, bean:CommandBean[Product], timeout: Timeout)
+case class ExecuteRemoteCommand[T:Manifest](name:String, server:String, port:Int, bean:CommandBean[Product], timeout: Timeout)
 
 @SerialVersionUID(100L)
 case class CommandResponse[T:Manifest](data:Option[T]) extends BaseCommandResponse[T]
 
-trait BaseCommandResponse[T] {
+sealed trait BaseCommandResponse[T] {
   val data:Option[T]
 }
 
@@ -117,13 +117,13 @@ class CommandManager extends PrepareForShutdown {
    * @param bean Map of parameters
    */
   protected def executeRemoteCommand[T:Manifest](name:String, server:String,
-                                        port:Int=2552, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
-    val p = Promise[BaseCommandResponse[T]]
+                                        port:Int=2552, bean:CommandBean[Product], timeout: Timeout) : Future[CommandResponse[T]] = {
+    val p = Promise[CommandResponse[T]]
     config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
         context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>
-            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[BaseCommandResponse[T]] onComplete {
+            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[CommandResponse[T]] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure f
             }
@@ -137,11 +137,11 @@ class CommandManager extends PrepareForShutdown {
   /**
    * Executes a command and will return a BaseCommandResponse to the sender
    */
-  protected def executeCommand[T:Manifest](name:String, bean:Option[CommandBean]=None, timeout: Timeout) : Future[BaseCommandResponse[T]] = {
-    val p = Promise[BaseCommandResponse[T]]
+  protected def executeCommand[T:Manifest](name:String, bean:CommandBean[Product], timeout: Timeout) : Future[CommandResponse[T]] = {
+    val p = Promise[CommandResponse[T]]
     CommandManager.getCommand(name) match {
       case Some(ref) =>
-        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[BaseCommandResponse[T]] onComplete {
+        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[CommandResponse[T]] onComplete {
           case Success(s) => p success s
           case Failure(f) => p failure f
         }

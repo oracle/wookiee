@@ -22,11 +22,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredString" -> "requiredValue"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("requiredString") mustEqual "requiredValue"
@@ -40,11 +40,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "optionalString" -> "optionalValue"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("optionalString") mustEqual "optionalValue"
@@ -58,9 +58,9 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map())
+        val bean = CommandBean[Map[String, Any]](Map())
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("optionalString") mustEqual "defaultValue"
@@ -74,9 +74,9 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map())
+        val bean = CommandBean[Map[String, Any]](Map())
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get.get("optionalString") mustEqual None
@@ -92,13 +92,13 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "stringInt" -> new Integer(123),
           "stringDouble" -> new Double(123.456f),
           "stringObject" -> new Object {override def toString = "object"}
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("stringInt") mustEqual "123"
@@ -114,11 +114,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredInt" -> new Integer(123)
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("requiredInt") mustEqual 123
@@ -132,11 +132,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredInt" -> "123"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("requiredInt") mustEqual 123
@@ -152,11 +152,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredDateTime" -> "2015/01/01/01"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beSuccessfulTry
 
         extractPromise.get("requiredDateTime").asInstanceOf[DateTime] mustEqual formatter.parseDateTime("2015/01/01/01")
@@ -170,11 +170,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "notTheRequiredString" -> "value"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beFailedTry
       }
 
@@ -186,11 +186,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredInt" -> "abc"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beFailedTry
       }
 
@@ -202,9 +202,9 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
           )
         }
 
-        val bean = CommandBean(Map())
+        val bean = CommandBean[Map[String, Any]](Map())
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beFailedTry
       }
 
@@ -226,18 +226,18 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
 
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredString" -> "foo"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beFailedTry
       }
 
       "Include all issues in final exception message" in {
 
         case class CustomCommandBeanExtractParameter(override val key: String) extends RequiredCommandBeanExtractParameter[String] {
-          override def extractor(v: AnyRef): String = {
+          override def extractor(v: Any): String = {
             throw new Exception("Custom extraction failure")
           }
         }
@@ -260,11 +260,11 @@ class CommandBeanExtractionSpec extends SpecificationWithJUnit
 
         }
 
-        val bean = CommandBean(Map(
+        val bean = CommandBean[Map[String, Any]](Map(
           "requiredCustomCommandParameter" -> "foo"
         ))
 
-        val extractPromise = testExtractor.extractFromCommandBean[Map[String, Any]](bean, passThroughFac)
+        val extractPromise = testExtractor.extractFromCommandBean(bean, passThroughFac)
         extractPromise must beFailedTry
 
         try {
