@@ -22,13 +22,11 @@ import com.webtrends.harness.app.HActor
 import com.webtrends.harness.app.HarnessActor.ConfigChange
 import com.webtrends.harness.command._
 import com.webtrends.harness.component.ComponentHelper
-import com.webtrends.harness.policy.PolicyHelper
 import com.webtrends.harness.service.messages._
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 
 trait Service extends HActor
     with CommandHelper
-    with PolicyHelper
     with ComponentHelper {
 
   implicit val executor = context.dispatcher
@@ -43,7 +41,6 @@ trait Service extends HActor
   }: Receive
 
   override def preStart() {
-    initPolicyHelper
     initCommandHelper
     initComponentHelper
     log.info("The service {} started", serviceName)

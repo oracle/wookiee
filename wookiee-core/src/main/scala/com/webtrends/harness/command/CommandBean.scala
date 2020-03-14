@@ -23,7 +23,6 @@ import java.lang.reflect.{Constructor, Parameter}
 
 import com.google.common.primitives.Primitives
 
-import scala.collection.mutable
 import scala.reflect.ClassTag
 
 /**
@@ -34,46 +33,24 @@ import scala.reflect.ClassTag
  * @author Pete Crossley
  */
 
-trait CommandBean[T] extends BaseCommandBean[T]
 
-class DefaultCommandBean[T:ClassTag] extends CommandBean[T]
 
-class MapCommandBean(map:Map[String, Any]) extends CommandBean[MapBeanData] {
-  override implicit def materialize: Option[MapBeanData] = Some(MapBeanData(map))
+sealed trait Bean
 
-  //add to the data bag
-  this ++= map
+object Bean {
+  def apply[T: ClassTag](items: Array[Any]): T = ArraySpawner[T](items)
+  def apply[T: ClassTag](m: Map[String, Any]): T = MapSpawner[T](m)
 
-}
-
-case class MapBeanData(map: Map[String, Any]) extends CommandBeanData
-
-abstract class BaseCommandBean[T:ClassTag] extends mutable.HashMap[String, Any] {
-
-  implicit def materialize: Option[T] = { None }
-
-  private val _data: Option[T] = materialize
-
-  def hasData = _data.isDefined
-
-  def data: T = _data.get
-
-  def addValues(map: Map[String, Any]) = this ++= map
-
-  def addValue(key: String, value: Any) = this += key -> value
-
-  def getValue[V](key: String): Option[V] = {
-    this.get(key) match {
-      case Some(k) => Some(k.asInstanceOf[V])
-      case None => None
-    }
+  def infer[T: ClassTag](any: Bean): T = any match {
+    case a: ArrayBean => apply(a.array)
+    case m: MapBean => apply(m.map)
   }
 }
 
-trait CommandBeanData extends Product
+case class MapBean(map: Map[String, Any]) extends Bean
+case class ArrayBean(array: Array[Any]) extends Bean
 
-trait ClassSpawner[I] {
-  def apply[T: ClassTag](input: I): T
+trait ClassSpawner {
 
   // gets constructor for T
   protected def ctor[T: ClassTag]: Constructor[_] = {
@@ -90,8 +67,8 @@ trait ClassSpawner[I] {
   }
 }
 
-object ArraySpawner extends ClassSpawner[Array[Any]] {
-  override def apply[T: ClassTag](input: Array[Any]): T = {
+object ArraySpawner extends ClassSpawner {
+  def apply[T: ClassTag](input: Array[Any]): T = {
     val params: Array[Parameter] = ctor.getParameters
     // validate that types are compatible
     for (i: Int <- params.indices) {
@@ -107,8 +84,8 @@ object ArraySpawner extends ClassSpawner[Array[Any]] {
   }
 }
 
-object MapSpawner extends ClassSpawner[Map[String, Any]] {
-  override def apply[T: ClassTag](input: Map[String, Any]): T = {
+object MapSpawner extends ClassSpawner {
+   def apply[T: ClassTag](input: Map[String, Any]): T = {
     val params: Array[Parameter] = ctor.getParameters
     val marshalled: Array[Any] = new Array[Any](params.length)
     for (i: Int <- params.indices) {
@@ -121,9 +98,4 @@ object MapSpawner extends ClassSpawner[Map[String, Any]] {
     }
     ArraySpawner(marshalled)
   }
-}
-
-object Create {
-  def apply[T: ClassTag](items: Array[Any]): T = ArraySpawner[T](items)
-  def apply[T: ClassTag](m: Map[String, Any]): T = MapSpawner[T](m)
 }

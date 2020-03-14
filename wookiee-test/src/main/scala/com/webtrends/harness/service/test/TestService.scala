@@ -18,12 +18,10 @@
  */
 package com.webtrends.harness.service.test
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
-import com.webtrends.harness.policy.PolicyManager
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.service.test.command.WeatherCommand
-import com.webtrends.harness.service.test.policy.TestPolicy
+import com.webtrends.harness.service.test.command.{WeatherCommand, WeatherData}
 
 import scala.concurrent.Future
 
@@ -53,10 +51,9 @@ class TestService extends Service with ShutdownListener {
    * This function should be implemented by any service that wants to add
    * any commands to make available for use
    */
-  override def addPolicies: Unit = {
-    PolicyManager.addPolicy(TestPolicy.PolicyName, TestPolicy)
+  override def addCommands(): Unit = {
+    addCommand(WeatherCommand.CommandName, classOf[WeatherCommand])
   }
-
 }
 
 object TestService {

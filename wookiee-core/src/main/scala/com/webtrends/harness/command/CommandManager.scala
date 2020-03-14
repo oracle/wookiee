@@ -30,22 +30,16 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.concurrent.{Future, Promise}
+import scala.reflect.ClassTag
 import scala.util.{Failure, Success}
 
 /**
   * @author Michael Cuthbert & Spencer Wood
   */
-case class AddCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false)
-case class AddCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false)
-case class ExecuteCommand[T<:CommandBeanData](name:String, bean:CommandBean[T], timeout: Timeout)
-case class ExecuteRemoteCommand[T<:CommandBeanData](name:String, server:String, port:Int, bean:CommandBean[T], timeout: Timeout)
-
-@SerialVersionUID(100L)
-case class CommandResponse[T<:AnyRef](data:Option[T]) extends BaseCommandResponse[T]
-
-sealed trait BaseCommandResponse[T] {
-  val data:Option[T]
-}
+case class AddCommandWithProps(name:String, props:Props, checkHealth: Boolean = false)
+case class AddCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean = false)
+case class ExecuteCommand[Input<: Product : ClassTag](name:String, bean:Input, timeout: Timeout)
+case class ExecuteRemoteCommand[Input<: Product : ClassTag](name:String, server:String, port:Int, bean:Input, timeout: Timeout)
 
 class CommandManager extends PrepareForShutdown {
 
@@ -73,18 +67,18 @@ class CommandManager extends PrepareForShutdown {
    * Wrapper around the addCommand function that creates a function with props, this will just get the
    * props from the actor class
    *
-   * @param name name of the command you want to add
-   * @param actorClass the actor class for the command
+   * @param name of the command
+   * @param checkHealth check the health of the command
    */
-  protected def addCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
-    addCommand[T](name, Props(actorClass), checkHealth)
+  protected def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
+    addCommand(name, Props(actorClass), checkHealth)
   }
 
   /**
    * We add commands as children to the CommandManager, based on default routing
    * or we use the setup defined for the command
    */
-  protected def addCommand[T<:Command](name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
+  protected def addCommand(name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
     CommandManager.getCommand(name) match {
@@ -116,14 +110,14 @@ class CommandManager extends PrepareForShutdown {
    * @param port the port that the server is listening on
    * @param bean Map of parameters
    */
-  protected def executeRemoteCommand[T<:CommandBeanData, R<:AnyRef](name:String, server:String,
-                                        port:Int=2552, bean:CommandBean[T], timeout: Timeout) : Future[CommandResponse[R]] = {
-    val p = Promise[CommandResponse[R]]
+  protected def executeRemoteCommand[Input <:Product : ClassTag, Output: ClassTag](name:String, server:String,
+                                        port:Int=2552, bean:Input, timeout: Timeout) : Future[Output] = {
+    val p = Promise[Output]
     config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
         context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>
-            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[CommandResponse[R]] onComplete {
+            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[Output] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure f
             }
@@ -137,11 +131,11 @@ class CommandManager extends PrepareForShutdown {
   /**
    * Executes a command and will return a BaseCommandResponse to the sender
    */
-  protected def executeCommand[T<:CommandBeanData, R<:AnyRef](name:String, bean:CommandBean[T], timeout: Timeout) : Future[CommandResponse[R]] = {
-    val p = Promise[CommandResponse[R]]
+  protected def executeCommand[Input <:Product : ClassTag, Output: ClassTag](name:String, bean:Input, timeout: Timeout) : Future[Output] = {
+    val p = Promise[Output]
     CommandManager.getCommand(name) match {
       case Some(ref) =>
-        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[CommandResponse[R]] onComplete {
+        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[Output] onComplete {
           case Success(s) => p success s
           case Failure(f) => p failure f
         }

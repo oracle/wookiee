@@ -19,14 +19,17 @@
 
 package com.webtrends.harness.command
 
-import akka.actor.{Props, ActorRef, Actor}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.app.Harness
+
 import scala.concurrent.duration._
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.logging.ActorLoggingAdapter
-import scala.concurrent.{Promise, Future}
+
+import scala.concurrent.{Future, Promise}
+import scala.reflect.ClassTag
 import scala.util.{Failure, Success}
 
 trait CommandHelper extends ActorLoggingAdapter with BaseCommandHelper {
@@ -81,7 +84,7 @@ trait BaseCommandHelper  {
    * @param props the props for that command actor class
    * @return
    */
-  def addCommandWithProps[T<:Command](name:String, props:Props, checkHealth: Boolean = false) : Future[ActorRef] = {
+  def addCommandWithProps(name:String, props:Props, checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout = Timeout(2 seconds)
     val p = Promise[ActorRef]
     initCommandManager onComplete {
@@ -102,10 +105,10 @@ trait BaseCommandHelper  {
   /**
    * Wrapper that allows services add commands to the command manager with a single command
    *
-   * @param name name of the command you want to add
-   * @param actorClass the class for the actor
+   * @param name of command to register
+   * @param checkHealth should this command have heath checks
    */
-  def addCommand[T<:Command](name:String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
+  def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout = Timeout(2 seconds)
     val p = Promise[ActorRef]
     initCommandManager onComplete {
@@ -134,10 +137,10 @@ trait BaseCommandHelper  {
    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
    * @return
    */
-  def executeCommand[T<:CommandBeanData, R<:AnyRef](name:String, bean: CommandBean[T], server:Option[String]=None,
-                        port:Int=2552)(implicit timeout:Timeout) : Future[CommandResponse[R]] = {
+  def executeCommand[Input<: Product : ClassTag, Output <: Product : ClassTag](name:String, bean: Input, server:Option[String]=None,
+                                                            port:Int=2552)(implicit timeout:Timeout) : Future[Output] = {
 
-    val p = Promise[CommandResponse[R]]
+    val p = Promise[Output]
     initCommandManager onComplete {
       case Success(_) =>
         commandManager match {
@@ -146,7 +149,7 @@ trait BaseCommandHelper  {
               case Some(srv) => ExecuteRemoteCommand(name, srv, port, bean, timeout)
               case None => ExecuteCommand(name, bean, timeout)
             }
-            (cm ? msg)(timeout).mapTo[CommandResponse[R]] onComplete {
+            (cm ? msg)(timeout).mapTo[Output] onComplete {
               case Success(s) => p success s
               case Failure(f) => p failure CommandException("CommandManager", f)
             }
