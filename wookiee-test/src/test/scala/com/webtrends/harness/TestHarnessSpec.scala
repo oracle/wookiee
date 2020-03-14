@@ -77,9 +77,12 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       val probe = TestProbe()
       val commandManager = sys.commandManager
       assert(commandManager.isDefined, "Command Manager was not registered")
-      probe.send(commandManager.get, ExecuteCommand(WeatherCommand.CommandName, timeout = timeout, bean = CommandBeanHelper.createInput[WeatherData](MapBean(Map[String, Any]("name" -> "Seattle, WA", "location" -> "47.608013,-122.335167", "mode" -> "current")))))
+      probe.send(commandManager.get, ExecuteCommand(WeatherCommand.CommandName, timeout = timeout,
+        bean = CommandBeanHelper.createInput[WeatherData](
+          MapBean(Map[String, Any]("name" -> "Seattle, WA", "location" -> "47.608013,-122.335167", "mode" -> "current")))))
+
       "Test OK" equals probe.expectMsgPF[String](Duration(2, TimeUnit.SECONDS)) {
-        case r:String =>
+        case r: String =>
           r
         case _ =>
           "Test NOT OK"
@@ -99,8 +102,8 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
 
       val results = probe.receiveN(2, timeout.duration)
       TestHarness.log.debug(s"Results $results")
-      results should have size(2)
-      results should contain ("GotShutdown")
+      results should have size (2)
+      results should contain("GotShutdown")
     }
   }
 }
