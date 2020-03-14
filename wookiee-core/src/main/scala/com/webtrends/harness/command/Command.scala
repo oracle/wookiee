@@ -20,11 +20,8 @@
 package com.webtrends.harness.command
 
 import akka.pattern.pipe
-import com.sun.tools.doclets.internal.toolkit.util.DocFinder.Input
 import com.webtrends.harness.app.HActor
-import com.webtrends.harness.macros.mapper.Mappable
 
-import scala.util.{Failure, Success, Try}
 import scala.concurrent.Future
 import scala.reflect.ClassTag
 
