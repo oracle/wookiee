@@ -2,7 +2,7 @@ package com.webtrends.harness.service.test.policy
 
 import com.webtrends.harness.service.test.service.DarkSkyAPI
 
-trait WeatherForcast {
+trait WeatherForecast {
 
   def current(location:String): String = {
     val data = DarkSkyAPI.getWeather(location)

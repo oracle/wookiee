@@ -1,15 +1,16 @@
 package com.webtrends.harness.service.test.command
 
 import com.webtrends.harness.command.{Command}
-import com.webtrends.harness.service.test.policy.WeatherForcast
+import com.webtrends.harness.service.test.policy.WeatherForecast
 
 import scala.concurrent.{Future, Promise}
 
+case class WeatherData(name: String, location: String, mode:String = "current")
 
 /**
  * Example Command
  */
-class WeatherCommand extends Command[WeatherData, String] with WeatherForcast {
+class WeatherCommand extends Command[WeatherData, String] with WeatherForecast {
 
 
   /**

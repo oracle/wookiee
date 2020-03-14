@@ -79,13 +79,18 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       assert(commandManager.isDefined, "Command Manager was not registered")
       probe.send(commandManager.get, ExecuteCommand(WeatherCommand.CommandName, timeout = timeout,
         bean = CommandBeanHelper.createInput[WeatherData](
-          MapBean(Map[String, Any]("name" -> "Seattle, WA", "location" -> "47.608013,-122.335167", "mode" -> "current")))))
+          MapBean(Map[String, Any](
+            "name" -> "Seattle, WA",
+            "location" -> "47.608013,-122.335167",
+            "mode" -> "current")
+          ))))
 
-      "Test OK" equals probe.expectMsgPF[String](Duration(2, TimeUnit.SECONDS)) {
-        case r: String =>
+      probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
+        case r: String => {
+          TestHarness.log.debug(s"Weather: $r")
           r
-        case _ =>
-          "Test NOT OK"
+        }
+        case _ =>  "Weather data not found"
       }
     }
 
