@@ -6,18 +6,18 @@ trait WeatherForecast {
 
   def current(location:String): String = {
     val data = DarkSkyAPI.getWeather(location)
-    data // parse it for current
+    data // include a json library, then parse this for current
   }
 
   def tenDayForecast(location:String): String = {
     val data = DarkSkyAPI.getWeather(location)
-    data // parse it for current
+    data // include a json library, then parse this for current
   }
 
 
   def alerts(location:String): String = {
     val data = DarkSkyAPI.getWeather(location)
-    data // parse it for alerts
+    data // include a json library, then parse this for current
   }
 
 }

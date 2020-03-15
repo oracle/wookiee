@@ -21,7 +21,7 @@ package com.webtrends.harness
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.ActorRef
+import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
@@ -37,10 +37,10 @@ import scala.concurrent.duration.Duration
 
 
 class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
-  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
-  val sys = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
+  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  val sys: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent])))
-  implicit val actorSystem = TestHarness.system.get
+  implicit val actorSystem: ActorSystem = TestHarness.system.get
 
   "test harness " should {
     "start up service manager " in {
@@ -86,10 +86,9 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
           ))))
 
       probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
-        case r: String => {
+        case r: String =>
           TestHarness.log.debug(s"Weather: $r")
           r
-        }
         case _ =>  "Weather data not found"
       }
     }

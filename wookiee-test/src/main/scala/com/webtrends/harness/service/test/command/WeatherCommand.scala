@@ -1,6 +1,6 @@
 package com.webtrends.harness.service.test.command
 
-import com.webtrends.harness.command.{Command}
+import com.webtrends.harness.command.Command
 import com.webtrends.harness.service.test.policy.WeatherForecast
 
 import scala.concurrent.{Future, Promise}
@@ -28,8 +28,12 @@ class WeatherCommand extends Command[WeatherData, String] with WeatherForecast {
     p.future
   }
 
-  def handle(name: String, location: String, mode: String) = {
-    current(location)
+  def handle(name: String, location: String, mode: String): String = {
+    mode match {
+      case "forecast" => tenDayForecast(location)
+      case "alerts" => alerts(location)
+      case _ => current(location)
+    }
   }
 }
 
