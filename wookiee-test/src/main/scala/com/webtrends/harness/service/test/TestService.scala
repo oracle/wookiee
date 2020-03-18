@@ -22,6 +22,7 @@ import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.service.test.command.{WeatherCommand, WeatherData}
+import com.webtrends.harness.service.test.command.WookieeFactory
 
 import scala.concurrent.Future
 
@@ -53,6 +54,11 @@ class TestService extends Service with ShutdownListener {
    */
   override def addCommands(): Unit = {
     addCommand(WeatherCommand.CommandName, classOf[WeatherCommand])
+//    addCommand("POC", WookieeFactory.createWookieeCommand("POC", classOf[WeatherData], processPoc))
+  }
+
+  private def processPoc(w: WeatherData): Future[String] = {
+    Future.successful(w.name)
   }
 }
 
