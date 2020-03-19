@@ -1,6 +1,6 @@
-package com.webtrends.harness.service.test.policy
+package com.webtrends.harness.policy
 
-import com.webtrends.harness.service.test.service.DarkSkyAPI
+import com.webtrends.harness.service.DarkSkyAPI
 
 trait WeatherForecast {
 

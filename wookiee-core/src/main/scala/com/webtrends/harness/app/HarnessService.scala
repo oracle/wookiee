@@ -21,7 +21,7 @@ package com.webtrends.harness.app
 object HarnessService extends App {
   execute()
 
-  def execute() = {
+  def execute(): Unit = {
     // Main body which gets run at startup
     try {
       Harness.externalLogger.info("Starting Harness...")

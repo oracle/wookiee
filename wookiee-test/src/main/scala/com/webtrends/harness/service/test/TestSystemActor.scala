@@ -20,7 +20,6 @@ package com.webtrends.harness.service.test
 
 import java.net.{URI, URLEncoder}
 
-import akka.actor.ActorDSL._
 import akka.actor._
 import akka.pattern.ask
 import akka.util.Timeout
@@ -34,7 +33,7 @@ import org.joda.time.DateTime
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 object TestSystemActor {
 
@@ -45,8 +44,8 @@ object TestSystemActor {
    * @return
    */
   def apply(services: Seq[Class[_ <: Actor]])(implicit system: ActorSystem): ActorRef = {
-
-    system.actorOf(Props(classOf[TestSystemActor], services), "system")
+    val httpPort = Try(system.settings.config.getInt("internal-http.port")).getOrElse(8080)
+    system.actorOf(Props(classOf[TestSystemActor], services, httpPort), "system")
   }
 
   /**
@@ -66,26 +65,26 @@ object TestSystemActor {
 private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val httpPort: Int)
   extends Actor {
 
-  implicit val sys = context.system
-  implicit val timeout = Timeout(1 second)
+  implicit val sys: ActorSystem = context.system
+  implicit val timeout: Timeout = Timeout(1 second)
 
   import context.dispatcher
 
-  var services = Map[String, ActorRef]()
+  var services: Map[String, ActorRef] = Map[String, ActorRef]()
 
-  override def preStart = {
+  override def preStart: Unit = {
     loadServices
   }
 
-  private def loadServices = {
-    actor(context, "services")(new Act with LoggingAdapter {
+  private def loadServices: ActorRef = {
+    context.actorOf(Props(new Actor with LoggingAdapter {
       serviceSeq foreach {
         loadService(self, _, None)
       }
 
-      var serviceMeta = Map[ActorPath, ServiceMetaData]()
+      var serviceMeta: Map[ActorPath, ServiceMetaData] = Map[ActorPath, ServiceMetaData]()
 
-      become {
+      override def receive: PartialFunction[Any, Unit] = {
         case m: GetMetaData =>
           sender() ! serviceMeta.get(m.service.get)
         case TestSystemActor.LoadService(clazz, path) =>
@@ -103,7 +102,7 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
               // Create our health and include the services
               val comp = HealthComponent("service-manager", ComponentState.NORMAL, "All's good")
               answers foreach {
-                comp.addComponent(_)
+                comp.addComponent
               }
               xSender ! comp
           })
@@ -129,17 +128,16 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
               log.error("An error occurred trying to load the service", t)
               ref ! None
           }
-        }
-        catch {
+        } catch {
           case ex: Exception =>
             log.error("An error occurred trying to load the service", ex)
             ref ! None
         }
       }
-    })
+    }))
   }
 
-  def receive = {
+  def receive: Receive = {
     case lp: TestSystemActor.LoadService =>
       (context.actorSelection("services") ! lp)(sender())
     case gm: TestSystemActor.GetService =>
@@ -159,7 +157,8 @@ trait ShutdownListener {
     case PrepareForShutdown =>
       log.info("Preparing for shutdown")
       shutdownListener.foreach(_ ! "GotShutdown")
-    case RegisterShutdownListener(ref) => shutdownListener = Some(ref)
+    case RegisterShutdownListener(ref) =>
+      shutdownListener = Some(ref)
   }
 
 }

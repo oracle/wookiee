@@ -1,4 +1,4 @@
-package com.webtrends.harness.service.test.service
+package com.webtrends.harness.service
 import java.net.{URL, HttpURLConnection}
 import scala.io.Source._
 

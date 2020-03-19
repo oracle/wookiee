@@ -1,7 +1,7 @@
-package com.webtrends.harness.service.test.command
+package com.webtrends.harness.command
 
 import com.webtrends.harness.command.Command
-import com.webtrends.harness.service.test.policy.WeatherForecast
+import com.webtrends.harness.policy.WeatherForecast
 
 import scala.concurrent.{Future, Promise}
 
