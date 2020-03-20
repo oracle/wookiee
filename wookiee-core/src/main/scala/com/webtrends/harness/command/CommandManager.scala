@@ -26,7 +26,6 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.SystemReady
 import com.webtrends.harness.app.PrepareForShutdown
-import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 import scala.concurrent.{Future, Promise}
@@ -40,12 +39,15 @@ case class AddCommandWithProps(name:String, props:Props, checkHealth: Boolean = 
 case class AddCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean = false)
 case class ExecuteCommand[Input<: Product : ClassTag](name:String, bean:Input, timeout: Timeout)
 case class ExecuteRemoteCommand[Input<: Product : ClassTag](name:String, server:String, port:Int, bean:Input, timeout: Timeout)
+case class GetCommands()
 
 class CommandManager extends PrepareForShutdown {
 
   import context.dispatcher
 
-  val healthCheckChildren = mutable.ArrayBuffer.empty[ActorRef]
+  // map that stores the name of the command with the actor it references
+  val commandMap: mutable.Map[String, ActorRef] = mutable.Map[String, ActorRef]()
+  val healthCheckChildren: mutable.ArrayBuffer[ActorRef] = mutable.ArrayBuffer.empty[ActorRef]
 
   /** Only check the health of commands that have specified that they are going to provide health information
     *
@@ -55,24 +57,27 @@ class CommandManager extends PrepareForShutdown {
     healthCheckChildren
   }
 
-  override def receive = super.receive orElse {
+  override def receive: PartialFunction[Any, Unit] = super.receive orElse {
     case AddCommandWithProps(name, props, checkHealth) => pipe(addCommand(name, props, checkHealth)) to sender
     case AddCommand(name, actorClass, checkHealth) => pipe(addCommand(name, actorClass, checkHealth)) to sender
     case ExecuteCommand(name, bean, timeout) => pipe(executeCommand(name, bean, timeout)) to sender
     case ExecuteRemoteCommand(name, server, port, bean, timeout) => pipe(executeRemoteCommand(name, server, port, bean, timeout)) to sender
+    case GetCommands() => sender ! getCommands
     case SystemReady => // ignore
   }
 
-  /**
-   * Wrapper around the addCommand function that creates a function with props, this will just get the
-   * props from the actor class
-   *
-   * @param name of the command
-   * @param checkHealth check the health of the command
-   */
   protected def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
     addCommand(name, Props(actorClass), checkHealth)
   }
+
+  protected def addCommand(name:String, ref:ActorRef): commandMap.type = {
+    log.debug(s"Command $name with path ${ref.path} inserted into Command Manager map.")
+    commandMap += (name -> ref)
+  }
+
+  protected def getCommand(name:String) : Option[ActorRef] = commandMap.get(name)
+  protected def getCommands: Map[String, ActorRef] = commandMap.toMap
+  protected def getRemoteAkkaPath(server:String, port:Int) : String = s"akka.tcp://server@$server:$port${HarnessConstants.CommandFullName}"
 
   /**
    * We add commands as children to the CommandManager, based on default routing
@@ -81,7 +86,7 @@ class CommandManager extends PrepareForShutdown {
   protected def addCommand(name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
-    CommandManager.getCommand(name) match {
+    getCommand(name) match {
       case Some(ref) =>
         log.warn(s"Command $name has already been added, not re-adding it.")
         Future.successful(ref)
@@ -97,7 +102,7 @@ class CommandManager extends PrepareForShutdown {
           healthCheckChildren += aRef
         }
 
-        CommandManager.addCommand(name, aRef)
+        addCommand(name, aRef)
         Future { aRef }
     }
   }
@@ -115,12 +120,9 @@ class CommandManager extends PrepareForShutdown {
     val p = Promise[Output]
     config.getString("akka.actor.provider") match {
       case "akka.remote.RemoteActorRefProvider" =>
-        context.actorSelection(CommandManager.getRemoteAkkaPath(server, port)).resolveOne() onComplete {
+        context.actorSelection(getRemoteAkkaPath(server, port)).resolveOne() onComplete {
           case Success(ref) =>
-            (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[Output] onComplete {
-              case Success(s) => p success s
-              case Failure(f) => p failure f
-            }
+            execCommand(ref, ExecuteCommand(name, bean, timeout), timeout, p)
           case Failure(f) => p failure new CommandException("CommandManager", s"Failed to find remote system [$server:$port]", Some(f))
         }
       case _ => p failure new CommandException("CommandManager", s"Remote provider for akka is not enabled")
@@ -132,35 +134,25 @@ class CommandManager extends PrepareForShutdown {
    * Executes a command and will return a BaseCommandResponse to the sender
    */
   protected def executeCommand[Input <:Product : ClassTag, Output: ClassTag](name:String, bean:Input, timeout: Timeout) : Future[Output] = {
-    val p = Promise[Output]
-    CommandManager.getCommand(name) match {
+    val p = Promise[Output]()
+    getCommand(name) match {
       case Some(ref) =>
-        (ref ? ExecuteCommand(name, bean, timeout))(timeout).mapTo[Output] onComplete {
-          case Success(s) => p success s
-          case Failure(f) => p failure f
-        }
-      case None => p failure CommandException(name, "Command not found")
+        execCommand(ref, ExecuteCommand(name, bean, timeout), timeout, p)
+      case None =>
+        p failure CommandException(name, "Command not found")
     }
     p.future
+  }
+
+  private def execCommand[Input <:Product : ClassTag, Output: ClassTag]
+  (ref: ActorRef, exec: ExecuteCommand[Input], timeout: Timeout, promise: Promise[Output]): Unit = {
+    (ref ? exec)(timeout).mapTo[Output] onComplete {
+      case Success(s) => promise success s
+      case Failure(f) => promise failure f
+    }
   }
 }
 
 object CommandManager {
-  private val externalLogger = LoggerFactory.getLogger(this.getClass)
-
-  // map that stores the name of the command with the actor it references
-  val commandMap = mutable.Map[String, ActorRef]()
-
-  def props = Props[CommandManager]
-
-  def addCommand(name:String, ref:ActorRef) = {
-    externalLogger.debug(s"Command $name with path ${ref.path} inserted into Command Manager map.")
-    commandMap += (name -> ref)
-  }
-
-  def getCommand(name:String) : Option[ActorRef] = commandMap.get(name)
-
-  def getCommands() : Option[Map[String, ActorRef]] = Some(commandMap.toMap)
-
-  def getRemoteAkkaPath(server:String, port:Int) : String = s"akka.tcp://server@$server:$port${HarnessConstants.CommandFullName}"
+  def props: Props = Props[CommandManager]
 }

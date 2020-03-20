@@ -23,7 +23,6 @@ import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
-import com.webtrends.harness.logging.ActorLoggingAdapter
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}

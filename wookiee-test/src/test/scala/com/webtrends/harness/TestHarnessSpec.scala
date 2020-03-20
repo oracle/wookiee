@@ -82,12 +82,21 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       loadComponent(sys2)
     }
 
-    "load command managers and commands size equals 1" in {
+    "load command managers and commands size equals 1 for both" in {
+      val probe1 = new TestProbe(actorSystem)
+      val probe2 = new TestProbe(actorSystem2)
       val commandManager = sys.commandManager
       val commandManager2 = sys2.commandManager
       assert(commandManager.isDefined, "Command Manager was not registered")
       assert(commandManager2.isDefined, "Command Manager was not registered")
-      CommandManager.getCommands().get.size equals 1
+
+      probe1.send(commandManager.get, GetCommands())
+      val commands1 = probe1.expectMsgType[Map[String, ActorRef]]
+      commands1.size shouldBe 1
+
+      probe2.send(commandManager2.get, GetCommands())
+      val commands2 = probe2.expectMsgType[Map[String, ActorRef]]
+      commands2.size shouldBe 1
     }
 
     "load test command and get weather" in {
@@ -103,13 +112,8 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
             "mode" -> "current")
           ))))
 
-      probe.expectMsgPF[String](Duration(15, TimeUnit.SECONDS)) {
-        case r: String =>
-          TestHarness.log.debug(s"Weather: $r")
-          r
-        case _ =>
-          "Weather data not found"
-      }
+      val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
+      reply shouldBe ""
     }
 
 
