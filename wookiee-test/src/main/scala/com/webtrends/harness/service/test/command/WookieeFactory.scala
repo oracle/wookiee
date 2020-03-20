@@ -1,5 +1,6 @@
 package com.webtrends.harness.service.test.command
 
+import akka.actor.Props
 import com.webtrends.harness.command.Command
 
 import scala.concurrent.Future
@@ -10,16 +11,16 @@ object WookieeFactory {
                                                       name: String,
                                                       bodyClass: Class[U],
                                                       businessLogic: U => Future[V]
-                                                    ): Class[_ <: Command[U, V]] = {
+                                                    ): Props = {
     class NewWookiee extends Command[U, V] {
       override def execute(bean: U): Future[V] = {
+        print(s"Triggered $name")
         businessLogic(bean)
       }
     }
     object NewWookiee {
-      def apply() = new NewWookiee
+      def apply() = new NewWookiee()
     }
-
-    classOf[NewWookiee]
+    Props({NewWookiee()})
   }
 }

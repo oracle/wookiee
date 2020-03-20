@@ -85,33 +85,57 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
             "mode" -> "current")
           ))))
 
+      val result = probe.expectMsgPF(Duration(5, TimeUnit.SECONDS)) {
+        case r: String =>
+          TestHarness.log.debug(s"Weather: $r")
+          r
+        case _ =>
+          "Weather data not found"
+      }
+      result
+    }
+
+    "load dynamic command and get message" in {
+      val probe = TestProbe()
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      probe.send(commandManager.get, ExecuteCommand("POC", timeout = timeout,
+        bean = CommandBeanHelper.createInput[WeatherData](
+          MapBean(Map[String, Any](
+            "name" -> "Seattle, WA",
+            "location" -> "47.608013,-122.335167",
+            "mode" -> "current")
+          ))))
+
       probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
         case r: String =>
           TestHarness.log.debug(s"Weather: $r")
           r
-        case _ =>  "Weather data not found"
+        case _ =>
+          "Weather data not found"
       }
     }
 
-//    "load dynamic command and get message" in {
-//      val probe = TestProbe()
-//      val commandManager = sys.commandManager
-//      assert(commandManager.isDefined, "Command Manager was not registered")
-//      probe.send(commandManager.get, ExecuteCommand("POC", timeout = timeout,
-//        bean = CommandBeanHelper.createInput[WeatherData](
-//          MapBean(Map[String, Any](
-//            "name" -> "Seattle, WA",
-//            "location" -> "47.608013,-122.335167",
-//            "mode" -> "current")
-//          ))))
-//
-//      probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
-//        case r: String =>
-//          TestHarness.log.debug(s"Weather: $r")
-//          r
-//        case _ =>  "Weather data not found"
-//      }
-//    }
+    "load another dynamic command and get message" in {
+      val probe = TestProbe()
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      probe.send(commandManager.get, ExecuteCommand("OTHER", timeout = timeout,
+        bean = CommandBeanHelper.createInput[WeatherData](
+          MapBean(Map[String, Any](
+            "name" -> "Seattle, WA",
+            "location" -> "47.608013,-122.335167",
+            "mode" -> "current")
+          ))))
+
+      probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
+        case r: String =>
+          TestHarness.log.debug(s"Weather: $r")
+          r
+        case _ =>
+          "Weather data not found"
+      }
+    }
 
 
     "shutdown services and components" in {

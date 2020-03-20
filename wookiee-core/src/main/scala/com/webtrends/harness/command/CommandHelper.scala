@@ -85,7 +85,7 @@ trait BaseCommandHelper  {
    * @return
    */
   def addCommandWithProps(name:String, props:Props, checkHealth: Boolean = false) : Future[ActorRef] = {
-    implicit val timeout = Timeout(2 seconds)
+    implicit val timeout = Timeout(10 seconds)
     val p = Promise[ActorRef]
     initCommandManager onComplete {
       case Success(_) =>

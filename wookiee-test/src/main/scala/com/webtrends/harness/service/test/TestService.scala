@@ -54,10 +54,17 @@ class TestService extends Service with ShutdownListener {
    */
   override def addCommands(): Unit = {
     addCommand(WeatherCommand.CommandName, classOf[WeatherCommand])
-//    addCommand("POC", WookieeFactory.createWookieeCommand("POC", classOf[WeatherData], processPoc))
+    addCommandWithProps("POC", WookieeFactory.createWookieeCommand("POC", classOf[WeatherData], processPoc))
+    addCommandWithProps("POC", WookieeFactory.createWookieeCommand("OTHER", classOf[WeatherData], processOther))
   }
 
   private def processPoc(w: WeatherData): Future[String] = {
+    print("handling poc")
+    Future.successful(w.name)
+  }
+
+  private def processOther(w: WeatherData): Future[String] = {
+    print("handling other")
     Future.successful(w.name)
   }
 }
