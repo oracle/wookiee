@@ -21,6 +21,7 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
+import com.webtrends.harness.service.test.command.TestCommand
 
 import scala.concurrent.Future
 
@@ -45,6 +46,10 @@ class TestService extends Service with ShutdownListener {
       log.info("I am now ready, meta data set: " + self.path)
     case GetMetaDetails =>
       sender ! ServiceMetaDetails(supportsHttp = false)
+  }
+
+  override def addCommands(): Unit = {
+    addCommand(TestCommand.CommandName, classOf[TestCommand])
   }
 }
 

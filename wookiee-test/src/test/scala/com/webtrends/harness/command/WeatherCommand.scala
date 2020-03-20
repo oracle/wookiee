@@ -1,6 +1,5 @@
 package com.webtrends.harness.command
 
-import com.webtrends.harness.command.Command
 import com.webtrends.harness.policy.WeatherForecast
 
 import scala.concurrent.{Future, Promise}
@@ -11,13 +10,6 @@ case class WeatherData(name: String, location: String, mode:String = "current")
  * Example Command
  */
 class WeatherCommand extends Command[WeatherData, String] with WeatherForecast {
-
-
-  /**
-   * Sets the default command name to the simple classname
-   */
-  override def commandName: String = WeatherCommand.CommandName
-
   /**
    * The primary entry point for the command, the actor for this command
    * will ignore all other messaging and only execute through this

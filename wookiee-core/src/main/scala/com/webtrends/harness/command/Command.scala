@@ -36,17 +36,14 @@ import scala.reflect.ClassTag
 abstract class Command[Input <: Product : ClassTag, Output] extends BaseCommand with HActor with CommandHelper {
   import context.dispatcher
 
-  override def receive = health orElse ({
-    case ExecuteCommand(_, bean:Input, _) => pipe(execute(bean)) to sender
+  override def receive: Receive = health orElse ({
+    case ExecuteCommand(_, bean:Input, _) =>
+      pipe(execute(bean)) to sender
     case _ => // ignore all other messages to this actor
   } : Receive)
 
-  /**
-   * Sets the default command name to the simple classname
-   */
-  def commandName : String = this.getClass.getSimpleName
-
-  def createInput(bean: Bean): Input = Bean.infer[Input](bean)
+  def createInput(bean: Bean): Input =
+    Bean.infer[Input](bean)
 
   /**
    * The primary entry point for the command, the actor for this command

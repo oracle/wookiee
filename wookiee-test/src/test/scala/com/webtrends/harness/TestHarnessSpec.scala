@@ -103,11 +103,12 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
             "mode" -> "current")
           ))))
 
-      probe.expectMsgPF[String](Duration(5, TimeUnit.SECONDS)) {
+      probe.expectMsgPF[String](Duration(15, TimeUnit.SECONDS)) {
         case r: String =>
           TestHarness.log.debug(s"Weather: $r")
           r
-        case _ =>  "Weather data not found"
+        case _ =>
+          "Weather data not found"
       }
     }
 
