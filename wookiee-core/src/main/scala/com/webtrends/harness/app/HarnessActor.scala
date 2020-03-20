@@ -25,7 +25,6 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.command.CommandManager
-import com.webtrends.harness.command.typed.TypedCommandManager
 import com.webtrends.harness.component.{ComponentManager, InitializeComponents}
 import com.webtrends.harness.config.ConfigWatcher
 import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -101,7 +100,7 @@ class HarnessActor extends Actor
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
-  var typedCommandManager: Option[ActorRef] = None
+  var dispatchManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
   var configWatcherActor: Option[ActorRef] = None
@@ -131,6 +130,10 @@ class HarnessActor extends Actor
         case Some(ca) => ca ! SystemReady
         case None => // ignore
       }
+      dispatchManager match {
+        case Some(dm) => dm ! SystemReady
+        case None => // ignore
+      }
       commandManager match {
         case Some(cm) => cm ! SystemReady
         case None => // ignore
@@ -157,9 +160,7 @@ class HarnessActor extends Actor
     startHealth
     startConfigWatcher
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
-      // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      typedCommandManager = Some(context.actorOf(TypedCommandManager.props, HarnessConstants.TypedCommandName))
       log.info("Command Manager started: {}", commandManager.get.path)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
@@ -196,7 +197,8 @@ class HarnessActor extends Actor
       val tmpService = serviceActor
       val tmpComp = componentActor
       val tmpCmd = commandManager
-      prepareForShutdown(tmpService, tmpCmd, tmpComp) andThen {
+      val tmpDis = dispatchManager
+      prepareForShutdown(tmpService, tmpDis, tmpCmd, tmpComp) andThen {
         case _ => Try(gracefulShutdown())
       }
     } else Try(gracefulShutdown())

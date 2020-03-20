@@ -68,7 +68,7 @@ class CommandManager extends PrepareForShutdown {
     // use the default Round Robin approach
     getCommand(name) match {
       case Some(ref) =>
-        log.warn(s"Command $name has already been added, not re-adding it.")
+        log.warn(s"Command $name has already been registered with CommandManager.")
         Future.successful(ref)
       case None =>
         val aRef = if (!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")) {
@@ -134,8 +134,9 @@ class CommandManager extends PrepareForShutdown {
     }
   }
 
-  private def addCommand(name:String, ref:ActorRef): commandMap.type = {
-    log.debug(s"Command $name with path ${ref.path} inserted into Command Manager map.")
+  def addCommand(name:String, ref:ActorRef) : commandMap.type = {
+    log.info(s"Registered Command $name using path ${ref.path} with Command Manager.")
+
     commandMap += (name -> ref)
   }
 }
