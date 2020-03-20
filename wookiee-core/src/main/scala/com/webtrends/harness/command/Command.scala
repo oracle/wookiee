@@ -33,7 +33,7 @@ import scala.reflect.ClassTag
  *
  * @author Michael Cuthbert on 12/1/14.
  */
-abstract class Command[Input <: Product : ClassTag, Output] extends BaseCommand with HActor with CommandHelper {
+abstract class Command[Input <: Product : ClassTag, Output <: Any : ClassTag] extends BaseCommand with HActor with CommandHelper {
   import context.dispatcher
 
   override def receive: Receive = health orElse ({
@@ -41,9 +41,6 @@ abstract class Command[Input <: Product : ClassTag, Output] extends BaseCommand 
       pipe(execute(bean)) to sender
     case _ => // ignore all other messages to this actor
   } : Receive)
-
-  def createInput(bean: Bean): Input =
-    Bean.infer[Input](bean)
 
   /**
    * The primary entry point for the command, the actor for this command

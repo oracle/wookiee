@@ -83,7 +83,7 @@ class TestHarness(conf:Config) {
   var config: Config = conf.withFallback(defaultConfig)
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
 
-  implicit val timeout: Timeout = Timeout(4000, TimeUnit.MILLISECONDS)
+  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
 
   def start(serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
             componentMap: Option[Map[String, Class[_ <: Component]]] = None,
@@ -98,9 +98,8 @@ class TestHarness(conf:Config) {
     Harness.startActorSystem(Some(config), Some(port))
     // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
     harnessReadyCheck(timeToWait.fromNow, port)
-    Await.result(TestHarness.rootActor(port).get ? GetManagers, 5.seconds) match {
-      case m =>
-        val map = m.asInstanceOf[Map[String, ActorRef]]
+    Await.result((TestHarness.rootActor(port).get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
+      case map: Map[String, ActorRef] =>
         serviceManager = map.get(ServicesName)
         policyManager = map.get(PolicyName)
         commandManager = map.get(CommandName)

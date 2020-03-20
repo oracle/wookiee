@@ -2,7 +2,7 @@ package com.webtrends.harness.command
 
 import com.webtrends.harness.policy.WeatherForecast
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Future
 
 case class WeatherData(name: String, location: String, mode:String = "current")
 
@@ -15,9 +15,8 @@ class WeatherCommand extends Command[WeatherData, String] with WeatherForecast {
    * will ignore all other messaging and only execute through this
    */
   override def execute(bean: WeatherData): Future[String] = {
-    val p = Promise[String]
-    p success handle(bean.name, bean.location,  bean.mode)
-    p.future
+    val result = handle(bean.name, bean.location,  bean.mode)
+    Future.successful(result)
   }
 
   def handle(name: String, location: String, mode: String): String = {

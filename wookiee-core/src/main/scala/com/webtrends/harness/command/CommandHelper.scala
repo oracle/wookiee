@@ -129,9 +129,8 @@ trait CommandHelper  { this: Actor =>
    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
    * @return
    */
-  def executeCommand[Input<: Product : ClassTag, Output <: Product : ClassTag](name:String, bean: Input, server:Option[String]=None,
+  def executeCommand[Input<: Product : ClassTag, Output <: Any : ClassTag](name:String, bean: Input, server:Option[String]=None,
                                                             port:Int=2552)(implicit timeout:Timeout) : Future[Output] = {
-
     val p = Promise[Output]
     initCommandManager onComplete {
       case Success(_) =>
