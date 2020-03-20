@@ -18,6 +18,7 @@
  */
 package com.webtrends.harness.health
 
+import java.util.jar
 import java.util.jar.Attributes.Name
 import java.util.jar.{Attributes, JarFile}
 
@@ -37,14 +38,14 @@ import scala.util.{Failure, Success}
 
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
-  val upTime = DateTime.now
-  implicit val timeout =
+  val upTime: DateTime = DateTime.now
+  implicit val timeout: Timeout =
     ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
 
-  val scalaVersion = util.Properties.versionString
-  val file = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
+  val scalaVersion: String = util.Properties.versionString
+  val file: String = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
 
-  val manifest = file match {
+  val manifest: jar.Manifest = file match {
     case _ if file.endsWith(".jar") =>
       new JarFile(file).getManifest
     case _ =>
@@ -55,8 +56,8 @@ trait HealthCheckProvider {
       man
   }
 
-  val application = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_TITLE)
-  val version = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
+  val application: String = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_TITLE)
+  val version: String = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
   val alerts: mutable.Buffer[ComponentHealth] = mutable.Buffer()
 
   /**
@@ -70,8 +71,8 @@ trait HealthCheckProvider {
       ComponentHealth(ComponentState.NORMAL, "Thunderbirds are GO")
     }
     else {
-      val status = if (checks.forall(c => c.state == ComponentState.DEGRADED)) ComponentState.DEGRADED else ComponentState.CRITICAL
-      val details = for (c <- checks) yield c.details
+      val status = if (checks.forall(c => c != null && c.state == ComponentState.DEGRADED)) ComponentState.DEGRADED else ComponentState.CRITICAL
+      val details = for (c <- checks) yield if (c != null) c.details else ""
 
       ComponentHealth(status, details.mkString("; "))
     }
