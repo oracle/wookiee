@@ -101,7 +101,6 @@ class TestHarness(conf:Config) {
     Await.result((TestHarness.rootActor(port).get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
       case map: Map[String, ActorRef] =>
         serviceManager = map.get(ServicesName)
-        policyManager = map.get(PolicyName)
         commandManager = map.get(CommandName)
         componentManager = map.get(ComponentName)
         TestHarness.log.info("Managers all accounted for")
