@@ -20,112 +20,128 @@
 package com.webtrends.harness
 
 import java.util.concurrent.TimeUnit
-import akka.actor.ActorRef
+
+import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
-import com.webtrends.harness.command.{CommandManager, CommandResponse, ExecuteCommand}
+import com.webtrends.harness.command._
 import com.webtrends.harness.component.messages.StatusRequest
-import com.webtrends.harness.policy.{Policy, PolicyManager}
 import com.webtrends.harness.service.messages.Ready
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
-import com.webtrends.harness.service.test.command.TestCommand
-import com.webtrends.harness.service.test.policy.TestPolicy
-import com.webtrends.harness.service.test.{TestComponent, TestService, TestHarness}
-import org.specs2.mutable.SpecificationWithJUnit
+import com.webtrends.harness.service.test.{TestComponent, TestHarness, TestService}
+import org.scalatest.{Inspectors, Matchers, WordSpecLike}
+
 import scala.concurrent.duration.Duration
 
 
-class TestHarnessSpec extends SpecificationWithJUnit {
-  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
-  val sys = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
-    Some(Map("testcomponent" -> classOf[TestComponent])))
-  implicit val actorSystem = TestHarness.system.get
+class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
+  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  val sys: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
+    Some(Map("testcomponent" -> classOf[TestComponent])), port = 2551)
+  // Ensure we can start up a second one without breaking
+  val sys2: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
+    Some(Map("testcomponent" -> classOf[TestComponent])), port = 2553)
+  implicit val actorSystem: ActorSystem = TestHarness.system(2551).get
+  val actorSystem2: ActorSystem = TestHarness.system(2553).get
 
-  sequential
-
-  "test harness " should {
-    "start up service manager " in {
-      sys.serviceManager must beSome[ActorRef]
+  "test harnesses " should {
+    "start up service manager for both " in {
+      sys.serviceManager.get.isInstanceOf[ActorRef] shouldBe true
+      sys2.serviceManager.get.isInstanceOf[ActorRef] shouldBe true
     }
 
-    "load test service " in {
-      val probe = TestProbe()
-      val testService = sys.getService("testservice")
-      assert(testService.isDefined, "Test service was not registered")
-      probe.send(testService.get, Ready)
-      Ready must beEqualTo(probe.expectMsg(Ready))
-    }
-
-    "start up component manager " in {
-      sys.componentManager must beSome[ActorRef]
-    }
-
-    "load test component " in {
-      val probe = TestProbe()
-      val testComponent = sys.getComponent("testcomponent")
-      assert(testComponent.isDefined, "Test component was not registered")
-      probe.send(testComponent.get, StatusRequest)
-      TestComponent.ComponentMessage must beEqualTo(probe.expectMsg(TestComponent.ComponentMessage))
-    }
-
-    "load policy manager" in {
-      val policyManager = sys.policyManager
-      assert(policyManager.isDefined, "Policy Manager was not registered")
-      TestHarnessSpec.GetPolicy("TestPolicy", TestPolicy.getClass) must equalTo(TestPolicy)
-    }
-
-    "load policy manager and policy size equals 1" in {
-      val policyManager = sys.policyManager
-      assert(policyManager.isDefined, "Policy Manager was not registered")
-      PolicyManager.getPolicies.get.size equals 1
-    }
-
-    "load command manager and commands size equals 1" in {
-      val commandManager = sys.commandManager
-      assert(commandManager.isDefined, "Command Manager was not registered")
-      CommandManager.getCommands().get.size equals 1
-    }
-
-    "load test command and equal Test OK" in {
-      val probe = TestProbe()
-      val commandManager = sys.commandManager
-      assert(commandManager.isDefined, "Command Manager was not registered")
-      probe.send(commandManager.get, ExecuteCommand[CommandResponse[String]](TestCommand.CommandName, timeout = timeout))
-      "Test OK" equals probe.expectMsgPF[String](Duration(2, TimeUnit.SECONDS)) {
-        case r:CommandResponse[String] =>
-          r.data.get
-        case _ =>
-          "Test NOT OK"
+    "load both test services " in {
+      def checkReady(sysToUse: TestHarness) = {
+        val probe = TestProbe()
+        val testService = sysToUse.getService("testservice")
+        assert(testService.isDefined, "Test service was not registered")
+        probe.send(testService.get, Ready)
+        Ready shouldBe probe.expectMsg(Ready)
       }
+
+      checkReady(sys)
+      checkReady(sys2)
     }
 
-
-    "be able to call a policy and equal ok" in {
-      TestPolicy.testPolicy().get equals "Test OK"
+    "start up component manager on both " in {
+      sys.componentManager.get.isInstanceOf[ActorRef] shouldBe true
+      sys2.componentManager.get.isInstanceOf[ActorRef] shouldBe true
     }
+
+    "load test components " in {
+      def loadComponent(sysToUse: TestHarness) = {
+        val probe = TestProbe()
+        val testComponent = sysToUse.getComponent("testcomponent")
+        assert(testComponent.isDefined, "Test component was not registered")
+        probe.send(testComponent.get, StatusRequest)
+        TestComponent.ComponentMessage shouldBe probe.expectMsg(TestComponent.ComponentMessage)
+      }
+
+      loadComponent(sys)
+      loadComponent(sys2)
+    }
+
+    "load command managers and commands size equals 1 for both" in {
+      val probe1 = new TestProbe(actorSystem)
+      val probe2 = new TestProbe(actorSystem2)
+      val commandManager = sys.commandManager
+      val commandManager2 = sys2.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      assert(commandManager2.isDefined, "Command Manager was not registered")
+
+      probe1.send(commandManager.get, GetCommands())
+      val commands1 = probe1.expectMsgType[Map[String, ActorRef]]
+      commands1.size shouldBe 1
+
+      probe2.send(commandManager2.get, GetCommands())
+      val commands2 = probe2.expectMsgType[Map[String, ActorRef]]
+      commands2.size shouldBe 1
+    }
+
+    "load test command and get weather" in {
+      val probe = TestProbe()
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      probe.send(commandManager.get, AddCommand(WeatherCommand.CommandName, classOf[WeatherCommand]))
+      probe.expectMsgType[ActorRef](Duration(15, TimeUnit.SECONDS))
+      probe.send(commandManager.get, ExecuteCommand(WeatherCommand.CommandName, timeout = timeout,
+        bean = CommandBeanHelper.createInput[WeatherData](
+          MapBean(Map[String, Any](
+            "name" -> "Seattle, WA",
+            "location" -> "47.608013,-122.335167",
+            "mode" -> "current")
+          ))))
+
+      val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
+      reply.contains("47.608013") shouldBe true
+      reply.contains("-122.335167") shouldBe true
+    }
+
 
     "shutdown services and components" in {
-      val probe = TestProbe()
+      val probe1 = new TestProbe(actorSystem)
+      val probe2 = new TestProbe(actorSystem2)
       val testService = sys.getService("testservice")
       val testComponent = sys.getComponent("testcomponent")
+      val testService2 = sys2.getService("testservice")
+      val testComponent2 = sys2.getComponent("testcomponent")
 
-      probe.send(testService.get, RegisterShutdownListener(probe.ref))
-      probe.send(testComponent.get, RegisterShutdownListener(probe.ref))
+      probe1.send(testService.get, RegisterShutdownListener(probe1.ref))
+      probe1.send(testComponent.get, RegisterShutdownListener(probe1.ref))
+      probe2.send(testService2.get, RegisterShutdownListener(probe2.ref))
+      probe2.send(testComponent2.get, RegisterShutdownListener(probe2.ref))
 
-      sys.stop
+      sys.stop(Some(2551))
+      sys2.stop(Some(2553))
 
-      val results = probe.receiveN(2, timeout.duration)
-      TestHarness.log.debug(s"Results $results")
-      results must have size(2)
-      results must contain(be_==("GotShutdown")).foreach
+      val results = probe1.receiveN(2, timeout.duration)
+      val results2 = probe2.receiveN(2, timeout.duration)
+      TestHarness.log.debug(s"Results $results,  $results2")
+      results should have size 2
+      results should contain("GotShutdown")
+      results2 should have size 2
+      results2 should contain("GotShutdown")
     }
-  }
-}
-
-object TestHarnessSpec {
-
-  def GetPolicy[T<:Policy](value: String, policyClass: Class[T]) : T = {
-    PolicyManager.getPolicy(value).get.asInstanceOf[T]
   }
 }

@@ -1,22 +1,3 @@
-/*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
- *
- * See the LICENCE.txt file distributed with this work for additional
- * information regarding copyright ownership.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.webtrends.harness.config
 
 import java.io.{File, IOException}
@@ -30,14 +11,14 @@ import com.webtrends.harness.app.HarnessActor.ConfigChange
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.ServiceManager
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.util.Try
 
 class ConfigWatcherActor extends HActor {
-  val configWatcher = FileSystems.getDefault.newWatchService()
-  var configDir = Paths.get(".")
+  val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
+  var configDir: Path = Paths.get(".")
   val watchThread = new Thread(new DirectoryWatcher)
   var brokenKeys = List()
   var configExists = false
@@ -77,7 +58,8 @@ class ConfigWatcherActor extends HActor {
             }
           }
         }
-      case null => log.info("Prop config.file not set, not watching for config changes")
+      case null =>
+        log.info("Prop config.file not set, not watching for config changes")
     }
   }
 
@@ -110,7 +92,7 @@ class ConfigWatcherActor extends HActor {
             return
         }
 
-        key.get.pollEvents().toStream.takeWhile(_.kind() != OVERFLOW) foreach {
+        key.get.pollEvents().asScala.toStream.takeWhile(_.kind() != OVERFLOW) foreach {
           event =>
             log.debug("Detected alteration on file {}", event.context().toString)
             // The filename is the context of the event.

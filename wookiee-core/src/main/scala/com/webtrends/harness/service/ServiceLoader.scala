@@ -33,14 +33,15 @@ import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.utils.ConfigUtil
 import org.joda.time.DateTime
 
-import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
-  val services = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
+  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
   private val userDir = System.getProperty("user.dir")
   private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
   private val harnessLibs = FileSystems.getDefault.getPath(libDir + "/lib").toFile.listFiles match {
@@ -89,7 +90,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
    * @param context The service manager's context
    * @param rootPath The services root file path
    */
-  private def loadClasses(context: ActorContext, rootPath: File) = {
+  private def  loadClasses(context: ActorContext, rootPath: File): Unit = {
     val jars = rootPath.listFiles().filter(_.getName.endsWith("jar"))
     if (jars.length > 0) {
 
@@ -143,7 +144,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     try {
       val sClass = classOf[Service]
 
-      val localServices = jarFile.entries().flatMap[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))](entry =>
+      val localServices = jarFile.entries().asScala.flatMap[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))](entry =>
         try {
           val entryName = entry.getName
           if (entryName.endsWith(".class")) {
@@ -185,7 +186,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
 
               }.recover {
                 case e: Throwable =>
-                  log.error(e, "Error loading the service {}", name)
+                  log.error(e, "Error processing jar for {}", name)
                   // Remove the actor so we can avoid a badly loaded actor
                   context.child(name) match {
                     case Some(actor) => context.unwatch(actor); context.stop(actor)

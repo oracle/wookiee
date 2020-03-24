@@ -18,12 +18,10 @@
  */
 package com.webtrends.harness.service.test
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
-import com.webtrends.harness.policy.PolicyManager
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.service.test.command.TestCommand
-import com.webtrends.harness.service.test.policy.TestPolicy
 
 import scala.concurrent.Future
 
@@ -39,24 +37,20 @@ class TestService extends Service with ShutdownListener {
   }
 
   // Define the receive function
-  override def serviceReceive = shutdownReceive orElse {
+  override def serviceReceive: Receive = shutdownReceive orElse {
     case Ready =>
       sender() ! Ready
       log.info("I am now ready: " + self.path)
     case Ready(meta) =>
       metaData = Some(meta)
       log.info("I am now ready, meta data set: " + self.path)
-    case GetMetaDetails => sender ! ServiceMetaDetails(supportsHttp = false)
+    case GetMetaDetails =>
+      sender ! ServiceMetaDetails(supportsHttp = false)
   }
 
-  /**
-   * This function should be implemented by any service that wants to add
-   * any commands to make available for use
-   */
-  override def addPolicies: Unit = {
-    PolicyManager.addPolicy(TestPolicy.PolicyName, TestPolicy)
+  override def addCommands(): Unit = {
+    addCommand(TestCommand.CommandName, classOf[TestCommand])
   }
-
 }
 
 object TestService {

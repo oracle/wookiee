@@ -26,14 +26,14 @@ import com.webtrends.harness.service.ServiceManager
 
 object HarnessActorSystem {
 
-  lazy val loader = HarnessClassLoader(Thread.currentThread.getContextClassLoader)
+  lazy val loader: HarnessClassLoader = HarnessClassLoader(Thread.currentThread.getContextClassLoader)
   private val externalLogger = Logger.getLogger(this.getClass)
 
-  def apply(config:Option[Config]=None): ActorSystem = {
-    ActorSystem.create("server", getConfig(config), loader)
+  def apply(config: Config): ActorSystem = {
+    ActorSystem.create("server", config, loader)
   }
 
-  def getConfig(config:Option[Config]): Config = {
+  def getConfig(config: Option[Config], port: Option[Int]): Config = {
     val sysConfig = {
       if (config.isDefined) {
         config.get
@@ -42,23 +42,29 @@ object HarnessActorSystem {
         ConfigFactory.load(loader).withFallback(baseConfig).getConfig("wookiee-system")
       }
     }
+    val finalConfig = port match {
+      case Some(p) =>
+        ConfigFactory.parseString(s"akka.remote.netty.tcp.port = $p").withFallback(sysConfig)
+      case None =>
+        sysConfig
+    }
 
-    ComponentManager.loadComponentJars(sysConfig, loader)
+    ComponentManager.loadComponentJars(finalConfig, loader)
     ConfigFactory.load
 
     externalLogger.debug("Loading the service configs")
-    val configs = ServiceManager.loadConfigs(sysConfig)
+    val configs = ServiceManager.loadConfigs(finalConfig)
     if (configs.nonEmpty) externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
 
     externalLogger.debug("Loading the component configs")
-    val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
+    val compConfigs = ComponentManager.loadComponentInfo(finalConfig)
     if (compConfigs.nonEmpty) externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
 
     val allConfigs = configs ++ compConfigs
 
     // Build the hierarchy
-    val conf = if (allConfigs.isEmpty) sysConfig
-      else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
+    val conf = if (allConfigs.isEmpty) finalConfig
+      else allConfigs.reduce(_.withFallback(_)).withFallback(finalConfig)
     conf.resolve()
   }
 }

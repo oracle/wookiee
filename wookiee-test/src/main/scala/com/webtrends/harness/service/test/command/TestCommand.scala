@@ -1,30 +1,14 @@
 package com.webtrends.harness.service.test.command
 
-import com.webtrends.harness.command.{CommandResponse, CommandBean, Command}
+import com.webtrends.harness.command.Command
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Future
 
-/**
- * Created by crossleyp on 8/19/15.
- */
-class TestCommand extends Command {
-  /**
-   * Name of the command that will be used for the actor name
-   *
-   * @return
-   */
-  override def commandName: String = TestCommand.CommandName
+case class TestPayload(name: String)
 
-  /**
-   * The primary entry point for the command, the actor for this command
-   * will ignore all other messaging and only execute through this
-   *
-   * @return
-   */
-  override def execute[T:Manifest](bean: Option[CommandBean]): Future[CommandResponse[T]] = {
-    val p = Promise[CommandResponse[T]]
-    p success CommandResponse[T](Some("Test OK".asInstanceOf[T]))
-    p.future
+class TestCommand extends Command[TestPayload, String] {
+  override def execute(bean: TestPayload): Future[String] = {
+    Future.successful(s"Test ${bean.name} OK")
   }
 }
 

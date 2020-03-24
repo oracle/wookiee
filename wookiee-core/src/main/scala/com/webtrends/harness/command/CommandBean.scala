@@ -19,39 +19,80 @@
 
 package com.webtrends.harness.command
 
-import scala.collection.mutable
+import java.lang.reflect.{Constructor, Parameter}
+
+import com.google.common.primitives.Primitives
+
+import scala.reflect.ClassTag
 
 /**
  * This commandBean should be extended for specific implementation,
  * however can be used just as is. Allows a standard base class to
  * work with though.
  *
- * @author Michael Cuthbert on 12/1/14.
+ * @author Pete Crossley
  */
-@SerialVersionUID(100L)
-class CommandBean extends mutable.HashMap[String, AnyRef] {
+sealed trait Bean
 
-  def appendMap(params:Map[String, AnyRef]) = params foreach { this += _ }
+object Bean {
+  def apply[T: ClassTag](items: Array[Any]): T = ArraySpawner[T](items)
+  def apply[T: ClassTag](m: Map[String, Any]): T = MapSpawner[T](m)
 
-  def addValue(key:String, value:AnyRef) = this += key -> value
-
-  def getValue[T](key:String) : Option[T] = {
-    get(key) match {
-      case Some(k) => Some(k.asInstanceOf[T])
-      case None => None
-    }
+  def infer[T: ClassTag](any: Bean): T = any match {
+    case a: ArrayBean => apply(a.array)
+    case m: MapBean => apply(m.map)
   }
 }
 
-object CommandBean {
-  val KeyEntity = "Request-Entity"
-  val KeyPath = "Selected-Path"
+case class MapBean(map: Map[String, Any]) extends Bean
+case class ArrayBean(array: Array[Any]) extends Bean
 
-  def apply(params:Map[String, AnyRef]) = {
-    val bean = new CommandBean()
-    params foreach {
-      bean += _
+trait ClassSpawner {
+
+  // gets constructor for T
+  protected def ctor[T: ClassTag]: Constructor[_] = {
+    val clazz: Class[T] = implicitly[reflect.ClassTag[T]]
+      .runtimeClass
+      .asInstanceOf[Class[T]]
+    val ctors: Array[Constructor[_]] = clazz
+      .getConstructors
+      .filter(_.getParameterTypes.nonEmpty)
+    if (ctors.isEmpty) {
+      throw new RuntimeException("Constructor not available")
     }
-    bean
+    ctors.head
+  }
+}
+
+object ArraySpawner extends ClassSpawner {
+  def apply[T: ClassTag](input: Array[Any]): T = {
+    val params: Array[Parameter] = ctor.getParameters
+    // validate that types are compatible
+    for (i: Int <- params.indices) {
+      if (Primitives.wrap(input(i).getClass) != Primitives.wrap(params(i).getType)) {
+        throw new IllegalArgumentException(
+          s"Field: ${params(i).getName} found with Type: ${input(i).getClass}. should be of Type: ${params(i).getType}"
+        )
+      }
+    }
+    ctor.
+      newInstance(input.map(_.asInstanceOf[Object]).toArray: _*)
+      .asInstanceOf[T]
+  }
+}
+
+object MapSpawner extends ClassSpawner {
+   def apply[T: ClassTag](input: Map[String, Any]): T = {
+    val params: Array[Parameter] = ctor.getParameters
+    val marshalled: Array[Any] = new Array[Any](params.length)
+    for (i: Int <- params.indices) {
+      input.get(params(i).getName) match {
+        case Some(value: Any) =>
+          marshalled(i) = value
+        case None =>
+          throw new IllegalArgumentException(s"Missing field: ${params(i).getName}")
+      }
+    }
+    ArraySpawner(marshalled)
   }
 }

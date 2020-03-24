@@ -20,7 +20,7 @@
 package com.webtrends.harness.config
 
 import akka.actor.Actor
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.app.HarnessActor.ConfigChange
 import com.webtrends.harness.app.HarnessActorSystem
 
@@ -29,12 +29,11 @@ import com.webtrends.harness.app.HarnessActorSystem
  * the configuration whenever ConfigWatcherActor detects changes in any of our config files.
  *
  * @author woods
- *         2/10/15
  */
 trait ConfigHelper {
   this: Actor =>
 
-  var renewableConfig = context.system.settings.config
+  var renewableConfig: Config = context.system.settings.config
 
   /**
    * Should override this method and use it when ConfigChange is received, be sure
@@ -42,7 +41,7 @@ trait ConfigHelper {
    */
   def renewConfiguration() {
     ConfigFactory.invalidateCaches()
-    renewableConfig = HarnessActorSystem.getConfig(None)
+    renewableConfig = HarnessActorSystem.getConfig(None, None)
   }
 
   def configReceive: Receive = {
