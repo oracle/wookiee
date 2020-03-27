@@ -25,7 +25,6 @@ import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.command.CommandManager
-import com.webtrends.harness.command.typed.TypedCommandManager
 import com.webtrends.harness.component.{ComponentManager, InitializeComponents}
 import com.webtrends.harness.config.ConfigWatcher
 import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -43,8 +42,8 @@ import scala.util.{Failure, Success, Try}
 object HarnessActor {
   def props()(implicit system: ActorSystem): Props = Props[HarnessActor]
 
-  @SerialVersionUID(1L) case class ShutdownSystem()
-  @SerialVersionUID(1L) case class RestartSystem()
+  @SerialVersionUID(2L) case class ShutdownSystem(port: Int = Harness.DEFAULT_PORT)
+  @SerialVersionUID(2L) case class RestartSystem(port: Int = Harness.DEFAULT_PORT)
   @SerialVersionUID(1L) case class ConfigChange()
   @SerialVersionUID(1L) case class SystemReady()
   @SerialVersionUID(1L) case class ComponentInitializationComplete()
@@ -82,13 +81,13 @@ class HarnessActor extends Actor
 
   private val config = context.system.settings.config
 
-  implicit val checkTimeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
-  val startupTimeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))
-  val prepareShutdownTimeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))
+  implicit val checkTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
+  val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))
+  val prepareShutdownTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))
 
   var running: Boolean = false
 
-  override val supervisorStrategy =
+  override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute, loggingEnabled = true) {
       case _: ActorInitializationException => Stop
       case _: DeathPactException => Stop
@@ -101,14 +100,14 @@ class HarnessActor extends Actor
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
-  var typedCommandManager: Option[ActorRef] = None
+  var dispatchManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
   var configWatcherActor: Option[ActorRef] = None
 
   override def preStart(): Unit = initialize()
 
-  override def receive = initializing
+  override def receive: Receive = initializing
 
   def initializing: Receive = {
     case CheckHealth => pipe(getHealth(true)) to sender
@@ -131,6 +130,10 @@ class HarnessActor extends Actor
         case Some(ca) => ca ! SystemReady
         case None => // ignore
       }
+      dispatchManager match {
+        case Some(dm) => dm ! SystemReady
+        case None => // ignore
+      }
       commandManager match {
         case Some(cm) => cm ! SystemReady
         case None => // ignore
@@ -142,7 +145,7 @@ class HarnessActor extends Actor
         HarnessConstants.ServicesName -> serviceActor,
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
-    case RestartSystem => Harness.restartActorSystem
+    case RestartSystem(port) => Harness.restartActorSystem(Some(port))
     case ConfigChange() =>
       log.debug("Received message to reload services/components due to config change")
       serviceActor.get ! ConfigChange()
@@ -153,13 +156,11 @@ class HarnessActor extends Actor
   /**
    * Start the core services
    */
-  private def initialize() = {
+  private def initialize(): Unit = {
     startHealth
     startConfigWatcher
     if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
-      // initialize the command manager right at the beginning
       commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      typedCommandManager = Some(context.actorOf(TypedCommandManager.props, HarnessConstants.TypedCommandName))
       log.info("Command Manager started: {}", commandManager.get.path)
     }
     componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
@@ -196,7 +197,8 @@ class HarnessActor extends Actor
       val tmpService = serviceActor
       val tmpComp = componentActor
       val tmpCmd = commandManager
-      prepareForShutdown(tmpService, tmpCmd, tmpComp) andThen {
+      val tmpDis = dispatchManager
+      prepareForShutdown(tmpService, tmpDis, tmpCmd, tmpComp) andThen {
         case _ => Try(gracefulShutdown())
       }
     } else Try(gracefulShutdown())

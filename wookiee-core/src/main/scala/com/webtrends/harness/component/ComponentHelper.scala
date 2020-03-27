@@ -23,6 +23,7 @@ import akka.actor.{Actor, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
+import com.webtrends.harness.command.CommandHelper
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
@@ -32,10 +33,11 @@ import scala.util.{Failure, Success}
  * This is a helper class that enables developers who use to trait to interact with the ComponentManager
  * easily on the harness
  */
-trait ComponentHelper {
+trait ComponentHelper extends CommandHelper {
   this: Actor =>
 
   import context.dispatcher
+
   var componentManagerInitialized = false
   var componentManager:Option[ActorRef] = None
 
@@ -44,6 +46,8 @@ trait ComponentHelper {
    * as many methods require this to work.
    */
   def initComponentHelper : Future[ActorRef] = {
+    initCommandHelper
+
     val p = Promise[ActorRef]()
 
     def awaitComponentManager(timeOut: Deadline) {

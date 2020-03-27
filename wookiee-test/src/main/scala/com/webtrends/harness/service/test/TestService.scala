@@ -21,8 +21,7 @@ import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.{GetMetaDetails, Ready}
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
-import com.webtrends.harness.service.test.command.{WeatherCommand, WeatherData}
-import com.webtrends.harness.service.test.command.WookieeFactory
+import com.webtrends.harness.service.test.command.TestCommand
 
 import scala.concurrent.Future
 
@@ -38,34 +37,19 @@ class TestService extends Service with ShutdownListener {
   }
 
   // Define the receive function
-  override def serviceReceive = shutdownReceive orElse {
+  override def serviceReceive: Receive = shutdownReceive orElse {
     case Ready =>
       sender() ! Ready
       log.info("I am now ready: " + self.path)
     case Ready(meta) =>
       metaData = Some(meta)
       log.info("I am now ready, meta data set: " + self.path)
-    case GetMetaDetails => sender ! ServiceMetaDetails(supportsHttp = false)
+    case GetMetaDetails =>
+      sender ! ServiceMetaDetails(supportsHttp = false)
   }
 
-  /**
-   * This function should be implemented by any service that wants to add
-   * any commands to make available for use
-   */
   override def addCommands(): Unit = {
-    addCommand(WeatherCommand.CommandName, classOf[WeatherCommand])
-    addCommandWithProps("POC", WookieeFactory.createWookieeCommand("POC", classOf[WeatherData], processPoc))
-    addCommandWithProps("POC", WookieeFactory.createWookieeCommand("OTHER", classOf[WeatherData], processOther))
-  }
-
-  private def processPoc(w: WeatherData): Future[String] = {
-    print("handling poc")
-    Future.successful(w.name)
-  }
-
-  private def processOther(w: WeatherData): Future[String] = {
-    print("handling other")
-    Future.successful(w.name)
+    addCommand(TestCommand.CommandName, classOf[TestCommand])
   }
 }
 

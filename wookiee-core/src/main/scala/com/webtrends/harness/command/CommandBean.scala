@@ -32,9 +32,6 @@ import scala.reflect.ClassTag
  *
  * @author Pete Crossley
  */
-
-
-
 sealed trait Bean
 
 object Bean {
