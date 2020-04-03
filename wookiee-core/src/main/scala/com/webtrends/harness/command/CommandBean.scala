@@ -32,7 +32,7 @@ import scala.reflect.ClassTag
  *
  * @author Pete Crossley
  */
-sealed trait Bean
+sealed trait Bean extends Product
 
 object Bean {
   def apply[T: ClassTag](items: Array[Any]): T = ArraySpawner[T](items)

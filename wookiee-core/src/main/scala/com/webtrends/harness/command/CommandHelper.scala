@@ -24,10 +24,9 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.webtrends.harness.HarnessConstants
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.concurrent.{Future, Promise}
 import scala.reflect.ClassTag
-import scala.util.{Failure, Success}
 
 /**
  * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily
@@ -35,8 +34,43 @@ import scala.util.{Failure, Success}
  *
  * @author Michael Cuthbert on 12/10/14.
  */
+object CommandHelper {
+  def getCommandManager(implicit system: ActorSystem, timeout: Timeout = 2 seconds): Future[ActorRef] = {
+    system.actorSelection(HarnessConstants.CommandFullName).resolveOne()(timeout)
+  }
+
+  /**
+    * Wrapper that allows services execute commands (remote or otherwise)
+    *
+    * @param id name of the command you want to execute
+    *             if this is a remote command the name will be the reference to the
+    *             command
+    * @param bean the bean that will be passed to the command
+    * @param server If none then we are executing a local command, if set then it is a remote command and that is the server name
+    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
+    * @return Result of executing this Command
+    */
+  def executeCommand[Input<: Product : ClassTag, Output <: Any : ClassTag](id: String,
+                                                                           bean: Input,
+                                                                           server:Option[String] = None,
+                                                                           port: Int = 2552,
+                                                                           cm: Option[ActorRef] = None)
+                                                                          (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
+    import system.dispatcher
+
+    cm.map(Future.successful).getOrElse(getCommandManager) flatMap { cm: ActorRef =>
+      val msg = server match {
+        case Some(srv) => ExecuteRemoteCommand(id, srv, port, bean, timeout)
+        case None => ExecuteCommand(id, bean, timeout)
+      }
+
+      (cm ? msg)(timeout).mapTo[Output]
+    }
+  }
+}
+
 trait CommandHelper  { this: Actor =>
-  import scala.concurrent.ExecutionContext.Implicits.global
+  import context.dispatcher
 
   lazy implicit val actorSystem: ActorSystem = context.system
 
@@ -48,19 +82,17 @@ trait CommandHelper  { this: Actor =>
   }
 
   def initCommandManager : Future[Boolean] = {
-    val p = Promise[Boolean]
     if (commandManagerInitialized) {
-      p success commandManagerInitialized
+      Future.successful(commandManagerInitialized)
     } else {
-      actorSystem.actorSelection(HarnessConstants.CommandFullName).resolveOne()(2 seconds) onComplete {
-        case Success(s) =>
-          commandManagerInitialized = true
-          commandManager = Some(s)
-          p success commandManagerInitialized
-        case Failure(f) => p failure CommandException("Component Manager", f)
+      CommandHelper.getCommandManager(actorSystem) map { cm =>
+        commandManagerInitialized = true
+        commandManager = Some(cm)
+        commandManagerInitialized
+      } recover { case f: Throwable =>
+        throw CommandException("Component Manager", f)
       }
     }
-    p.future
   }
 
   /**
@@ -70,84 +102,93 @@ trait CommandHelper  { this: Actor =>
   def addCommands(): Unit = {}
 
   /**
+    * Will add a new Command with the given `businessLogic` to this instance of Wookiee, you can call
+    * it later with the same `id` using
+    * @param id id of the Command you want to add, should be unique as it's used to call the Command after
+    * @param businessLogic Function that takes in and returns any types, the main Command functionality
+    * @tparam U Input type
+    * @tparam V Output type
+    * @return Reference to the newly created Command Actor
+    */
+  def addCommand[U <: Product: ClassTag, V: ClassTag](id: String,
+                                                      businessLogic: U => Future[V]): Future[ActorRef] = {
+    val props = WookieeFactory.createWookieeCommand[U, V](businessLogic)
+    addCommandWithProps(id, props)
+  }
+
+  /**
+    * Will add a new Command with the given `businessLogic` to this instance of Wookiee, you can call
+    * it later with the same `id` using
+    * @param id id of the Command you want to add, should be unique as it's used to call the Command after
+    * @param businessLogic Function that takes in and returns any types, the main Command functionality
+    * @param customUnmarshaller Takes a Bean and converts it to the desired `U` type
+    * @param customMarshaller Takes a result type `V` and converts it to the final, returned byte array
+    * @tparam U Input type
+    * @tparam V Output type
+    * @return Reference to the newly created Command Actor
+    */
+  def addCommand[U <: Product: ClassTag, V: ClassTag](id: String,
+                                                      customUnmarshaller: Bean => U,
+                                                      businessLogic: U => Future[V],
+                                                      customMarshaller: V => Array[Byte]): Future[ActorRef] = {
+    val props = WookieeFactory.createWookieeCommand[U, V](customUnmarshaller, businessLogic, customMarshaller)
+    addCommandWithProps(id, props)
+  }
+
+  /**
    * Wrapper that allows services to add commands to the command manager with a single command
-   *
-   * @param name name of the command you want to add
+   * @param id id of the Command you want to add, should be unique as it's used to call the Command after
    * @param props the props for that command actor class
-   * @return
+   * @return Reference to the newly created Command Actor
    */
-  def addCommandWithProps(name:String, props:Props, checkHealth: Boolean = false) : Future[ActorRef] = {
+  def addCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout: Timeout = Timeout(2 seconds)
-    val p = Promise[ActorRef]
-    initCommandManager onComplete {
-      case Success(_) =>
-        commandManager match {
-          case Some(cm) =>
-            (cm ? AddCommandWithProps(name, props, checkHealth)).mapTo[ActorRef] onComplete {
-              case Success(r) => p success r
-              case Failure(f) => p failure f
-            }
-          case None => p failure CommandException("CommandManager", "CommandManager not found!")
-        }
-      case Failure(f) => p failure f
+
+    initCommandManager flatMap { _ =>
+      commandManager match {
+        case Some(cm) =>
+          (cm ? AddCommandWithProps(id, props, checkHealth)).mapTo[ActorRef]
+        case None =>
+          throw CommandException("CommandManager", "CommandManager not found!")
+      }
     }
-    p.future
   }
 
   /**
    * Wrapper that allows services add commands to the command manager with a single command
    *
-   * @param name of command to register
+   * @param id id of the Command you want to add, should be unique as it's used to call the Command after
    * @param checkHealth should this command have heath checks
+   * @return Reference to the newly created Command Actor
    */
-  def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
+  def addCommand[T:ClassTag](id: String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
     implicit val timeout: Timeout = Timeout(2 seconds)
-    val p = Promise[ActorRef]
-    initCommandManager onComplete {
-      case Success(_) =>
-        commandManager match {
-          case Some(cm) =>
-            (cm ? AddCommand(name, actorClass, checkHealth)).mapTo[ActorRef] onComplete {
-              case Success(r) => p success r
-              case Failure(f) => p failure f
-            }
-          case None => p failure CommandException("CommandManager", "CommandManager not found!")
-        }
-      case Failure(f) => p failure f
+
+    initCommandManager flatMap { _ =>
+      commandManager match {
+        case Some(cm) =>
+          (cm ? AddCommand(id, actorClass, checkHealth)).mapTo[ActorRef]
+        case None =>
+          throw CommandException("CommandManager", "CommandManager not found!")
+      }
     }
-    p.future
   }
 
   /**
    * Wrapper that allows services execute commands (remote or otherwise)
    *
-   * @param name name of the command you want to execute
+   * @param id name of the command you want to execute
    *             if this is a remote command the name will be the reference to the
    *             command
    * @param bean the bean that will be passed to the command
    * @param server If none then we are executing a local command, if set then it is a remote command and that is the server name
    * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
-   * @return
+   * @return Result of executing this Command
    */
-  def executeCommand[Input<: Product : ClassTag, Output <: Any : ClassTag](name:String, bean: Input, server:Option[String]=None,
+  def executeCommand[Input<: Product : ClassTag, Output <: Any : ClassTag](id: String, bean: Input, server:Option[String]=None,
                                                             port:Int=2552)(implicit timeout:Timeout) : Future[Output] = {
-    val p = Promise[Output]
-    initCommandManager onComplete {
-      case Success(_) =>
-        commandManager match {
-          case Some(cm) =>
-            val msg = server match {
-              case Some(srv) => ExecuteRemoteCommand(name, srv, port, bean, timeout)
-              case None => ExecuteCommand(name, bean, timeout)
-            }
-            (cm ? msg)(timeout).mapTo[Output] onComplete {
-              case Success(s) => p success s
-              case Failure(f) => p failure CommandException("CommandManager", f)
-            }
-          case None => p failure CommandException("CommandManager", "CommandManager not found!")
-        }
-      case Failure(f) => p failure f
+    initCommandManager flatMap { _ =>
+      CommandHelper.executeCommand[Input, Output](id, bean, server, port, commandManager)
     }
-    p.future
   }
 }
