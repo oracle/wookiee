@@ -112,7 +112,7 @@ trait CommandHelper  { this: Actor =>
     */
   def addCommand[U <: Product: ClassTag, V: ClassTag](id: String,
                                                       businessLogic: U => Future[V]): Future[ActorRef] = {
-    val props = WookieeFactory.createWookieeCommand[U, V](businessLogic)
+    val props = CommandFactory.createCommand[U, V](businessLogic)
     addCommandWithProps(id, props)
   }
 
@@ -131,7 +131,7 @@ trait CommandHelper  { this: Actor =>
                                                       customUnmarshaller: Bean => U,
                                                       businessLogic: U => Future[V],
                                                       customMarshaller: V => Array[Byte]): Future[ActorRef] = {
-    val props = WookieeFactory.createWookieeCommand[U, V](customUnmarshaller, businessLogic, customMarshaller)
+    val props = CommandFactory.createCommand[U, V](customUnmarshaller, businessLogic, customMarshaller)
     addCommandWithProps(id, props)
   }
 
