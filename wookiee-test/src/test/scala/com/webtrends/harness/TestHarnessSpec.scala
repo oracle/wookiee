@@ -103,9 +103,9 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       val probe = TestProbe()
       val commandManager = sys.commandManager
       assert(commandManager.isDefined, "Command Manager was not registered")
-      probe.send(commandManager.get, AddCommand(WeatherCommand.CommandName, classOf[WeatherCommand]))
+      probe.send(commandManager.get, AddCommand("WeatherCommand", classOf[WeatherCommand]))
       probe.expectMsgType[ActorRef](Duration(15, TimeUnit.SECONDS))
-      probe.send(commandManager.get, ExecuteCommand(WeatherCommand.CommandName, timeout = timeout,
+      probe.send(commandManager.get, ExecuteCommand("WeatherCommand", timeout = timeout,
         bean = CommandBeanHelper.createInput[WeatherData](
           MapBean(Map[String, Any](
             "name" -> "Seattle, WA",

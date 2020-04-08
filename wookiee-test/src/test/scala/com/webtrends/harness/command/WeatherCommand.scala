@@ -27,7 +27,3 @@ class WeatherCommand extends Command[WeatherData, String] with WeatherForecast {
     }
   }
 }
-
-object WeatherCommand {
-  def CommandName = "weather"
-}
