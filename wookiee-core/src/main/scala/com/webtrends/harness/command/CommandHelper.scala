@@ -31,8 +31,6 @@ import scala.reflect.ClassTag
 /**
  * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily
  * and execute commands at will
- *
- * @author Michael Cuthbert on 12/10/14.
  */
 object CommandHelper {
   def getCommandManager(implicit system: ActorSystem, timeout: Timeout = 2 seconds): Future[ActorRef] = {
@@ -50,7 +48,7 @@ object CommandHelper {
     * @param port The port of the remote server defaults to 0, as by default this function deals with local commands
     * @return Result of executing this Command
     */
-  def executeCommand[Input<: Product : ClassTag, Output <: Any : ClassTag](id: String,
+  def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
                                                                            bean: Input,
                                                                            server:Option[String] = None,
                                                                            port: Int = 2552,
@@ -74,24 +72,23 @@ trait CommandHelper  { this: Actor =>
 
   lazy implicit val actorSystem: ActorSystem = context.system
 
-  var commandManagerInitialized = false
   var commandManager: Option[ActorRef] = None
 
   def initCommandHelper(): Unit = {
     addCommands()
   }
 
-  def initCommandManager : Future[Boolean] = {
-    if (commandManagerInitialized) {
-      Future.successful(commandManagerInitialized)
-    } else {
-      CommandHelper.getCommandManager(actorSystem) map { cm =>
-        commandManagerInitialized = true
-        commandManager = Some(cm)
-        commandManagerInitialized
-      } recover { case f: Throwable =>
-        throw CommandException("Component Manager", f)
-      }
+  def initCommandManager : Future[ActorRef] = {
+    commandManager match {
+      case Some(cm) =>
+        Future.successful(cm)
+      case None =>
+        CommandHelper.getCommandManager(actorSystem) map { cm =>
+          commandManager = Some(cm)
+          cm
+        } recover { case f: Throwable =>
+          throw CommandException("Component Manager", f)
+        }
     }
   }
 
@@ -142,15 +139,10 @@ trait CommandHelper  { this: Actor =>
    * @return Reference to the newly created Command Actor
    */
   def addCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) : Future[ActorRef] = {
-    implicit val timeout: Timeout = Timeout(2 seconds)
+    implicit val timeout: Timeout = Timeout(4 seconds)
 
-    initCommandManager flatMap { _ =>
-      commandManager match {
-        case Some(cm) =>
-          (cm ? AddCommandWithProps(id, props, checkHealth)).mapTo[ActorRef]
-        case None =>
-          throw CommandException("CommandManager", "CommandManager not found!")
-      }
+    initCommandManager flatMap { cm =>
+      (cm ? AddCommandWithProps(id, props, checkHealth)).mapTo[ActorRef]
     }
   }
 
@@ -162,15 +154,10 @@ trait CommandHelper  { this: Actor =>
    * @return Reference to the newly created Command Actor
    */
   def addCommand[T:ClassTag](id: String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
-    implicit val timeout: Timeout = Timeout(2 seconds)
+    implicit val timeout: Timeout = Timeout(4 seconds)
 
-    initCommandManager flatMap { _ =>
-      commandManager match {
-        case Some(cm) =>
-          (cm ? AddCommand(id, actorClass, checkHealth)).mapTo[ActorRef]
-        case None =>
-          throw CommandException("CommandManager", "CommandManager not found!")
-      }
+    initCommandManager flatMap { cm =>
+      (cm ? AddCommand(id, actorClass, checkHealth)).mapTo[ActorRef]
     }
   }
 

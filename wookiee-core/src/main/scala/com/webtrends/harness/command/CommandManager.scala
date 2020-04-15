@@ -16,10 +16,14 @@ import scala.util.{Failure, Success}
 /**
   * @author Michael Cuthbert & Spencer Wood
   */
-case class AddCommandWithProps(name: String, props: Props, checkHealth: Boolean = false)
-case class AddCommand[T: ClassTag](name: String, actorClass: Class[T], checkHealth: Boolean = false)
-case class ExecuteCommand[Input <: Product : ClassTag](name: String, bean: Input, timeout: Timeout)
-case class ExecuteRemoteCommand[Input <: Product : ClassTag](name: String, server: String, port: Int, bean: Input, timeout: Timeout)
+sealed trait AddCommands {
+  val id: String
+}
+
+case class AddCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) extends AddCommands
+case class AddCommand[T: ClassTag](id: String, actorClass: Class[T], checkHealth: Boolean = false) extends AddCommands
+case class ExecuteCommand[Input <: Product : ClassTag](id: String, bean: Input, timeout: Timeout)
+case class ExecuteRemoteCommand[Input <: Product : ClassTag](id: String, server: String, port: Int, bean: Input, timeout: Timeout)
 case class GetCommands()
 
 class CommandManager extends PrepareForShutdown {
