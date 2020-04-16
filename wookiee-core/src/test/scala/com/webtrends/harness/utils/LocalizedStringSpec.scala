@@ -2,47 +2,50 @@ package com.webtrends.harness.utils
 
 import java.util.Locale
 
-import org.specs2.mutable.SpecificationWithJUnit
+import org.scalatest.{MustMatchers, WordSpecLike}
 
-class LocalizedStringSpec extends SpecificationWithJUnit {
-
-    "localized message" should {
-      LocalizedString("hello")(Locale.ENGLISH) must be equalTo "Hello"
-      LocalizedString("hello")(Locale.forLanguageTag("ru"))  must be equalTo "Привет"
-    }
-    "fallback to default" should {
-      LocalizedString("world")(Locale.ENGLISH) must be equalTo "World"
-      LocalizedString("world")(Locale.forLanguageTag("ru")) must be equalTo "World"
-    }
-    "format" should {
-      LocalizedString("greet", "world")(Locale.ENGLISH) must be equalTo "Hello, world"
-      LocalizedString("greet", "world")(Locale.forLanguageTag("ru")) must be equalTo "Привет, world"
+class LocalizedStringSpec extends WordSpecLike with MustMatchers {
+  "Localization" should {
+    "localized message" in {
+      LocalizedString("hello")(Locale.ENGLISH) mustBe "Hello"
+      LocalizedString("hello")(Locale.forLanguageTag("ru")) mustBe "Привет"
     }
 
-  "localized message in custom path" should {
-    LocalizedString("custom_path.hello")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "Hello"
-    LocalizedString("custom_path.hello")(Locale.forLanguageTag("ru"), "com.custom.path.messages")  must be equalTo "Привет"
-  }
-  "fallback to default in custom path" should {
-    LocalizedString("custom_path.world")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "World"
-    LocalizedString("custom_path.world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") must be equalTo "World"
-  }
-  "format in custom path" should {
-    LocalizedString("custom_path.greet", "world")(Locale.ENGLISH, "com.custom.path.messages") must be equalTo "Hello, world"
-    LocalizedString("custom_path.greet", "world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") must be equalTo "Привет, world"
-  }
+    "fallback to default" in {
+      LocalizedString("world")(Locale.ENGLISH) mustBe "World"
+      LocalizedString("world")(Locale.forLanguageTag("ru")) mustBe "World"
+    }
+    "format" in {
+      LocalizedString("greet", "world")(Locale.ENGLISH) mustBe "Hello, world"
+      LocalizedString("greet", "world")(Locale.forLanguageTag("ru")) mustBe "Привет, world"
+    }
+
+    "localized message in custom path" in {
+      LocalizedString("custom_path.hello")(Locale.ENGLISH, "com.custom.path.messages") mustBe "Hello"
+      LocalizedString("custom_path.hello")(Locale.forLanguageTag("ru"), "com.custom.path.messages") mustBe "Привет"
+    }
+
+    "fallback to default in custom path" in {
+      LocalizedString("custom_path.world")(Locale.ENGLISH, "com.custom.path.messages") mustBe "World"
+      LocalizedString("custom_path.world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") mustBe "World"
+    }
+    "format in custom path" in {
+      LocalizedString("custom_path.greet", "world")(Locale.ENGLISH, "com.custom.path.messages") mustBe "Hello, world"
+      LocalizedString("custom_path.greet", "world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") mustBe "Привет, world"
+    }
 
 
-  "custom localized message" should {
-    LocalizedString("custom.hello")(Locale.ENGLISH, "custom") must be equalTo "Hello"
-    LocalizedString("custom.hello")(Locale.forLanguageTag("ru"), "custom")  must be equalTo "Привет"
-  }
-  "custom fallback to default" should {
-    LocalizedString("custom.world")(Locale.ENGLISH, "custom") must be equalTo "World"
-    LocalizedString("custom.world")(Locale.forLanguageTag("ru"), "custom") must be equalTo "World"
-  }
-  "custom format" should {
-    LocalizedString("custom.greet", "custom world")(Locale.ENGLISH, "custom") must be equalTo "Hello, custom world"
-    LocalizedString("custom.greet", "custom world")(Locale.forLanguageTag("ru"), "custom") must be equalTo "Привет, custom world"
+    "custom localized message" in {
+      LocalizedString("custom.hello")(Locale.ENGLISH, "custom") mustBe "Hello"
+      LocalizedString("custom.hello")(Locale.forLanguageTag("ru"), "custom") mustBe "Привет"
+    }
+    "custom fallback to default" in {
+      LocalizedString("custom.world")(Locale.ENGLISH, "custom") mustBe "World"
+      LocalizedString("custom.world")(Locale.forLanguageTag("ru"), "custom") mustBe "World"
+    }
+    "custom format" in {
+      LocalizedString("custom.greet", "custom world")(Locale.ENGLISH, "custom") mustBe "Hello, custom world"
+      LocalizedString("custom.greet", "custom world")(Locale.forLanguageTag("ru"), "custom") mustBe "Привет, custom world"
+    }
   }
 }

@@ -17,21 +17,21 @@
  */
 package com.webtrends.harness.libs.iteratee
 
+import java.io.{ByteArrayInputStream, File, FileOutputStream, OutputStream}
 import java.nio.file.Files
-
-import org.specs2.mutable._
-import java.io.{ ByteArrayInputStream, File, FileOutputStream, OutputStream }
-import java.util.concurrent.{ CountDownLatch, TimeUnit }
 import java.util.concurrent.atomic.AtomicInteger
-import com.webtrends.harness.libs.iteratee.Execution.Implicits.{ defaultExecutionContext => dec }
-import scala.concurrent.{ Promise, Future, Await }
-import scala.concurrent.duration.Duration
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 
-object EnumeratorsSpec extends Specification
+import com.webtrends.harness.libs.iteratee.Execution.Implicits.{defaultExecutionContext => dec}
+import org.scalatest.WordSpecLike
+
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future, Promise}
+
+class EnumeratorsSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
   "Enumerator's interleave" should {
-
     "mix it with another enumerator into one" in {
       mustExecute(8) { foldEC =>
         val e1 = Enumerator(List(1), List(3), List(5), List(7))
@@ -39,7 +39,7 @@ object EnumeratorsSpec extends Specification
         val e = e1 interleave e2
         val kk = e |>>> Iteratee.fold(List.empty[Int])((r, e: List[Int]) => r ++ e)(foldEC)
         val result = Await.result(kk, Duration.Inf)
-        result.diff(Seq(1, 2, 3, 4, 5, 6, 7, 8)) must equalTo(Seq())
+        result.diff(Seq(1, 2, 3, 4, 5, 6, 7, 8)) mustBe Seq()
       }
     }
 
@@ -50,7 +50,7 @@ object EnumeratorsSpec extends Specification
         val e = e1 interleave e2
         val kk = e |>>> Iteratee.fold(List.empty[Int])((r, e: List[Int]) => r ++ e)(foldEC)
         val result = Await.result(kk, Duration.Inf)
-        result.diff(Seq(1, 2, 3, 4, 5, 6, 7, 8)) must equalTo(Seq())
+        result.diff(Seq(1, 2, 3, 4, 5, 6, 7, 8)) mustBe Seq()
       }
     }
 
@@ -61,7 +61,7 @@ object EnumeratorsSpec extends Specification
         val e = e1 interleave e2
         val kk = e |>>> Enumeratee.take(7) &>> Iteratee.fold(List.empty[Int])((r, e: List[Int]) => r ++ e)(foldEC)
         val result = Await.result(kk, Duration.Inf)
-        result.length must equalTo(7)
+        result.length mustBe 7
       }
     }
 
@@ -71,7 +71,7 @@ object EnumeratorsSpec extends Specification
         val e1 = Enumerator(1, 2, 3, 4).onDoneEnumerating(firstDone.success(Unit))(onDoneEC)
         val e2 = Enumerator.unfoldM[Boolean, Int](true) { first => if (first) firstDone.future.map(_ => Some((false, 5))) else Future.successful(None) }(unfoldEC)
         val result = Await.result((e1 interleave e2) |>>> Iteratee.getChunks[Int], Duration.Inf)
-        result must_== Seq(1, 2, 3, 4, 5)
+        result mustBe Seq(1, 2, 3, 4, 5)
       }
     }
 
@@ -85,8 +85,8 @@ object EnumeratorsSpec extends Specification
           Enumeratee.take(1) &>>
           Iteratee.fold(List.empty[Int])((r, e: Int) => e :: r)(foldEC)
         val result = Await.result(futureOfResult, Duration.Inf)
-        result(0) must equalTo(3)
-        result.length must equalTo(1)
+        result.head mustBe 3
+        result.length mustBe 1
       }
     }
 
@@ -97,9 +97,9 @@ object EnumeratorsSpec extends Specification
           Enumeratee.take(100) &>>
           Iteratee.fold(Seq.empty[Int])((r, e: Int) => r :+ e)(foldEC)
         val result = Await.result(futureOfResult, Duration.Inf)
-        result.length must equalTo(50)
-        result(0) must equalTo(0)
-        result(49) must equalTo(49)
+        result.length mustBe 50
+        result.head mustBe 0
+        result(49) mustBe 49
       }
     }
     "work with Seq too" in {
@@ -109,36 +109,22 @@ object EnumeratorsSpec extends Specification
           Enumeratee.take(100) &>>
           Iteratee.fold(Seq.empty[Int])((r, e: Int) => r :+ e)(foldEC)
         val result = Await.result(futureOfResult, Duration.Inf)
-        result.length must equalTo(6)
-        result(0) must equalTo(1)
-        result(4) must equalTo(42)
+        result.length mustBe 6
+        result.head mustBe 1
+        result(4) mustBe 42
       }
     }
   }
-
-  /*"Enumerator's PatchPanel" should {
-
-  "allow to patch in different Enumerators" in {
-      import com.webtrends.harness.libs.concurrent.Promise
-    val pp = Promise[Concurrent.PatchPanel[Int]]()
-    val e = Concurrent.patchPanel[Int](p => pp.redeem(p))
-    val i1 = Iteratee.fold[Int,Int](0){(s,i) => println(i);s+i}
-    val sum = e |>> i1
-    val p = pp.future.await.get
-    p.patchIn(Enumerator(1,2,3,4))
-    p.patchIn(Enumerator.eof)
-    sum.flatMap(_.run).value1.get must equalTo(10)
-  }
-
-}*/
 
   "Enumerator.apply" should {
     "enumerate zero args" in {
       mustEnumerateTo()(Enumerator())
     }
+
     "enumerate 1 arg" in {
       mustEnumerateTo(1)(Enumerator(1))
     }
+
     "enumerate more than 1 arg" in {
       mustEnumerateTo(1, 2)(Enumerator(1, 2))
       mustEnumerateTo(1, 2, 3)(Enumerator(1, 2, 3))
@@ -151,7 +137,7 @@ object EnumeratorsSpec extends Specification
       mustExecute(1) { onDoneEC =>
         val count = new java.util.concurrent.atomic.AtomicInteger()
         mustEnumerateTo(1, 2, 3)(Enumerator(1, 2, 3).onDoneEnumerating(count.incrementAndGet())(onDoneEC))
-        count.get() must equalTo(1)
+        count.get() mustBe 1
       }
     }
 
@@ -161,7 +147,7 @@ object EnumeratorsSpec extends Specification
         mustPropagateFailure(
           Enumerator(1, 2, 3).onDoneEnumerating(count.incrementAndGet())(onDoneEC)
         )
-        count.get() must_== 1
+        count.get() mustBe 1
       }
     }
 
@@ -181,7 +167,7 @@ object EnumeratorsSpec extends Specification
       mustExecute(3, 30) { (flatMapEC, foldEC) =>
         val e = Enumerator(10, 20, 30).flatMap(i => Enumerator((i until i + 10): _*))(flatMapEC)
         val it = Iteratee.fold[Int, Int](0)((sum, x) => sum + x)(foldEC)
-        Await.result(e |>>> it, Duration.Inf) must equalTo((10 until 40).sum)
+        Await.result(e |>>> it, Duration.Inf) mustBe (10 until 40).sum
       }
     }
 
@@ -195,7 +181,7 @@ object EnumeratorsSpec extends Specification
 
         val enumerator = Enumerator.generateM(Future(if (it.hasNext) Some(it.next()) else None))(generateEC)
 
-        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) must equalTo("012345678910")
+        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) mustBe "012345678910"
       }
     }
 
@@ -206,7 +192,7 @@ object EnumeratorsSpec extends Specification
 
         val enumerator = Enumerator.generateM(Future(if (it.hasNext) Some(it.next()) else None))(generateEC) >>> Enumerator(12)
 
-        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) must equalTo("01234567891012")
+        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) mustBe "01234567891012"
       }
     }
 
@@ -217,7 +203,7 @@ object EnumeratorsSpec extends Specification
       val it = Error[String]("foo", Input.Empty)
       val errorCount = new AtomicInteger(0)
 
-      val enum = Enumerator.fromCallback1[String](
+      val enum: Enumerator[String] = Enumerator.fromCallback1[String](
         b => Future.successful(None),
         () => (),
         (msg, input) =>
@@ -227,7 +213,7 @@ object EnumeratorsSpec extends Specification
       val result = enum |>>> it
 
       Await.ready(result, Duration(30, TimeUnit.SECONDS))
-      errorCount.get() must equalTo(1)
+      errorCount.get() mustBe 1
     }
 
     "Call onError on future failure" in {
@@ -235,8 +221,8 @@ object EnumeratorsSpec extends Specification
       val it2 = Iteratee.fold1[String, String](Future.failed(new RuntimeException()))((_, _) => Future.failed(new RuntimeException()))
       val errorCount = new AtomicInteger(0)
 
-      val enum = Enumerator.fromCallback1[String](
-        b => Future.successful(Some("")),
+      val enum: Enumerator[String] = Enumerator.fromCallback1[String](
+        _ => Future.successful(Some("")),
         () => (),
         (msg, input) =>
           errorCount.incrementAndGet()
@@ -246,7 +232,7 @@ object EnumeratorsSpec extends Specification
       val result2 = enum |>>> it2
       Await.ready(result1.zip(result2), Duration(2, TimeUnit.SECONDS))
 
-      errorCount.get() must equalTo(2)
+      errorCount.get() mustBe 2
     }
 
     "generate a stream of values until the expression is None" in {
@@ -255,7 +241,7 @@ object EnumeratorsSpec extends Specification
         val completeCount = new AtomicInteger(0)
         val completeDone = new CountDownLatch(1)
         val errorCount = new AtomicInteger(0)
-        val enumerator = Enumerator.fromCallback1(
+        val enumerator: Enumerator[(Boolean, Int)] = Enumerator.fromCallback1(
           b => Future(if (it.hasNext) Some((b, it.next())) else None),
           () => {
             completeCount.incrementAndGet()
@@ -263,9 +249,9 @@ object EnumeratorsSpec extends Specification
           },
           (_: String, _: Input[(Boolean, Int)]) => errorCount.incrementAndGet())(callbackEC)
         mustEnumerateTo((true, 1), (false, 2), (false, 3))(enumerator)
-        completeDone.await(30, TimeUnit.SECONDS) must beTrue
-        completeCount.get() must equalTo(1)
-        errorCount.get() must equalTo(0)
+        completeDone.await(30, TimeUnit.SECONDS) mustBe true
+        completeCount.get() mustBe 1
+        errorCount.get() mustBe 0
       }
     }
   }
@@ -278,28 +264,27 @@ object EnumeratorsSpec extends Specification
         mustEnumerateTo(s)(enumerator)
       }
     }
-    "close the stream" in {
-      class CloseableByteArrayInputStream(bytes: Array[Byte]) extends ByteArrayInputStream(bytes) {
-        @volatile var closed = false
 
-        override def close() = {
-          closed = true
-        }
-      }
+    class CloseableByteArrayInputStream(bytes: Array[Byte]) extends ByteArrayInputStream(bytes) {
+      @volatile var closed = false
 
-      "when done normally" in {
-        val stream = new CloseableByteArrayInputStream(Array.empty)
-        mustExecute(2) { fromStreamEC =>
-          Await.result(Enumerator.fromStream(stream)(fromStreamEC)(Iteratee.ignore), Duration.Inf)
-          stream.closed must beTrue
-        }
+      override def close(): Unit = {
+        closed = true
       }
-      "when completed abnormally" in {
-        val stream = new CloseableByteArrayInputStream("hello".getBytes)
-        mustExecute(2) { fromStreamEC =>
-          mustPropagateFailure(Enumerator.fromStream(stream)(fromStreamEC))
-          stream.closed must beTrue
-        }
+    }
+
+    "when done normally" in {
+      val stream = new CloseableByteArrayInputStream(Array.empty)
+      mustExecute(2) { fromStreamEC =>
+        Await.result(Enumerator.fromStream(stream)(fromStreamEC)(Iteratee.ignore), Duration.Inf)
+        stream.closed mustBe true
+      }
+    }
+    "when completed abnormally" in {
+      val stream = new CloseableByteArrayInputStream("hello".getBytes)
+      mustExecute(2) { fromStreamEC =>
+        mustPropagateFailure(Enumerator.fromStream(stream)(fromStreamEC))
+        stream.closed mustBe true
       }
     }
   }
@@ -345,7 +330,7 @@ object EnumeratorsSpec extends Specification
       mustExecute(12, 12) { (foldEC, unfoldEC) =>
         val enumerator = Enumerator.unfoldM[Int, Int](0)(s => Future(if (s > 10) None else Some((s + 1, s + 1))))(unfoldEC) >>> Enumerator(12)
 
-        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) must equalTo("123456789101112")
+        Await.result(enumerator |>>> Iteratee.fold[Int, String]("")(_ + _)(foldEC), Duration.Inf) mustBe "123456789101112"
       }
     }
   }
@@ -364,7 +349,7 @@ object EnumeratorsSpec extends Specification
       mustExecute(3) { repeatEC =>
         val count = new AtomicInteger(0)
         val fut = Enumerator.repeat(count.incrementAndGet())(repeatEC) |>>> (Enumeratee.take(3) &>> Iteratee.getChunks[Int])
-        Await.result(fut, Duration.Inf) must equalTo(List(1, 2, 3))
+        Await.result(fut, Duration.Inf) mustBe List(1, 2, 3)
       }
     }
   }
@@ -374,7 +359,7 @@ object EnumeratorsSpec extends Specification
       mustExecute(3) { repeatEC =>
         val count = new AtomicInteger(0)
         val fut = Enumerator.repeatM(Future.successful(count.incrementAndGet()))(repeatEC) |>>> (Enumeratee.take(3) &>> Iteratee.getChunks[Int])
-        Await.result(fut, Duration.Inf) must equalTo(List(1, 2, 3))
+        Await.result(fut, Duration.Inf) mustBe List(1, 2, 3)
       }
     }
   }
@@ -389,8 +374,8 @@ object EnumeratorsSpec extends Specification
           outputStream.write(b.toArray.map(_.toByte))
           outputStream.close()
         }(outputEC)
-        val promise = (enumerator |>>> Iteratee.fold[Array[Byte], Array[Byte]](Array[Byte]())(_ ++ _)(foldEC))
-        Await.result(promise, Duration.Inf).map(_.toChar).foldLeft("")(_ + _) must equalTo(a + b)
+        val promise = enumerator |>>> Iteratee.fold[Array[Byte], Array[Byte]](Array[Byte]())(_ ++ _)(foldEC)
+        Await.result(promise, Duration.Inf).map(_.toChar).foldLeft("")(_ + _) mustBe a + b
       }
     }
 
@@ -401,16 +386,15 @@ object EnumeratorsSpec extends Specification
         val enumerator = Enumerator.outputStream { o => os = o; osReady.countDown() }(outputEC)
         val promiseIteratee = Promise[Iteratee[Array[Byte], Array[Byte]]]
         val future = enumerator |>>> Iteratee.flatten(promiseIteratee.future)
-        osReady.await(30, TimeUnit.SECONDS) must beTrue
+        osReady.await(30, TimeUnit.SECONDS) mustBe true
         // os should now be set
         os.write("hello".getBytes)
         os.write(" ".getBytes)
         os.write("world".getBytes)
         os.close()
         promiseIteratee.success(Iteratee.consume[Array[Byte]]())
-        Await.result(future, Duration("10s")) must_== "hello world".getBytes
+        Await.result(future, Duration("10s")) mustBe "hello world".getBytes
       }
     }
   }
-
 }

@@ -18,15 +18,16 @@
 package com.webtrends.harness.libs.iteratee
 
 import scala.language.reflectiveCalls
-
-import org.specs2.mutable._
 import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.{ ExecutionContext, Promise, Future, Await }
-import scala.concurrent.duration.{ Duration, SECONDS }
 
-object RunQueueSpec extends Specification with ExecutionSpecification {
+import org.scalatest.WordSpecLike
 
-  val waitTime = Duration(20, SECONDS)
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.concurrent.duration.{Duration, FiniteDuration, SECONDS}
+
+class RunQueueSpec extends WordSpecLike with ExecutionSpecification {
+
+  val waitTime: FiniteDuration = Duration(20, SECONDS)
 
   trait QueueTester {
     def schedule(body: => Future[Unit])(implicit ec: ExecutionContext): Unit
@@ -34,11 +35,11 @@ object RunQueueSpec extends Specification with ExecutionSpecification {
 
   class RunQueueTester extends QueueTester {
     val rq = new RunQueue()
-    def schedule(body: => Future[Unit])(implicit ec: ExecutionContext) = rq.schedule(body)
+    def schedule(body: => Future[Unit])(implicit ec: ExecutionContext): Unit = rq.schedule(body)
   }
 
   class NaiveQueueTester extends QueueTester {
-    def schedule(body: => Future[Unit])(implicit ec: ExecutionContext) = Future(body)
+    def schedule(body: => Future[Unit])(implicit ec: ExecutionContext): Unit = Future(body)
   }
 
   def countOrderingErrors(runs: Int, queueTester: QueueTester)(implicit ec: ExecutionContext): Future[Int] = {
@@ -75,7 +76,7 @@ object RunQueueSpec extends Specification with ExecutionSpecification {
         val results: Seq[Future[Int]] = for (i <- 0 until 9) yield {
           countOrderingErrors(runSize, queueTester)
         }
-        Await.result(Future.sequence(results), waitTime).filter(_ > 0).size * 10
+        Await.result(Future.sequence(results), waitTime).count(_ > 0) * 10
       }
 
       // Iteratively increase the run size until we get observable errors 90% of the time
@@ -93,7 +94,7 @@ object RunQueueSpec extends Specification with ExecutionSpecification {
       //println(s"Got $errorPercentage% ordering errors on run size of $runSize")
 
       // Now show that this run length works fine with the RunQueueTester
-      percentageOfRunsWithOrderingErrors(runSize, new RunQueueTester()) must_== 0
+      percentageOfRunsWithOrderingErrors(runSize, new RunQueueTester()) mustBe 0
     }
 
     "use the ExecutionContext exactly once per scheduled item" in {
@@ -104,7 +105,7 @@ object RunQueueSpec extends Specification with ExecutionSpecification {
           runFinished.success(())
           Future.successful(())
         }
-        Await.result(runFinished.future, waitTime) must_== (())
+        Await.result(runFinished.future, waitTime) mustBe ()
       }
     }
   }

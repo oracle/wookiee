@@ -2,22 +2,24 @@ package com.webtrends.harness.http
 
 import java.net.{HttpURLConnection, URL}
 import java.util.concurrent.TimeUnit
-import akka.actor.{Props, ActorSystem}
+
+import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
-import com.webtrends.harness.TestKitSpecificationWithJUnit
 import com.webtrends.harness.service.messages.CheckHealth
+import org.scalatest.{BeforeAndAfterAll, MustMatchers, WordSpecLike}
+
 import scala.concurrent.Await
-import akka.pattern.ask
 import scala.concurrent.duration.FiniteDuration
 
-class InternalHttpSpec extends TestKitSpecificationWithJUnit(ActorSystem("test")) with InternalHttpClient {
+class InternalHttpSpec extends TestKit(ActorSystem("internal")) with WordSpecLike with MustMatchers with BeforeAndAfterAll with InternalHttpClient {
   val port = 8123
-  val path = "http://127.0.0.1:" + port + "/"
-  val httpActor = system.actorOf(Props(classOf[SimpleHttpServer], port))
+  val path: String = "http://127.0.0.1:" + port + "/"
+  val httpActor: ActorRef = system.actorOf(Props(classOf[SimpleHttpServer], port))
 
   // We need to make sure the httpActor has started up before trying to connect.
-  implicit val timeout = Timeout(FiniteDuration(5, TimeUnit.SECONDS))
+  implicit val timeout: Timeout = Timeout(FiniteDuration(5, TimeUnit.SECONDS))
   Await.result(httpActor ? CheckHealth, timeout.duration)
 
   "Test handlers" should {
@@ -32,8 +34,7 @@ class InternalHttpSpec extends TestKitSpecificationWithJUnit(ActorSystem("test")
     }
   }
 
-  step {
+  override protected def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
   }
-
 }

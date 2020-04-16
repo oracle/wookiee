@@ -23,28 +23,26 @@ import akka.testkit.{TestActorRef, TestKit, TestProbe}
 import com.webtrends.harness.health.{ComponentState, HealthComponent}
 import com.webtrends.harness.service.messages._
 import com.webtrends.harness.service.meta.ServiceMetaDetails
-import org.specs2.mutable.SpecificationLike
+import org.scalatest.{BeforeAndAfterAll, MustMatchers, WordSpecLike}
 
-case class TestClass(val name: String, val value: Int)
+case class TestClass(name: String, value: Int)
 
+class ServiceSpec extends TestKit(ActorSystem("harness")) with WordSpecLike with MustMatchers with BeforeAndAfterAll {
 
-class ServiceSpec extends TestKit(ActorSystem("harness")) with SpecificationLike {
+  val act: TestActorRef[TestService] = TestActorRef(new TestService)
 
-  val act = TestActorRef(new TestService)
-  //val httpAct = TestActorRef(new TestHttpService)
-
-  "services " should {
+  "Services " should {
 
     " be able to be loaded and pinged" in {
       val probe = TestProbe()
       probe.send(act, Ping)
-      Pong must beEqualTo(probe.expectMsg(Pong))
+      Pong mustBe probe.expectMsg(Pong)
     }
 
     " be able to be loaded and sent a ready message" in {
       val probe = TestProbe()
       probe.send(act, Ready)
-      Ready must beEqualTo(probe.expectMsg(Ready))
+      Ready mustBe probe.expectMsg(Ready)
     }
 
     " be able to be loaded and checked" in {
@@ -53,35 +51,18 @@ class ServiceSpec extends TestKit(ActorSystem("harness")) with SpecificationLike
       val comp = HealthComponent("testservice", ComponentState.NORMAL, "test")
       comp.addComponent(HealthComponent("childcomponent", ComponentState.DEGRADED, "test"))
 
-      comp must beEqualTo(probe.expectMsg(comp))
+      comp mustBe probe.expectMsg(comp)
     }
-
-    //todo only HttpService should be able to do this
-    /*" be able to determine if it does support http " in {
-      val probe = TestProbe()
-      probe.send(httpAct, GetMetaDetails)
-      val meta = probe.expectMsg(PluginMetaDetails(true))
-      meta.supportsHttp must beEqualTo(true)
-    }*/
 
     " be able to determine if it does not support http " in {
       val probe = TestProbe()
       probe.send(act, GetMetaDetails)
       val meta = probe.expectMsg(ServiceMetaDetails(false))
-      meta.supportsHttp must beEqualTo(false)
+      meta.supportsHttp mustBe false
     }
-
-    //todo only HttpPlugin should be able to do this
-    /*" be able to be loaded respond to an http request" in {
-      // Send a message and ask for a response
-      val probe = TestProbe()
-      probe.send(httpAct, Get("/plugin/test"))
-      val resp = probe.expectMsg(HttpResponse(entity = HttpEntity(ContentType(MediaTypes.`text/plain`, HttpCharsets.`UTF-8`), "Yeeeha!")))
-      resp.status must beEqualTo(StatusCodes.OK)
-    }*/
   }
 
-  step {
+  override protected def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
   }
 }

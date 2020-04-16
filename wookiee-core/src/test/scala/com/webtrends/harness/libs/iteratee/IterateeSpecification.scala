@@ -18,38 +18,40 @@
 package com.webtrends.harness.libs.iteratee
 
 import com.webtrends.harness.libs.iteratee.internal.executeFuture
-import scala.concurrent.{ Await, ExecutionContext, Future, Promise }
-import scala.concurrent.duration.{ Duration, SECONDS, MILLISECONDS }
+import org.scalatest.{Assertion, MustMatchers, WordSpecLike}
+
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.concurrent.duration.{Duration, FiniteDuration, MILLISECONDS, SECONDS}
 import scala.util.Try
 
 /**
  * Common functionality for iteratee tests.
  */
-trait IterateeSpecification {
-  self: org.specs2.mutable.SpecificationLike =>
+trait IterateeSpecification extends MustMatchers {
+  self: WordSpecLike =>
 
-  val waitTime = Duration(5, SECONDS)
+  val waitTime: FiniteDuration = Duration(5, SECONDS)
   def await[A](f: Future[A]): A = Await.result(f, waitTime)
   def ready[A](f: Future[A]): Future[A] = Await.ready(f, waitTime)
 
-  def mustTransformTo[E, A](in: E*)(out: A*)(e: Enumeratee[E, A]) = {
+  def mustTransformTo[E, A](in: E*)(out: A*)(e: Enumeratee[E, A]): Assertion = {
     val f = Future(Enumerator(in: _*) |>>> e &>> Iteratee.getChunks[A])(Execution.defaultExecutionContext).flatMap[List[A]](x => x)(Execution.defaultExecutionContext)
-    Await.result(f, Duration.Inf) must equalTo(List(out: _*))
+    Await.result(f, Duration.Inf) mustBe List(out: _*)
   }
 
   def enumeratorChunks[E](e: Enumerator[E]): Future[List[E]] = {
     executeFuture(e |>>> Iteratee.getChunks[E])(Execution.defaultExecutionContext)
   }
 
-  def mustEnumerateTo[E, A](out: A*)(e: Enumerator[E]) = {
-    Await.result(enumeratorChunks(e), Duration.Inf) must equalTo(List(out: _*))
+  def mustEnumerateTo[E, A](out: A*)(e: Enumerator[E]): Assertion = {
+    Await.result(enumeratorChunks(e), Duration.Inf) mustBe List(out: _*)
   }
 
-  def mustPropagateFailure[E](e: Enumerator[E]) = {
+  def mustPropagateFailure[E](e: Enumerator[E]): Assertion = {
     Try(Await.result(
-      e(Cont { case _ => throw new RuntimeException() }),
+      e(Cont(_ => throw new RuntimeException())),
       Duration.Inf
-    )) must beAFailedTry
+    )).isSuccess mustBe false
   }
 
   /**

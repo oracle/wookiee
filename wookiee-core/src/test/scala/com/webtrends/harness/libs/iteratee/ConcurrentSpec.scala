@@ -17,18 +17,18 @@
  */
 package com.webtrends.harness.libs.iteratee
 
-import java.util.concurrent.{ TimeUnit, CountDownLatch }
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.TimeUnit._
 import java.util.concurrent.atomic.AtomicInteger
-import org.specs2.mutable._
+
+import org.scalatest.WordSpecLike
+
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Try
 
-object ConcurrentSpec extends Specification
-    with IterateeSpecification with ExecutionSpecification {
-
+class ConcurrentSpec extends ExecutionSpecification with IterateeSpecification with WordSpecLike {
   "Concurrent.broadcast (0-arg)" should {
     "broadcast the same to already registered iteratees" in {
       mustExecute(38) { foldEC =>
@@ -37,37 +37,41 @@ object ConcurrentSpec extends Specification
         pushHere.push("beep")
         pushHere.push("beep")
         pushHere.eofAndEnd()
-        Await.result(results, Duration.Inf) must equalTo(Range(1, 20).map(_ => "beepbeep"))
+        Await.result(results, Duration.Inf) mustBe Range(1, 20).map(_ => "beepbeep")
       }
     }
+
     "allow invoking end twice" in {
       val (broadcaster, pushHere) = Concurrent.broadcast[String]
       val result = broadcaster |>>> Iteratee.getChunks[String]
       pushHere.push("beep")
       pushHere.end()
       pushHere.end()
-      Await.result(result, Duration.Inf) must_== Seq("beep")
+      Await.result(result, Duration.Inf) mustBe Seq("beep")
     }
+    
     "return the iteratee if already ended before the iteratee is attached" in {
       val (broadcaster, pushHere) = Concurrent.broadcast[String]
       pushHere.end()
       val result = broadcaster |>>> Iteratee.getChunks[String]
-      Await.result(result, Duration.Inf) must_== Nil
+      Await.result(result, Duration.Inf) mustBe Nil
     }
+    
     "allow ending with an exception" in {
       val (broadcaster, pushHere) = Concurrent.broadcast[String]
       val result = broadcaster |>>> Iteratee.getChunks[String]
       pushHere.end(new RuntimeException("foo"))
-      Await.result(result, Duration.Inf) must throwA[RuntimeException](message = "foo")
+      an [RuntimeException] should be thrownBy Await.result(result, Duration.Inf)
     }
+    
     "update the end result after end is already called" in {
       val (broadcaster, pushHere) = Concurrent.broadcast[String]
       val result1 = broadcaster |>>> Iteratee.getChunks[String]
       pushHere.end(new RuntimeException("foo"))
-      Await.result(result1, Duration.Inf) must throwA[RuntimeException](message = "foo")
+      an [RuntimeException] should be thrownBy Await.result(result1, Duration.Inf)
       pushHere.end()
       val result2 = broadcaster |>>> Iteratee.getChunks[String]
-      Await.result(result2, Duration.Inf) must_== Nil
+      Await.result(result2, Duration.Inf) mustBe Nil
     }
   }
 
@@ -97,7 +101,7 @@ object ConcurrentSpec extends Specification
             Concurrent.buffer(20, (_: Input[Int]) => 1)(bufferEC) |>>>
             slowIteratee
 
-        await(result) must_== ((1 to 10).to[List])
+        await(result) mustBe (1 to 10).to[List]
       }
     }
 
@@ -112,8 +116,8 @@ object ConcurrentSpec extends Specification
             Concurrent.buffer(7) |>>>
             stuckIteratee
 
-        Await.result(result, Duration.Inf) must throwAn[Exception]("buffer overflow")
-        foldEC.executionCount must equalTo(foldCount.get())
+        an [Exception] must be thrownBy Await.result(result, Duration.Inf)
+        foldEC.executionCount mustBe foldCount.get()
       }
     }
 
@@ -131,9 +135,9 @@ object ConcurrentSpec extends Specification
             (Concurrent.buffer(20) &>>
               slowIteratee).flatMap { l => Iteratee.getChunks.map(l ++ (_: List[Long]))(preparedMapEC) }(flatMapEC)
 
-        Await.result(result, Duration.Inf) must not equalTo (List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
-        flatMapEC.executionCount must beGreaterThan(0)
-        mapEC.executionCount must equalTo(flatMapEC.executionCount)
+        Await.result(result, Duration.Inf) must not be List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        flatMapEC.executionCount must not be 0
+        mapEC.executionCount mustBe flatMapEC.executionCount
       }
     }
 
@@ -159,7 +163,7 @@ object ConcurrentSpec extends Specification
       // We've got our result (hopefully a timeout), so let the iteratee
       // complete.
       gotResult.countDown()
-      result.get must throwA[Exception]("iteratee is taking too long")
+      an [Exception] must be thrownBy result.get
     }
 
   }
@@ -172,7 +176,7 @@ object ConcurrentSpec extends Specification
         val startCount = new AtomicInteger()
         val completeCount = new AtomicInteger()
         val errorCount = new AtomicInteger()
-        val enumerator = Concurrent.unicast[String](
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](
           c => {
             startCount.incrementAndGet()
             c.push(a)
@@ -183,10 +187,10 @@ object ConcurrentSpec extends Specification
           (_: String, _: Input[String]) => errorCount.incrementAndGet())(unicastEC)
         val promise = (enumerator |>> Iteratee.fold[String, String]("")(_ ++ _)(foldEC)).flatMap(_.run)
 
-        Await.result(promise, Duration.Inf) must equalTo(a + b)
-        startCount.get() must equalTo(1)
-        completeCount.get() must equalTo(0)
-        errorCount.get() must equalTo(0)
+        Await.result(promise, Duration.Inf) mustBe a + b
+        startCount.get() mustBe 1
+        completeCount.get() mustBe 0
+        errorCount.get() mustBe 0
       }
     }
 
@@ -194,7 +198,7 @@ object ConcurrentSpec extends Specification
       mustExecute(2) { unicastEC =>
         val completed = Promise[String]
 
-        val enumerator = Concurrent.unicast[String](onStart = { c =>
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](onStart = { c =>
           c.push("foo")
           c.push("bar")
         }, onComplete = {
@@ -206,8 +210,8 @@ object ConcurrentSpec extends Specification
           case _ => Done("didn't get data")
         }
 
-        Await.result(future, Duration.Inf) must_== "foo"
-        Await.result(completed.future, Duration.Inf) must_== "called"
+        Await.result(future, Duration.Inf) mustBe "foo"
+        Await.result(completed.future, Duration.Inf) mustBe "called"
       }
     }
 
@@ -215,7 +219,7 @@ object ConcurrentSpec extends Specification
       mustExecute(2) { unicastEC =>
         val error = Promise[String]
 
-        val enumerator = Concurrent.unicast[String](onStart = { c =>
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](onStart = { c =>
           c.push("foo")
           c.push("bar")
         }, onError = { (err, input) =>
@@ -227,47 +231,47 @@ object ConcurrentSpec extends Specification
           case in => Error("didn't get data", in)
         }
 
-        Await.result(error.future, Duration.Inf) must_== "foo"
+        Await.result(error.future, Duration.Inf) mustBe "foo"
       }
     }
 
     "allow invoking end twice" in {
       mustExecute(1) { unicastEC =>
         val endInvokedTwice = new CountDownLatch(1)
-        val enumerator = Concurrent.unicast[String](onStart = { c =>
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](onStart = { c =>
           c.end()
           c.end()
           endInvokedTwice.countDown()
         })(unicastEC)
 
-        Await.result(enumerator |>>> Iteratee.getChunks[String], Duration.Inf) must_== Nil
-        endInvokedTwice.await(10, TimeUnit.SECONDS) must_== true
+        Await.result(enumerator |>>> Iteratee.getChunks[String], Duration.Inf) mustBe Nil
+        endInvokedTwice.await(10, TimeUnit.SECONDS) mustBe true
       }
     }
 
     "allow ending with an exception" in {
       mustExecute(1) { unicastEC =>
-        val enumerator = Concurrent.unicast[String](onStart = { c =>
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](onStart = { c =>
           c.end(new RuntimeException("foo"))
         })(unicastEC)
 
         val result = enumerator |>>> Iteratee.getChunks[String]
-        Await.result(result, Duration.Inf) must throwA[RuntimeException](message = "foo")
+        an [RuntimeException] must be thrownBy Await.result(result, Duration.Inf)
       }
     }
 
     "only use the invocation of the first end" in {
       mustExecute(1) { unicastEC =>
         val endInvokedTwice = new CountDownLatch(1)
-        val enumerator = Concurrent.unicast[String](onStart = { c =>
+        val enumerator: Enumerator[String] = Concurrent.unicast[String](onStart = { c =>
           c.end()
           c.end(new RuntimeException("foo"))
           endInvokedTwice.countDown()
         })(unicastEC)
 
         val result = enumerator |>>> Iteratee.getChunks[String]
-        endInvokedTwice.await(10, TimeUnit.SECONDS) must_== true
-        Await.result(result, Duration.Inf) must_== Nil
+        endInvokedTwice.await(10, TimeUnit.SECONDS) mustBe true
+        Await.result(result, Duration.Inf) mustBe Nil
       }
     }
 
@@ -279,7 +283,7 @@ object ConcurrentSpec extends Specification
         val (e0, c) = Concurrent.broadcast[Int]
         val interestCount = new AtomicInteger()
         val interestDone = new CountDownLatch(1)
-        val (e2, b) = Concurrent.broadcast(e0, { f =>
+        val (e2, _) = Concurrent.broadcast(e0, { f =>
           interestCount.incrementAndGet()
           interestDone.countDown()
         })(callbackEC)
@@ -288,9 +292,9 @@ object ConcurrentSpec extends Specification
         c.push(2)
         c.push(3)
         c.eofAndEnd()
-        Await.result(i, Duration.Inf) must equalTo(List(1, 2, 3))
-        interestDone.await(30, SECONDS) must beTrue
-        interestCount.get() must equalTo(1)
+        Await.result(i, Duration.Inf) mustBe List(1, 2, 3)
+        interestDone.await(30, SECONDS) mustBe true
+        interestCount.get() mustBe 1
       }
     }
   }
@@ -302,7 +306,7 @@ object ConcurrentSpec extends Specification
         val e = Concurrent.patchPanel[Int] { pp =>
           pp.patchIn(Enumerator.eof)
         }(ppEC)
-        Await.result(e |>>> Iteratee.getChunks[Int], Duration.Inf) must equalTo(Nil)
+        Await.result(e |>>> Iteratee.getChunks[Int], Duration.Inf) mustBe Nil
       }
     }
   }
@@ -312,15 +316,15 @@ object ConcurrentSpec extends Specification
       val (iteratee, enumerator) = Concurrent.joined[String]
       val result = enumerator |>>> Iteratee.getChunks[String]
       val unitResult = Enumerator("foo", "bar") |>>> iteratee
-      await(result) must_== Seq("foo", "bar")
-      await(unitResult) must_== (())
+      await(result) mustBe Seq("foo", "bar")
+      await(unitResult) mustBe ()
     }
     "join the iteratee and enumerator if the iteratee is applied first" in {
       val (iteratee, enumerator) = Concurrent.joined[String]
       val unitResult = Enumerator("foo", "bar") |>>> iteratee
       val result = enumerator |>>> Iteratee.getChunks[String]
-      await(result) must_== Seq("foo", "bar")
-      await(unitResult) must_== (())
+      await(result) mustBe Seq("foo", "bar")
+      await(unitResult) mustBe ()
     }
     "join the iteratee and enumerator if the enumerator is applied during the iteratees run" in {
       val (iteratee, enumerator) = Concurrent.joined[String]
@@ -331,29 +335,29 @@ object ConcurrentSpec extends Specification
       val result = enumerator |>>> Iteratee.getChunks[String]
       channel.push("bar")
       channel.end()
-      await(result) must_== Seq("foo", "bar")
-      await(unitResult) must_== (())
+      await(result) mustBe Seq("foo", "bar")
+      await(unitResult) mustBe ()
     }
     "break early from infinite enumerators" in {
       val (iteratee, enumerator) = Concurrent.joined[String]
       val infinite = Enumerator.repeat("foo")
       val unitResult = infinite |>>> iteratee
       val head = enumerator |>>> Iteratee.head
-      await(head) must beSome("foo")
-      await(unitResult) must_== (())
+      await(head) mustBe Some("foo")
+      await(unitResult) mustBe ()
     }
   }
 
   "Concurrent.runPartial" should {
     "redeem the iteratee with the result and the partial enumerator" in {
       val (a, remaining) = await(Concurrent.runPartial(Enumerator("foo", "bar"), Iteratee.head[String]))
-      a must beSome("foo")
-      await(remaining |>>> Iteratee.getChunks[String]) must_== Seq("bar")
+      a mustBe Some("foo")
+      await(remaining |>>> Iteratee.getChunks[String]) mustBe Seq("bar")
     }
     "work when there is no input left in the enumerator" in {
       val (a, remaining) = await(Concurrent.runPartial(Enumerator("foo", "bar"), Iteratee.getChunks[String]))
-      a must_== Seq("foo", "bar")
-      await(remaining |>>> Iteratee.getChunks[String]) must_== Nil
+      a mustBe Seq("foo", "bar")
+      await(remaining |>>> Iteratee.getChunks[String]) mustBe Nil
     }
   }
 }

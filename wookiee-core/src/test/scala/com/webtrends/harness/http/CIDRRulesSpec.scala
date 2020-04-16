@@ -21,13 +21,11 @@ package com.webtrends.harness.http
 import java.net.InetAddress
 
 import com.webtrends.harness.authentication.CIDRRules
-import org.specs2.mutable.SpecificationWithJUnit
+import org.scalatest.{MustMatchers, WordSpecLike}
 
-class CIDRRulesSpec extends SpecificationWithJUnit {
-  sequential
-
+class CIDRRulesSpec extends WordSpecLike with MustMatchers {
   "CIDRRules " should {
-    "allow ipv4 requests through" in {
+    "allow ipv4 requests through localhost" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
       rules.checkCidrRules(InetAddress.getByName("localhost")) equals true
     }

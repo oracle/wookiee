@@ -10,7 +10,7 @@ import com.webtrends.harness.service.Service
 
 import scala.concurrent.duration._
 
-// Add 'with SpecificationLike' or 'with WordSpecLike with MustMatchers' depending on scalatest/specs2
+// Add 'with WordSpecLike with MustMatchers' or 'with SpecificationLike' depending on scalatest/specs2
 trait BaseWookieeTest {
   def config: Config = ConfigFactory.empty()
   def componentMap: Option[Map[String, Class[_<:Component]]] = None
