@@ -27,6 +27,9 @@ trait BaseWookieeTest {
   Thread.sleep(1000)
   implicit val system: ActorSystem = TestHarness.system(port).get
 
+  def shutdown(): Unit =
+    TestHarness.shutdown(port)
+
   def getFreePort: Int = {
     // Get an empty port for akka http websocket
     val socket = new ServerSocket(0)
