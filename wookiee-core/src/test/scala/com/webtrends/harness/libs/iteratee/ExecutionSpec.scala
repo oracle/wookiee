@@ -17,31 +17,30 @@
  */
 package com.webtrends.harness.libs.iteratee
 
+import org.scalatest.{MustMatchers, WordSpecLike}
+
 import scala.language.reflectiveCalls
 
-import org.specs2.mutable._
-import scala.concurrent.{ ExecutionContext, Future, Await }
-import scala.concurrent.duration.{ Duration, SECONDS }
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.{Duration, FiniteDuration, SECONDS}
 import scala.util.Try
 
-object ExecutionSpec extends Specification {
+class ExecutionSpec extends WordSpecLike with MustMatchers {
   import Execution.trampoline
 
-  val waitTime = Duration(5, SECONDS)
+  val waitTime: FiniteDuration = Duration(5, SECONDS)
 
   "trampoline" should {
 
     "execute code in the same thread" in {
       val f = Future(Thread.currentThread())(trampoline)
-      Await.result(f, waitTime) must equalTo(Thread.currentThread())
+      Await.result(f, waitTime) mustBe Thread.currentThread()
     }
 
     "not overflow the stack" in {
       def executeRecursively(ec: ExecutionContext, times: Int) {
         if (times > 0) {
-          ec.execute(new Runnable {
-            def run() = executeRecursively(ec, times - 1)
-          })
+          ec.execute(() => executeRecursively(ec, times - 1))
         }
       }
 
@@ -65,13 +64,13 @@ object ExecutionSpec extends Specification {
       }
 
       // Now verify that we don't overflow
-      Try(executeRecursively(trampoline, overflowTimes)) must beSuccessfulTry[Unit]
+      Try(executeRecursively(trampoline, overflowTimes)).isSuccess mustBe true
     }
 
     "execute code in the order it was submitted" in {
       val runRecord = scala.collection.mutable.Buffer.empty[Int]
       case class TestRunnable(id: Int, children: Runnable*) extends Runnable {
-        def run() = {
+        def run(): Unit = {
           runRecord += id
           for (c <- children) trampoline.execute(c)
         }
@@ -89,7 +88,7 @@ object ExecutionSpec extends Specification {
           TestRunnable(3))
       )
 
-      runRecord must equalTo(0 to 8)
+      runRecord mustBe (0 to 8)
     }
 
   }

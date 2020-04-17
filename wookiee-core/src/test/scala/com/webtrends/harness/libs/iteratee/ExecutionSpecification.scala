@@ -17,14 +17,15 @@
  */
 package com.webtrends.harness.libs.iteratee
 
+import org.scalatest.{MustMatchers, WordSpecLike}
+
 import scala.concurrent.ExecutionContext
-import org.specs2.mutable.SpecificationLike
 
 /**
  * Common functionality for iteratee tests.
  */
-trait ExecutionSpecification {
-  self: SpecificationLike =>
+trait ExecutionSpecification extends MustMatchers {
+  self: WordSpecLike =>
 
   def testExecution[A](f: TestExecutionContext => A): A = {
     val ec = TestExecutionContext()
@@ -43,7 +44,7 @@ trait ExecutionSpecification {
   def mustExecute[A](expectedCount: => Int)(f: ExecutionContext => A): A = {
     testExecution { tec =>
       val result = f(tec)
-      tec.executionCount must equalTo(expectedCount)
+      tec.executionCount mustBe expectedCount
       result
     }
   }
@@ -55,5 +56,4 @@ trait ExecutionSpecification {
   def mustExecute[A](expectedCount1: Int, expectedCount2: Int, expectedCount3: Int)(f: (ExecutionContext, ExecutionContext, ExecutionContext) => A): A = {
     mustExecute(expectedCount1)(ec1 => mustExecute(expectedCount2)(ec2 => mustExecute(expectedCount3)(ec3 => f(ec1, ec2, ec3))))
   }
-
 }

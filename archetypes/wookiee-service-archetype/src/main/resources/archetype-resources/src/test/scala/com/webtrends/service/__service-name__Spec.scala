@@ -4,24 +4,12 @@
  */
 package com.webtrends.service
 
-import org.specs2.mutable.Specification
-import org.specs2.time.NoTimeConversions
+import org.scalatest.{MustMatchers, WordSpecLike}
 
-class ${service-name}Spec extends Specification with NoTimeConversions {
-
-  //TODO TestHarness needs to be rebuilt for mocking the harness correctly
-  //Harness.startActorSystem
-
+class ${service-name}Spec extends WordSpecLike with MustMatchers {
   "${service-name} " should {
-
     " be able to be loaded and pinged" in {
       true
     }
   }
-
-  /*step {
-    Harness.shutdownActorSystem(false) {
-      System.exit(0)
-    }
-  }*/
 }

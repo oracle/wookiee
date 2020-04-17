@@ -26,7 +26,7 @@ class TestingAppender extends AppenderBase[ILoggingEvent] {
   var lastMessage: Option[String] = None
   name = "test"
 
-  override def append(event: ILoggingEvent) = {
+  override def append(event: ILoggingEvent): Unit = {
     lastMessage = Some(event.getFormattedMessage)
   }
 }

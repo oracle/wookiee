@@ -1,44 +1,25 @@
-/*
- *  Copyright (c) 2016 Webtrends (http://www.webtrends.com)
- *  See the LICENCE.txt file distributed with this work for additional
- *  information regarding copyright ownership.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
 package com.webtrends.harness.libs.iteratee
 
-import com.webtrends.harness.libs.iteratee.Execution.Implicits.{ defaultExecutionContext => dec }
+import com.webtrends.harness.libs.iteratee.Execution.Implicits.{defaultExecutionContext => dec}
+import org.scalatest.WordSpecLike
+
 import scala.concurrent._
 import scala.concurrent.duration.Duration
 
-import org.specs2.mutable._
-
-object EnumerateesSpec extends Specification
+class EnumerateesSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
   "Enumeratee.zip" should {
-
     "combine the final results into a pair" in {
-      Await.result(Enumeratee.zip(Done[Int, Int](2), Done[Int, Int](3)).unflatten, Duration.Inf) must equalTo(Step.Done((2, 3), Input.Empty))
+      Await.result(Enumeratee.zip(Done[Int, Int](2), Done[Int, Int](3)).unflatten, Duration.Inf) mustBe Step.Done((2, 3), Input.Empty)
     }
-
   }
 
   "Enumeratee.zipWith" should {
 
     "combine the final results" in {
       mustExecute(1) { zipEC =>
-        Await.result(Enumeratee.zipWith(Done[Int, Int](2), Done[Int, Int](3))(_ * _)(zipEC).unflatten, Duration.Inf) must equalTo(Step.Done(6, Input.Empty))
+        Await.result(Enumeratee.zipWith(Done[Int, Int](2), Done[Int, Int](3))(_ * _)(zipEC).unflatten, Duration.Inf) mustBe Step.Done(6, Input.Empty)
       }
     }
 
@@ -88,7 +69,7 @@ object EnumerateesSpec extends Specification
 
     "transform each input" in {
       mustExecute(2) { mapEC =>
-        val eee = Enumeratee.mapInputFlatten[Int][Int] {
+        val eee: Enumeratee.CheckDone[Int, Int] = Enumeratee.mapInputFlatten[Int][Int] {
           case Input.El(x) => Enumerator(x * 2)
           case Input.Empty => Enumerator.empty
           case Input.EOF => Enumerator.empty
@@ -120,15 +101,11 @@ object EnumerateesSpec extends Specification
   }
 
   "Enumeratee.drop" should {
-
-    "ignore 3 chunkes when applied with 3" in {
-
+    "ignore 3 chunks when applied with 3" in {
       val drop3AndConsume = Enumeratee.drop[String](3) &>> Iteratee.consume[String]()
       val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-      Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) must equalTo(Range(4, 20).map(_.toString).mkString)
-
+      Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
     }
-
   }
 
   "Enumeratee.dropWhile" should {
@@ -137,7 +114,7 @@ object EnumerateesSpec extends Specification
       mustExecute(4) { dropWhileEC =>
         val drop3AndConsume = Enumeratee.dropWhile[String](_ != "4")(dropWhileEC) &>> Iteratee.consume[String]()
         val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) must equalTo(Range(4, 20).map(_.toString).mkString)
+        Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
       }
     }
 
@@ -149,7 +126,7 @@ object EnumerateesSpec extends Specification
 
       val take3AndConsume = Enumeratee.take[String](3) &>> Iteratee.consume()
       val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo(List(1, 2, 3).map(_.toString).mkString)
+      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe List(1, 2, 3).map(_.toString).mkString
 
     }
 
@@ -157,7 +134,7 @@ object EnumerateesSpec extends Specification
       mustExecute(1) { flatMapEC =>
         val take3AndConsume = (Enumeratee.take[String](3) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(flatMapEC)
         val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo(Range(4, 20).map(_.toString).mkString)
+        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
       }
     }
 
@@ -168,8 +145,8 @@ object EnumerateesSpec extends Specification
           triggered = true
           Future(Some(1))(dec)
         }(generateEC)
-        Await.result(enumerator &> Enumeratee.take(0) |>>> Iteratee.fold(0)((_: Int) + (_: Int))(foldEC), Duration.Inf) must equalTo(0)
-        triggered must beFalse
+        Await.result(enumerator &> Enumeratee.take(0) |>>> Iteratee.fold(0)((_: Int) + (_: Int))(foldEC), Duration.Inf) mustBe 0
+        triggered mustBe false
       }
     }
 
@@ -181,15 +158,15 @@ object EnumerateesSpec extends Specification
       mustExecute(4) { takeWhileEC =>
         val take3AndConsume = Enumeratee.takeWhile[String](_ != "4")(takeWhileEC) &>> Iteratee.consume()
         val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo(List(1, 2, 3).map(_.toString).mkString)
+        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe List(1, 2, 3).map(_.toString).mkString
       }
     }
 
     "passes along what's left of chunks after taking" in {
-      mustExecute(4, 1, 0) { (takeWhileEC, consumeFlatMapEC, generateEC) =>
+      mustExecute(4, 1, 0) { (takeWhileEC, consumeFlatMapEC, _) =>
         val take3AndConsume = (Enumeratee.takeWhile[String](_ != "4")(takeWhileEC) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(consumeFlatMapEC)
         val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo(Range(4, 20).map(_.toString).mkString)
+        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
       }
     }
 
@@ -217,7 +194,7 @@ object EnumerateesSpec extends Specification
       mustExecute(1) { doneEC =>
         val count = new java.util.concurrent.atomic.AtomicInteger()
         mustTransformTo(1, 2, 3)(1, 2, 3)(Enumeratee.onIterateeDone(() => count.incrementAndGet())(doneEC))
-        count.get() must equalTo(1)
+        count.get() mustBe 1
       }
     }
 
@@ -229,7 +206,7 @@ object EnumerateesSpec extends Specification
       mustExecute(1) { eofEC =>
         val count = new java.util.concurrent.atomic.AtomicInteger()
         mustTransformTo(1, 2, 3)(1, 2, 3)(Enumeratee.onEOF(() => count.incrementAndGet())(eofEC))
-        count.get() must equalTo(1)
+        count.get() mustBe 1
       }
     }
 
@@ -241,7 +218,7 @@ object EnumerateesSpec extends Specification
 
       val take3AndConsume = Traversable.take[String](3) &>> Iteratee.consume()
       val enumerator = Enumerator("he", "ybbb", "bbb")
-      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo("hey")
+      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe "hey"
 
     }
 
@@ -249,7 +226,7 @@ object EnumerateesSpec extends Specification
       mustExecute(1) { consumeFlatMapEC =>
         val take3AndConsume = (Traversable.take[String](3) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(consumeFlatMapEC)
         val enumerator = Enumerator("he", "ybbb", "bbb")
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) must equalTo("bbbbbb")
+        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe "bbbbbb"
       }
     }
 
@@ -261,7 +238,7 @@ object EnumerateesSpec extends Specification
       mustExecute(4) { mapEC =>
         val add1AndConsume = Enumeratee.map[Int](i => List(i + 1))(mapEC) &>> Iteratee.consume[List[Int]]()
         val enumerator = Enumerator(1, 2, 3, 4)
-        Await.result(enumerator |>>> add1AndConsume, Duration.Inf) must equalTo(Seq(2, 3, 4, 5))
+        Await.result(enumerator |>>> add1AndConsume, Duration.Inf) mustBe Seq(2, 3, 4, 5)
       }
     }
 
@@ -269,7 +246,7 @@ object EnumerateesSpec extends Specification
       mustExecute(0, 0) { (map1EC, map2EC) =>
         val add1AndConsume = Enumeratee.map[Int](i => i + 1)(map1EC) ><> Enumeratee.map[Int](i => List(i))(map2EC) &>>
           Iteratee.consume[List[Int]]()
-        val check: Iteratee[Int, List[Int]] = add1AndConsume
+        add1AndConsume
         true //this test is about compilation and if it compiles it means we got it right
       }
     }
@@ -277,7 +254,7 @@ object EnumerateesSpec extends Specification
     "infer its types correctly from the preceeding enumerator" in {
       mustExecute(0) { mapEC =>
         val addOne = Enumerator(1, 2, 3, 4) &> Enumeratee.map[Int](i => i + 1)(mapEC)
-        val check: Enumerator[Int] = addOne
+        addOne
         true //this test is about compilation and if it compiles it means we got it right
       }
     }
@@ -295,7 +272,7 @@ object EnumerateesSpec extends Specification
         }
         val sum = Iteratee.fold[Int, Int](0)(_ + _)(sumEC)
         val enumerator = Enumerator(1, 2, 3, 4, 5, 6, 7, 8, 9)
-        Await.result(enumerator |>>> passAlongFuture &>> sum, Duration.Inf) must equalTo(45)
+        Await.result(enumerator |>>> passAlongFuture &>> sum, Duration.Inf) mustBe 45
       }
     }
 
@@ -347,7 +324,7 @@ object EnumerateesSpec extends Specification
             Enumeratee.grouped(folderIteratee) ><>
             Enumeratee.map[String](List(_))(mapEC) |>>>
             Iteratee.consume[List[String]]()
-        Await.result(result, Duration.Inf) must equalTo(List("Hello", "World", "!"))
+        Await.result(result, Duration.Inf) mustBe List("Hello", "World", "!")
       }
     }
 
@@ -359,7 +336,7 @@ object EnumerateesSpec extends Specification
         val upToSpace = Traversable.splitOnceAt[String, Char](c => c != '\n')(implicitly[String => scala.collection.TraversableLike[Char, String]], splitEC) &>> Iteratee.consume()
 
         val result = (Enumerator("dasdasdas ", "dadadasda\nshouldb\neinnext") &> Enumeratee.grouped(upToSpace) ><> Enumeratee.map[String](_ + "|")(mapEC)) |>>> Iteratee.consume[String]()
-        Await.result(result, Duration.Inf) must equalTo("dasdasdas dadadasda|shouldb|einnext|")
+        Await.result(result, Duration.Inf) mustBe "dasdasdas dadadasda|shouldb|einnext|"
       }
     }
   }
@@ -374,7 +351,7 @@ object EnumerateesSpec extends Specification
             Enumeratee.map[Int](List(_))(mapEC) |>>>
             Iteratee.consume[List[Int]]()
 
-        Await.result(result, Duration.Inf) must equalTo(List(1, 3, 6, 10))
+        Await.result(result, Duration.Inf) mustBe List(1, 3, 6, 10)
       }
     }
 
@@ -391,8 +368,8 @@ object EnumerateesSpec extends Specification
           8 / i
         }(mapEC) |>>> Iteratee.getChunks // => List(4, 2)
 
-        Await.result(result, Duration.Inf) must equalTo(List(4, 2))
-        Await.result(eventuallyInput.future, Duration.Inf) must equalTo(Input.El(0))
+        Await.result(result, Duration.Inf) mustBe List(4, 2)
+        Await.result(eventuallyInput.future, Duration.Inf) mustBe Input.El(0)
       }
     }
   }

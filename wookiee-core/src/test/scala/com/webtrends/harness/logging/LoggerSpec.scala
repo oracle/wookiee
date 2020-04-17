@@ -21,14 +21,13 @@ package com.webtrends.harness.logging
 import akka.actor.ActorSystem
 import akka.testkit.{TestKit, TestProbe}
 import ch.qos.logback.classic.Level
-import com.webtrends.harness.TestKitSpecificationWithJUnit
+import org.scalatest.{BeforeAndAfterAll, MustMatchers, WordSpecLike}
 import org.slf4j.LoggerFactory
 
-class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) with LoggingAdapter {
+class LoggerSpec extends TestKit(ActorSystem("harness")) with WordSpecLike with MustMatchers with BeforeAndAfterAll with LoggingAdapter {
 
   val probe = new TestProbe(system)
-  val appender = setupAppender()
-  sequential
+  val appender: TestingAppender = setupAppender()
 
   "logging" should {
     "allow for logging that is received by a mediator actor using Scala string interpolation" in {
@@ -39,7 +38,7 @@ class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) w
 
       val msg = Trace(LoggerFactory getLogger "test", "testing 0123...", None, None, Nil, None)
       Logger.unregisterMediator(probe.ref)
-      probe.expectMsgClass(classOf[Trace]) must be equalTo msg
+      probe.expectMsgClass(classOf[Trace]) mustBe msg
     }
 
     "allow for logging that is received by a mediator actor using Java string interpolation" in {
@@ -49,44 +48,44 @@ class LoggerSpec extends TestKitSpecificationWithJUnit(ActorSystem("harness")) w
 
       val msg = Debug(LoggerFactory getLogger "test", "testing {}123...", None, None, Seq(0), None)
       Logger.unregisterMediator(probe.ref)
-      probe.expectMsgClass(classOf[Debug]) must be equalTo msg
+      probe.expectMsgClass(classOf[Debug]) mustBe msg
     }
 
     "allow for logging that is handle directly by the underlying logging framework using Scala string interpolation" in {
       val logger = Logger("test")
       val x = 0
       logger.info(s"testing ${x}123...")
-      appender.lastMessage.get must be equalTo "testing 0123..."
+      appender.lastMessage.get mustBe "testing 0123..."
     }
 
     "allow for logging that is handle directly by the underlying logging framework using Java string interpolation" in {
       val logger = Logger("test")
       logger.warn("testing {}123...", 0)
-      appender.lastMessage.get must be equalTo "testing 0123..."
+      appender.lastMessage.get mustBe "testing 0123..."
     }
 
     "allow for logging that is handle directly by the underlying logging framework using Scala string interpolation and handles a Throwable" in {
       val logger = Logger("test")
       logger.error("testing {}123...", 0)
-      appender.lastMessage.get must be equalTo "testing 0123..."
+      appender.lastMessage.get mustBe "testing 0123..."
     }
 
     "don't log if try succeeds" in {
       val logger = Logger("test")
       logger.error("testing {}123...", 0)
       tryAndLogError({ true })
-      appender.lastMessage.get must be equalTo "testing 0123..."
+      appender.lastMessage.get mustBe "testing 0123..."
     }
 
     "do log if try fails" in {
       val logger = Logger("test")
       logger.error("testing {}123...", 0)
       tryAndLogError({ 5 / 0 })
-      appender.lastMessage.get must be equalTo "/ by zero"
+      appender.lastMessage.get mustBe "/ by zero"
     }
   }
 
-  step {
+  override protected def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
   }
 

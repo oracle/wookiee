@@ -37,7 +37,7 @@ class TestService extends Service {
   }
 
   // Define the receive function
-  override def serviceReceive = {
+  override def serviceReceive: Receive = {
     case Ready =>
       sender() ! Ready
       log.info("I am now ready: " + self.path)

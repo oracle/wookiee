@@ -17,9 +17,9 @@
  */
 package com.webtrends.harness.libs.iteratee
 
-import org.specs2.mutable._
+import org.scalatest.WordSpecLike
 
-object TraversableIterateesSpec extends Specification
+class TraversableIterateesSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
   "Traversable.splitOnceAt" should {

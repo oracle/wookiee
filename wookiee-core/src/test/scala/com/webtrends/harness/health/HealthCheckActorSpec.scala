@@ -20,43 +20,38 @@ package com.webtrends.harness.health
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.ActorDSL._
-import akka.actor.{Actor, ActorSystem, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.testkit.{TestActorRef, TestProbe}
+import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.app.HActor
 import com.webtrends.harness.service.messages.CheckHealth
-import org.specs2.mutable.SpecificationWithJUnit
-import akka.pattern.ask
-import akka.util.Timeout
 import org.joda.time.DateTime
+import org.scalatest.{BeforeAndAfterAll, MustMatchers, WordSpecLike}
 
-import scala.concurrent.{Await, ExecutionContextExecutor}
-import scala.concurrent.duration._
 import scala.collection.mutable
+import scala.concurrent.ExecutionContextExecutor
+import scala.concurrent.duration._
 
-class HealthCheckActorSpec extends SpecificationWithJUnit {
+class HealthCheckActorSpec extends WordSpecLike with MustMatchers with BeforeAndAfterAll {
 
-  implicit val dur = FiniteDuration(15, TimeUnit.SECONDS)
+  implicit val dur: FiniteDuration = FiniteDuration(15, TimeUnit.SECONDS)
 
-  implicit val sys = ActorSystem("system", ConfigFactory.parseString( """
+  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString( """
     akka.actor.provider = "akka.actor.LocalActorRefProvider"
-                                                                      """).withFallback(ConfigFactory.load))
+                                                                      """).withFallback(ConfigFactory.load()))
   implicit val ec: ExecutionContextExecutor =  sys.dispatcher
 
-  step {
-    val sysActor =
-      actor("system")(new Act {
-        become {
-          case CheckHealth => sender() ! Seq(HealthComponent("test", ComponentState.NORMAL, "test"))
-        }
-      })
+  override protected def beforeAll(): Unit = {
+    sys.actorOf(Props(new Actor {
+      override def receive: Receive = {
+        case CheckHealth => sender() ! Seq(HealthComponent("test", ComponentState.NORMAL, "test"))
+      }
+    }))
   }
 
   "The health check actor" should {
-
     "Return system Health when asking for health information" in {
-
       val probe = new TestProbe(sys)
       val actor = TestActorRef(HealthCheckActor.props)
 
@@ -64,17 +59,9 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
       val msg = probe.expectMsgClass(classOf[ApplicationHealth])
       msg.applicationName equalsIgnoreCase "Webtrends Harness Service"
     }
-
-    /*"Time out with correct error when child has no health check" in {
-      val actor = sys.actorOf(Props(new TopActor()), "top")
-
-      val result = Await.result[HealthComponent](actor.ask(CheckHealth)(Timeout(FiniteDuration(15, TimeUnit.SECONDS)))
-        .mapTo[HealthComponent], FiniteDuration(15, TimeUnit.SECONDS))
-      result.components.head.state mustEqual ComponentState.CRITICAL
-    }*/ // Doesn't seem to pass on travis
   }
 
-  step {
+  override protected def afterAll(): Unit = {
     sys.terminate().onComplete(_ => {})
   }
 
@@ -171,12 +158,12 @@ class HealthCheckActorSpec extends SpecificationWithJUnit {
   }
 
   class TopActor() extends HActor {
-    override implicit val checkTimeout = Timeout(2 seconds)
-    val lActor = context.actorOf(Props(new LowerActor()), "lower")
+    override implicit val checkTimeout: Timeout = Timeout(2 seconds)
+    val lActor: ActorRef = context.actorOf(Props(new LowerActor()), "lower")
   }
 
   class LowerActor() extends Actor { // Not a health actor, so won't respond to CheckHealth
-    override def receive = {
+    override def receive: Receive = {
       case _ =>
     }: Receive
   }

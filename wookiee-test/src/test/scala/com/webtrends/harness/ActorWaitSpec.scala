@@ -1,27 +1,8 @@
-/*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
- *
- * See the LICENCE.txt file distributed with this work for additional
- * information regarding copyright ownership.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.webtrends.harness
 
 import java.util.concurrent.TimeUnit
 
-import akka.actor.{Actor, ActorSystem, PoisonPill, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props}
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
@@ -38,8 +19,8 @@ class WaitedOnActor extends Actor with ActorWaitHelper {
 }
 
 class WaitActor extends Actor with ActorWaitHelper {
-  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
-  val waited = awaitActor(Props[WaitedOnActor])
+  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  val waited: ActorRef = awaitActor(Props[WaitedOnActor])
 
   def receive: Receive = {
     case "message" => sender ! "response"
@@ -48,8 +29,8 @@ class WaitActor extends Actor with ActorWaitHelper {
 }
 
 class ActorWaitSpec extends TestKit(ActorSystem("wait-spec")) with WordSpecLike with Matchers with Inspectors {
-  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
-  val waitActor = ActorWaitHelper.awaitActor(Props[WaitActor], system)
+  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  val waitActor: ActorRef = ActorWaitHelper.awaitActor(Props[WaitActor], system)
 
   "ActorWaitSpec" should {
     "await the WaitActor successfully " in {

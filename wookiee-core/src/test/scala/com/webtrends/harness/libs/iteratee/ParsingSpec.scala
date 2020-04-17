@@ -18,12 +18,12 @@
 package com.webtrends.harness.libs.iteratee
 
 import Parsing._
+import org.scalatest.WordSpecLike
 
-import org.specs2.mutable._
 import concurrent.duration.Duration
 import concurrent.Await
 
-object ParsingSpec extends Specification
+class ParsingSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
   "Parsing" should {
@@ -38,12 +38,12 @@ object ParsingSpec extends Specification
           case Unmatched(data) => "Unmatched(" + new String(data) + ")"
         }.mkString(", ")
 
-        result must equalTo(
-          "Unmatched(xxkxc), Matched(kiki), Unmatched(xc), Matched(kiki), Unmatched(ococ), Matched(kiki), Unmatched(sdods), Matched(kiki), Unmatched(sdks), Unmatched(dloii)")
+        result mustBe 
+          "Unmatched(xxkxc), Matched(kiki), Unmatched(xc), Matched(kiki), Unmatched(ococ), Matched(kiki), Unmatched(sdods), Matched(kiki), Unmatched(sdks), Unmatched(dloii)"
       }
     }
 
-    "split case 1" in {
+    "split case 2" in {
       mustExecute(11) { foldEC =>
         val data = Enumerator(List("xx", "kxckikixcki", "k", "kicockik", "isdkikodskikisd", "ksdlokiikik", "i").map(_.getBytes): _*)
         val parsed = data |>>> Parsing.search("kiki".getBytes).transform(Iteratee.fold(List.empty[MatchInfo[Array[Byte]]]) { (s, c: MatchInfo[Array[Byte]]) => s :+ c }(foldEC))
@@ -53,10 +53,9 @@ object ParsingSpec extends Specification
           case Unmatched(data) => "Unmatched(" + new String(data) + ")"
         }.mkString(", ")
 
-        result must equalTo(
-          "Unmatched(xxkxc), Matched(kiki), Unmatched(xckikkico), Unmatched(c), Matched(kiki), Unmatched(sdkikods), Matched(kiki), Unmatched(sdksdlok), Unmatched(ii), Matched(kiki), Unmatched()")
+        result mustBe 
+          "Unmatched(xxkxc), Matched(kiki), Unmatched(xckikkico), Unmatched(c), Matched(kiki), Unmatched(sdkikods), Matched(kiki), Unmatched(sdksdlok), Unmatched(ii), Matched(kiki), Unmatched()"
       }
     }
-
   }
 }

@@ -17,48 +17,40 @@
  */
 package com.webtrends.harness.libs.iteratee
 
-import org.specs2.mutable._
-import scala.concurrent.{ Future, ExecutionContext }
-import scala.util.{ Failure, Try }
+import org.scalatest.{Assertion, WordSpecLike}
 
-object IterateesSpec extends Specification
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Try}
+
+class IterateesSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
-  def checkFoldResult[A, E](i: Iteratee[A, E], expected: Step[A, E]) = {
+  def checkFoldResult[A, E](i: Iteratee[A, E], expected: Step[A, E]): Assertion = {
     mustExecute(1) { foldEC =>
-      await(i.fold(s => Future.successful(s))(foldEC)) must equalTo(expected)
+      await(i.fold(s => Future.successful(s))(foldEC)) mustBe expected
     }
   }
 
-  def checkFoldTryResult[A, E](i: Iteratee[A, E], expected: Try[Step[A, E]]) = {
+  def checkFoldTryResult[A, E](i: Iteratee[A, E], expected: Try[Step[A, E]]): Assertion = {
     mustExecute(0) { foldEC =>
-      Try(await(i.fold(s => Future.successful(s))(foldEC))) must equalTo(expected)
+      Try(await(i.fold(s => Future.successful(s))(foldEC))) mustBe expected
     }
   }
 
-  def checkUnflattenResult[A, E](i: Iteratee[A, E], expected: Step[A, E]) = {
-    await(i.unflatten) must equalTo(expected)
+  def checkUnflattenResult[A, E](i: Iteratee[A, E], expected: Step[A, E]): Assertion = {
+    await(i.unflatten) mustBe expected
   }
 
-  def checkImmediateFoldFailure[A, E](i: Iteratee[A, E]) = {
+  def checkImmediateFoldFailure[A, E](i: Iteratee[A, E]): Assertion = {
     mustExecute(1) { foldEC =>
       val e = new Exception("exception")
       val result = ready(i.fold(_ => throw e)(foldEC))
-      result.value must equalTo(Some(Failure(e)))
+      result.value mustBe Some(Failure(e))
     }
   }
 
-  def checkFutureFoldFailure[A, E](i: Iteratee[A, E]) = {
-    mustExecute(1, 1) { (foldEC, folderEC) =>
-      val e = new Exception("exception")
-      val preparedFolderEC = folderEC.prepare()
-      val result = ready(i.fold(_ => Future(throw e)(preparedFolderEC))(foldEC))
-      result.value must equalTo(Some(Failure(e)))
-    }
-  }
-
-  def mustTranslate3To(x: Int)(f: Iteratee[Int, Int] => Iteratee[Int, Int]) = {
-    await(f(Done(3)).unflatten) must equalTo(Step.Done(x, Input.Empty))
+  def mustTranslate3To(x: Int)(f: Iteratee[Int, Int] => Iteratee[Int, Int]): Assertion = {
+    await(f(Done(3)).unflatten) mustBe Step.Done(x, Input.Empty)
   }
 
   "Flattened iteratees" should {
@@ -79,10 +71,6 @@ object IterateesSpec extends Specification
       checkImmediateFoldFailure(i)
     }
 
-    "return future fold errors in promise" in {
-      checkFutureFoldFailure(i)
-    }
-
     "support unflattening their state" in {
       checkUnflattenResult(i, Step.Done(1, Input.El("x")))
     }
@@ -99,10 +87,6 @@ object IterateesSpec extends Specification
 
     "return immediate fold errors in promise" in {
       checkImmediateFoldFailure(i)
-    }
-
-    "return future fold errors in promise" in {
-      checkFutureFoldFailure(i)
     }
 
     "fold input with fold1" in {
@@ -147,25 +131,25 @@ object IterateesSpec extends Specification
 
     "flatMap directly to result when no remaining input" in {
       mustExecute(1) { flatMapEC =>
-        await(Done(3).flatMap((x: Int) => Done[Int, Int](x * 2))(flatMapEC).unflatten) must equalTo(Step.Done(6, Input.Empty))
+        await(Done(3).flatMap((x: Int) => Done[Int, Int](x * 2))(flatMapEC).unflatten) mustBe Step.Done(6, Input.Empty)
       }
     }
 
     "flatMap result and process remaining input with Done" in {
       mustExecute(1) { flatMapEC =>
-        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Done[String, Int](x * 2))(flatMapEC).unflatten) must equalTo(Step.Done(6, Input.El("remaining")))
+        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Done[String, Int](x * 2))(flatMapEC).unflatten) mustBe Step.Done(6, Input.El("remaining"))
       }
     }
 
     "flatMap result and process remaining input with Cont" in {
       mustExecute(1) { flatMapEC =>
-        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Cont(in => Done[String, Int](x * 2, in)))(flatMapEC).unflatten) must equalTo(Step.Done(6, Input.El("remaining")))
+        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Cont(in => Done[String, Int](x * 2, in)))(flatMapEC).unflatten) mustBe Step.Done(6, Input.El("remaining"))
       }
     }
 
     "flatMap result and process remaining input with Error" in {
       mustExecute(1) { flatMapEC =>
-        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Error("error", Input.El("bad")))(flatMapEC).unflatten) must equalTo(Step.Error("error", Input.El("bad")))
+        await(Done(3, Input.El("remaining")).flatMap((x: Int) => Error("error", Input.El("bad")))(flatMapEC).unflatten) mustBe Step.Error("error", Input.El("bad"))
       }
     }
 
@@ -186,7 +170,7 @@ object IterateesSpec extends Specification
         await(Done(3, Input.El(List(1, 2))).flatMapTraversable(_ => Done[List[Int], Int](4, Input.El(List(3, 4))))(
           implicitly[List[Int] => scala.collection.TraversableLike[Int, List[Int]]],
           implicitly[scala.collection.generic.CanBuildFrom[List[Int], Int, List[Int]]],
-          flatMapEC).unflatten) must equalTo(Step.Done(4, Input.El(List(1, 2, 3, 4))))
+          flatMapEC).unflatten) mustBe Step.Done(4, Input.El(List(1, 2, 3, 4)))
       }
     }
 
@@ -205,17 +189,13 @@ object IterateesSpec extends Specification
       checkImmediateFoldFailure(i)
     }
 
-    "return future fold errors in promise" in {
-      checkFutureFoldFailure(i)
-    }
-
     "support unflattening their state" in {
       checkUnflattenResult(i, Step.Cont(k))
     }
 
     "flatMap recursively" in {
       mustExecute(1) { flatMapEC =>
-        await(Iteratee.flatten(Cont[Int, Int](_ => Done(3)).flatMap((x: Int) => Done[Int, Int](x * 2))(flatMapEC).feed(Input.El(11))).unflatten) must equalTo(Step.Done(6, Input.Empty))
+        await(Iteratee.flatten(Cont[Int, Int](_ => Done(3)).flatMap((x: Int) => Done[Int, Int](x * 2))(flatMapEC).feed(Input.El(11))).unflatten) mustBe Step.Done(6, Input.Empty)
       }
     }
 
@@ -240,7 +220,7 @@ object IterateesSpec extends Specification
       val flatMapped: Iteratee[Unit, Unit] = (0 until overflowDepth).foldLeft[Iteratee[Unit, Unit]](Cont(_ => unitDone)) {
         case (it, _) => it.flatMap(_ => unitDone)
       }
-      await(await(flatMapped.feed(Input.EOF)).unflatten) must equalTo(Step.Done((), Input.Empty))
+      await(await(flatMapped.feed(Input.EOF)).unflatten) mustBe Step.Done((), Input.Empty)
     }
 
   }
@@ -257,17 +237,13 @@ object IterateesSpec extends Specification
       checkImmediateFoldFailure(i)
     }
 
-    "return future fold errors in promise" in {
-      checkFutureFoldFailure(i)
-    }
-
     "support unflattening their state" in {
       checkUnflattenResult(i, Step.Error("msg", Input.El("x")))
     }
 
     "flatMap to an error" in {
       mustExecute(0) { flatMapEC =>
-        await(Error("msg", Input.El("bad")).flatMap((x: Int) => Done("done"))(flatMapEC).unflatten) must equalTo(Step.Error("msg", Input.El("bad")))
+        await(Error("msg", Input.El("bad")).flatMap((x: Int) => Done("done"))(flatMapEC).unflatten) mustBe Step.Error("msg", Input.El("bad"))
       }
     }
 
@@ -277,13 +253,13 @@ object IterateesSpec extends Specification
 
     "map the final iteratee's result (with map)" in {
       mustExecute(4, 1) { (foldEC, mapEC) =>
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC).map(_ * 2)(mapEC)) must equalTo(20)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC).map(_ * 2)(mapEC)) mustBe 20
       }
     }
 
     "map the final iteratee's result (with mapM)" in {
       mustExecute(4, 1) { (foldEC, mapEC) =>
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC).mapM(x => Future.successful(x * 2))(mapEC)) must equalTo(20)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC).mapM(x => Future.successful(x * 2))(mapEC)) mustBe 20
       }
     }
 
@@ -291,9 +267,9 @@ object IterateesSpec extends Specification
 
   "Iteratee.fold" should {
 
-    "fold input" in {
+    "fold input f2" in {
       mustExecute(4) { foldEC =>
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC)) must equalTo(10)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold[Int, Int](0)(_ + _)(foldEC)) mustBe 10
       }
     }
 
@@ -301,9 +277,9 @@ object IterateesSpec extends Specification
 
   "Iteratee.foldM" should {
 
-    "fold input" in {
+    "fold input M3" in {
       mustExecute(4) { foldEC =>
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.foldM[Int, Int](0)((x, y) => Future.successful(x + y))(foldEC)) must equalTo(10)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.foldM[Int, Int](0)((x, y) => Future.successful(x + y))(foldEC)) mustBe 10
       }
     }
 
@@ -311,17 +287,17 @@ object IterateesSpec extends Specification
 
   "Iteratee.fold2" should {
 
-    "fold input" in {
+    "fold input f4" in {
       mustExecute(4) { foldEC =>
         val folder = (x: Int, y: Int) => Future.successful((x + y, false))
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold2[Int, Int](0)(folder)(foldEC)) must equalTo(10)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold2[Int, Int](0)(folder)(foldEC)) mustBe 10
       }
     }
 
     "fold input, stopping early" in {
       mustExecute(3) { foldEC =>
         val folder = (x: Int, y: Int) => Future.successful((x + y, y > 2))
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold2[Int, Int](0)(folder)(foldEC)) must equalTo(6)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold2[Int, Int](0)(folder)(foldEC)) mustBe 6
       }
     }
 
@@ -329,9 +305,9 @@ object IterateesSpec extends Specification
 
   "Iteratee.foldM" should {
 
-    "fold input" in {
+    "fold input M" in {
       mustExecute(4) { foldEC =>
-        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold1[Int, Int](Future.successful(0))((x, y) => Future.successful(x + y))(foldEC)) must equalTo(10)
+        await(Enumerator(1, 2, 3, 4) |>>> Iteratee.fold1[Int, Int](Future.successful(0))((x, y) => Future.successful(x + y))(foldEC)) mustBe 10
       }
     }
 
@@ -346,7 +322,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = done(expected).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -354,7 +330,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = delayed(done(expected)).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -362,7 +338,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = error(unexpected).recover { case t: Throwable => expected }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -370,7 +346,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = error(expected).recover { case t: IllegalArgumentException => unexpected }
         val actual = await((Enumerator(unexpected) |>>> it).failed)
-        actual.getMessage must equalTo(expected)
+        actual.getMessage mustBe expected
       }
     }
 
@@ -378,7 +354,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = delayed(error(unexpected)).recover { case t: Throwable => expected }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -386,7 +362,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = delayed(throw new RuntimeException(unexpected)).recover { case t: Throwable => expected }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -394,7 +370,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = cont(input => done(input)).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(expected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -402,7 +378,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = delayed(cont(input => done(input))).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(expected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -410,7 +386,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = cont(input => delayed(done(input))).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(expected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -426,7 +402,7 @@ object IterateesSpec extends Specification
           ))
         ).recover { case t: Throwable => unexpected }
         val actual = await(Enumerator(expected, expected, expected) |>>> it)
-        actual must equalTo(expected * 3)
+        actual mustBe expected * 3
       }
     }
 
@@ -442,7 +418,7 @@ object IterateesSpec extends Specification
           ))
         ).recover { case t: Throwable => expected }
         val actual = await(Enumerator(unexpected, unexpected, unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
   }
@@ -456,7 +432,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = done(expected).recoverM { case t: Throwable => Future.successful(unexpected) }(foldEC)
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -464,7 +440,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = done(expected).recoverM { case t: Throwable => Future.failed(new RuntimeException(unexpected)) }(foldEC)
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -472,7 +448,7 @@ object IterateesSpec extends Specification
       mustExecute(2) { implicit foldEC =>
         val it = error(unexpected).recoverM { case t: Throwable => Future.successful(expected) }(foldEC)
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -480,16 +456,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = error(expected).recoverM { case t: IllegalArgumentException => Future.successful(unexpected) }(foldEC)
         val actual = await((Enumerator(unexpected) |>>> it).failed)
-        actual.getMessage must equalTo(expected)
-      }
-    }
-
-    "return a failed Future if you try to recover from an Error iteratee with a failed Future" in {
-      mustExecute(2) { implicit foldEC =>
-        val exception = new RuntimeException(expected)
-        val it = error(unexpected).recoverM { case t: Throwable => Future.failed(exception) }
-        val actual = await((Enumerator(unexpected) |>>> it).failed)
-        actual must equalTo(exception)
+        actual.getMessage mustBe expected
       }
     }
   }
@@ -503,7 +470,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = done(expected).recoverWith { case t: Throwable => done(unexpected) }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -511,7 +478,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = done(expected).recoverWith { case t: Throwable => error(unexpected) }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -519,7 +486,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = error(unexpected).recoverWith { case t: Throwable => done(expected) }
         val actual = await(Enumerator(unexpected) |>>> it)
-        actual must equalTo(expected)
+        actual mustBe expected
       }
     }
 
@@ -527,7 +494,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = error(expected).recoverWith { case t: IllegalArgumentException => done(unexpected) }
         val actual = await((Enumerator(unexpected) |>>> it).failed)
-        actual.getMessage must equalTo(expected)
+        actual.getMessage mustBe expected
       }
     }
 
@@ -535,7 +502,7 @@ object IterateesSpec extends Specification
       mustExecute(1) { implicit foldEC =>
         val it = error(unexpected).recoverWith { case t: Throwable => error(expected) }
         val actual = await((Enumerator(unexpected) |>>> it).failed)
-        actual.getMessage must equalTo(expected)
+        actual.getMessage mustBe expected
       }
     }
   }
@@ -545,7 +512,7 @@ object IterateesSpec extends Specification
     "return its concatenated input" in {
       val s = List(List(1, 2), List(3), List(4, 5))
       val r = List(1, 2, 3, 4, 5)
-      await(Enumerator.enumerateSeq1(s) |>>> Iteratee.consume[List[Int]]()) must equalTo(r)
+      await(Enumerator.enumerateSeq1(s) |>>> Iteratee.consume[List[Int]]()) mustBe r
     }
 
   }
@@ -554,7 +521,7 @@ object IterateesSpec extends Specification
 
     "return its input as a list" in {
       val s = List(1, 2, 3, 4, 5)
-      await(Enumerator.enumerateSeq1(s) |>>> Iteratee.getChunks[Int]) must equalTo(s)
+      await(Enumerator.enumerateSeq1(s) |>>> Iteratee.getChunks[Int]) mustBe s
     }
 
   }
@@ -570,28 +537,28 @@ object IterateesSpec extends Specification
     }
 
     "take 0 elements from 0" in {
-      await(Enumerator() |>>> takenAndNotTaken(0)) must equalTo((Seq(), Seq()))
+      await(Enumerator() |>>> takenAndNotTaken(0)) mustBe (Seq(), Seq())
     }
 
     "take 0 elements from 0 when asked for 2" in {
-      await(Enumerator() |>>> takenAndNotTaken(2)) must equalTo((Seq(), Seq()))
+      await(Enumerator() |>>> takenAndNotTaken(2)) mustBe (Seq(), Seq())
     }
 
     "take 1 element from 2" in {
-      await(Enumerator(1, 2) |>>> takenAndNotTaken(1)) must equalTo((Seq(1), Seq(2)))
+      await(Enumerator(1, 2) |>>> takenAndNotTaken(1)) mustBe (Seq(1), Seq(2))
     }
 
     "take 2 elements from 2" in {
-      await(Enumerator(1, 2) |>>> takenAndNotTaken(2)) must equalTo((Seq(1, 2), Seq()))
+      await(Enumerator(1, 2) |>>> takenAndNotTaken(2)) mustBe (Seq(1, 2), Seq())
     }
 
     "take 2 elements from 2 when asked for 3" in {
-      await(Enumerator(1, 2) |>>> takenAndNotTaken(3)) must equalTo((Seq(1, 2), Seq()))
+      await(Enumerator(1, 2) |>>> takenAndNotTaken(3)) mustBe (Seq(1, 2), Seq())
     }
 
     "skip Input.Empty when taking elements" in {
       val enum = Enumerator(1, 2) >>> Enumerator.enumInput(Input.Empty) >>> Enumerator(3, 4)
-      await(enum |>>> takenAndNotTaken(3)) must equalTo((Seq(1, 2, 3), Seq(4)))
+      await(enum |>>> takenAndNotTaken(3)) mustBe (Seq(1, 2, 3), Seq(4))
     }
 
   }
@@ -607,27 +574,26 @@ object IterateesSpec extends Specification
     }
 
     "be true for a stream with only EOF" in {
-      await(Enumerator() |>>> isEmptyThenRest) must equalTo((true, Seq()))
+      await(Enumerator() |>>> isEmptyThenRest) mustBe (true, Seq())
     }
 
     "be true for a stream with Empty and EOF" in {
       val enum = Enumerator.enumInput(Input.Empty) >>> Enumerator.eof
-      await(enum |>>> isEmptyThenRest) must equalTo((true, Seq()))
+      await(enum |>>> isEmptyThenRest) mustBe (true, Seq())
     }
 
     "be false for a stream with one element" in {
-      await(Enumerator(1) |>>> isEmptyThenRest) must equalTo((false, Seq(1)))
+      await(Enumerator(1) |>>> isEmptyThenRest) mustBe (false, Seq(1))
     }
 
     "be false for a stream with two elements" in {
-      await(Enumerator(1, 2) |>>> isEmptyThenRest) must equalTo((false, Seq(1, 2)))
+      await(Enumerator(1, 2) |>>> isEmptyThenRest) mustBe (false, Seq(1, 2))
     }
 
     "be false for a stream with empty and element inputs" in {
       val enum = Enumerator.enumInput(Input.Empty) >>> Enumerator(1, 2)
-      await(enum |>>> isEmptyThenRest) must equalTo((false, Seq(1, 2)))
+      await(enum |>>> isEmptyThenRest) mustBe (false, Seq(1, 2))
     }
-
   }
 
   "Iteratee.takeUpTo and Iteratee.isEmpty" should {
@@ -642,28 +608,28 @@ object IterateesSpec extends Specification
     }
 
     "take 0 elements and be empty from 0" in {
-      await(Enumerator() |>>> process(0)) must equalTo((Seq(), true, Seq()))
+      await(Enumerator() |>>> process(0)) mustBe (Seq(), true, Seq())
     }
 
     "take 0 elements from 0 and be empty when asked for 2" in {
-      await(Enumerator() |>>> process(2)) must equalTo((Seq(), true, Seq()))
+      await(Enumerator() |>>> process(2)) mustBe (Seq(), true, Seq())
     }
 
     "take 1 element and not be empty from 2" in {
-      await(Enumerator(1, 2) |>>> process(1)) must equalTo((Seq(1), false, Seq(2)))
+      await(Enumerator(1, 2) |>>> process(1)) mustBe (Seq(1), false, Seq(2))
     }
 
     "take 2 elements and be empty from 2" in {
-      await(Enumerator(1, 2) |>>> process(2)) must equalTo((Seq(1, 2), true, Seq()))
+      await(Enumerator(1, 2) |>>> process(2)) mustBe (Seq(1, 2), true, Seq())
     }
 
     "take 2 elements and be empty from 2 when asked for 3" in {
-      await(Enumerator(1, 2) |>>> process(3)) must equalTo((Seq(1, 2), true, Seq()))
+      await(Enumerator(1, 2) |>>> process(3)) mustBe (Seq(1, 2), true, Seq())
     }
 
     "skip Input.Empty when taking elements" in {
       val enum = Enumerator(1, 2) >>> Enumerator.enumInput(Input.Empty) >>> Enumerator(3, 4)
-      await(enum |>>> process(3)) must equalTo((Seq(1, 2, 3), false, Seq(4)))
+      await(enum |>>> process(3)) mustBe (Seq(1, 2, 3), false, Seq(4))
     }
 
   }
@@ -676,9 +642,7 @@ object IterateesSpec extends Specification
       val tooManyArrays = (Runtime.getRuntime.maxMemory / arraySize).toInt + 1
       val iterator = Iterator.range(0, tooManyArrays).map(_ => new Array[Byte](arraySize))
       import com.webtrends.harness.libs.iteratee.Execution.Implicits.defaultExecutionContext
-      await(Enumerator.enumerate(iterator) |>>> Iteratee.ignore[Array[Byte]]) must_== (())
+      await(Enumerator.enumerate(iterator) |>>> Iteratee.ignore[Array[Byte]]) mustBe ()
     }
-
   }
-
 }

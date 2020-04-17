@@ -1,32 +1,16 @@
-/*
- *  Copyright (c) 2016 Webtrends (http://www.webtrends.com)
- *  See the LICENCE.txt file distributed with this work for additional
- *  information regarding copyright ownership.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
 package com.webtrends.harness.libs.concurrent
 
+import java.util.concurrent.atomic.AtomicInteger
+
+import org.scalatest.{MustMatchers, WordSpecLike}
+
+import scala.concurrent.duration.{Duration, FiniteDuration, SECONDS}
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.language.reflectiveCalls
 
-import org.specs2.mutable._
-import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.{ ExecutionContext, Promise, Future, Await }
-import scala.concurrent.duration.{ Duration, SECONDS }
+class NonBlockingMutexSpec extends WordSpecLike with MustMatchers {
 
-object NonBlockingMutexSpec extends Specification {
-
-  val waitTime = Duration(2, SECONDS)
+  val waitTime: FiniteDuration = Duration(2, SECONDS)
 
   trait Tester {
     def run(body: => Unit): Unit
@@ -34,11 +18,11 @@ object NonBlockingMutexSpec extends Specification {
 
   class MutexTester extends Tester {
     val mutex = new NonBlockingMutex()
-    def run(body: => Unit) = mutex.exclusive(body)
+    def run(body: => Unit): Unit = mutex.exclusive(body)
   }
 
   class NaiveTester extends Tester {
-    def run(body: => Unit) = body
+    def run(body: => Unit): Unit = body
   }
 
   def countOrderingErrors(runs: Int, tester: Tester)(implicit ec: ExecutionContext): Future[Int] = {
@@ -69,7 +53,7 @@ object NonBlockingMutexSpec extends Specification {
       val p = Promise[Int]()
       val mutex = new NonBlockingMutex()
       mutex.exclusive { p.success(1) }
-      Await.result(p.future, waitTime) must_== (1)
+      Await.result(p.future, waitTime) mustBe 1
     }
 
     "run two operations" in {
@@ -78,18 +62,18 @@ object NonBlockingMutexSpec extends Specification {
       val mutex = new NonBlockingMutex()
       mutex.exclusive { p1.success(()) }
       mutex.exclusive { p2.success(()) }
-      Await.result(p1.future, waitTime) must_== (())
-      Await.result(p2.future, waitTime) must_== (())
+      Await.result(p1.future, waitTime) mustBe ()
+      Await.result(p2.future, waitTime) mustBe ()
     }
 
     "run code in order" in {
       import ExecutionContext.Implicits.global
 
       def percentageOfRunsWithOrderingErrors(runSize: Int, tester: Tester): Int = {
-        val results: Seq[Future[Int]] = for (i <- 0 until 9) yield {
+        val results: Seq[Future[Int]] = for (_ <- 0 until 9) yield {
           countOrderingErrors(runSize, tester)
         }
-        Await.result(Future.sequence(results), waitTime).filter(_ > 0).size * 10
+        Await.result(Future.sequence(results), waitTime).count(_ > 0) * 10
       }
 
       // Iteratively increase the run size until we get observable errors 90% of the time
@@ -107,9 +91,7 @@ object NonBlockingMutexSpec extends Specification {
       //println(s"Got $errorPercentage% ordering errors on run size of $runSize")
 
       // Now show that this run length works fine with the MutexTester
-      percentageOfRunsWithOrderingErrors(runSize, new MutexTester()) must_== 0
+      percentageOfRunsWithOrderingErrors(runSize, new MutexTester()) mustBe 0
     }
-
   }
-
 }

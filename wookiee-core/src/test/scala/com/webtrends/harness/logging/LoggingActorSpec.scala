@@ -18,25 +18,26 @@
  */
 package com.webtrends.harness.logging
 
-import akka.actor.{ActorSystem, Props}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.event.Logging.{InitializeLogger, LoggerInitialized}
 import akka.testkit.{TestKit, TestProbe}
 import com.typesafe.config.ConfigFactory
-import com.webtrends.harness.TestKitSpecificationWithJUnit
+import org.scalatest.{BeforeAndAfterAll, MustMatchers, WordSpecLike}
 
-class LoggingActorSpec extends TestKitSpecificationWithJUnit(ActorSystem("test", ConfigFactory.parseString( """logging.use-actor=off"""))) {
+class LoggingActorSpec extends TestKit(ActorSystem("test", ConfigFactory.parseString( """logging.use-actor=off""")))
+  with WordSpecLike with MustMatchers with BeforeAndAfterAll {
 
-  val logger = system.actorOf(Props[LoggingActor])
+  val logger: ActorRef = system.actorOf(Props[LoggingActor])
 
   "Logging" should {
     "test logging initialization" in {
       val probe = TestProbe()
       probe.send(logger, InitializeLogger(null))
-      LoggerInitialized must beEqualTo(probe.expectMsg(LoggerInitialized))
+      LoggerInitialized mustBe probe.expectMsg(LoggerInitialized)
     }
   }
 
-  step {
+  override protected def afterAll(): Unit = {
     TestKit.shutdownActorSystem(system)
   }
 }
