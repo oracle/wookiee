@@ -50,17 +50,6 @@ class HealthCheckActorSpec extends WordSpecLike with MustMatchers with BeforeAnd
     }))
   }
 
-  "The health check actor" should {
-    "Return system Health when asking for health information" in {
-      val probe = new TestProbe(sys)
-      val actor = TestActorRef(HealthCheckActor.props)
-
-      probe.send(actor, HealthRequest(HealthResponseType.FULL))
-      val msg = probe.expectMsgClass(classOf[ApplicationHealth])
-      msg.applicationName equalsIgnoreCase "Webtrends Harness Service"
-    }
-  }
-
   override protected def afterAll(): Unit = {
     sys.terminate().onComplete(_ => {})
   }
