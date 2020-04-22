@@ -26,7 +26,6 @@ import com.webtrends.harness.utils.ConfigUtil
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
-import scala.language.postfixOps
 
 trait ActorHealth {
   this: Actor =>
@@ -36,7 +35,7 @@ trait ActorHealth {
   import context.dispatcher
 
   implicit val checkTimeout:Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
 
   def health:Receive = {
     case CheckHealth =>

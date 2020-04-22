@@ -34,7 +34,6 @@ import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
 import scala.util.{Failure, Success}
-import scala.language.postfixOps
 
 case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
@@ -97,11 +96,11 @@ object ComponentManager {
             try {
               val co = validateComponentDir(componentName, f)
               // get list of all JARS and load each one
-              co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map {
+              (co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map {
                 f =>
                   val jarName = FileUtil.getFilename(f)
                   jarName -> f.getCanonicalFile.toURI.toURL
-              } toList
+              }).toList
             } catch {
               case e: IllegalArgumentException =>
                 externalLogger.warn(e.getMessage)
@@ -110,7 +109,7 @@ object ComponentManager {
 
           case f if FileUtil.getExtension(f).equalsIgnoreCase("jar") =>
             List(FileUtil.getFilename(f) -> f.getCanonicalFile.toURI.toURL)
-        } flatten
+        }.flatten
 
         loader.addURLs(files.map(_._2))
       case None => // ignore
@@ -181,7 +180,7 @@ object ComponentManager {
 class ComponentManager extends PrepareForShutdown {
   import context.dispatcher
   val componentTimeout: Timeout = ConfigUtil
-    .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20 seconds)
+    .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
 
   var componentsInitialized = false
 

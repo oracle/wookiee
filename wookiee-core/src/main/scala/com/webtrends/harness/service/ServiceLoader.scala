@@ -36,7 +36,6 @@ import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
-import scala.language.postfixOps
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
   val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
@@ -284,7 +283,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     var ref: Option[ActorRef] = None
     services foreach { s =>
       if (s._1.name.equals(name)) {
-        s._2._1.resolveOne(4 seconds) onComplete {
+        s._2._1.resolveOne(4.seconds) onComplete {
           case Success(some) => ref = Some(some.asInstanceOf[ActorRef])
           case Failure(_) => log.warn(s"Failed to get service $name")
         }

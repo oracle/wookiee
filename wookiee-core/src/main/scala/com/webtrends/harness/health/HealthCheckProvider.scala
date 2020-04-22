@@ -32,13 +32,12 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
-import scala.language.postfixOps
 
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
   val upTime: DateTime = DateTime.now
   implicit val timeout: Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
 
   val scalaVersion: String = util.Properties.versionString
   val file: String = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
