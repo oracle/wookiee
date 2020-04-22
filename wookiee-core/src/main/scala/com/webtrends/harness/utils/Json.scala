@@ -139,7 +139,7 @@ object Json {
    */
   def quote(s: String) = {
     val charCount = s.codePointCount(0, s.length)
-    "\"" + 0.to(charCount - 1).map { idx =>
+    "\"" + 0.until(charCount).map { idx =>
       s.codePointAt(s.offsetByCodePoints(0, idx)) match {
         case 0x0d => "\\r"
         case 0x0a => "\\n"
@@ -167,9 +167,9 @@ object Json {
         list.map(build(_, sort, locale).body).mkString("[", ",", "]")
       case map: collection.mutable.LinkedHashMap[_, _] =>
         map.map { case (k, v) => quote(k.toString) + ":" + build(v, sort, locale).body }.mkString("{", ",", "}")
-      case map: scala.collection.Map[_, _] =>
-        val finalMap = if (sort) Sorting.stableSort[(Any, Any), String](map.iterator.toList, { case (k, v) => k.toString }).toMap else map
-        finalMap.map { case (k, v) =>
+      case map: scala.collection.Map[Any, Any] =>
+        val finalMap = if (sort) Sorting.stableSort[(Any, Any), String](map.iterator.toList, { case (k, _) => k.toString }).toMap else map
+        finalMap.map { case (k: Any, v: Any) =>
           quote(k.toString) + ":" + build(v, sort, locale).body
         }.mkString("{", ",", "}")
       case x: JsonLocalization => x.toJson(locale)

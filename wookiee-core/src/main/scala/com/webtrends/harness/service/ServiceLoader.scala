@@ -36,6 +36,7 @@ import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
+import scala.language.postfixOps
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
   val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()

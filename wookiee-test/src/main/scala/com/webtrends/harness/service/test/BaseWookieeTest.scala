@@ -23,7 +23,7 @@ import ch.qos.logback.classic.Level
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.service.Service
-
+import scala.language.postfixOps
 import scala.concurrent.duration._
 
 // Add 'with WordSpecLike with MustMatchers' or 'with SpecificationLike' depending on scalatest/specs2

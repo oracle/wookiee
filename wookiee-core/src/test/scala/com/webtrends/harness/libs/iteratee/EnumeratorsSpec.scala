@@ -68,7 +68,7 @@ class EnumeratorsSpec extends WordSpecLike
     "not necessarily go alternatively between two enumerators" in {
       mustExecute(1, 2) { (onDoneEC, unfoldEC) =>
         val firstDone = Promise[Unit]
-        val e1 = Enumerator(1, 2, 3, 4).onDoneEnumerating(firstDone.success(Unit))(onDoneEC)
+        val e1 = Enumerator(1, 2, 3, 4).onDoneEnumerating(firstDone.success(()))(onDoneEC)
         val e2 = Enumerator.unfoldM[Boolean, Int](true) { first => if (first) firstDone.future.map(_ => Some((false, 5))) else Future.successful(None) }(unfoldEC)
         val result = Await.result((e1 interleave e2) |>>> Iteratee.getChunks[Int], Duration.Inf)
         result mustBe Seq(1, 2, 3, 4, 5)
@@ -80,7 +80,7 @@ class EnumeratorsSpec extends WordSpecLike
   "Enumerator.enumerate " should {
     "generate an Enumerator from a singleton Iterator" in {
       mustExecute(1) { foldEC =>
-        val iterator = scala.collection.Iterator.single[Int](3)
+        val iterator = List(3)
         val futureOfResult = Enumerator.enumerate(iterator) |>>>
           Enumeratee.take(1) &>>
           Iteratee.fold(List.empty[Int])((r, e: Int) => e :: r)(foldEC)
@@ -92,7 +92,7 @@ class EnumeratorsSpec extends WordSpecLike
 
     "take as much element as in the iterator in the right order" in {
       mustExecute(50) { foldEC =>
-        val iterator = scala.collection.Iterator.range(0, 50)
+        val iterator = Iterator.range(0, 50).toList
         val futureOfResult = Enumerator.enumerate(iterator) |>>>
           Enumeratee.take(100) &>>
           Iteratee.fold(Seq.empty[Int])((r, e: Int) => r :+ e)(foldEC)
@@ -376,24 +376,6 @@ class EnumeratorsSpec extends WordSpecLike
         }(outputEC)
         val promise = enumerator |>>> Iteratee.fold[Array[Byte], Array[Byte]](Array[Byte]())(_ ++ _)(foldEC)
         Await.result(promise, Duration.Inf).map(_.toChar).foldLeft("")(_ + _) mustBe a + b
-      }
-    }
-
-    "not block" in {
-      mustExecute(1) { outputEC =>
-        var os: OutputStream = null
-        val osReady = new CountDownLatch(1)
-        val enumerator = Enumerator.outputStream { o => os = o; osReady.countDown() }(outputEC)
-        val promiseIteratee = Promise[Iteratee[Array[Byte], Array[Byte]]]
-        val future = enumerator |>>> Iteratee.flatten(promiseIteratee.future)
-        osReady.await(30, TimeUnit.SECONDS) mustBe true
-        // os should now be set
-        os.write("hello".getBytes)
-        os.write(" ".getBytes)
-        os.write("world".getBytes)
-        os.close()
-        promiseIteratee.success(Iteratee.consume[Array[Byte]]())
-        Await.result(future, Duration("10s")) mustBe "hello world".getBytes
       }
     }
   }

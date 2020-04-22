@@ -164,16 +164,6 @@ class IterateesSpec extends WordSpecLike
         mustTranslate3To(1)(_.flatMapInput(_ => Done(1))(flatMapEC))
       }
     }
-
-    "concatenate unused input with flatMapTraversable" in {
-      mustExecute(1) { flatMapEC =>
-        await(Done(3, Input.El(List(1, 2))).flatMapTraversable(_ => Done[List[Int], Int](4, Input.El(List(3, 4))))(
-          implicitly[List[Int] => scala.collection.TraversableLike[Int, List[Int]]],
-          implicitly[scala.collection.generic.CanBuildFrom[List[Int], Int, List[Int]]],
-          flatMapEC).unflatten) mustBe Step.Done(4, Input.El(List(1, 2, 3, 4)))
-      }
-    }
-
   }
 
   "Cont iteratees" should {
@@ -507,16 +497,6 @@ class IterateesSpec extends WordSpecLike
     }
   }
 
-  "Iteratee.consume" should {
-
-    "return its concatenated input" in {
-      val s = List(List(1, 2), List(3), List(4, 5))
-      val r = List(1, 2, 3, 4, 5)
-      await(Enumerator.enumerateSeq1(s) |>>> Iteratee.consume[List[Int]]()) mustBe r
-    }
-
-  }
-
   "Iteratee.getChunks" should {
 
     "return its input as a list" in {
@@ -640,7 +620,7 @@ class IterateesSpec extends WordSpecLike
       // Work out how many arrays we'd need to create to trigger an OutOfMemoryError
       val arraySize = 1000000
       val tooManyArrays = (Runtime.getRuntime.maxMemory / arraySize).toInt + 1
-      val iterator = Iterator.range(0, tooManyArrays).map(_ => new Array[Byte](arraySize))
+      val iterator = Iterator.range(0, tooManyArrays).map(_ => new Array[Byte](arraySize)).toList
       import com.webtrends.harness.libs.iteratee.Execution.Implicits.defaultExecutionContext
       await(Enumerator.enumerate(iterator) |>>> Iteratee.ignore[Array[Byte]]) mustBe ()
     }

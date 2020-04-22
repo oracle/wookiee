@@ -35,6 +35,7 @@ import com.webtrends.harness.utils.ConfigUtil
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
+import scala.language.postfixOps
 
 object HarnessActor {
   def props()(implicit system: ActorSystem): Props = Props[HarnessActor]

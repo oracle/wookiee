@@ -20,6 +20,7 @@ import java.nio.file.FileSystems
 
 import akka.actor._
 import akka.pattern._
+import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
@@ -33,6 +34,7 @@ import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
 import scala.util.{Failure, Success}
+import scala.language.postfixOps
 
 case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
@@ -50,7 +52,7 @@ import com.webtrends.harness.component.ComponentState._
 object ComponentManager {
   private val externalLogger = Logger.getLogger(this.getClass)
 
-  val components = mutable.Map[String, ComponentState]()
+  val components: mutable.Map[String, ComponentState] = mutable.Map[String, ComponentState]()
 
   val ComponentRef = "self"
 
@@ -81,43 +83,36 @@ object ComponentManager {
     None
   }
 
-  def props = Props[ComponentManager]
+  def props: Props = Props[ComponentManager]
 
   val KeyManagerClass = "manager"
   val KeyEnabled = "enabled"
 
-  def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader) = {
-    val loadedList = mutable.MutableList[String]()
+  def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
-        val files = dir.listFiles.filter(x => x.isDirectory | FileUtil.getExtension(x).equalsIgnoreCase("jar")) flatMap {
-          f =>
-            if (f.isDirectory) {
-              val componentName = f.getName
-              try {
-                val co = validateComponentDir(componentName, f)
-                // get list of all JARS and load each one
-                Some(co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) flatMap {
-                  f =>
-                    val jarName = FileUtil.getFilename(f)
-                    if (loadedList.contains(jarName)) {
-                      None
-                    } else {
-                      loadedList += jarName
-                      Some(f.getCanonicalFile.toURI.toURL)
-                    }
-                })
-              } catch {
-                case e: IllegalArgumentException =>
-                  externalLogger.warn(e.getMessage)
-                  None
-              }
-            } else {
-              if (loadedList.contains(FileUtil.getFilename(f))) None else Some(Array(f.getCanonicalFile.toURI.toURL))
+        val files = dir.listFiles.collect {
+          case f if f.isDirectory =>
+            val componentName = f.getName
+            try {
+              val co = validateComponentDir(componentName, f)
+              // get list of all JARS and load each one
+              co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map {
+                f =>
+                  val jarName = FileUtil.getFilename(f)
+                  jarName -> f.getCanonicalFile.toURI.toURL
+              } toList
+            } catch {
+              case e: IllegalArgumentException =>
+                externalLogger.warn(e.getMessage)
+                List()
             }
-        } flatMap { x => x }
-        // probably should do some de-duplication
-        loader.addURLs(files)
+
+          case f if FileUtil.getExtension(f).equalsIgnoreCase("jar") =>
+            List(FileUtil.getFilename(f) -> f.getCanonicalFile.toURI.toURL)
+        } flatten
+
+        loader.addURLs(files.map(_._2))
       case None => // ignore
     }
   }
@@ -154,7 +149,8 @@ object ComponentManager {
   }
 
   def getComponentPath(config:Config) : Option[File] = {
-    val compDir = FileSystems.getDefault.getPath(ConfigUtil.getDefaultValue(HarnessConstants.KeyPathComponents, config.getString, "")).toFile
+    val compDir = FileSystems.getDefault.getPath(
+      ConfigUtil.getDefaultValue(HarnessConstants.KeyPathComponents, config.getString, "")).toFile
     if (compDir.exists()) {
       Some(compDir)
     } else None
@@ -184,13 +180,14 @@ object ComponentManager {
 
 class ComponentManager extends PrepareForShutdown {
   import context.dispatcher
-  val componentTimeout = ConfigUtil.getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20 seconds)
+  val componentTimeout: Timeout = ConfigUtil
+    .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20 seconds)
 
   var componentsInitialized = false
 
   override def receive: Receive = initializing
 
-  override def postStop() = {
+  override def postStop(): Unit = {
     context.children.foreach(ref => ref ! StopComponent)
     super.postStop()
   }
@@ -215,7 +212,7 @@ class ComponentManager extends PrepareForShutdown {
       //log.debug("Message not handled by ComponentManager")
   }
 
-  private def componentStarted(name:String) = {
+  private def componentStarted(name:String): Unit = {
     log.debug(s"Received start message from component $name")
     ComponentManager.components(name) = ComponentState.Started
     if (ComponentManager.isAllComponentsStarted) {
@@ -230,7 +227,7 @@ class ComponentManager extends PrepareForShutdown {
     }
   }
 
-  def message[T](name:String, msg:ComponentMessage[T]) = {
+  def message[T](name:String, msg:ComponentMessage[T]): Unit = {
     // first check to see if
     context.child(name) match {
       case Some(ref) => ref ! msg
@@ -261,15 +258,15 @@ class ComponentManager extends PrepareForShutdown {
     p.future
   }
 
-  private def validateComponentStartup() = {
+  private def validateComponentStartup(): Unit = {
     // Wait for the child actors above to be loaded before calling on the services
     if (context != null && context.children != null) {
       Future.traverse(context.children) { child =>
         (child ? Identify("xyz123")) (componentTimeout)
-      } onComplete {
-        case Success(_) =>
-          sendComponentInitMessage()
-        case Failure(t) =>
+      } map { _ =>
+        sendComponentInitMessage()
+      } recover {
+        case t: Throwable =>
           log.error("Error loading the component actors", t)
           // if the components failed to load then we will need to shutdown the system
           Harness.shutdown()
@@ -277,7 +274,7 @@ class ComponentManager extends PrepareForShutdown {
     }
   }
 
-  private def sendComponentInitMessage() = {
+  private def sendComponentInitMessage(): Unit = {
     if (!componentsInitialized) {
       // notify the harness actor that we are done
       context.parent ! ComponentInitializationComplete
@@ -301,30 +298,21 @@ class ComponentManager extends PrepareForShutdown {
     val libList = if (config.hasPath(HarnessConstants.KeyComponents)) {
       config.getStringList(HarnessConstants.KeyComponents).asScala
     } else {
-      val tempList = mutable.MutableList[String]()
       // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
-      config.root().asScala foreach {
-        entry =>
-          try {
-            entry._2.valueType() match {
-              case ConfigValueType.OBJECT =>
-                val c = config.getConfig(entry._1)
-                if (c.hasPath(HarnessConstants.KeyDynamicComponent)) {
-                  if (c.getBoolean(HarnessConstants.KeyDynamicComponent)) {
-                    log.info(s"Dynamic Component detected [${entry._1}]")
-                    tempList += entry._1
-                  }
-                }
-              case _ => //ignore
-            }
-          } catch {
-            case _:ConfigException => // if this exception occurs we know for sure that it is not a dynamic component
-          }
-      }
-      tempList.toList
+      config.root().asScala.filter { entry =>
+        try {
+          val c = config.getConfig(entry._1)
+          entry._2.valueType() == ConfigValueType.OBJECT &&
+            c.hasPath(HarnessConstants.KeyDynamicComponent) && c.getBoolean(HarnessConstants.KeyDynamicComponent)
+        } catch {
+          case _: ConfigException =>
+            // if this exception occurs we know for sure that it is not a dynamic component
+            false
+        }
+      }.keys
     }
 
-    val componentsLoaded = mutable.MutableList[String]()
+    val componentsLoaded = mutable.ListBuffer[String]()
     val compList = cList ++ libList
     if (compList.length > 0) {
       // load up configured components

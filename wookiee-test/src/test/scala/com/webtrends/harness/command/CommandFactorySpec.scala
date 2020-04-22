@@ -4,7 +4,7 @@ import akka.util.Timeout
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.test.BaseWookieeTest
 import org.scalatest.{Matchers, WordSpecLike}
-
+import scala.language.postfixOps
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 

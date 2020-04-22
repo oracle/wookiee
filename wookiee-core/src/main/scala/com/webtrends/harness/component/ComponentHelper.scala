@@ -25,6 +25,7 @@ import com.webtrends.harness.command.CommandHelper
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
+import scala.language.postfixOps
 
 /**
  * This is a helper class that enables developers who use to trait to interact with the ComponentManager

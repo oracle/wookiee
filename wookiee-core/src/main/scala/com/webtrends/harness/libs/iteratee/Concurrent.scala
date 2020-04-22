@@ -814,25 +814,21 @@ object Concurrent {
   def joined[A]: (Iteratee[A, Unit], Enumerator[A]) = {
     val promisedIteratee = Promise[Iteratee[A, Unit]]()
     val enumerator = new Enumerator[A] {
-      def apply[B](i: Iteratee[A, B]) = {
+      def apply[B](i: Iteratee[A, B]): Future[Iteratee[A, B]] = {
         val doneIteratee = Promise[Iteratee[A, B]]()
 
         // Equivalent to map, but allows us to handle failures
         def wrap(delegate: Iteratee[A, B]): Iteratee[A, B] = new Iteratee[A, B] {
-          def fold[C](folder: (Step[A, B]) => Future[C])(implicit ec: ExecutionContext) = {
+          def fold[C](folder: (Step[A, B]) => Future[C])(implicit ec: ExecutionContext): Future[C] = {
             val toReturn = delegate.fold {
-              case done @ Step.Done(a, in) => {
+              case done @ Step.Done(_, _) =>
                 doneIteratee.success(done.it)
                 folder(done)
-              }
-              case Step.Cont(k) => {
+              case Step.Cont(k) =>
                 folder(Step.Cont(k.andThen(wrap)))
-              }
               case err => folder(err)
             }(ec)
-            toReturn.onFailure {
-              case e => doneIteratee.failure(e)
-            }(dec)
+            toReturn.failed.foreach(e => doneIteratee.failure(e))(dec)
             toReturn
           }
         }
@@ -859,9 +855,7 @@ object Concurrent {
       val (consumeRemaining, remaining) = Concurrent.joined[E]
       result.success((a, remaining))
       consumeRemaining
-    }(dec)).onFailure {
-      case e => result.tryFailure(e)
-    }(dec)
+    }(dec)).failed.foreach(e => result.tryFailure(e))
 
     result.future
   }

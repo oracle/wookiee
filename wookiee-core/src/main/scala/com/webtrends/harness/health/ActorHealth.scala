@@ -26,6 +26,7 @@ import com.webtrends.harness.utils.ConfigUtil
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
+import scala.language.postfixOps
 
 trait ActorHealth {
   this: Actor =>

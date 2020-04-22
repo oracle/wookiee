@@ -21,7 +21,7 @@ package com.webtrends.harness.health
 import java.util.concurrent.TimeUnit
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
-import akka.testkit.{TestActorRef, TestProbe}
+import scala.language.postfixOps
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.app.HActor

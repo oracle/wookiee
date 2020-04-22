@@ -33,6 +33,7 @@ import com.webtrends.harness.service.meta.ServiceMetaData
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.Exception._
+import scala.language.postfixOps
 
 /**
  * Request to return service meta data
@@ -41,7 +42,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
   import context.dispatcher
 
-  override val supervisorStrategy =
+  override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute) {
       case _: ActorInitializationException => Stop
       case _: DeathPactException => Stop

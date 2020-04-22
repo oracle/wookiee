@@ -24,6 +24,7 @@ import com.webtrends.harness.HarnessConstants
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
+import scala.language.postfixOps
 
 /**
  * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily

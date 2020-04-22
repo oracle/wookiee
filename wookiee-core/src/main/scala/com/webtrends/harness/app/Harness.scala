@@ -25,6 +25,7 @@ import com.webtrends.harness.logging.Logger
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
+import scala.language.postfixOps
 
 case class HarnessMeta(actorSystem: ActorSystem, harnessActor: ActorRef, config: Config)
 

@@ -9,22 +9,6 @@ import scala.concurrent.duration.Duration
 class EnumerateesSpec extends WordSpecLike
     with IterateeSpecification with ExecutionSpecification {
 
-  "Enumeratee.zip" should {
-    "combine the final results into a pair" in {
-      Await.result(Enumeratee.zip(Done[Int, Int](2), Done[Int, Int](3)).unflatten, Duration.Inf) mustBe Step.Done((2, 3), Input.Empty)
-    }
-  }
-
-  "Enumeratee.zipWith" should {
-
-    "combine the final results" in {
-      mustExecute(1) { zipEC =>
-        Await.result(Enumeratee.zipWith(Done[Int, Int](2), Done[Int, Int](3))(_ * _)(zipEC).unflatten, Duration.Inf) mustBe Step.Done(6, Input.Empty)
-      }
-    }
-
-  }
-
   "Enumeratee.mapInput" should {
 
     "transform each input" in {
@@ -100,43 +84,7 @@ class EnumerateesSpec extends WordSpecLike
 
   }
 
-  "Enumeratee.drop" should {
-    "ignore 3 chunks when applied with 3" in {
-      val drop3AndConsume = Enumeratee.drop[String](3) &>> Iteratee.consume[String]()
-      val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-      Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
-    }
-  }
-
-  "Enumeratee.dropWhile" should {
-
-    "ignore chunks while predicate is valid" in {
-      mustExecute(4) { dropWhileEC =>
-        val drop3AndConsume = Enumeratee.dropWhile[String](_ != "4")(dropWhileEC) &>> Iteratee.consume[String]()
-        val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> drop3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
-      }
-    }
-
-  }
-
   "Enumeratee.take" should {
-
-    "pass only first 3 chunks to Iteratee when applied with 3" in {
-
-      val take3AndConsume = Enumeratee.take[String](3) &>> Iteratee.consume()
-      val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe List(1, 2, 3).map(_.toString).mkString
-
-    }
-
-    "passes along what's left of chunks after taking 3" in {
-      mustExecute(1) { flatMapEC =>
-        val take3AndConsume = (Enumeratee.take[String](3) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(flatMapEC)
-        val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
-      }
-    }
 
     "not execute callback on take 0" in {
       mustExecute(0, 0) { (generateEC, foldEC) =>
@@ -153,22 +101,6 @@ class EnumerateesSpec extends WordSpecLike
   }
 
   "Enumeratee.takeWhile" should {
-
-    "pass chunks until condition is not met" in {
-      mustExecute(4) { takeWhileEC =>
-        val take3AndConsume = Enumeratee.takeWhile[String](_ != "4")(takeWhileEC) &>> Iteratee.consume()
-        val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe List(1, 2, 3).map(_.toString).mkString
-      }
-    }
-
-    "passes along what's left of chunks after taking" in {
-      mustExecute(4, 1, 0) { (takeWhileEC, consumeFlatMapEC, _) =>
-        val take3AndConsume = (Enumeratee.takeWhile[String](_ != "4")(takeWhileEC) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(consumeFlatMapEC)
-        val enumerator = Enumerator(Range(1, 20).map(_.toString): _*)
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe Range(4, 20).map(_.toString).mkString
-      }
-    }
 
     "pass input through while the predicate is met" in {
       mustExecute(3) { breakEC =>
@@ -212,44 +144,7 @@ class EnumerateesSpec extends WordSpecLike
 
   }
 
-  "Traversable.take" should {
-
-    "pass only first 3 elements to Iteratee when applied with 3" in {
-
-      val take3AndConsume = Traversable.take[String](3) &>> Iteratee.consume()
-      val enumerator = Enumerator("he", "ybbb", "bbb")
-      Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe "hey"
-
-    }
-
-    "pass along what's left after taking 3 elements" in {
-      mustExecute(1) { consumeFlatMapEC =>
-        val take3AndConsume = (Traversable.take[String](3) &>> Iteratee.consume()).flatMap(_ => Iteratee.consume())(consumeFlatMapEC)
-        val enumerator = Enumerator("he", "ybbb", "bbb")
-        Await.result(enumerator |>>> take3AndConsume, Duration.Inf) mustBe "bbbbbb"
-      }
-    }
-
-  }
-
   "Enumeratee.map" should {
-
-    "add one to each of the ints enumerated" in {
-      mustExecute(4) { mapEC =>
-        val add1AndConsume = Enumeratee.map[Int](i => List(i + 1))(mapEC) &>> Iteratee.consume[List[Int]]()
-        val enumerator = Enumerator(1, 2, 3, 4)
-        Await.result(enumerator |>>> add1AndConsume, Duration.Inf) mustBe Seq(2, 3, 4, 5)
-      }
-    }
-
-    "infer its types correctly from previous enumeratee" in {
-      mustExecute(0, 0) { (map1EC, map2EC) =>
-        val add1AndConsume = Enumeratee.map[Int](i => i + 1)(map1EC) ><> Enumeratee.map[Int](i => List(i))(map2EC) &>>
-          Iteratee.consume[List[Int]]()
-        add1AndConsume
-        true //this test is about compilation and if it compiles it means we got it right
-      }
-    }
 
     "infer its types correctly from the preceeding enumerator" in {
       mustExecute(0) { mapEC =>
@@ -303,55 +198,6 @@ class EnumerateesSpec extends WordSpecLike
     "ignores input that doesn't satisfy the predicate and transform the input when matches" in {
       mustExecute(6) { collectEC =>
         mustTransformTo("One", "Two", "Three", "Four", "Five", "Six")("ONE", "TWO", "SIX")(Enumeratee.collect[String] { case e @ ("One" | "Two" | "Six") => e.toUpperCase(java.util.Locale.ENGLISH) }(collectEC))
-      }
-    }
-
-  }
-
-  "Enumeratee.grouped" should {
-
-    "group input elements according to a folder iteratee" in {
-      mustExecute(9, 7, 3) { (mapInputEC, foldEC, mapEC) =>
-        val folderIteratee =
-          Enumeratee.mapInput[String] {
-            case Input.El("Concat") => Input.EOF;
-            case other => other
-          }(mapInputEC) &>>
-            Iteratee.fold[String, String]("")((s, e) => s + e)(foldEC)
-
-        val result =
-          Enumerator("He", "ll", "o", "Concat", "Wo", "r", "ld", "Concat", "!") &>
-            Enumeratee.grouped(folderIteratee) ><>
-            Enumeratee.map[String](List(_))(mapEC) |>>>
-            Iteratee.consume[List[String]]()
-        Await.result(result, Duration.Inf) mustBe List("Hello", "World", "!")
-      }
-    }
-
-  }
-
-  "Enumeratee.grouped" should {
-    "pass along what is consumed by the last folder iteratee on EOF" in {
-      mustExecute(4, 3) { (splitEC, mapEC) =>
-        val upToSpace = Traversable.splitOnceAt[String, Char](c => c != '\n')(implicitly[String => scala.collection.TraversableLike[Char, String]], splitEC) &>> Iteratee.consume()
-
-        val result = (Enumerator("dasdasdas ", "dadadasda\nshouldb\neinnext") &> Enumeratee.grouped(upToSpace) ><> Enumeratee.map[String](_ + "|")(mapEC)) |>>> Iteratee.consume[String]()
-        Await.result(result, Duration.Inf) mustBe "dasdasdas dadadasda|shouldb|einnext|"
-      }
-    }
-  }
-
-  "Enumeratee.scanLeft" should {
-
-    "transform elements using a sate" in {
-      mustExecute(4) { mapEC =>
-        val result =
-          Enumerator(1, 2, 3, 4) &>
-            Enumeratee.scanLeft[Int](0)(_ + _) ><>
-            Enumeratee.map[Int](List(_))(mapEC) |>>>
-            Iteratee.consume[List[Int]]()
-
-        Await.result(result, Duration.Inf) mustBe List(1, 3, 6, 10)
       }
     }
 

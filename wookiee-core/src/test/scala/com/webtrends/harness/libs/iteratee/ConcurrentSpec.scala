@@ -101,7 +101,7 @@ class ConcurrentSpec extends ExecutionSpecification with IterateeSpecification w
             Concurrent.buffer(20, (_: Input[Int]) => 1)(bufferEC) |>>>
             slowIteratee
 
-        await(result) mustBe (1 to 10).to[List]
+        await(result) mustBe (1 to 10).toList
       }
     }
 

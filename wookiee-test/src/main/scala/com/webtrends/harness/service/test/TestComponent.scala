@@ -21,7 +21,7 @@ import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.messages.StatusRequest
 import com.webtrends.harness.component.{Component, ComponentResponse}
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
-
+import scala.language.postfixOps
 import scala.concurrent.duration._
 
 object TestComponent {

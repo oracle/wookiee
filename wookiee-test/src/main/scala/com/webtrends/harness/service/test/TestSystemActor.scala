@@ -27,7 +27,7 @@ import com.webtrends.harness.service.messages.{CheckHealth, GetMetaData, GetMeta
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
 import org.joda.time.DateTime
-
+import scala.language.postfixOps
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}

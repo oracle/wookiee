@@ -15,11 +15,12 @@
  */
 package com.webtrends.harness.libs.iteratee
 
-import com.webtrends.harness.libs.iteratee.Execution.Implicits.{ defaultExecutionContext => dec }
-import com.webtrends.harness.libs.iteratee.internal.{ executeIteratee, executeFuture }
+import com.webtrends.harness.libs.iteratee.Execution.Implicits.{defaultExecutionContext => dec}
+import com.webtrends.harness.libs.iteratee.internal.{executeFuture, executeIteratee}
+
 import scala.language.reflectiveCalls
 import scala.util.control.NonFatal
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * Combines the roles of an Iteratee[From] and a Enumerator[To].  This allows adapting of streams to that modify input
@@ -69,24 +70,6 @@ trait Enumeratee[From, To] {
    * Compose this Enumeratee with another Enumeratee
    */
   def ><>[To2](other: Enumeratee[To, To2]): Enumeratee[From, To2] = compose(other)
-
-  /**
-   * Compose this Enumeratee with another Enumeratee, concatenating any input left by both Enumeratees when they
-   * are done.
-   */
-  def composeConcat[X](other: Enumeratee[To, To])(implicit p: To => scala.collection.TraversableLike[X, To], bf: scala.collection.generic.CanBuildFrom[To, X, To]): Enumeratee[From, To] = {
-    new Enumeratee[From, To] {
-      def applyOn[A](iteratee: Iteratee[To, A]): Iteratee[From, Iteratee[To, A]] = {
-        parent.applyOn(other.applyOn(iteratee).joinConcatI)
-      }
-    }
-  }
-
-  /**
-   * Alias for `composeConcat`
-   */
-  def >+>[X](other: Enumeratee[To, To])(implicit p: To => scala.collection.TraversableLike[X, To], bf: scala.collection.generic.CanBuildFrom[To, X, To]): Enumeratee[From, To] = composeConcat[X](other)
-
 }
 
 /**
@@ -114,82 +97,9 @@ object Enumeratee {
    *
    * @param futureOfEnumeratee a future of enumeratee
    */
-  def flatten[From, To](futureOfEnumeratee: Future[Enumeratee[From, To]]) = new Enumeratee[From, To] {
+  def flatten[From, To](futureOfEnumeratee: Future[Enumeratee[From, To]]): Enumeratee[From, To] = new Enumeratee[From, To] {
     def applyOn[A](it: Iteratee[To, A]): Iteratee[From, Iteratee[To, A]] =
       Iteratee.flatten(futureOfEnumeratee.map(_.applyOn[A](it))(dec))
-  }
-
-  /**
-   * Create an Enumeratee that zips two Iteratees together.
-   *
-   * Each input gets passed to each Iteratee, and the result is a tuple of both of their results.
-   *
-   * If either Iteratee encounters an error, the result will be an error.
-   *
-   * The Enumeratee will continue consuming input until both inner Iteratees are done.  If one inner Iteratee finishes
-   * before the other, the result of that Iteratee is held, and the one continues by itself, until it too is finished.
-   */
-  def zip[E, A, B](inner1: Iteratee[E, A], inner2: Iteratee[E, B]): Iteratee[E, (A, B)] = zipWith(inner1, inner2)((_, _))(dec)
-
-  /**
-   * Create an Enumeratee that zips two Iteratees together, using the passed in zipper function to combine the results
-   * of the two.
-   *
-   * @param inner1 The first Iteratee to combine.
-   * @param inner2 The second Iteratee to combine.
-   * @param zipper Used to combine the results of each Iteratee.
-   * $paramEcSingle
-   */
-  def zipWith[E, A, B, C](inner1: Iteratee[E, A], inner2: Iteratee[E, B])(zipper: (A, B) => C)(implicit ec: ExecutionContext): Iteratee[E, C] = {
-    val pec = ec.prepare()
-    import Execution.Implicits.{ defaultExecutionContext => ec } // Shadow ec to make this the only implicit EC in scope
-
-    def getNext(it1: Iteratee[E, A], it2: Iteratee[E, B]): Iteratee[E, C] = {
-      val eventuallyIter =
-        for (
-          (a1, it1_) <- getInside(it1);
-          (a2, it2_) <- getInside(it2)
-        ) yield checkDone(a1, a2) match {
-          case Left((msg, in)) => Error(msg, in)
-          case Right(None) => Cont(step(it1_, it2_))
-          case Right(Some(Left(Left(a)))) => it2_.map(b => zipper(a, b))(pec)
-          case Right(Some(Left(Right(b)))) => it1_.map(a => zipper(a, b))(pec)
-          case Right(Some(Right(((a, b), e)))) => executeIteratee(Done(zipper(a, b), e))(pec)
-        }
-
-      Iteratee.flatten(eventuallyIter)
-    }
-
-    def step(it1: Iteratee[E, A], it2: Iteratee[E, B])(in: Input[E]) = {
-      Iteratee.flatten(
-        for (
-          it1_ <- it1.feed(in);
-          it2_ <- it2.feed(in)
-        ) yield getNext(it1_, it2_))
-
-    }
-
-    def getInside[T](it: Iteratee[E, T]): Future[(Option[Either[(String, Input[E]), (T, Input[E])]], Iteratee[E, T])] = {
-      it.pureFold {
-        case Step.Done(a, e) => Some(Right((a, e)))
-        case Step.Cont(k) => None
-        case Step.Error(msg, e) => Some(Left((msg, e)))
-      }(dec).map(r => (r, it))(dec)
-
-    }
-
-    def checkDone(x: Option[Either[(String, Input[E]), (A, Input[E])]], y: Option[Either[(String, Input[E]), (B, Input[E])]]): Either[(String, Input[E]), Option[Either[Either[A, B], ((A, B), Input[E])]]] =
-      (x, y) match {
-        case (Some(Right((a, e1))), Some(Right((b, e2)))) => Right(Some(Right(((a, b), e1 /* FIXME: should calculate smalled here*/ ))))
-        case (Some(Left((msg, e))), _) => Left((msg, e))
-        case (_, Some(Left((msg, e)))) => Left((msg, e))
-        case (Some(Right((a, _))), None) => Right(Some(Left(Left(a))))
-        case (None, Some(Right((b, _)))) => Right(Some(Left(Right(b))))
-        case (None, None) => Right(None)
-
-      }
-    getNext(inner1, inner2)
-
   }
 
   /**

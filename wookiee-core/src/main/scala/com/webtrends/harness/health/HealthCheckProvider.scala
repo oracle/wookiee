@@ -32,6 +32,7 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
+import scala.language.postfixOps
 
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>

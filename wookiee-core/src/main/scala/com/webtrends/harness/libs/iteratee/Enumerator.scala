@@ -482,7 +482,7 @@ object Enumerator {
 
   }
 
-  def checkContinue1[E, S](s: S)(inner: TreatCont1[E, S]) = new Enumerator[E] {
+  def checkContinue1[E, S](s: S)(inner: TreatCont1[E, S]): Enumerator[E] = new Enumerator[E] {
 
     def apply[A](it: Iteratee[E, A]): Future[Iteratee[E, A]] = {
 
@@ -508,8 +508,8 @@ object Enumerator {
    */
   def fromCallback1[E](retriever: Boolean => Future[Option[E]],
     onComplete: () => Unit = () => (),
-    onError: (String, Input[E]) => Unit = (_: String, _: Input[E]) => ())(implicit ec: ExecutionContext) = new Enumerator[E] {
-    private val pec = ec.prepare()
+    onError: (String, Input[E]) => Unit = (_: String, _: Input[E]) => ())(implicit ec: ExecutionContext): Enumerator[E] = new Enumerator[E] {
+
     def apply[A](it: Iteratee[E, A]): Future[Iteratee[E, A]] = {
 
       val iterateeP = Promise[Iteratee[E, A]]()
@@ -517,19 +517,16 @@ object Enumerator {
       def step(it: Iteratee[E, A], initial: Boolean = false) {
 
         val next = it.fold {
-          case Step.Cont(k) => {
-            executeFuture(retriever(initial))(pec).map {
-              case None => {
+          case Step.Cont(k) =>
+            executeFuture(retriever(initial))(ec).map {
+              case None =>
                 val remainingIteratee = k(Input.EOF)
                 iterateeP.success(remainingIteratee)
                 None
-              }
-              case Some(read) => {
+              case Some(read) =>
                 val nextIteratee = k(Input.El(read))
                 Some(nextIteratee)
-              }
             }(dec)
-          }
           case Step.Error(msg, in) =>
             onError(msg, in)
             iterateeP.success(it)
@@ -539,20 +536,20 @@ object Enumerator {
             Future.successful(None)
         }(dec)
 
-        next.onFailure {
+        next.failed.foreach {
           case reason: Exception =>
-            onError(reason.getMessage(), Input.Empty)
+            onError(reason.getMessage, Input.Empty)
         }(dec)
 
         next.onComplete {
           case Success(Some(i)) => step(i)
 
-          case Success(None) => Future(onComplete())(pec)
+          case Success(None) => Future(onComplete())(ec)
           case Failure(e) =>
             iterateeP.failure(e)
         }(dec)
       }
-      step(it, true)
+      step(it, initial = true)
       iterateeP.future
     }
   }
@@ -569,7 +566,6 @@ object Enumerator {
    * @param ec The ExecutionContext to execute blocking code.
    */
   def fromStream(input: java.io.InputStream, chunkSize: Int = 1024 * 8)(implicit ec: ExecutionContext): Enumerator[Array[Byte]] = {
-    implicit val pec = ec.prepare()
     generateM({
       val buffer = new Array[Byte](chunkSize)
       val bytesRead = blocking { input.read(buffer) }
@@ -582,7 +578,7 @@ object Enumerator {
           Some(input)
       }
       Future.successful(chunk)
-    })(pec).onDoneEnumerating(input.close)(pec)
+    })(ec).onDoneEnumerating(input.close())(ec)
   }
 
   /**
@@ -643,7 +639,7 @@ object Enumerator {
   /**
    * An enumerator that produces EOF and nothing else.
    */
-  def eof[A] = enumInput[A](Input.EOF)
+  def eof[A]: Enumerator[A] = enumInput[A](Input.EOF)
 
   /**
    * Create an Enumerator from a set of values
@@ -674,13 +670,13 @@ object Enumerator {
    *  val enumerator: Enumerator[String] = Enumerator( scala.io.Source.fromFile("myfile.txt").getLines )
    * }}}
    */
-  def enumerate[E](traversable: TraversableOnce[E])(implicit ctx: scala.concurrent.ExecutionContext): Enumerator[E] = {
-    val it = traversable.toIterator
+  def enumerate[E](traversable: Iterable[E])(implicit ctx: scala.concurrent.ExecutionContext): Enumerator[E] = {
+    val it = traversable.iterator
     Enumerator.unfoldM[scala.collection.Iterator[E], E](it: scala.collection.Iterator[E])({ currentIt =>
       if (currentIt.hasNext)
         Future[Option[(scala.collection.Iterator[E], E)]]({
           val next = currentIt.next
-          Some((currentIt -> next))
+          Some(currentIt -> next)
         })(ctx)
       else
         Future.successful[Option[(scala.collection.Iterator[E], E)]]({
@@ -693,7 +689,7 @@ object Enumerator {
    * An empty enumerator
    */
   def empty[E]: Enumerator[E] = new Enumerator[E] {
-    def apply[A](i: Iteratee[E, A]) = Future.successful(i)
+    def apply[A](i: Iteratee[E, A]): Future[Iteratee[E, A]] = Future.successful(i)
   }
 
   private def enumerateSeq[E, A]: (Seq[E], Iteratee[E, A]) => Future[Iteratee[E, A]] = { (l, i) =>
@@ -706,14 +702,14 @@ object Enumerator {
 
   private[iteratee] def enumerateSeq1[E](s: Seq[E]): Enumerator[E] = checkContinue1(s)(new TreatCont1[E, Seq[E]] {
     def apply[A](loop: (Iteratee[E, A], Seq[E]) => Future[Iteratee[E, A]], s: Seq[E], k: Input[E] => Iteratee[E, A]): Future[Iteratee[E, A]] =
-      if (!s.isEmpty)
+      if (s.nonEmpty)
         loop(k(Input.El(s.head)), s.tail)
       else Future.successful(Cont(k))
   })
 
   private[iteratee] def enumerateSeq2[E](s: Seq[Input[E]]): Enumerator[E] = checkContinue1(s)(new TreatCont1[E, Seq[Input[E]]] {
     def apply[A](loop: (Iteratee[E, A], Seq[Input[E]]) => Future[Iteratee[E, A]], s: Seq[Input[E]], k: Input[E] => Iteratee[E, A]): Future[Iteratee[E, A]] =
-      if (!s.isEmpty)
+      if (s.nonEmpty)
         loop(k(s.head), s.tail)
       else Future.successful(Cont(k))
   })
