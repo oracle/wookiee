@@ -78,14 +78,14 @@ class HarnessActor extends Actor
 
   private val config = context.system.settings.config
 
-  implicit val checkTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
-  val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20 seconds))
-  val prepareShutdownTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5 seconds))
+  implicit val checkTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
+  val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20.seconds))
+  val prepareShutdownTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5.seconds))
 
   var running: Boolean = false
 
   override val supervisorStrategy: OneForOneStrategy =
-    OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute, loggingEnabled = true) {
+    OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute, loggingEnabled = true) {
       case _: ActorInitializationException => Stop
       case _: DeathPactException => Stop
       case _: ActorKilledException => Restart

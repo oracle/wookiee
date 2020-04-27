@@ -126,7 +126,7 @@ object Harness {
     // We will tell the main actor that we are shutting down. This allows it to shutdown
     // its children and perform any needed cleanup.
     getRootActor(port) foreach { root =>
-      val fut = gracefulStop(root, 15 seconds, ShutdownSystem)
+      val fut = gracefulStop(root, 15.seconds, ShutdownSystem)
         .andThen {
           case Success(_) =>
             log.debug("Now shutting down the the system itself")
@@ -147,7 +147,7 @@ object Harness {
       }
 
       if (block) {
-        Await.result(fut, 15 seconds)
+        Await.result(fut, 15.seconds)
       }
     }
   }

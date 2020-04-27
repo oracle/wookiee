@@ -30,7 +30,7 @@ import scala.reflect.ClassTag
  * and execute commands at will
  */
 object CommandHelper {
-  def getCommandManager(implicit system: ActorSystem, timeout: Timeout = 2 seconds): Future[ActorRef] = {
+  def getCommandManager(implicit system: ActorSystem, timeout: Timeout = 2.seconds): Future[ActorRef] = {
     system.actorSelection(HarnessConstants.CommandFullName).resolveOne()(timeout)
   }
 
@@ -136,7 +136,7 @@ trait CommandHelper  { this: Actor =>
    * @return Reference to the newly created Command Actor
    */
   def addCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) : Future[ActorRef] = {
-    implicit val timeout: Timeout = Timeout(4 seconds)
+    implicit val timeout: Timeout = Timeout(4.seconds)
 
     initCommandManager flatMap { cm =>
       (cm ? AddCommandWithProps(id, props, checkHealth)).mapTo[ActorRef]
@@ -151,7 +151,7 @@ trait CommandHelper  { this: Actor =>
    * @return Reference to the newly created Command Actor
    */
   def addCommand[T:ClassTag](id: String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
-    implicit val timeout: Timeout = Timeout(4 seconds)
+    implicit val timeout: Timeout = Timeout(4.seconds)
 
     initCommandManager flatMap { cm =>
       (cm ? AddCommand(id, actorClass, checkHealth)).mapTo[ActorRef]

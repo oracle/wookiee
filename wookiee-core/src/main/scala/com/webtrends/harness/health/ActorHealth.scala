@@ -35,7 +35,7 @@ trait ActorHealth {
   import context.dispatcher
 
   implicit val checkTimeout:Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
 
   def health:Receive = {
     case CheckHealth =>

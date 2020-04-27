@@ -52,7 +52,7 @@ trait ComponentHelper extends CommandHelper {
         componentManagerInitialized = true
         p failure ComponentException("Component Manager", "Failed to get component manager")
       } else if (context != null) {
-        context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1 second) onComplete {
+        context.actorSelection(HarnessConstants.ComponentFullName).resolveOne()(1.second) onComplete {
           case Success(s) =>
             componentManager = Some(s)
             componentManagerInitialized = true

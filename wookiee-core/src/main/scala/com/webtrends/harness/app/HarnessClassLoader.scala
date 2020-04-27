@@ -26,17 +26,15 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
 
   /**
    * Adds a sequence of urls to load into this class loader
-   * @param urls
+   * @param urls Urls of the JAR files to load
    */
-  def addURLs(urls: Seq[URL]) = urls foreach {
-    addURL(_)
-  }
+  def addURLs(urls: Seq[URL]): Unit = urls foreach addURL
 
   /**
    * Add the child service loader so it can be used to search for classes in child loaders
    * @param loader an instance of ServiceClassLoader
    */
-  def addChildLoader(loader: ServiceClassLoader) = childLoaders = childLoaders ++ Seq(loader)
+  def addChildLoader(loader: ServiceClassLoader): Unit = childLoaders = childLoaders ++ Seq(loader)
 
   /**
    * ClassLoader overrides

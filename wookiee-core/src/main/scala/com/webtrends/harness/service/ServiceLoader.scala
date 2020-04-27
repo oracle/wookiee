@@ -283,7 +283,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     var ref: Option[ActorRef] = None
     services foreach { s =>
       if (s._1.name.equals(name)) {
-        s._2._1.resolveOne(4 seconds) onComplete {
+        s._2._1.resolveOne(4.seconds) onComplete {
           case Success(some) => ref = Some(some.asInstanceOf[ActorRef])
           case Failure(_) => log.warn(s"Failed to get service $name")
         }

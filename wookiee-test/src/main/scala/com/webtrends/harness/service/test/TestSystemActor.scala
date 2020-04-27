@@ -27,7 +27,6 @@ import com.webtrends.harness.service.messages.{CheckHealth, GetMetaData, GetMeta
 import com.webtrends.harness.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
 import org.joda.time.DateTime
-
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
@@ -63,7 +62,7 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
   extends Actor {
 
   implicit val sys: ActorSystem = context.system
-  implicit val timeout: Timeout = Timeout(1 second)
+  implicit val timeout: Timeout = Timeout(1.second)
 
   import context.dispatcher
 
@@ -90,7 +89,7 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
           sender() ! services.get(URLEncoder.encode(clazz.getSimpleName.toLowerCase, "utf-8"))
         case CheckHealth =>
           val xSender = sender()
-          val future = Future.traverse(context.children)(plug => (plug ? CheckHealth)(2 second)).mapTo[Seq[HealthComponent]]
+          val future = Future.traverse(context.children)(plug => (plug ? CheckHealth)(2.second)).mapTo[Seq[HealthComponent]]
 
           future.onComplete({
             case Failure(f) =>

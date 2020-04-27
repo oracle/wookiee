@@ -23,7 +23,6 @@ import ch.qos.logback.classic.Level
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.component.Component
 import com.webtrends.harness.service.Service
-
 import scala.concurrent.duration._
 
 // Add 'with WordSpecLike with MustMatchers' or 'with SpecificationLike' depending on scalatest/specs2
@@ -32,7 +31,7 @@ trait BaseWookieeTest {
   def componentMap: Option[Map[String, Class[_<:Component]]] = None
   def servicesMap: Option[Map[String, Class[_<:Service]]] = None
   def logLevel: Level = Level.INFO
-  def startupWait: FiniteDuration = 15 seconds
+  def startupWait: FiniteDuration = 15.seconds
   def port: Int = freePort
 
   private val freePort: Int = getFreePort

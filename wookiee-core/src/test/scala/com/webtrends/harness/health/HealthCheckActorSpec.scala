@@ -21,7 +21,6 @@ package com.webtrends.harness.health
 import java.util.concurrent.TimeUnit
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
-import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.typesafe.config.ConfigFactory
 import com.webtrends.harness.app.HActor
@@ -147,7 +146,7 @@ class HealthCheckActorSpec extends WordSpecLike with MustMatchers with BeforeAnd
   }
 
   class TopActor() extends HActor {
-    override implicit val checkTimeout: Timeout = Timeout(2 seconds)
+    override implicit val checkTimeout: Timeout = Timeout(2.seconds)
     val lActor: ActorRef = context.actorOf(Props(new LowerActor()), "lower")
   }
 

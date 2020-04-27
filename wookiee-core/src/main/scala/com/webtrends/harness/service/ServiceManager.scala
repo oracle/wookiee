@@ -41,8 +41,8 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
   import context.dispatcher
 
-  override val supervisorStrategy =
-    OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1 minute) {
+  override val supervisorStrategy: OneForOneStrategy =
+    OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute) {
       case _: ActorInitializationException => Stop
       case _: DeathPactException => Stop
       case _: ActorKilledException => Restart

@@ -4,7 +4,6 @@ import akka.util.Timeout
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.test.BaseWookieeTest
 import org.scalatest.{Matchers, WordSpecLike}
-
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
@@ -35,7 +34,7 @@ class FactoryService extends Service {
 }
 
 class CommandFactorySpec extends BaseWookieeTest with Matchers with WordSpecLike {
-  implicit val timeout: Timeout = Timeout(3 seconds)
+  implicit val timeout: Timeout = Timeout(3.seconds)
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
     Some(Map("factory-service" -> classOf[FactoryService]))
 

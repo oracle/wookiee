@@ -21,7 +21,6 @@ import com.webtrends.harness.app.HarnessActor.{PrepareForShutdown, SystemReady}
 import com.webtrends.harness.component.messages.StatusRequest
 import com.webtrends.harness.component.{Component, ComponentResponse}
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
-
 import scala.concurrent.duration._
 
 object TestComponent {
@@ -33,7 +32,7 @@ object TestComponent {
  * 12/31/14
  */
 class TestComponent(name:String) extends Component(name) with ShutdownListener {
-  implicit val timeout = Timeout(2 seconds)
+  implicit val timeout = Timeout(2.seconds)
 
   /**
    * Components will typically receive a couple type of messages

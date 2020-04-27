@@ -37,7 +37,7 @@ trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
   val upTime: DateTime = DateTime.now
   implicit val timeout: Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15 seconds))
+    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
 
   val scalaVersion: String = util.Properties.versionString
   val file: String = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
