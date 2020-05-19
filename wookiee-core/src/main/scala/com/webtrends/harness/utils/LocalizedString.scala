@@ -99,7 +99,8 @@ private[utils] class UTF8BundleControl(fallBackLocales: Queue[Locale]) extends R
 }
 
 /**
- * To support List of Locales in Localization
+ * Support for List of Locale in Localization
+ * It accepts ordered List of locales
  * returns Localized value in highest locale that App supports
  * */
 case class LocalizableString(key: String, args: List[Any] = Nil) {
