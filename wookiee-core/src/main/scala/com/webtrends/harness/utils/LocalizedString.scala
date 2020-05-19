@@ -19,6 +19,7 @@ package com.webtrends.harness.utils
 import java.text.MessageFormat
 import java.util.{ResourceBundle, Locale}
 
+import scala.collection.mutable.Queue
 /** Messages externalization
   *
   * == Overview ==
@@ -38,13 +39,13 @@ import java.util.{ResourceBundle, Locale}
   */
 trait LocalizedString {
   /** get the message w/o formatting */
-  def raw(msg: String)(implicit locale: Locale=Locale.getDefault, context:String="messages"): String = {
-    val bundle = ResourceBundle.getBundle(context, locale, UTF8BundleControl)
-    bundle.getString(msg)
+  def raw(msg: String)(implicit locale: Locale = Locale.getDefault, context: String = "messages", fallbackLocales: List[Locale] = Nil): (String, Locale) = {
+    val bundle = ResourceBundle.getBundle(context, locale, new UTF8BundleControl(fallbackLocales.to[Queue]))
+    (bundle.getString(msg), bundle.getLocale)
   }
 
-  def apply(msg: String, args: Any*)(locale: Locale=Locale.getDefault, context:String="messages"): String = {
-    new MessageFormat(raw(msg)(locale, context), locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
+  def apply(msg: String, args: Any*)(locale: Locale = Locale.getDefault, context: String = "messages"): String = {
+    new MessageFormat(raw(msg)(locale, context)._1, locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
   }
 }
 
@@ -54,7 +55,7 @@ object LocalizedString extends LocalizedString
 
 // @see https://gist.github.com/alaz/1388917
 // @see http://stackoverflow.com/questions/4659929/how-to-use-utf-8-in-resource-properties-with-resourcebundle
-private[utils] object UTF8BundleControl extends ResourceBundle.Control {
+private[utils] class UTF8BundleControl(fallBackLocales: Queue[Locale]) extends ResourceBundle.Control {
 
   val Format = "properties.utf8"
 
@@ -64,9 +65,14 @@ private[utils] object UTF8BundleControl extends ResourceBundle.Control {
     Seq(Format).asJava
   }
 
-  override def getFallbackLocale(baseName: String, locale: Locale) =
-    if (locale == Locale.getDefault) null
-    else Locale.getDefault
+  override def getFallbackLocale(baseName: String, locale: Locale) = {
+    val defaultLocale = Locale.getDefault
+    (fallBackLocales.isEmpty, locale) match {
+      case (true, `defaultLocale`) => null
+      case (true, _) => defaultLocale
+      case (false, _) => fallBackLocales.dequeue()
+    }
+  }
 
   override def newBundle(baseName: String, locale: Locale, fmt: String, loader: ClassLoader, reload: Boolean): ResourceBundle = {
     import java.util.PropertyResourceBundle
@@ -89,5 +95,20 @@ private[utils] object UTF8BundleControl extends ResourceBundle.Control {
     (for {format <- Option(fmt) if format == Format
           is <- stream}
       yield new PropertyResourceBundle(new InputStreamReader(is, "UTF-8"))).orNull
+  }
+}
+
+/**
+ * To support List of Locales in Localization
+ * returns Localized value in highest locale that App supports
+ * */
+case class LocalizableString(key: String, args: List[Any] = Nil) {
+
+  def localize(locales: List[Locale] = List(Locale.getDefault), context: String = "messages"): String = {
+    val (message, locale) = locales match {
+      case Nil => LocalizedString.raw(key)(Locale.getDefault, context)
+      case head :: tail => LocalizedString.raw(key)(head, context, tail)
+    }
+    new MessageFormat(message, locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
   }
 }

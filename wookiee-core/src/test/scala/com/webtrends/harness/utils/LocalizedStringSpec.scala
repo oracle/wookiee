@@ -47,5 +47,14 @@ class LocalizedStringSpec extends WordSpecLike with MustMatchers {
       LocalizedString("custom.greet", "custom world")(Locale.ENGLISH, "custom") mustBe "Hello, custom world"
       LocalizedString("custom.greet", "custom world")(Locale.forLanguageTag("ru"), "custom") mustBe "Привет, custom world"
     }
+
+    "Localizable String fallback to next available locale when multiple locales exists" in {
+      LocalizableString("hello").localize(List(Locale.ENGLISH)) mustBe "Hello"
+      LocalizableString("hello").localize(List(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
+    }
+    "Localizable String format" in {
+      LocalizableString("greet", List("world")).localize(List(Locale.ENGLISH)) mustBe "Hello, world"
+      LocalizableString("greet", List("world")).localize(List(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет, world"
+    }
   }
 }
