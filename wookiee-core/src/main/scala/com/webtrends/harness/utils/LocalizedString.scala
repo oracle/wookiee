@@ -39,13 +39,13 @@ import scala.collection.mutable.Queue
   */
 trait LocalizedString {
   /** get the message w/o formatting */
-  def raw(msg: String)(implicit locale: Locale = Locale.getDefault, context: String = "messages", fallbackLocales: List[Locale] = Nil): (String, Locale) = {
-    val bundle = ResourceBundle.getBundle(context, locale, new UTF8BundleControl(fallbackLocales.to[Queue]))
-    (bundle.getString(msg), bundle.getLocale)
+  def raw(msg: String)(implicit locale: Locale = Locale.getDefault, context: String = "messages"): String = {
+    val bundle = ResourceBundle.getBundle(context, locale, new UTF8BundleControl(Queue.empty))
+    bundle.getString(msg)
   }
 
   def apply(msg: String, args: Any*)(locale: Locale = Locale.getDefault, context: String = "messages"): String = {
-    new MessageFormat(raw(msg)(locale, context)._1, locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
+    new MessageFormat(raw(msg)(locale, context), locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
   }
 }
 
@@ -99,17 +99,21 @@ private[utils] class UTF8BundleControl(fallBackLocales: Queue[Locale]) extends R
 }
 
 /**
- * Support for List of Locale in Localization
- * It accepts ordered List of locales
+ * Support for multiple locales in Localization
+ * It accepts ordered collection of locales
  * returns Localized value in highest locale that App supports
  * */
-case class LocalizableString(key: String, args: List[Any] = Nil) {
+case class LocalizableString(key: String, args: Seq[Any] = Nil) {
 
-  def localize(locales: List[Locale] = List(Locale.getDefault), context: String = "messages"): String = {
-    val (message, locale) = locales match {
-      case Nil => LocalizedString.raw(key)(Locale.getDefault, context)
-      case head :: tail => LocalizedString.raw(key)(head, context, tail)
+  private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String = "messages", fallbackLocales: Seq[Locale] = Nil) = {
+    ResourceBundle.getBundle(context, locale, new UTF8BundleControl(fallbackLocales.to[Queue]))
+  }
+
+  def localize(locales: Seq[Locale] = Seq(Locale.getDefault))(implicit context: String = "messages"): String = {
+    val bundle = locales match {
+      case Nil => resourceBundle(key)(Locale.getDefault, context)
+      case head :: tail => resourceBundle(key)(head, context, tail)
     }
-    new MessageFormat(message, locale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
+    new MessageFormat(bundle.getString(key), bundle.getLocale()).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
   }
 }
