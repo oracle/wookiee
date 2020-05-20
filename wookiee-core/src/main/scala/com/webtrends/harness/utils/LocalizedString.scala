@@ -103,13 +103,13 @@ private[utils] class UTF8BundleControl(fallBackLocales: Queue[Locale]) extends R
  * It accepts ordered collection of locales
  * returns Localized value in highest locale that App supports
  * */
-case class LocalizableString(key: String, args: Seq[Any] = Nil) {
+case class LocalizableString(key: String, args: Seq[Any] = Nil, context: String = "messages") {
 
-  private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String = "messages", fallbackLocales: Seq[Locale] = Nil) = {
+  private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String, fallbackLocales: Seq[Locale] = Nil) = {
     ResourceBundle.getBundle(context, locale, new UTF8BundleControl(fallbackLocales.to[Queue]))
   }
 
-  def localize(locales: Seq[Locale] = Seq(Locale.getDefault))(implicit context: String = "messages"): String = {
+  def localize(locales: Seq[Locale] = Seq(Locale.getDefault)): String = {
     val bundle = locales match {
       case Nil => resourceBundle(key)(Locale.getDefault, context)
       case head :: tail => resourceBundle(key)(head, context, tail)

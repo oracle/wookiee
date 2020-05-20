@@ -57,9 +57,9 @@ class LocalizedStringSpec extends WordSpecLike with MustMatchers {
       LocalizableString("greet", Seq("world")).localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет, world"
     }
     "Localizable String in custom path" in {
-      LocalizableString("custom_path.hello").localize(Seq(Locale.ENGLISH))("com.custom.path.messages") mustBe "Hello"
-      LocalizableString("custom_path.hello")
-        .localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH))("com.custom.path.messages") mustBe "Привет"
+      LocalizableString("custom_path.hello", context = "com.custom.path.messages").localize(Seq(Locale.ENGLISH)) mustBe "Hello"
+      LocalizableString("custom_path.hello", context = "com.custom.path.messages")
+        .localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
     }
   }
 }
