@@ -47,19 +47,25 @@ class LocalizedStringSpec extends WordSpecLike with MustMatchers {
       LocalizedString("custom.greet", "custom world")(Locale.ENGLISH, "custom") mustBe "Hello, custom world"
       LocalizedString("custom.greet", "custom world")(Locale.forLanguageTag("ru"), "custom") mustBe "Привет, custom world"
     }
+  }
 
-    "Localizable String fallback to next available locale when multiple locales exists" in {
-      LocalizableString("hello").localize(Seq(Locale.ENGLISH)) mustBe "Hello"
-      LocalizableString("hello").localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
+  "Localizable"  should {
+    case class HelloMessage() extends Localizable {
+      val key = "hello"
+      val context: String = "messages"
     }
-    "Localizable String format" in {
-      LocalizableString("greet", Seq("world")).localize(Seq(Locale.ENGLISH)) mustBe "Hello, world"
-      LocalizableString("greet", Seq("world")).localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет, world"
+    case class GreetMessage() extends Localizable {
+      val key = "custom.greet"
+      val context: String = "custom"
+      override val args: Seq[Any] = Seq(HelloMessage())
     }
-    "Localizable String in custom path" in {
-      LocalizableString("custom_path.hello", context = "com.custom.path.messages").localize(Seq(Locale.ENGLISH)) mustBe "Hello"
-      LocalizableString("custom_path.hello", context = "com.custom.path.messages")
-        .localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
+    "localize message" in {
+      HelloMessage().localize(Seq(Locale.ENGLISH)) mustBe "Hello"
+      HelloMessage().localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
+    }
+    "custom path with localizable argument" in {
+      GreetMessage().localize(Seq(Locale.ENGLISH)) mustBe "Hello, Hello"
+      GreetMessage().localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет, Привет"
     }
   }
 }
