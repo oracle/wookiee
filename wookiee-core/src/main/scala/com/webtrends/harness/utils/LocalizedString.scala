@@ -61,7 +61,7 @@ private[utils] class UTF8BundleControl(fallBackLocales: mutable.Queue[Locale]) e
   val Format = "properties.utf8"
 
   override def getFormats(baseName: String): java.util.List[String] = {
-    import scala.jdk.CollectionConverters._
+    import scala.collection.JavaConverters._
 
     Seq(Format).asJava
   }
@@ -107,7 +107,7 @@ private[utils] class UTF8BundleControl(fallBackLocales: mutable.Queue[Locale]) e
 case class LocalizableString(key: String, args: Seq[Any] = Nil, context: String = "messages") {
 
   private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String, fallbackLocales: Seq[Locale] = Nil) = {
-    ResourceBundle.getBundle(context, locale, new UTF8BundleControl(fallbackLocales.to(mutable.Queue)))
+  ResourceBundle.getBundle(context, locale, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
   }
 
   def localize(locales: Seq[Locale] = Seq(Locale.getDefault)): String = {
