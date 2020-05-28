@@ -48,4 +48,23 @@ class LocalizedStringSpec extends WordSpecLike with MustMatchers {
       LocalizedString("custom.greet", "custom world")(Locale.forLanguageTag("ru"), "custom") mustBe "Привет, custom world"
     }
   }
+
+  "Localizable"  should {
+    case class HelloMessage() extends Localizable {
+      val key = "hello"
+      val context: String = "messages"
+    }
+    case class GreetMessage(override val args: Seq[Any]) extends Localizable {
+      val key = "custom.greet"
+      val context: String = "custom"
+    }
+    "localize message" in {
+      HelloMessage().localize(Seq(Locale.ENGLISH)) mustBe "Hello"
+      HelloMessage().localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет"
+    }
+    "custom path with localizable argument" in {
+      GreetMessage(Seq(HelloMessage())).localize(Seq(Locale.ENGLISH)) mustBe "Hello, Hello"
+      GreetMessage(Seq(HelloMessage())).localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) mustBe "Привет, Привет"
+    }
+  }
 }
