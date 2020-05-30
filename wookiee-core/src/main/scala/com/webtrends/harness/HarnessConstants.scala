@@ -26,10 +26,10 @@ object HarnessConstants {
   val TypedCommandName = "typedCommand"
 
   // full actor names
-  val ServicesFullName = ActorPrefix + "/" + ServicesName
-  val HealthFullName = ActorPrefix + "/" + Health.HealthName
-  val ComponentFullName = ActorPrefix + "/" + ComponentName
-  val CommandFullName = ActorPrefix + "/" + CommandName
+  val ServicesFullName: String = ActorPrefix + "/" + ServicesName
+  val HealthFullName: String = ActorPrefix + "/" + Health.HealthName
+  val ComponentFullName: String = ActorPrefix + "/" + ComponentName
+  val CommandFullName: String = ActorPrefix + "/" + CommandName
 
   val KeyStartupTimeout = "startup-timeout"
   val KeyDefaultTimeout = "default-timeout"

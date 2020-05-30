@@ -32,6 +32,7 @@ import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListen
 import com.webtrends.harness.service.test.{TestComponent, TestHarness, TestService}
 import org.scalatest.{Inspectors, Matchers, WordSpecLike}
 
+import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 
 
@@ -82,6 +83,13 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       loadComponent(sys2)
     }
 
+    val bean = CommandBeanHelper.createInput[WeatherData](
+      MapBean(Map[String, Any](
+        "name" -> "Seattle, WA",
+        "location" -> "47.608013,-122.335167",
+        "mode" -> "current")
+      ))
+
     "load command managers and commands size equals 1 for both" in {
       val probe1 = new TestProbe(actorSystem)
       val probe2 = new TestProbe(actorSystem2)
@@ -105,19 +113,24 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       assert(commandManager.isDefined, "Command Manager was not registered")
       probe.send(commandManager.get, AddCommand("WeatherCommand", classOf[WeatherCommand]))
       probe.expectMsgType[ActorRef](Duration(15, TimeUnit.SECONDS))
-      probe.send(commandManager.get, ExecuteCommand("WeatherCommand", timeout = timeout,
-        bean = CommandBeanHelper.createInput[WeatherData](
-          MapBean(Map[String, Any](
-            "name" -> "Seattle, WA",
-            "location" -> "47.608013,-122.335167",
-            "mode" -> "current")
-          ))))
+      probe.send(commandManager.get, ExecuteCommand("WeatherCommand", bean, timeout))
 
       val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
       reply.contains("47.608013") shouldBe true
       reply.contains("-122.335167") shouldBe true
     }
 
+    "execute remote command logic" in {
+      val probe = TestProbe()
+      val commandManager = sys.commandManager
+      assert(commandManager.isDefined, "Command Manager was not registered")
+      probe.send(commandManager.get, ExecuteRemoteCommand[WeatherData, String]("WeatherCommand", bean, { (id: String, input: WeatherData) =>
+        Future.successful(s"$id-${input.name}-remote")
+      }, timeout))
+
+      val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
+      reply shouldBe "WeatherCommand-Seattle, WA-remote"
+    }
 
     "shutdown services and components" in {
       val probe1 = new TestProbe(actorSystem)

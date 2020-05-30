@@ -25,9 +25,8 @@ import com.webtrends.harness.app.HarnessActor.SystemReady
 import com.webtrends.harness.app.PrepareForShutdown
 
 import scala.collection.mutable
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Future
 import scala.reflect.ClassTag
-import scala.util.{Failure, Success}
 
 /**
   * @author Michael Cuthbert & Spencer Wood
@@ -38,9 +37,13 @@ sealed trait AddCommands {
 
 case class AddCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) extends AddCommands
 case class AddCommand[T: ClassTag](id: String, actorClass: Class[T], checkHealth: Boolean = false) extends AddCommands
-case class ExecuteCommand[Input <: Product : ClassTag](id: String, bean: Input, timeout: Timeout)
-case class ExecuteRemoteCommand[Input <: Product : ClassTag](id: String, server: String, port: Int, bean: Input, timeout: Timeout)
 case class GetCommands()
+
+case class ExecuteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
+  (id: String, bean: Input, timeout: Timeout)
+case class ExecuteRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
+  (id: String, bean: Input, remoteLogic: (String, Input) => Future[Output], timeout: Timeout)
+
 
 class CommandManager extends PrepareForShutdown {
   import context.dispatcher
@@ -58,38 +61,38 @@ class CommandManager extends PrepareForShutdown {
 
   override def receive: PartialFunction[Any, Unit] = super.receive orElse {
     case AddCommandWithProps(name, props, checkHealth) =>
-      pipe(addCommand(name, props, checkHealth)) to sender
+      sender ! addCommand(name, props, checkHealth)
     case AddCommand(name, actorClass, checkHealth) =>
-      pipe(addCommand(name, actorClass, checkHealth)) to sender
-    case ExecuteCommand(name, bean, timeout) =>
-      pipe(executeCommand(name, bean, timeout)) to sender
-    case ExecuteRemoteCommand(name, server, port, bean, timeout) =>
-      pipe(executeRemoteCommand(name, server, port, bean, timeout)) to sender
+      sender ! addCommand(name, actorClass, checkHealth)
+    case exec: ExecuteCommand[Product, Any] =>
+      pipe(executeCommand(exec)) to sender
+    case exec: ExecuteRemoteCommand[Product, Any] =>
+      pipe(executeRemoteCommand(exec)) to sender
     case GetCommands() =>
       sender ! getCommands
     case SystemReady => // ignore
+    case ex =>
+      log.warn(s"Unable to handle message type: $ex")
   }
 
-  protected def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean) : Future[ActorRef] = {
+  protected def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean): ActorRef = {
     addCommand(name, Props(actorClass), checkHealth)
   }
 
-  protected def getCommand(name:String) : Option[ActorRef] = commandMap.get(name)
+  protected def getCommand(name:String): Option[ActorRef] = commandMap.get(name)
   protected def getCommands: Map[String, ActorRef] = commandMap.toMap
-  protected def getRemoteAkkaPath(server:String, port:Int) : String =
-    s"akka.tcp://server@$server:$port${HarnessConstants.CommandFullName}"
 
   /**
    * We add commands as children to the CommandManager, based on default routing
    * or we use the setup defined for the command
    */
-  protected def addCommand(name:String, props:Props, checkHealth: Boolean) : Future[ActorRef] = {
+  protected def addCommand(name: String, props: Props, checkHealth: Boolean): ActorRef = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
     getCommand(name) match {
       case Some(ref) =>
         log.warn(s"Command $name has already been registered with CommandManager.")
-        Future.successful(ref)
+        ref
       case None =>
         val aRef = if (!config.hasPath(s"akka.actor.deployment.${HarnessConstants.CommandFullName}/$name")) {
           val nrRoutees = config.getInt(HarnessConstants.KeyCommandsNrRoutees)
@@ -103,60 +106,36 @@ class CommandManager extends PrepareForShutdown {
         }
 
         addCommand(name, aRef)
-        Future { aRef }
+        aRef
     }
   }
 
   /**
    * Executes a remote command and will return a BaseCommandResponse to the sender
-   *
-   * @param name The name of the command you want to execute
-   * @param server The server that has the command on
-   * @param port the port that the server is listening on
-   * @param bean Map of parameters
+   * @param exec The name, server, port, and bean for the command you want to execute
    */
-  protected def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](name:String, server:String,
-                                        port:Int=2552, bean:Input, timeout: Timeout) : Future[Output] = {
-    val p = Promise[Output]()
-    config.getString("akka.actor.provider") match {
-      case "akka.remote.RemoteActorRefProvider" =>
-        context.actorSelection(getRemoteAkkaPath(server, port)).resolveOne() onComplete {
-          case Success(ref) =>
-            execCommand[Input, Output](ref, ExecuteCommand(name, bean, timeout), timeout, p)
-          case Failure(f) => p failure new CommandException("CommandManager", s"Failed to find remote system [$server:$port]", Some(f))
-        }
-      case _ => p failure new CommandException("CommandManager", s"Remote provider for akka is not enabled")
+  protected def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
+  (exec: ExecuteRemoteCommand[Input, Output]): Future[Output] = {
+    exec.remoteLogic(exec.id, exec.bean) recover { case f =>
+      throw CommandException("CommandManager", f)
     }
-    p.future
   }
 
   /**
-   * Executes a command and will return a BaseCommandResponse to the sender
+   * Executes a command and will return expected Output to the sender
    */
-  protected def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](name:String, bean:Input, timeout: Timeout) : Future[Output] = {
-    val p = Promise[Output]()
-    getCommand(name) match {
-      case Some(ref) =>
-        execCommand[Input, Output](ref, ExecuteCommand(name, bean, timeout), timeout, p)
-      case None =>
-        p failure CommandException(name, "Command not found")
-    }
-    p.future
+  protected def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
+  (exec: ExecuteCommand[Input, Output]): Future[Output] = {
+    getCommand(exec.id).map { ref =>
+      (ref ? exec).mapTo[Output] recover { case ex =>
+        log.warn(s"Command ${exec.id} execution failed", ex)
+        throw CommandException(exec.id, ex)
+      }
+    } getOrElse Future.failed(CommandException(exec.id, "Command not found"))
   }
 
-  private def execCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
-  (ref: ActorRef, exec: ExecuteCommand[Input], timeout: Timeout, promise: Promise[Output]): Unit = {
-    (ref ? exec)(timeout) onComplete {
-      case Success(s) =>
-        promise success s.asInstanceOf[Output]
-      case Failure(f) =>
-        promise failure f
-    }
-  }
-
-  def addCommand(name:String, ref:ActorRef) : commandMap.type = {
+  def addCommand(name:String, ref:ActorRef): commandMap.type = {
     log.info(s"Registered Command $name using path ${ref.path} with Command Manager.")
-
     commandMap += (name -> ref)
   }
 }
