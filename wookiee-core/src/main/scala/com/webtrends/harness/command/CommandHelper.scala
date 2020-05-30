@@ -35,6 +35,26 @@ object CommandHelper {
   }
 
   /**
+    * Wrapper that allows services to execute local commands
+    *
+    * @param id name of the command you want to execute
+    *             if this is a remote command the name will be the reference to the
+    *             command
+    * @param bean the bean that will be passed to the command
+    * @return Result of executing this Command
+    */
+  def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
+                                                                           bean: Input,
+                                                                           cm: Option[ActorRef] = None)
+                                                                          (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
+    import system.dispatcher
+
+    cm.map(Future.successful).getOrElse(getCommandManager) flatMap { cm: ActorRef =>
+      (cm ? ExecuteCommand[Input, Output](id, bean, timeout))(timeout).mapTo[Output]
+    }
+  }
+
+  /**
     * Wrapper that allows services execute commands (remote or otherwise)
     *
     * @param id name of the command you want to execute
@@ -45,20 +65,15 @@ object CommandHelper {
     *                    remote command instead of a local one, takes the Input bean and the Command 'id' as parameters
     * @return Result of executing this Command
     */
-  def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
-                                                                           bean: Input,
-                                                                           cm: Option[ActorRef] = None,
-                                                                           remoteLogic: Option[(String, Input) => Future[Output]] = None)
-                                                                          (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
+  def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
+                                                                            bean: Input,
+                                                                            remoteLogic: (String, Input) => Future[Output],
+                                                                            cm: Option[ActorRef] = None)
+                                                                           (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
     import system.dispatcher
 
     cm.map(Future.successful).getOrElse(getCommandManager) flatMap { cm: ActorRef =>
-      val msg = remoteLogic match {
-        case Some(logic) => ExecuteRemoteCommand[Input, Output](id, bean, logic, timeout)
-        case None => ExecuteCommand[Input, Output](id, bean, timeout)
-      }
-
-      (cm ? msg)(timeout).mapTo[Output]
+      (cm ? ExecuteRemoteCommand[Input, Output](id, bean, remoteLogic, timeout))(timeout).mapTo[Output]
     }
   }
 }
@@ -158,20 +173,35 @@ trait CommandHelper  { this: Actor =>
   }
 
   /**
-   * Wrapper that allows services execute commands (remote or otherwise)
+   * Wrapper that allows services to execute local commands
    *
-   * @param id name of the command you want to execute
-   *             if this is a remote command the name will be the reference to the
-   *             command
-   * @param bean        the bean that will be passed to the command
-   * @param remoteLogic An additional function that allows one to input logic for executing a
-    *                   remote command instead of a local one, takes the Input bean and the Command 'id' as parameters
+   * @param id Name of the command you want to execute
+   * @param bean The bean that will be passed to the command
    * @return Result of executing this Command
    */
   def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String, bean: Input,
   remoteLogic: Option[(String, Input) => Future[Output]] = None)(implicit timeout: Timeout): Future[Output] = {
     initCommandManager flatMap { _ =>
-      CommandHelper.executeCommand[Input, Output](id, bean, commandManager, remoteLogic)
+      CommandHelper.executeCommand[Input, Output](id, bean, commandManager)
+    }
+  }
+
+  /**
+    * Wrapper that allows services to execute commands (remote or otherwise)
+    *
+    * @param id Name of the command you want to execute
+    *             if this is a remote command the name will be the reference to the
+    *             command
+    * @param bean        The bean that will be passed to the command
+    * @param remoteLogic An additional function that allows one to input logic for executing a
+    *                   remote command instead of a local one, takes the Input bean and the Command 'id' as parameters
+    * @return Result of executing this Command
+    */
+  def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String, bean: Input,
+                                                                            remoteLogic: (String, Input) => Future[Output])
+                                                                                 (implicit timeout: Timeout): Future[Output] = {
+    initCommandManager flatMap { _ =>
+      CommandHelper.executeRemoteCommand[Input, Output](id, bean, remoteLogic, commandManager)
     }
   }
 }
