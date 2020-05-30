@@ -161,6 +161,11 @@ The purpose of this section is to aggregate notes and processes in setting up de
 
 [Instructions](docs/DevSetup.md)
 
+### Increasing Wookiee Version
+To bump the version of Wookiee Core/Test simply increase it in the VERSION file. Builds are automatically
+setup to read from this file and create a SNAPSHOT build of the format "$VERSION-$BRANCH-SNAPSHOT". For
+a non-SNAPSHOT release build simply create a git tag with the name of the version you want, e.g. "2.0.1".
+
 ### Creating a service
 As services are what provides functionality to the Wookiee container, this section provides information on how to
 create a basic service.
