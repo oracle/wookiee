@@ -17,10 +17,7 @@
 package com.webtrends.harness.utils
 
 import java.text.NumberFormat
-
 import scala.util.Sorting
-import scala.util.parsing.combinator._
-
 import java.util.Locale
 
 trait JsonSerializable {
@@ -30,90 +27,16 @@ trait JsonSerializable {
 trait JsonLocalization {
   JsonSerializable =>
 
-  def toJson(): String = {
+  def toJson(): String =
     toJson(None)
-  }
 
-  def toJson(l:Option[Locale]): String
+  def toJson(l: Option[Locale]): String
 }
 
 /**
  * An Exception thrown when parsing or building JSON.
  */
 class JsonException(reason: String) extends Exception(reason)
-
-
-private class EscapedStringParser extends JavaTokenParsers {
-  override protected val whiteSpace = "".r
-
-  def unicode: Parser[String] = rep1("\\u" ~> """[a-fA-F0-9]{4}""".r) ^^ { stringBytes =>
-    new String(stringBytes.map(Integer.valueOf(_, 16).intValue.asInstanceOf[Char]).toArray)
-  }
-
-  def escaped: Parser[String] = "\\" ~> """[\\/bfnrt"]""".r ^^ { charStr =>
-    val char = charStr match {
-      case "r" => '\r'
-      case "n" => '\n'
-      case "t" => '\t'
-      case "b" => '\b'
-      case "f" => '\f'
-      case x => x.charAt(0)
-    }
-    char.toString
-  }
-
-  def characters: Parser[String] = """[^\"[\x00-\x1F]\\]+""".r // comment to fix emac parsing "
-
-  def string: Parser[String] = "\"" ~> rep(unicode | escaped | characters) <~ "\"" ^^ { list =>
-    list.mkString("")
-  }
-
-  def parse(s: String) = {
-    parseAll(string, s) match {
-      case Success(result, _) => result
-      case x @ Failure(msg, z) => throw new JsonException(x.toString)
-      case x @ Error(msg, _) => throw new JsonException(x.toString)
-    }
-  }
-}
-
-/**
- * Stolen (awesomely) from the scala book and fixed by making string quotation explicit.
- */
-private class JsonParser extends JavaTokenParsers {
-  def obj: Parser[Map[String, Any]] = "{" ~> repsep(member, ",") <~ "}" ^^ (Map.empty ++ _)
-
-  def arr: Parser[List[Any]] = "[" ~> repsep(value, ",") <~ "]"
-
-  def member: Parser[(String, Any)] = string ~ ":" ~ value ^^ {
-    case name ~ ":" ~ value => (name, value)
-  }
-
-  def number: Parser[Any] = floatingPointNumber ^^ {
-    case num if num.matches(".*[.eE].*") => BigDecimal(num)
-    case num => {
-      val rv = num.toLong
-      if (rv >= Int.MinValue && rv <= Int.MaxValue) rv.toInt else rv
-    }
-  }
-
-  lazy val stringParser = (new EscapedStringParser)
-
-  def string: Parser[String] = "\"(\\\\\\\\|\\\\\"|[^\"])*+\"".r ^^ { escapedStr =>
-    stringParser.parse(escapedStr)
-  }
-
-  def value: Parser[Any] = obj | arr | string | number |
-    "null" ^^ (x => null) | "true" ^^ (x => true) | "false" ^^ (x => false)
-
-  def parse(s: String) = {
-    parseAll(value, s) match {
-      case Success(result, _) => result
-      case x @ Failure(msg, z) => throw new JsonException(x.toString)
-      case x @ Error(msg, _) => throw new JsonException(x.toString)
-    }
-  }
-}
 
 
 /**
@@ -137,7 +60,7 @@ object Json {
   /**
    * Quote a string according to "JSON rules".
    */
-  def quote(s: String) = {
+  def quote(s: String): String = {
     val charCount = s.codePointCount(0, s.length)
     "\"" + 0.until(charCount).map { idx =>
       s.codePointAt(s.offsetByCodePoints(0, idx)) match {
@@ -156,7 +79,7 @@ object Json {
   /**
    * Returns a JSON representation of the given object, as a JsonQuoted object.
    */
-  def build(obj: Any, sort: Boolean = true, locale:Option[Locale] = None): JsonQuoted = {
+  def build(obj: Any, sort: Boolean = true, locale: Option[Locale] = None): JsonQuoted = {
     val rv = obj match {
       case JsonQuoted(body) => body
       case null => "null"
@@ -179,13 +102,7 @@ object Json {
     }
     JsonQuoted(rv)
   }
-
-  /**
-   * Parses a JSON String representation into its native Scala representation.
-   */
-  def parse(s: String): Any = (new JsonParser).parse(s)
 }
-
 
 /**
  * Wrapper for the JSON string representation of a data structure. This class exists to
