@@ -25,7 +25,6 @@ import ch.qos.logback.classic.Level
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.HarnessConstants._
 import com.webtrends.harness.app.Harness
-import com.webtrends.harness.app.Harness._
 import com.webtrends.harness.app.HarnessActor.{GetManagers, ReadyCheck}
 import com.webtrends.harness.component.{Component, LoadComponent}
 import com.webtrends.harness.logging.Logger
@@ -36,7 +35,7 @@ import scala.concurrent.Await
 import scala.concurrent.duration._
 
 object TestHarness {
-  var harnessMap: Map[Int, TestHarness] = Map.empty
+  var harnessMap: Map[ActorSystem, TestHarness] = Map.empty
 
   /**
    * Create a new instance of the test harness and start all of it's components.
@@ -44,33 +43,35 @@ object TestHarness {
    * @param timeToWait after starting, this function will wait this amount of time for Wookiee to "come up"
    * @param serviceMap map of arbitrary names to Service classes that will be loaded up with Test Wookiee
    * @param componentMap map of arbitrary names to Component classes that will be loaded up with Test Wookiee
-   * @param port used to prevent Wookiee Test from stepping on other instances of itself, set to something different for each test
    */
   def apply(config:Config,
             serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
             componentMap: Option[Map[String, Class[_ <: Component]]] = None,
             logLevel: Level = Level.INFO,
-            timeToWait: FiniteDuration = 15.seconds,
-            port: Int = DEFAULT_PORT /* When using more than one TestHarness in parallel */
-           ) : TestHarness = harnessMap.synchronized {
-    val harness = new TestHarness(config).start(serviceMap, componentMap, logLevel, timeToWait, port)
-    harnessMap = harnessMap.updated(port, harness)
+            timeToWait: FiniteDuration = 15.seconds
+           ): TestHarness = harnessMap.synchronized {
+    val harness = new TestHarness(config, serviceMap, componentMap, logLevel, timeToWait)
+    harnessMap = harnessMap.updated(harness.system, harness)
     harness
   }
 
-  def system(port: Int = DEFAULT_PORT): Option[ActorSystem] = Harness.getActorSystem(port)
   def log: Logger = Harness.getLogger
-  def rootActor(port: Int = DEFAULT_PORT): Option[ActorRef] = Harness.getRootActor(port)
+  def rootActor()(implicit system: ActorSystem): Option[ActorRef] = Harness.getRootActor()
 
-  def shutdown(port: Int = DEFAULT_PORT): Unit = harnessMap.synchronized {
-    harnessMap.get(port) match {
-      case Some(h) => h.stop(Some(port))
+  def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
+    harnessMap.get(system) match {
+      case Some(h) => h.stop()
       case None => // ignore
     }
   }
 }
 
-class TestHarness(conf:Config) {
+class TestHarness(conf:Config,
+                  serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
+                  componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+                  logLevel: Level = Level.ERROR,
+                  timeToWait: FiniteDuration = 15.seconds) {
+
   var services: Map[String, ActorRef] = Map[String, ActorRef]()
   var components: Map[String, ActorRef] = Map[String, ActorRef]()
   var serviceManager: Option[ActorRef] = None
@@ -82,49 +83,42 @@ class TestHarness(conf:Config) {
 
   implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
 
-  def start(serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-            componentMap: Option[Map[String, Class[_ <: Component]]] = None,
-            logLevel: Level = Level.ERROR,
-            timeToWait: FiniteDuration = 15.seconds,
-            port: Int = DEFAULT_PORT) : TestHarness = {
+  Harness.externalLogger.info("Starting Harness...")
+  Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
 
-    Harness.externalLogger.info("Starting Harness...")
-    Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
-    Harness.addShutdownHook(Some(port))
+  implicit val system: ActorSystem = Harness.startActorSystem(Some(config)).actorSystem
 
-    Harness.startActorSystem(Some(config), Some(port))
-    // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
-    harnessReadyCheck(timeToWait.fromNow, port)
-    Await.result((TestHarness.rootActor(port).get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
-      case map: Map[String, ActorRef] =>
-        serviceManager = map.get(ServicesName)
-        commandManager = map.get(CommandName)
-        componentManager = map.get(ComponentName)
-        TestHarness.log.info("Managers all accounted for")
-    }
-    setLogLevel(logLevel)
-    if (componentMap.isDefined) {
-      loadComponents(componentMap.get)
-    }
-    if (serviceMap.isDefined) {
-      loadServices(serviceMap.get)
-    }
-    this
+  Harness.addShutdownHook()
+  // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
+  harnessReadyCheck(timeToWait.fromNow)
+  Await.result((TestHarness.rootActor().get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
+    case map: Map[String, ActorRef] =>
+      serviceManager = map.get(ServicesName)
+      commandManager = map.get(CommandName)
+      componentManager = map.get(ComponentName)
+      TestHarness.log.info("Managers all accounted for")
   }
 
-  def stop(portOpt: Option[Int] = None): Unit = {
-    Harness.shutdownActorSystem(block = false, portOpt) {
+  setLogLevel(logLevel)
+  if (componentMap.isDefined) {
+    loadComponents(componentMap.get)
+  }
+  if (serviceMap.isDefined) {
+    loadServices(serviceMap.get)
+  }
+
+  def stop()(implicit system: ActorSystem): Unit = {
+    Harness.shutdownActorSystem(block = false) {
       // wait a second to make sure it shutdown correctly
       Thread.sleep(1000)
     }
   }
 
-  def setLogLevel(level:Level): Unit = {
+  def setLogLevel(level:Level): Unit =
     TestHarness.log.setLogLevel(level)
-  }
 
-  def harnessReadyCheck(timeOut: Deadline, port: Int) {
-    while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor(port).get ? ReadyCheck, 10.seconds).asInstanceOf[Boolean]) {
+  def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem) {
+    while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor().get ? ReadyCheck, 10.seconds).asInstanceOf[Boolean]) {
     }
 
     if (timeOut.isOverdue()) {

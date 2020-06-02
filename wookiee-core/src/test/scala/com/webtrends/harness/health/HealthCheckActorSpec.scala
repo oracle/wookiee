@@ -36,9 +36,7 @@ class HealthCheckActorSpec extends WordSpecLike with MustMatchers with BeforeAnd
 
   implicit val dur: FiniteDuration = FiniteDuration(15, TimeUnit.SECONDS)
 
-  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString( """
-    akka.actor.provider = "akka.actor.LocalActorRefProvider"
-                                                                      """).withFallback(ConfigFactory.load()))
+  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.load())
   implicit val ec: ExecutionContextExecutor =  sys.dispatcher
 
   override protected def beforeAll(): Unit = {

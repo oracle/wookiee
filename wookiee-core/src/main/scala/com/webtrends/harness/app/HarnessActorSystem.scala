@@ -30,7 +30,7 @@ object HarnessActorSystem {
     ActorSystem.create("server", config, loader)
   }
 
-  def getConfig(config: Option[Config], port: Option[Int]): Config = {
+  def getConfig(config: Option[Config]): Config = {
     val sysConfig = {
       if (config.isDefined) {
         config.get
@@ -39,29 +39,23 @@ object HarnessActorSystem {
         ConfigFactory.load(loader).withFallback(baseConfig).getConfig("wookiee-system")
       }
     }
-    val finalConfig = port match {
-      case Some(p) =>
-        ConfigFactory.parseString(s"akka.remote.netty.tcp.port = $p").withFallback(sysConfig)
-      case None =>
-        sysConfig
-    }
 
-    ComponentManager.loadComponentJars(finalConfig, loader)
+    ComponentManager.loadComponentJars(sysConfig, loader)
     ConfigFactory.load
 
     externalLogger.debug("Loading the service configs")
-    val configs = ServiceManager.loadConfigs(finalConfig)
+    val configs = ServiceManager.loadConfigs(sysConfig)
     if (configs.nonEmpty) externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
 
     externalLogger.debug("Loading the component configs")
-    val compConfigs = ComponentManager.loadComponentInfo(finalConfig)
+    val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
     if (compConfigs.nonEmpty) externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
 
     val allConfigs = configs ++ compConfigs
 
     // Build the hierarchy
-    val conf = if (allConfigs.isEmpty) finalConfig
-      else allConfigs.reduce(_.withFallback(_)).withFallback(finalConfig)
+    val conf = if (allConfigs.isEmpty) sysConfig
+      else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
     conf.resolve()
   }
 }
