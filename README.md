@@ -161,6 +161,14 @@ The purpose of this section is to aggregate notes and processes in setting up de
 
 [Instructions](docs/DevSetup.md)
 
+### Increasing Artifact Version
+To bump the version of Wookiee Core/Test simply increase it in the pom file. If you are
+building a branch then it will automatically insert the branch name before SNAPSHOT.
+So for example if the pom has 2.0-SNAPSHOT as a version the final artifact will end up
+as 2.0-$branch-SNAPSHOT. If you create a tagged release in github, or if you change the
+pom to a version that doesn't contain "SNAPSHOT" then the final artifact version will 
+be literally what was in the tag/pom.
+
 ### Creating a service
 As services are what provides functionality to the Wookiee container, this section provides information on how to
 create a basic service.

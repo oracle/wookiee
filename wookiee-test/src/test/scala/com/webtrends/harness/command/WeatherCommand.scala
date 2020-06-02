@@ -4,7 +4,7 @@ import com.webtrends.harness.policy.WeatherForecast
 
 import scala.concurrent.Future
 
-case class WeatherData(name: String, location: String, mode:String = "current")
+case class WeatherData(name: String, location: String, mode: String = "current")
 
 /**
  * Example Command
