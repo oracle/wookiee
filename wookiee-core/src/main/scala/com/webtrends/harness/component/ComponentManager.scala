@@ -220,7 +220,7 @@ class ComponentManager extends PrepareForShutdown {
       ComponentManager.failedComponents match {
         case Some(n) =>
           log.error(s"Failed to load component [$n]")
-          Harness.shutdown()
+          Harness.shutdown()(context.system)
         case None => //ignore
       }
     }
@@ -268,7 +268,7 @@ class ComponentManager extends PrepareForShutdown {
         case t: Throwable =>
           log.error("Error loading the component actors", t)
           // if the components failed to load then we will need to shutdown the system
-          Harness.shutdown()
+          Harness.shutdown()(context.system)
       }
     }
   }
@@ -356,8 +356,8 @@ class ComponentManager extends PrepareForShutdown {
       val startTimeout = componentTimeout.duration
       context.system.scheduler.scheduleOnce(startTimeout,
         new Runnable() {
-          def run() = {
-            checkStartupStatus()
+          def run(): Unit = {
+            checkStartupStatus(context.system)
           }
         })
     } else {
@@ -450,16 +450,16 @@ class ComponentManager extends PrepareForShutdown {
    * waiting for nothing. If not all components have started then we shut down the server, if it has then we send the
    * all clear message
    */
-  private def checkStartupStatus() = {
+  private def checkStartupStatus(system: ActorSystem): Unit = {
     if (ComponentManager.isAllComponentsStarted) {
       validateComponentStartup()
     } else {
       log.info("Failed to startup components: " + ComponentManager.components.toString())
-      Harness.shutdown()
+      Harness.shutdown()(system)
     }
   }
 
-  private def componentLoadFailed(componentName:String, msg:String, ex:Option[Exception]=None) = {
+  private def componentLoadFailed(componentName: String, msg: String, ex: Option[Exception]=None): Unit = {
     ex match {
       case Some(e) => log.error(msg, e)
       case None => log.error(msg)

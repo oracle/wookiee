@@ -22,9 +22,9 @@ object HarnessService extends App {
     // Main body which gets run at startup
     try {
       Harness.externalLogger.info("Starting Harness...")
-      Harness.addShutdownHook()
 
-      Harness.startActorSystem()
+      val meta = Harness.startActorSystem()
+      Harness.addShutdownHook()(meta.actorSystem)
       var keepRunning = true
       while (keepRunning) {
         try Thread.sleep(200)

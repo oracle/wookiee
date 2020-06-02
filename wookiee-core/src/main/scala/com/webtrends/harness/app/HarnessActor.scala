@@ -19,6 +19,7 @@ import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
+import com.typesafe.config.Config
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.command.CommandManager
@@ -39,8 +40,8 @@ import scala.util.{Failure, Success, Try}
 object HarnessActor {
   def props()(implicit system: ActorSystem): Props = Props[HarnessActor]
 
-  @SerialVersionUID(2L) case class ShutdownSystem(port: Int = Harness.DEFAULT_PORT)
-  @SerialVersionUID(2L) case class RestartSystem(port: Int = Harness.DEFAULT_PORT)
+  @SerialVersionUID(2L) case class ShutdownSystem()
+  @SerialVersionUID(2L) case class RestartSystem()
   @SerialVersionUID(1L) case class ConfigChange()
   @SerialVersionUID(1L) case class SystemReady()
   @SerialVersionUID(1L) case class ComponentInitializationComplete()
@@ -52,14 +53,14 @@ object HarnessActor {
 // Below are actor traits that are commonly used for actors in the Harness
 trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
   // Globally accessible config loaded from -Dconfig.file=$file_path
-  lazy val config = context.system.settings.config
+  lazy val config: Config = context.system.settings.config
   // By default routes to health check, should make sure to orElse to here if overriding
-  override def receive = health
+  override def receive: Receive = health
 }
 
 
 trait PrepareForShutdown extends HActor {
-  override def receive = health orElse {
+  override def receive: Receive = health orElse {
     case PrepareForShutdown =>
       log.debug("Preparing for shutdown of self and children")
       context.children foreach(_ ! PrepareForShutdown)
@@ -119,22 +120,8 @@ class HarnessActor extends Actor
     case ServicesReady =>
       // This message is sent from the service manager that tells us the services are loaded.
       // Notify the services, components and commands that we are all ready to go
-      serviceActor match {
-        case Some(sa) => sa ! SystemReady
-        case None => // ignore
-      }
-      componentActor match {
-        case Some(ca) => ca ! SystemReady
-        case None => // ignore
-      }
-      dispatchManager match {
-        case Some(dm) => dm ! SystemReady
-        case None => // ignore
-      }
-      commandManager match {
-        case Some(cm) => cm ! SystemReady
-        case None => // ignore
-      }
+      List(serviceActor, componentActor, dispatchManager, commandManager)
+        .flatten.foreach(_ ! SystemReady)
     case ReadyCheck => sender ! running
     case GetManagers =>
       sender ! Map[String, Option[ActorRef]](
@@ -142,7 +129,7 @@ class HarnessActor extends Actor
         HarnessConstants.ServicesName -> serviceActor,
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
-    case RestartSystem(port) => Harness.restartActorSystem(Some(port))
+    case RestartSystem => Harness.restartActorSystem()(context.system)
     case ConfigChange() =>
       log.debug("Received message to reload services/components due to config change")
       serviceActor.get ! ConfigChange()

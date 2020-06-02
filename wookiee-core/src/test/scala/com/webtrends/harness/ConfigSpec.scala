@@ -38,7 +38,6 @@ class ConfigSpec extends WordSpecLike with Matchers with BeforeAndAfterAll {
   implicit val dur: FiniteDuration = FiniteDuration(2, TimeUnit.SECONDS)
   new File("services/test/conf").mkdirs()
   implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString( """
-    akka.actor.provider = "akka.actor.LocalActorRefProvider"
     services { path = "services" }
     """).withFallback(ConfigFactory.load()))
 

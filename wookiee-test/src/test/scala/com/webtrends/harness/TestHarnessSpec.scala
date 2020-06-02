@@ -39,12 +39,12 @@ import scala.concurrent.duration.Duration
 class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
   implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   val sys: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
-    Some(Map("testcomponent" -> classOf[TestComponent])), port = 2551)
+    Some(Map("testcomponent" -> classOf[TestComponent])))
   // Ensure we can start up a second one without breaking
   val sys2: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
-    Some(Map("testcomponent" -> classOf[TestComponent])), port = 2553)
-  implicit val actorSystem: ActorSystem = TestHarness.system(2551).get
-  val actorSystem2: ActorSystem = TestHarness.system(2553).get
+    Some(Map("testcomponent" -> classOf[TestComponent])))
+  implicit val actorSystem: ActorSystem = sys.system
+  val actorSystem2: ActorSystem = sys2.system
 
   "test harnesses " should {
     "start up service manager for both " in {
@@ -145,8 +145,8 @@ class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
       probe2.send(testService2.get, RegisterShutdownListener(probe2.ref))
       probe2.send(testComponent2.get, RegisterShutdownListener(probe2.ref))
 
-      sys.stop(Some(2551))
-      sys2.stop(Some(2553))
+      sys.stop()(actorSystem)
+      sys2.stop()(actorSystem2)
 
       val results = probe1.receiveN(2, timeout.duration)
       val results2 = probe2.receiveN(2, timeout.duration)

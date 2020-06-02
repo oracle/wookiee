@@ -22,9 +22,9 @@ import com.webtrends.harness.UnhandledEventListener
 import com.webtrends.harness.app.HarnessActor.ShutdownSystem
 import com.webtrends.harness.logging.Logger
 
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 case class HarnessMeta(actorSystem: ActorSystem, harnessActor: ActorRef, config: Config)
 
@@ -33,52 +33,38 @@ case class HarnessMeta(actorSystem: ActorSystem, harnessActor: ActorRef, config:
  */
 object Harness {
   // Map from tcp port to Harness system and HarnessActor ref
-  protected[harness] var harnessMap: Map[Int, HarnessMeta] = Map.empty
-  def getActorSystem(port: Int = DEFAULT_PORT): Option[ActorSystem] = harnessMap.get(port).map(_.actorSystem)
-  def getRootActor(port: Int = DEFAULT_PORT): Option[ActorRef] = harnessMap.get(port).map(_.harnessActor)
+  protected[harness] var harnessMap: Map[ActorSystem, HarnessMeta] = Map.empty
+  def getRootActor()(implicit system: ActorSystem): Option[ActorRef] = harnessMap.get(system).map(_.harnessActor)
 
   protected[harness] var log: Logger = Logger(this.getClass)
   def getLogger: Logger = log
   val externalLogger: Logger = Logger.getLogger(this.getClass)
 
-  val DEFAULT_PORT = 2552
-
   /**
-   * Restart the specified actor system, if port = None will restart all
+   * Restart the specified actor system
    */
-  def restartActorSystem(port: Option[Int] = None): Unit = {
-    port match {
-      case Some(p) =>
-        harnessMap.get(p) match {
-          case Some(meta) =>
-            externalLogger.info(s"Restarting the actor system for port $port")
-            shutdownActorSystem(block = false, port) {
-              startActorSystem(Some(meta.config), port)
-            }
-          case None =>
-            externalLogger.info(s"There is no actor system for $p so starting up now")
-            startActorSystem(None, port)
+  def restartActorSystem()(implicit system: ActorSystem): Unit = {
+    harnessMap.get(system) match {
+      case Some(meta) =>
+        externalLogger.info(s"Restarting the actor system ${system.name}")
+        shutdownActorSystem(block = false) {
+          startActorSystem(Some(meta.config))
         }
-
       case None =>
-        harnessMap foreach { case (p, meta) =>
-          externalLogger.info(s"Restarting the actor system for port $p")
-          shutdownActorSystem(block = false, Some(p)) {
-            startActorSystem(Some(meta.config), Some(p))
-          }
-        }
+        externalLogger.info(s"There is no actor system ${system.name} so starting up now")
+        startActorSystem(None)
     }
   }
 
   /**
    * Force a shutdown of the ActorSystem and the application's process, if port = None will shutdown all.
    */
-  def shutdown(port: Option[Int] = None): Unit = {
+  def shutdown()(implicit system: ActorSystem): Unit = {
     log.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run() {
         Thread.sleep(10)
-        shutdownActorSystem(block = false, port) {
+        shutdownActorSystem(block = false) {
           System.exit(0)
         }
       }
@@ -88,15 +74,10 @@ object Harness {
   /**
    * Start the actor system
    */
-  def startActorSystem(config: Option[Config] = None, port: Option[Int] = None): Unit = harnessMap.synchronized {
+  def startActorSystem(config: Option[Config] = None): HarnessMeta = harnessMap.synchronized {
     try {
-      externalLogger.debug(s"Creating the actor system${port.map(p => s" for port $p").getOrElse("")}")
-      val finalConfig = HarnessActorSystem.getConfig(config, port)
-      val chosenPort = Try(finalConfig.getInt("akka.remote.netty.tcp.port")).getOrElse(DEFAULT_PORT)
-      harnessMap.get(chosenPort).foreach { _ =>
-        log.warn(s"Harness already registered on port $port, shutting down, try specifying different port next time")
-        shutdown(Some(chosenPort))
-      }
+      externalLogger.debug(s"Creating the actor system")
+      val finalConfig = HarnessActorSystem.getConfig(config)
 
       val system = HarnessActorSystem(finalConfig)
       // add the unhandled message listener so we can debug messages easily that are not being handled
@@ -104,10 +85,13 @@ object Harness {
       system.eventStream.subscribe(listener, classOf[UnhandledMessage])
 
       log = Logger(this.getClass, system)
-      log.debug(s"Creating main Wookiee actor${port.map(p => s" for port $p").getOrElse("")}")
+      log.debug(s"Creating main Wookiee actor for ${system.name}")
+
       implicit val sys: ActorSystem = system
       val rootActor = system.actorOf(HarnessActor.props, "system")
-      harnessMap = harnessMap.updated(chosenPort, HarnessMeta(system, rootActor, finalConfig))
+      val meta = HarnessMeta(system, rootActor, finalConfig)
+      harnessMap = harnessMap.updated(system, meta)
+      meta
     } catch {
       case t: Throwable =>
         externalLogger.error(s"The actor system could not be started: ${t.getMessage}", t)
@@ -118,26 +102,25 @@ object Harness {
   /**
    * Shutdown the actor system
    */
-  def shutdownActorSystem(block: Boolean, portOpt: Option[Int] = None)(f: => Unit): Unit = harnessMap.synchronized {
-    log.debug(s"Shutting down the main actor${portOpt.map(p => s" for port $p").getOrElse("")}")
+  def shutdownActorSystem(block: Boolean)(f: => Unit)(implicit system: ActorSystem): Unit = harnessMap.synchronized {
+    log.debug(s"Shutting down the main actor ")
     import scala.concurrent.ExecutionContext.Implicits.global
-    val port = portOpt.getOrElse(DEFAULT_PORT)
 
     // We will tell the main actor that we are shutting down. This allows it to shutdown
     // its children and perform any needed cleanup.
-    getRootActor(port) foreach { root =>
+    getRootActor() foreach { root =>
       val fut = gracefulStop(root, 15.seconds, ShutdownSystem)
         .andThen {
           case Success(_) =>
             log.debug("Now shutting down the the system itself")
         }
         // Now shutdown the system
-        .flatMap(_ => getActorSystem(port).map(_.terminate()).getOrElse(Future.successful(true)))
+        .flatMap(_ => system.terminate())
 
       fut.onComplete {
         case Success(_) =>
           // Remove from map of running Wookiees
-          harnessMap = harnessMap - port
+          harnessMap = harnessMap - system
           externalLogger.debug("The actor system has terminated")
           // Call the passed function
           f
@@ -155,15 +138,11 @@ object Harness {
   /**
    * Add a shutdown hook so when the process is shut down that we cleanup cleanly, adds to all if port = None
    */
-  def addShutdownHook(port: Option[Int] = None): Unit = {
+  def addShutdownHook()(implicit system: ActorSystem): Unit = {
     Runtime.getRuntime.addShutdownHook(new Thread(() => {
-      getActorSystem(port.getOrElse(DEFAULT_PORT)) match {
-        case Some(sys) =>
-          sys.log.debug("The shutdown hook has been called")
-          shutdownActorSystem(block = true) {
-            externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
-          }
-        case _ =>
+      system.log.debug("The shutdown hook has been called")
+      shutdownActorSystem(block = true) {
+        externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
       }
     }))
   }

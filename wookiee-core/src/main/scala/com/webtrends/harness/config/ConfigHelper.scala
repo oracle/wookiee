@@ -25,7 +25,7 @@ import com.webtrends.harness.app.HarnessActorSystem
  * This helper class will keep track of a configuration local to your service/component and update
  * the configuration whenever ConfigWatcherActor detects changes in any of our config files.
  *
- * @author woods
+ * @author Spencer Wood
  */
 trait ConfigHelper {
   this: Actor =>
@@ -38,7 +38,7 @@ trait ConfigHelper {
    */
   def renewConfiguration() {
     ConfigFactory.invalidateCaches()
-    renewableConfig = HarnessActorSystem.getConfig(None, None)
+    renewableConfig = HarnessActorSystem.getConfig(None)
   }
 
   def configReceive: Receive = {
