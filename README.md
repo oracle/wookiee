@@ -161,10 +161,13 @@ The purpose of this section is to aggregate notes and processes in setting up de
 
 [Instructions](docs/DevSetup.md)
 
-### Increasing Wookiee Version
-To bump the version of Wookiee Core/Test simply increase it in the VERSION file. Builds are automatically
-setup to read from this file and create a SNAPSHOT build of the format "$VERSION-$BRANCH-SNAPSHOT". For
-a non-SNAPSHOT release build simply create a git tag with the name of the version you want, e.g. "2.0.1".
+### Increasing Artifact Version
+To bump the version of Wookiee Core/Test simply increase it in the pom file. If you are
+building a branch then it will automatically insert the branch name before SNAPSHOT.
+So for example if the pom has 2.0-SNAPSHOT as a version the final artifact will end up
+as 2.0-$branch-SNAPSHOT. If you create a tagged release in github, or if you change the
+pom to a version that doesn't contain "SNAPSHOT" then the final artifact version will 
+be literally what was in the tag/pom.
 
 ### Creating a service
 As services are what provides functionality to the Wookiee container, this section provides information on how to
