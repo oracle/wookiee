@@ -6,7 +6,7 @@ import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.{Server, ServerBuilder, ServerInterceptors, ServerServiceDefinition}
+import io.grpc.{Server, ServerBuilder, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFrameworkFactory
 import org.apache.curator.retry.ExponentialBackoffRetry
 import org.apache.zookeeper.CreateMode

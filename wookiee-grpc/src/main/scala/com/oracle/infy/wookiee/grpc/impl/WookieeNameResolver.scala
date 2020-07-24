@@ -9,11 +9,11 @@ import cats.effect.{ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
+import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
 import io.chrisdavenport.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
-import com.oracle.infy.wookiee.model.Host
-import com.oracle.infy.wookiee.utils.implicits._
 
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],

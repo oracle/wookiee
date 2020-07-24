@@ -4,10 +4,10 @@ import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.json.HostSerde._
 import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.utils.implicits._
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import utest.{Tests, test}
-import com.oracle.infy.wookiee.utils.implicits._
 
 object SerdeTest extends UTestScalaCheck with HostGenerator {
 

@@ -5,8 +5,8 @@ import cats.effect.{ConcurrentEffect, ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, MockHostNameService, WookieeGrpcHostListener}
-import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, SerdeTest}
+import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
 import fs2.concurrent.Queue
 

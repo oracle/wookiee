@@ -6,8 +6,9 @@ import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.grpc.tests.GrpcListenerTest
+import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
@@ -15,7 +16,6 @@ import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
 import org.apache.curator.retry.ExponentialBackoffRetry
 import org.apache.curator.test.TestingServer
-import com.oracle.infy.wookiee.utils.implicits._
 
 import scala.concurrent.ExecutionContext
 
