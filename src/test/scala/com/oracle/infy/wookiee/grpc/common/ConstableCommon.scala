@@ -37,15 +37,14 @@ trait ConstableCommon {
     }
 
   def exitNegativeOnFailure(results: List[HTree[String, Result]]): Unit = {
-    val allPass = results.exists { htree: HTree[String, Result] =>
+    val existsFailure = results.exists { htree: HTree[String, Result] =>
       htree.leaves.map(result => result.value.isFailure).exists(identity)
     }
 
-    if (allPass) {
-      System.exit(0)
-    } else {
+    if (existsFailure) {
       System.exit(-1)
     }
+    ()
   }
 
   def runTests(
