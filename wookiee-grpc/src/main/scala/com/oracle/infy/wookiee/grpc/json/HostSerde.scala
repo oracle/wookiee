@@ -12,8 +12,9 @@ object HostSerde {
   implicit private val hostDecoder: Decoder[Host] = deriveDecoder[Host]
   implicit private val hostEncoder: Encoder[Host] = deriveEncoder[Host]
 
+  private val encoding = "utf8"
   def deserialize(data: Array[Byte]): Either[HostSerdeError, Host] = {
-    parse(new String(data, "utf8")) match {
+    parse(new String(data, encoding)) match {
       case Left(err) => Left(HostSerdeError(s"Invalid json: ${err.message}"))
       case Right(json) =>
         json.as[Host] match {
@@ -23,6 +24,6 @@ object HostSerde {
     }
   }
 
-  def serialize(data: Host): Array[Byte] = data.asJson.noSpaces.getBytes("utf8")
+  def serialize(data: Host): Array[Byte] = data.asJson.noSpaces.getBytes(encoding)
 
 }

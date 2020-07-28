@@ -26,9 +26,6 @@ object SerdeTest extends UTestScalaCheck with HostGenerator {
       test("Host serde must be symmetric") {
         hostsSerdeIsSymmetric.checkUTest()
       }
-      test("test") {
-        assert(false)
-      }
 
     }
   }
