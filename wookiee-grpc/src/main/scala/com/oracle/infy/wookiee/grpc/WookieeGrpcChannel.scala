@@ -18,7 +18,7 @@ import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
 import org.apache.curator.retry.ExponentialBackoffRetry
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext}
 
 object WookieeGrpcChannel {
 
@@ -28,15 +28,15 @@ object WookieeGrpcChannel {
       fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String
-  )(implicit cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = IO {
+  )(implicit cs: ContextShift[IO], logger: Logger[IO]) = IO {
     NameResolverRegistry
       .getDefaultRegistry
       .register(new NameResolverProvider {
-        override def isAvailable: Boolean = true
+        override def isAvailable = true
 
-        override def priority(): Int = 10
+        override def priority() = 10
 
-        override def getDefaultScheme: String = "zookeeper"
+        override def getDefaultScheme = "zookeeper"
 
         override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver = {
           new WookieeNameResolver(listenerRef, semaphore, fiberRef, hostnameServiceContract, discoveryPath)
@@ -44,21 +44,38 @@ object WookieeGrpcChannel {
       })
   }
 
+  private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
+    override def execute(command: Runnable): Unit = executor.execute(command)
+  }
+
   @SuppressWarnings(
     Array(
       "scalafix:DisableSyntax.asInstanceOf"
     )
   )
-  private def buildChannel(path: String): IO[ManagedChannel] = IO {
+  private def buildChannel(
+      path: String,
+      mainExecutor: ExecutionContext,
+      blockingExecutor: ExecutionContext
+  ): IO[ManagedChannel] = IO {
+    val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
+    val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
     ManagedChannelBuilder
       .forTarget(s"zookeeper://$path")
       .asInstanceOf[NettyChannelBuilder]
       .defaultLoadBalancingPolicy("round_robin")
       .usePlaintext()
+      .executor(mainExecutorJava)
+      .offloadExecutor(blockingExecutorJava)
       .build()
   }
 
-  def of(zookeeperQuorum: String, serviceDiscoveryPath: String)(
+  def of(
+      zookeeperQuorum: String,
+      serviceDiscoveryPath: String,
+      mainExecutor: ExecutionContext,
+      blockingExecutor: ExecutionContext
+  )(
       implicit cs: ContextShift[IO],
       concurrent: ConcurrentEffect[IO]
   ): IO[ManagedChannel] = {
@@ -71,6 +88,7 @@ object WookieeGrpcChannel {
       curator <- Ref.of[IO, CuratorFramework](
         CuratorFrameworkFactory
           .builder()
+          .runSafeService(scalaToJavaExecutor(blockingExecutor))
           .connectString(zookeeperQuorum)
           .retryPolicy(retryPolicy)
           .build()
@@ -93,14 +111,19 @@ object WookieeGrpcChannel {
         )(concurrent, logger),
         serviceDiscoveryPath
       )(cs, logger)
-      channel <- buildChannel(serviceDiscoveryPath)
+      channel <- buildChannel(serviceDiscoveryPath, mainExecutor, blockingExecutor)
     } yield channel
   }
 
-  def unsafeOf(zookeeperQuorum: String, serviceDiscoveryPath: String)(implicit ec: ExecutionContext): ManagedChannel = {
-    implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+  def unsafeOf(
+      zookeeperQuorum: String,
+      serviceDiscoveryPath: String,
+      mainExecutor: ExecutionContext,
+      blockingExecutor: ExecutionContext
+  ): ManagedChannel = {
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutor)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 
-    of(zookeeperQuorum, serviceDiscoveryPath).unsafeRunSync()
+    of(zookeeperQuorum, serviceDiscoveryPath, mainExecutor, blockingExecutor).unsafeRunSync()
   }
 }
