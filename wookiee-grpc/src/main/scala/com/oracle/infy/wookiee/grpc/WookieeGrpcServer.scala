@@ -6,7 +6,7 @@ import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.{Server, ServerBuilder, ServerServiceDefinition}
+import io.grpc.{Server, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFrameworkFactory
 import org.apache.curator.retry.ExponentialBackoffRetry
 import org.apache.zookeeper.CreateMode
@@ -55,11 +55,6 @@ object WookieeGrpcServer {
     start(zkQuorum, discoveryPath, serverServiceDefinition, port).unsafeToFuture()
   }
 
-  @SuppressWarnings(
-    Array(
-      "scalafix:DisableSyntax.asInstanceOf"
-    )
-  )
   def start(
       zkQuorum: String,
       discoveryPath: String,
@@ -69,12 +64,11 @@ object WookieeGrpcServer {
   ): IO[WookieeGrpcServer] = {
     for {
       server <- IO {
-        ServerBuilder
+        NettyServerBuilder
           .forPort(port)
           .addService(
             serverServiceDefinition
           )
-          .asInstanceOf[NettyServerBuilder]
           .build()
       }
       _ <- IO {
