@@ -57,8 +57,8 @@ object UnitTestConstable extends ConstableCommon {
     exitNegativeOnFailure(
       runTestsAsync(
         List(
-          (SerdeTest.tests, "Serde"),
-          (grpcTests, "GRPC Tests")
+          (SerdeTest.tests, "UnitTest - Serde"),
+          (grpcTests, "UnitTest - GRPC Tests")
         )
       )
     )

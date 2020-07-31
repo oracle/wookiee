@@ -103,7 +103,7 @@ object IntegrationConstable extends ConstableCommon {
 
     val grpcTests = GrpcListenerTest.tests(pushMessagesFuncAndListenerFactory)
 
-    val result = runTestsAsync(List(grpcTests -> "GrpcTest"))
+    val result = runTestsAsync(List(grpcTests -> "Integration - GrpcTest"))
     zkFake.stop()
     exitNegativeOnFailure(result)
   }
