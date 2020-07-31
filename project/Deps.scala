@@ -70,10 +70,12 @@ object Deps {
 //    val slf4jAPI: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
 //    val slf4jLog4j: ModuleID = "org.slf4j" % "slf4j-log4j12" % slf4jVersion
     val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion
+    val log4CatsNoop: ModuleID = "io.chrisdavenport" %% "log4cats-noop" % log4CatsVersion
 
     //val slf4jSimple: ModuleID = "org.slf4j" % "slf4j-simple" % slf4jVersion
 
     val all: Seq[ModuleID] = Seq(
+      log4CatsNoop,
       slf4jLog4jImpl,
       scalacheck,
       µTest,

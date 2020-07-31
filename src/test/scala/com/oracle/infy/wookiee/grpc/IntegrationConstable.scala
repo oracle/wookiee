@@ -1,7 +1,9 @@
 package com.oracle.infy.wookiee.grpc
 
+import java.util.concurrent.Executors
+
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{ConcurrentEffect, ContextShift, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
@@ -33,6 +35,8 @@ object IntegrationConstable extends ConstableCommon {
     implicit val ec: ExecutionContext = ExecutionContext.global
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
+    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blocker = Blocker.liftExecutionContext(blockingEC)
 
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
@@ -80,9 +84,9 @@ object IntegrationConstable extends ConstableCommon {
               semaphore,
               Fs2CloseableImpl(queue.dequeue, killSwitch),
               queue.enqueue1
-            )(concurrent, logger),
+            )(blocker, IO.contextShift(ec), concurrent, logger),
             discoveryPath = discoveryPath
-          )
+          )(logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO {

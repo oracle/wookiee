@@ -4,7 +4,7 @@ import java.net.URI
 import java.util.concurrent.Executor
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{ConcurrentEffect, ContextShift, Fiber, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
@@ -81,15 +81,17 @@ object WookieeGrpcChannel {
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
       grpcChannelThreadLimit: Int,
-      dispatcherExecutor: ExecutionContext,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext
+      dispatcherExecutionContext: ExecutionContext,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
   )(
       implicit cs: ContextShift[IO],
       concurrent: ConcurrentEffect[IO]
   ): IO[ManagedChannel] = {
 
+    val blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     val retryPolicy = new ExponentialBackoffRetry(1000, 3)
+
     for {
       logger <- Slf4jLogger.create[IO]
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
@@ -97,7 +99,7 @@ object WookieeGrpcChannel {
       curator <- Ref.of[IO, CuratorFramework](
         CuratorFrameworkFactory
           .builder()
-          .runSafeService(scalaToJavaExecutor(blockingExecutor))
+          .runSafeService(scalaToJavaExecutor(blockingExecutionContext))
           .connectString(zookeeperQuorum)
           .retryPolicy(retryPolicy)
           .build()
@@ -117,15 +119,15 @@ object WookieeGrpcChannel {
           hostnameServiceSemaphore,
           Fs2CloseableImpl(queue.dequeue, killSwitch),
           queue.enqueue1
-        )(concurrent, logger),
+        )(blocker, cs, concurrent, logger),
         serviceDiscoveryPath
       )(cs, logger)
       channel <- buildChannel(
         serviceDiscoveryPath,
         grpcChannelThreadLimit,
-        dispatcherExecutor,
-        mainExecutor,
-        blockingExecutor
+        dispatcherExecutionContext,
+        mainExecutionContext,
+        blockingExecutionContext
       )
     } yield channel
   }
@@ -134,20 +136,20 @@ object WookieeGrpcChannel {
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
       grpcChannelThreadLimit: Int,
-      dispatcherExecutor: ExecutionContext,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext
+      dispatcherExecutionContext: ExecutionContext,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
   ): ManagedChannel = {
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutor)
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 
     of(
       zookeeperQuorum,
       serviceDiscoveryPath,
       grpcChannelThreadLimit,
-      dispatcherExecutor,
-      mainExecutor,
-      blockingExecutor
+      dispatcherExecutionContext,
+      mainExecutionContext,
+      blockingExecutionContext
     ).unsafeRunSync()
   }
 }

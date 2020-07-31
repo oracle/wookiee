@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Concurrent, IO}
+import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
@@ -37,15 +37,15 @@ protected[grpc] class ZookeeperHostnameService(
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
     pushHosts: Set[Host] => IO[Unit]
-)(implicit concurrent: Concurrent[IO], logger: Logger[IO])
+)(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
       curator <- curatorRef.get
       cache <- cacheRef.get
-      _ <- IO(cache.map(_.close()).getOrElse(()))
-      _ <- IO(curator.close())
+      _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
+      _ <- cs.blockOn(blocker)(IO(curator.close()))
     } yield ())
       .toEitherT(t => UnknownWookieeGrpcError(t.getMessage))
 
@@ -70,20 +70,23 @@ protected[grpc] class ZookeeperHostnameService(
 
     val computation = for {
       curator <- curatorRef.get
-      _ <- IO(curator.start())
+      _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("GRPC Service Discovery curator has started")
-      cache <- IO(
-        CuratorCache
-          .build(curator, rootPath)
+      cache <- cs.blockOn(blocker)(
+        IO(
+          CuratorCache
+            .build(curator, rootPath)
+        )
       )
-      // Check if this bit of code need to run on a blocking execution context
-      _ <- IO(
-        cache
-          .listenable()
-          .addListener(cacheListener(hasInitialized, state, pushHosts, rootPath))
+      _ <- cs.blockOn(blocker)(
+        IO(
+          cache
+            .listenable()
+            .addListener(cacheListener(hasInitialized, state, pushHosts, rootPath))
+        )
       )
       _ <- cacheRef.set(Some(cache))
-      _ <- IO(cache.start())
+      _ <- cs.blockOn(blocker)(IO(cache.start()))
       _ <- logger.info("GRPC Service Discovery curator cache has started")
     } yield {
       closableStream
