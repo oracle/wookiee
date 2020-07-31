@@ -1,7 +1,9 @@
 package com.oracle.infy.wookiee.grpc
 
+import java.util.concurrent.Executors
+
 import cats.effect.concurrent.Deferred
-import cats.effect.{ConcurrentEffect, ContextShift, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
@@ -19,6 +21,8 @@ object UnitTestConstable extends ConstableCommon {
   def main(args: Array[String]): Unit = {
     implicit val ec: ExecutionContext = ExecutionContext.global
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blocker = Blocker.liftExecutionContext(blockingEC)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 
     def pushMessagesFuncAndListenerFactory(
@@ -38,7 +42,7 @@ object UnitTestConstable extends ConstableCommon {
             callback,
             new MockHostNameService(Fs2CloseableImpl(queue.dequeue, killswitch)),
             discoveryPath = ""
-          )(logger)
+          )(cs, blocker, logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO(())

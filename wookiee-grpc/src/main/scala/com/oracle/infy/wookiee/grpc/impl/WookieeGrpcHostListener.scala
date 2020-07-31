@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.IO
+import cats.effect.{Blocker, ContextShift, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
@@ -13,7 +13,7 @@ protected[grpc] class WookieeGrpcHostListener(
     listenerCallback: Set[Host] => IO[Unit],
     hostnameServiceContract: HostnameServiceContract[IO, Stream],
     discoveryPath: String
-)(implicit logger: Logger[IO])
+)(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends ListenerContract[IO, Stream](hostnameServiceContract) {
 
   override def startListening: EitherT[IO, WookieeGrpcError, Unit] = {
@@ -24,7 +24,7 @@ protected[grpc] class WookieeGrpcHostListener(
         closableStream
           .stream
           .evalTap(hosts => logger.info(s"Got hosts $hosts on stream"))
-          .evalTap(listenerCallback)
+          .evalTap(hosts => cs.blockOn(blocker)(listenerCallback(hosts)))
           .compile
           .drain
           .map(_.asRight[ListenerError])

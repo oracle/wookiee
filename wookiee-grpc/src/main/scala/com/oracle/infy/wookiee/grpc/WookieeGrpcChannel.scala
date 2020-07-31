@@ -33,7 +33,7 @@ object WookieeGrpcChannel {
       fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String
-  )(implicit cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = IO {
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = IO {
     NameResolverRegistry
       .getDefaultRegistry
       .register(new NameResolverProvider {
@@ -96,38 +96,44 @@ object WookieeGrpcChannel {
       logger <- Slf4jLogger.create[IO]
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
-      curator <- Ref.of[IO, CuratorFramework](
-        CuratorFrameworkFactory
-          .builder()
-          .runSafeService(scalaToJavaExecutor(blockingExecutionContext))
-          .connectString(zookeeperQuorum)
-          .retryPolicy(retryPolicy)
-          .build()
+      curator <- cs.blockOn(blocker)(
+        Ref.of[IO, CuratorFramework](
+          CuratorFrameworkFactory
+            .builder()
+            .runSafeService(scalaToJavaExecutor(blockingExecutionContext))
+            .connectString(zookeeperQuorum)
+            .retryPolicy(retryPolicy)
+            .build()
+        )
       )
       hostnameServiceSemaphore <- Semaphore(1)
       nameResolverSemaphore <- Semaphore(1)
       queue <- Queue.unbounded[IO, Set[Host]]
       killSwitch <- Deferred[IO, Either[Throwable, Unit]]
       cache <- Ref.of[IO, Option[CuratorCache]](None)
-      _ <- addNameResolver(
-        listener,
-        nameResolverSemaphore,
-        fiberRef,
-        new ZookeeperHostnameService(
-          curator,
-          cache,
-          hostnameServiceSemaphore,
-          Fs2CloseableImpl(queue.dequeue, killSwitch),
-          queue.enqueue1
-        )(blocker, cs, concurrent, logger),
-        serviceDiscoveryPath
-      )(cs, logger)
-      channel <- buildChannel(
-        serviceDiscoveryPath,
-        grpcChannelThreadLimit,
-        dispatcherExecutionContext,
-        mainExecutionContext,
-        blockingExecutionContext
+      _ <- cs.blockOn(blocker)(
+        addNameResolver(
+          listener,
+          nameResolverSemaphore,
+          fiberRef,
+          new ZookeeperHostnameService(
+            curator,
+            cache,
+            hostnameServiceSemaphore,
+            Fs2CloseableImpl(queue.dequeue, killSwitch),
+            queue.enqueue1
+          )(blocker, cs, concurrent, logger),
+          serviceDiscoveryPath
+        )(cs, blocker, logger)
+      )
+      channel <- cs.blockOn(blocker)(
+        buildChannel(
+          serviceDiscoveryPath,
+          grpcChannelThreadLimit,
+          dispatcherExecutionContext,
+          mainExecutionContext,
+          blockingExecutionContext
+        )
       )
     } yield channel
   }

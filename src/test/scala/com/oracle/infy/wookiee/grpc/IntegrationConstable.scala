@@ -86,7 +86,7 @@ object IntegrationConstable extends ConstableCommon {
               queue.enqueue1
             )(blocker, IO.contextShift(ec), concurrent, logger),
             discoveryPath = discoveryPath
-          )(logger)
+          )(cs, blocker, logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO {

@@ -104,6 +104,7 @@ lazy val root = (project in file("."))
     test := {
         (test in Test).value
         (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
     },
     ciBuild := {
         ((Keys.`package` in Compile) dependsOn (test in Compile)).value
