@@ -174,7 +174,7 @@ protected[grpc] class ZookeeperHostnameService(
     state
   }
 
-  def deleteNodeState(
+  private def deleteNodeState(
       zkData: ChildData,
       state: ConcurrentHashMap[String, CachedNodeReference],
       rootPath: String
