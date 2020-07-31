@@ -76,6 +76,7 @@ protected[grpc] class ZookeeperHostnameService(
         CuratorCache
           .build(curator, rootPath)
       )
+      // Check if this bit of code need to run on a blocking execution context
       _ <- IO(
         cache
           .listenable()

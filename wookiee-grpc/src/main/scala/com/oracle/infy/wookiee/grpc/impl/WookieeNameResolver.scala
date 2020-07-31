@@ -15,6 +15,8 @@ import fs2._
 import io.chrisdavenport.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
 
+import scala.concurrent.ExecutionContext
+
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
     semaphore: Semaphore[IO],
@@ -30,6 +32,7 @@ protected[grpc] class WookieeNameResolver(
 
   override def shutdown(): Unit = {
     val computation = for {
+      _ <- logger.info("Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {
@@ -62,7 +65,12 @@ protected[grpc] class WookieeNameResolver(
 
   override def start(listener: NameResolver.Listener2): Unit = {
 
+    // TODO: Remove this
+    val myCs = IO.contextShift(ExecutionContext.global)
+//    val myConcurrent = IO.ioConcurrentEffect(myCs)
+
     val computation = for {
+      _ <- logger.info("Start was called on NameResolver")
       wookieeListener <- new WookieeGrpcHostListener(listenerCallback(listener), hostNameService, discoveryPath)
         .pure[IO]
 
@@ -74,8 +82,9 @@ protected[grpc] class WookieeNameResolver(
           EitherT(logger.error("Error on listen start").map(_ => err.asLeft[Unit]))
         }
         .value
-        .start
+        .start(myCs)
       _ <- fiberRef.set(Some(fiber))
+      _ <- logger.info("Running listener in the background")
     } yield ()
 
     semaphore.acquire.bracket(_ => computation)(_ => semaphore.release).unsafeRunSync()
