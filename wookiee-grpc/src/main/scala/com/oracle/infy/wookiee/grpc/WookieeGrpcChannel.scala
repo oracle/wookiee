@@ -1,12 +1,12 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
-import java.util.concurrent.Executor
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
@@ -17,13 +17,12 @@ import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
 import io.grpc.netty.shaded.io.netty.channel
 import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
-import io.grpc.netty.shaded.io.netty.channel.nio.NioEventLoopGroup
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
+import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
-import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
-import org.apache.curator.retry.ExponentialBackoffRetry
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 object WookieeGrpcChannel {
 
@@ -49,10 +48,6 @@ object WookieeGrpcChannel {
       })
   }
 
-  private def scalaToJavaExecutor(executor: ExecutionContext): Executor = new java.util.concurrent.Executor {
-    override def execute(command: Runnable): Unit = executor.execute(command)
-  }
-
   private def buildChannel(
       path: String,
       grpcChannelThreadLimit: Int,
@@ -60,7 +55,6 @@ object WookieeGrpcChannel {
       mainExecutor: ExecutionContext,
       blockingExecutor: ExecutionContext
   ): IO[ManagedChannel] = IO {
-    val dispatchExecutorJava = scalaToJavaExecutor(dispatcherExecutor)
     val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
     val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
 
@@ -71,7 +65,7 @@ object WookieeGrpcChannel {
       .channelFactory(new ChannelFactory[channel.Channel] {
         override def newChannel(): channel.Channel = new NioSocketChannel()
       })
-      .eventLoopGroup(new NioEventLoopGroup(grpcChannelThreadLimit, dispatchExecutorJava))
+      .eventLoopGroup(eventLoopGroup(dispatcherExecutor, grpcChannelThreadLimit))
       .executor(mainExecutorJava)
       .offloadExecutor(blockingExecutorJava)
       .build()
@@ -80,6 +74,8 @@ object WookieeGrpcChannel {
   def of(
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
       grpcChannelThreadLimit: Int,
       dispatcherExecutionContext: ExecutionContext,
       mainExecutionContext: ExecutionContext,
@@ -90,7 +86,7 @@ object WookieeGrpcChannel {
   ): IO[ManagedChannel] = {
 
     val blocker = Blocker.liftExecutionContext(blockingExecutionContext)
-    val retryPolicy = new ExponentialBackoffRetry(1000, 3)
+    val retryPolicy = exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
 
     for {
       logger <- Slf4jLogger.create[IO]
@@ -98,12 +94,7 @@ object WookieeGrpcChannel {
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
       curator <- cs.blockOn(blocker)(
         Ref.of[IO, CuratorFramework](
-          CuratorFrameworkFactory
-            .builder()
-            .runSafeService(scalaToJavaExecutor(blockingExecutionContext))
-            .connectString(zookeeperQuorum)
-            .retryPolicy(retryPolicy)
-            .build()
+          curatorFramework(zookeeperQuorum, blockingExecutionContext, retryPolicy)
         )
       )
       hostnameServiceSemaphore <- Semaphore(1)
@@ -141,6 +132,8 @@ object WookieeGrpcChannel {
   def unsafeOf(
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
       grpcChannelThreadLimit: Int,
       dispatcherExecutionContext: ExecutionContext,
       mainExecutionContext: ExecutionContext,
@@ -152,6 +145,8 @@ object WookieeGrpcChannel {
     of(
       zookeeperQuorum,
       serviceDiscoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
       grpcChannelThreadLimit,
       dispatcherExecutionContext,
       mainExecutionContext,

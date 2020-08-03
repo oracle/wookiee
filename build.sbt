@@ -69,8 +69,8 @@ val commonSettings: Seq[Setting[_]] = Seq(
   }.value,
   compile := ((compile in Compile) dependsOn (compile in Test)).value,
   ciBuild := {
-      ((Keys.`package` in Compile) dependsOn (test in Test)).value
-      makePom.value
+    ((Keys.`package` in Compile) dependsOn (test in Test)).value
+    makePom.value
   },
   ciBuildNoTest := {
     (Keys.`package` in Compile).value
@@ -78,7 +78,8 @@ val commonSettings: Seq[Setting[_]] = Seq(
   }
 )
 
-lazy val `wookiee-core` = (project in file("wookiee-core"))
+lazy val `wookiee-core` = project
+  .in(file("wookiee-core"))
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Seq(
@@ -87,7 +88,8 @@ lazy val `wookiee-core` = (project in file("wookiee-core"))
     )
   )
 
-lazy val `wookiee-grpc` = (project in file("wookiee-grpc"))
+lazy val `wookiee-grpc` = project
+  .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Deps.build.all
@@ -95,21 +97,22 @@ lazy val `wookiee-grpc` = (project in file("wookiee-grpc"))
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
-lazy val root = (project in file("."))
+lazy val root = project
+  .in(file("."))
   .settings(commonSettings: _*)
   .settings(
     name := "wookiee",
     libraryDependencies ++= Deps.test.all,
     testFrameworks += new TestFramework("utest.runner.Framework"),
     test := {
-        (test in Test).value
-        (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (test in Test).value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
     },
     ciBuild := {
-        ((Keys.`package` in Compile) dependsOn (test in Compile)).value
-        makePom.value
-    },
+      ((Keys.`package` in Compile) dependsOn (test in Compile)).value
+      makePom.value
+    }
   )
   .dependsOn(
     `wookiee-core`,
@@ -119,3 +122,15 @@ lazy val root = (project in file("."))
     `wookiee-core`,
     `wookiee-grpc`
   )
+
+lazy val `wookiee-docs` = project
+  .in(file("wookiee-docs"))
+  .settings(commonSettings)
+  .settings(
+    mdocIn := file("wookiee-docs/docs"),
+    mdocVariables := Map(
+      "VERSION" -> version.value
+    )
+  )
+  .dependsOn(root)
+  .enablePlugins(MdocPlugin)
