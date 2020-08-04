@@ -123,13 +123,39 @@ lazy val root = project
     `wookiee-grpc`
   )
 
+def readF[A](file: String, func: List[String] => A): A = {
+  val src = scala.io.Source.fromFile(file)
+  try func(src.getLines().toList.map(_ ++ "\n"))
+  finally src.close()
+}
+
+def readSection(file: String, section: String): String = {
+  val s = s"$section\n"
+  readF(file, _.dropWhile(a => !a.endsWith(s)).drop(1).takeWhile(a => !a.endsWith(s)).mkString)
+}
+
+val protoFile = "src/main/protobuf/myService.proto"
+
 lazy val `wookiee-docs` = project
   .in(file("wookiee-docs"))
   .settings(commonSettings)
   .settings(
+    //scalaPB
+    libraryDependencies ++= Seq(
+      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+    ),
+    PB.targets in Compile := Seq(
+      scalapb.gen() -> (sourceManaged in Compile).value
+    ),
+    //scalaPB
     mdocIn := file("wookiee-docs/docs"),
     mdocVariables := Map(
-      "VERSION" -> version.value
+      "VERSION" -> version.value,
+      "PROTO_FILE" -> protoFile,
+      "PROTO_DEF" -> readF(s"wookiee-docs/$protoFile", _.mkString),
+      "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
+      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB")
     )
   )
   .dependsOn(root)
