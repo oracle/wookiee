@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee
 
-import java.util.concurrent.Executors
+import java.util.concurrent.{Executors, TimeUnit}
 
 import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
@@ -16,12 +16,16 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 object Example {
 
   def main(args: Array[String]): Unit = {
-    val dispatcherThreads = 1
+    val bossThreads = 2
     val mainECThreads = 4
 
-    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
-    val blockingEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
+//    val dispatcherECDuplicate = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
+//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+//    val blockingEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
+    val blockingEC = ExecutionContext.global
     implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(Executors.newWorkStealingPool(mainECThreads))
+//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newWorkStealingPool(mainECThreads))
 
 //    val dispatcherEC = ExecutionContext.global
 //    val blockingEC = ExecutionContext.global
@@ -49,10 +53,9 @@ object Example {
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
       localhost = Host(0, "localhost", 9091, Map.empty),
-      dispatcherExecutionContext = dispatcherEC,
       mainExecutionContext = mainEC,
       blockingExecutionContext = blockingEC,
-      dispatcherExecutionContextThreads = dispatcherThreads,
+      bossThreads = bossThreads,
       mainExecutionContextThreads = mainECThreads
     )
 
@@ -61,8 +64,7 @@ object Example {
       serviceDiscoveryPath = zookeeperDiscoveryPath,
       zookeeperRetryInterval = 3.seconds,
       zookeeperMaxRetries = 20,
-      grpcChannelThreadLimit = dispatcherThreads,
-      dispatcherExecutionContext = dispatcherEC,
+      grpcChannelThreadLimit = bossThreads,
       mainExecutionContext = mainEC,
       blockingExecutionContext = blockingEC
     )
@@ -78,6 +80,8 @@ object Example {
       server <- serverF
       _ <- Future.successful(logger.info(s"Calling greet").unsafeRunSync())
       resp <- stub.greet(HelloRequest("world!"))
+      _ <- Future(channel.shutdownNow())
+      _ <- Future(channel.awaitTermination(10, TimeUnit.SECONDS))
       _ <- Future.successful(logger.info(s"Got back response $resp. Shutting down server...").unsafeRunSync())
       _ <- server.shutdownUnsafe()
       _ <- Future.successful(logger.info(s"Server was shutdown").unsafeRunSync())

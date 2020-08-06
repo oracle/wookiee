@@ -51,7 +51,6 @@ object WookieeGrpcChannel {
   private def buildChannel(
       path: String,
       grpcChannelThreadLimit: Int,
-      dispatcherExecutor: ExecutionContext,
       mainExecutor: ExecutionContext,
       blockingExecutor: ExecutionContext
   ): IO[ManagedChannel] = IO {
@@ -65,7 +64,7 @@ object WookieeGrpcChannel {
       .channelFactory(new ChannelFactory[channel.Channel] {
         override def newChannel(): channel.Channel = new NioSocketChannel()
       })
-      .eventLoopGroup(eventLoopGroup(dispatcherExecutor, grpcChannelThreadLimit))
+      .eventLoopGroup(eventLoopGroup(blockingExecutor, grpcChannelThreadLimit))
       .executor(mainExecutorJava)
       .offloadExecutor(blockingExecutorJava)
       .build()
@@ -77,7 +76,6 @@ object WookieeGrpcChannel {
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
       grpcChannelThreadLimit: Int,
-      dispatcherExecutionContext: ExecutionContext,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext
   )(
@@ -121,7 +119,6 @@ object WookieeGrpcChannel {
         buildChannel(
           serviceDiscoveryPath,
           grpcChannelThreadLimit,
-          dispatcherExecutionContext,
           mainExecutionContext,
           blockingExecutionContext
         )
@@ -135,7 +132,6 @@ object WookieeGrpcChannel {
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
       grpcChannelThreadLimit: Int,
-      dispatcherExecutionContext: ExecutionContext,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext
   ): ManagedChannel = {
@@ -149,7 +145,6 @@ object WookieeGrpcChannel {
       zookeeperRetryInterval,
       zookeeperMaxRetries,
       grpcChannelThreadLimit,
-      dispatcherExecutionContext,
       mainExecutionContext,
       blockingExecutionContext
     ).unsafeRunSync()

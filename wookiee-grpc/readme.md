@@ -102,7 +102,7 @@ object Example {
       dispatcherExecutionContext = dispatcherEC,
       mainExecutionContext = mainEC,
       blockingExecutionContext = blockingEC,
-      dispatcherExecutionContextThreads = dispatcherThreads,
+      bossThreads = dispatcherThreads,
       mainExecutionContextThreads = mainECThreads
     )
 
