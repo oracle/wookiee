@@ -11,7 +11,7 @@ object Deps {
     val µTestVersion = "0.7.2"
     val scalacheckVersion = "1.14.1"
     val fs2Version = "2.4.0"
-    val grpcVersion = "1.27.2"
+    val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
     val slf4jVersion = "1.7.5"
     val slf4jImplVersion = "2.13.3"

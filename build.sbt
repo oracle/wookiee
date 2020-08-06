@@ -158,5 +158,11 @@ lazy val `wookiee-docs` = project
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB")
     )
   )
+  .settings(
+    libraryDependencies ++= Seq(
+      Deps.test.curatorTest,
+      Deps.test.slf4jLog4jImpl
+    )
+  )
   .dependsOn(root)
   .enablePlugins(MdocPlugin)

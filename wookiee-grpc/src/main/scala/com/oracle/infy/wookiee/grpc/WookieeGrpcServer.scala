@@ -7,6 +7,9 @@ import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
+import io.grpc.netty.shaded.io.netty.channel
+import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
+import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.{Server, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
@@ -97,26 +100,29 @@ object WookieeGrpcServer {
   }
 
   def start(
-      zkQuorum: String,
+      zookeeperQuorum: String,
       discoveryPath: String,
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       localhost: Host,
-      dispatcherEC: ExecutionContext,
-      mainEC: ExecutionContext,
-      blockingEC: ExecutionContext,
-      dispatcherECThreads: Int,
-      mainECThreads: Int
+      dispatcherExecutionContext: ExecutionContext,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      dispatcherExecutionContextThreads: Int,
+      mainExecutionContextThreads: Int
   ): IO[WookieeGrpcServer] = {
     for {
       server <- IO {
         NettyServerBuilder
           .forPort(port)
-          .bossEventLoopGroup(eventLoopGroup(dispatcherEC, dispatcherECThreads))
-          .workerEventLoopGroup(eventLoopGroup(mainEC, mainECThreads))
-          .executor(scalaToJavaExecutor(mainEC))
+          .channelFactory(new ChannelFactory[channel.ServerChannel] {
+            override def newChannel(): channel.ServerChannel = new NioServerSocketChannel()
+          })
+          .bossEventLoopGroup(eventLoopGroup(dispatcherExecutionContext, dispatcherExecutionContextThreads))
+          .workerEventLoopGroup(eventLoopGroup(mainExecutionContext, mainExecutionContextThreads))
+          .executor(scalaToJavaExecutor(mainExecutionContext))
           .addService(
             serverServiceDefinition
           )
@@ -126,7 +132,11 @@ object WookieeGrpcServer {
         server.start()
       }
       curator <- IO(
-        curatorFramework(zkQuorum, blockingEC, exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries))
+        curatorFramework(
+          zookeeperQuorum,
+          blockingExecutionContext,
+          exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
+        )
       )
       _ <- IO(curator.start())
       _ <- IO(registerInZookeeper(discoveryPath, curator, localhost))
@@ -134,32 +144,32 @@ object WookieeGrpcServer {
   }
 
   def startUnsafe(
-      zkQuorum: String,
+      zookeeperQuorum: String,
       discoveryPath: String,
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       localhost: Host,
-      dispatcherEC: ExecutionContext,
-      mainEC: ExecutionContext,
-      blockingEC: ExecutionContext,
-      dispatcherECThreads: Int,
-      mainECThreads: Int
+      dispatcherExecutionContext: ExecutionContext,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      dispatcherExecutionContextThreads: Int,
+      mainExecutionContextThreads: Int
   ): Future[WookieeGrpcServer] = {
     start(
-      zkQuorum,
+      zookeeperQuorum,
       discoveryPath,
       zookeeperRetryInterval,
       zookeeperMaxRetries,
       serverServiceDefinition,
       port,
       localhost,
-      dispatcherEC,
-      mainEC,
-      blockingEC,
-      dispatcherECThreads,
-      mainECThreads
+      dispatcherExecutionContext,
+      mainExecutionContext,
+      blockingExecutionContext,
+      dispatcherExecutionContextThreads,
+      mainExecutionContextThreads
     ).unsafeToFuture()
   }
 

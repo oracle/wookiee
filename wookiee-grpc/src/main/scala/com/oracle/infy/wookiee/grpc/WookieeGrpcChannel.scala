@@ -82,14 +82,14 @@ object WookieeGrpcChannel {
       blockingExecutionContext: ExecutionContext
   )(
       implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO]
+      concurrent: ConcurrentEffect[IO],
+      logger: Logger[IO]
   ): IO[ManagedChannel] = {
 
     val blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     val retryPolicy = exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
 
     for {
-      logger <- Slf4jLogger.create[IO]
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
       curator <- cs.blockOn(blocker)(
@@ -141,6 +141,7 @@ object WookieeGrpcChannel {
   ): ManagedChannel = {
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     of(
       zookeeperQuorum,

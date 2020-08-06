@@ -19,7 +19,6 @@ protected[grpc] class WookieeGrpcHostListener(
   override def startListening: EitherT[IO, WookieeGrpcError, Unit] = {
     for {
       closableStream <- hostnameServiceContract.hostStream(discoveryPath)
-      _ <- EitherT(logger.info(s"hosStream returned: $closableStream").map(_.asRight[WookieeGrpcError]))
       r <- EitherT(
         closableStream
           .stream
