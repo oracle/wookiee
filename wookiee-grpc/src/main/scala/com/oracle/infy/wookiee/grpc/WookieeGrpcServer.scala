@@ -25,6 +25,7 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
     for {
       _ <- IO(curatorFramework.close())
       _ <- IO(server.shutdown())
+      _ <- IO(server.awaitTermination())
     } yield ()
   }
 
@@ -42,17 +43,16 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
 object WookieeGrpcServer {
 
   def start(
-      zkQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      dispatcherEC: ExecutionContext,
-      mainEC: ExecutionContext,
-      blockingEC: ExecutionContext,
-      dispatcherECThreads: Int,
-      mainECThreads: Int
+             zkQuorum: String,
+             discoveryPath: String,
+             zookeeperRetryInterval: FiniteDuration,
+             zookeeperMaxRetries: Int,
+             serverServiceDefinition: ServerServiceDefinition,
+             port: Int,
+             mainEC: ExecutionContext,
+             blockingEC: ExecutionContext,
+             bossThreads: Int,
+             mainECThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -69,27 +69,25 @@ object WookieeGrpcServer {
         serverServiceDefinition,
         port,
         Host(0, address, port, Map.empty),
-        dispatcherEC,
         mainEC,
         blockingEC,
-        dispatcherECThreads,
+        bossThreads,
         mainECThreads
       )
     })
   }
 
   def startUnsafe(
-      zkQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      dispatcherExecutionContext: ExecutionContext,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      dispatcherThreads: Int,
-      mainThreads: Int
+                   zkQuorum: String,
+                   discoveryPath: String,
+                   zookeeperRetryInterval: FiniteDuration,
+                   zookeeperMaxRetries: Int,
+                   serverServiceDefinition: ServerServiceDefinition,
+                   port: Int,
+                   mainExecutionContext: ExecutionContext,
+                   blockingExecutionContext: ExecutionContext,
+                   bossThreads: Int,
+                   mainThreads: Int
   ): Future[WookieeGrpcServer] = {
 
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
@@ -103,27 +101,25 @@ object WookieeGrpcServer {
       zookeeperMaxRetries,
       serverServiceDefinition,
       port,
-      dispatcherExecutionContext,
       mainExecutionContext,
       blockingExecutionContext,
-      dispatcherThreads,
+      bossThreads,
       mainThreads
     ).unsafeToFuture()
   }
 
   def start(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: Host,
-      dispatcherExecutionContext: ExecutionContext,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      dispatcherExecutionContextThreads: Int,
-      mainExecutionContextThreads: Int
+             zookeeperQuorum: String,
+             discoveryPath: String,
+             zookeeperRetryInterval: FiniteDuration,
+             zookeeperMaxRetries: Int,
+             serverServiceDefinition: ServerServiceDefinition,
+             port: Int,
+             localhost: Host,
+             mainExecutionContext: ExecutionContext,
+             blockingExecutionContext: ExecutionContext,
+             bossThreads: Int,
+             mainExecutionContextThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -136,7 +132,7 @@ object WookieeGrpcServer {
           .channelFactory(new ChannelFactory[channel.ServerChannel] {
             override def newChannel(): channel.ServerChannel = new NioServerSocketChannel()
           })
-          .bossEventLoopGroup(eventLoopGroup(dispatcherExecutionContext, dispatcherExecutionContextThreads))
+          .bossEventLoopGroup(eventLoopGroup(blockingExecutionContext, bossThreads))
           .workerEventLoopGroup(eventLoopGroup(mainExecutionContext, mainExecutionContextThreads))
           .executor(scalaToJavaExecutor(mainExecutionContext))
           .addService(
@@ -164,18 +160,17 @@ object WookieeGrpcServer {
   }
 
   def startUnsafe(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: Host,
-      dispatcherExecutionContext: ExecutionContext,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      dispatcherExecutionContextThreads: Int,
-      mainExecutionContextThreads: Int
+                   zookeeperQuorum: String,
+                   discoveryPath: String,
+                   zookeeperRetryInterval: FiniteDuration,
+                   zookeeperMaxRetries: Int,
+                   serverServiceDefinition: ServerServiceDefinition,
+                   port: Int,
+                   localhost: Host,
+                   mainExecutionContext: ExecutionContext,
+                   blockingExecutionContext: ExecutionContext,
+                   bossThreads: Int,
+                   mainExecutionContextThreads: Int
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
@@ -188,10 +183,9 @@ object WookieeGrpcServer {
       serverServiceDefinition,
       port,
       localhost,
-      dispatcherExecutionContext,
       mainExecutionContext,
       blockingExecutionContext,
-      dispatcherExecutionContextThreads,
+      bossThreads,
       mainExecutionContextThreads
     ).unsafeToFuture()
   }
