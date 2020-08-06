@@ -19,13 +19,19 @@ import org.apache.zookeeper.CreateMode
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
-class WookieeGrpcServer(private val server: Server, private val curatorFramework: CuratorFramework) {
+class WookieeGrpcServer(private val server: Server, private val curatorFramework: CuratorFramework)(
+    implicit cs: ContextShift[IO],
+    logger: Logger[IO],
+    blocker: Blocker
+) {
 
   def shutdown(): IO[Unit] = {
     for {
-      _ <- IO(curatorFramework.close())
-      _ <- IO(server.shutdown())
-      _ <- IO(server.awaitTermination())
+      _ <- logger.info("Closing curator client")
+      _ <- cs.blockOn(blocker)(IO(curatorFramework.close()))
+      _ <- logger.info("Shutting down gRPC server...")
+      _ <- cs.blockOn(blocker)(IO(server.shutdown()))
+      _ <- cs.blockOn(blocker)(IO(server.awaitTermination()))
     } yield ()
   }
 
@@ -34,7 +40,6 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
   }
 
   def shutdownUnsafe(): Future[Unit] = {
-    println("############ shutdown")
     shutdown().unsafeToFuture()
   }
 
@@ -43,16 +48,16 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
 object WookieeGrpcServer {
 
   def start(
-             zkQuorum: String,
-             discoveryPath: String,
-             zookeeperRetryInterval: FiniteDuration,
-             zookeeperMaxRetries: Int,
-             serverServiceDefinition: ServerServiceDefinition,
-             port: Int,
-             mainEC: ExecutionContext,
-             blockingEC: ExecutionContext,
-             bossThreads: Int,
-             mainECThreads: Int
+      zkQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      mainEC: ExecutionContext,
+      blockingEC: ExecutionContext,
+      bossThreads: Int,
+      mainECThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -78,16 +83,16 @@ object WookieeGrpcServer {
   }
 
   def startUnsafe(
-                   zkQuorum: String,
-                   discoveryPath: String,
-                   zookeeperRetryInterval: FiniteDuration,
-                   zookeeperMaxRetries: Int,
-                   serverServiceDefinition: ServerServiceDefinition,
-                   port: Int,
-                   mainExecutionContext: ExecutionContext,
-                   blockingExecutionContext: ExecutionContext,
-                   bossThreads: Int,
-                   mainThreads: Int
+      zkQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainThreads: Int
   ): Future[WookieeGrpcServer] = {
 
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
@@ -109,17 +114,17 @@ object WookieeGrpcServer {
   }
 
   def start(
-             zookeeperQuorum: String,
-             discoveryPath: String,
-             zookeeperRetryInterval: FiniteDuration,
-             zookeeperMaxRetries: Int,
-             serverServiceDefinition: ServerServiceDefinition,
-             port: Int,
-             localhost: Host,
-             mainExecutionContext: ExecutionContext,
-             blockingExecutionContext: ExecutionContext,
-             bossThreads: Int,
-             mainExecutionContextThreads: Int
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      localhost: Host,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainExecutionContextThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -160,17 +165,17 @@ object WookieeGrpcServer {
   }
 
   def startUnsafe(
-                   zookeeperQuorum: String,
-                   discoveryPath: String,
-                   zookeeperRetryInterval: FiniteDuration,
-                   zookeeperMaxRetries: Int,
-                   serverServiceDefinition: ServerServiceDefinition,
-                   port: Int,
-                   localhost: Host,
-                   mainExecutionContext: ExecutionContext,
-                   blockingExecutionContext: ExecutionContext,
-                   bossThreads: Int,
-                   mainExecutionContextThreads: Int
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      localhost: Host,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainExecutionContextThreads: Int
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)

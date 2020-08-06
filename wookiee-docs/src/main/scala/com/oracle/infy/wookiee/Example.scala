@@ -23,8 +23,11 @@ object Example {
 //    val dispatcherECDuplicate = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
 //    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
 //    val blockingEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
-    val blockingEC = ExecutionContext.global
-    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(Executors.newWorkStealingPool(mainECThreads))
+    val blockingExecutorService = Executors.newCachedThreadPool()
+    val mainExecutorService =  Executors.newFixedThreadPool(mainECThreads)
+
+    val blockingEC = ExecutionContext.fromExecutor(blockingExecutorService)
+    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(mainExecutorService)
 //    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newWorkStealingPool(mainECThreads))
 
 //    val dispatcherEC = ExecutionContext.global
@@ -80,13 +83,16 @@ object Example {
       server <- serverF
       _ <- Future.successful(logger.info(s"Calling greet").unsafeRunSync())
       resp <- stub.greet(HelloRequest("world!"))
-      _ <- Future(channel.shutdownNow())
-      _ <- Future(channel.awaitTermination(10, TimeUnit.SECONDS))
+      _ <- Future(channel.shutdown())
+      _ <- Future(channel.awaitTermination(10, TimeUnit.HOURS))
       _ <- Future.successful(logger.info(s"Got back response $resp. Shutting down server...").unsafeRunSync())
       _ <- server.shutdownUnsafe()
       _ <- Future.successful(logger.info(s"Server was shutdown").unsafeRunSync())
     } yield resp
 
     println(Await.result(x, Duration.Inf))
+    blockingExecutorService.shutdownNow()
+    mainExecutorService.shutdownNow()
+    ()
   }
 }
