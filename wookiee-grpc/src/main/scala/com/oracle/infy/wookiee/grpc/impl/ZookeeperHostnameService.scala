@@ -108,23 +108,29 @@ protected[grpc] class ZookeeperHostnameService(
     CuratorCacheListener
       .builder
       .forCreates((node: ChildData) => {
-        addOrUpdateNodeState(node, state, rootPath)
-        if (hasInitialized.get()) {
-          sendHosts(pushHosts, state)
-        }
-      })
-      .forChanges(
-        (_: ChildData, node: ChildData) => {
+        lock.synchronized {
           addOrUpdateNodeState(node, state, rootPath)
           if (hasInitialized.get()) {
             sendHosts(pushHosts, state)
           }
         }
+      })
+      .forChanges(
+        (_: ChildData, node: ChildData) => {
+          lock.synchronized {
+            addOrUpdateNodeState(node, state, rootPath)
+            if (hasInitialized.get()) {
+              sendHosts(pushHosts, state)
+            }
+          }
+        }
       )
       .forDeletes((oldNode: ChildData) => {
-        deleteNodeState(oldNode, state, rootPath)
-        if (hasInitialized.get()) {
-          sendHosts(pushHosts, state)
+        lock.synchronized {
+          deleteNodeState(oldNode, state, rootPath)
+          if (hasInitialized.get()) {
+            sendHosts(pushHosts, state)
+          }
         }
       })
       .forInitialized(() => {
