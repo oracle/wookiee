@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
@@ -21,8 +22,20 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
+
+class WookieeGrpcChannel(val managedChannel: ManagedChannel)(implicit cs: ContextShift[IO], blocker: Blocker) {
+
+  def shutdown(): IO[Unit] = {
+    for {
+      _ <- cs.blockOn(blocker)(IO(managedChannel.shutdown()))
+      _ <- cs.blockOn(blocker)(IO(managedChannel.awaitTermination(Long.MaxValue, TimeUnit.DAYS)))
+    } yield ()
+  }
+
+  def shutdownUnsafe(): Future[Unit] = shutdown().unsafeToFuture()
+}
 
 object WookieeGrpcChannel {
 
@@ -81,10 +94,10 @@ object WookieeGrpcChannel {
   )(
       implicit cs: ContextShift[IO],
       concurrent: ConcurrentEffect[IO],
+      blocker: Blocker,
       logger: Logger[IO]
-  ): IO[ManagedChannel] = {
+  ): IO[WookieeGrpcChannel] = {
 
-    val blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     val retryPolicy = exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
 
     for {
@@ -123,7 +136,7 @@ object WookieeGrpcChannel {
           blockingExecutionContext
         )
       )
-    } yield channel
+    } yield new WookieeGrpcChannel(channel)
   }
 
   def unsafeOf(
@@ -134,10 +147,11 @@ object WookieeGrpcChannel {
       grpcChannelThreadLimit: Int,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext
-  ): ManagedChannel = {
+  ): WookieeGrpcChannel = {
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
 
     of(
       zookeeperQuorum,

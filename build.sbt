@@ -69,7 +69,7 @@ val commonSettings: Seq[Setting[_]] = Seq(
   }.value,
   compile := ((compile in Compile) dependsOn (compile in Test)).value,
   ciBuild := {
-    ((Keys.`package` in Compile) dependsOn (test in Test)).value
+    ((Keys.`packageSrc` in Compile) dependsOn (test in Test)).value
     makePom.value
   },
   ciBuildNoTest := {
@@ -150,12 +150,14 @@ lazy val `wookiee-docs` = project
     ),
     //scalaPB
     mdocIn := file("wookiee-docs/docs"),
+    mdocOut := file("."),
     mdocVariables := Map(
       "VERSION" -> version.value,
       "PROTO_FILE" -> protoFile,
       "PROTO_DEF" -> readF(s"wookiee-docs/$protoFile", _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
-      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB")
+      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
     )
   )
   .settings(

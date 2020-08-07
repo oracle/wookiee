@@ -1,14 +1,17 @@
 package com.oracle.infy.wookiee
-
-import java.util.concurrent.{Executors, TimeUnit}
+// NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 
 import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
+// This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
+import org.apache.curator.test.TestingServer
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -16,34 +19,53 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 object Example {
 
   def main(args: Array[String]): Unit = {
+
     val bossThreads = 2
-    val mainECThreads = 4
+    val mainECParallelism = 4
 
-//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
-//    val dispatcherECDuplicate = ExecutionContext.fromExecutor(Executors.newSingleThreadExecutor())
-//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
-//    val blockingEC = ExecutionContext.fromExecutor(Executors.newCachedThreadPool())
-    val blockingExecutorService = Executors.newCachedThreadPool()
-    val mainExecutorService =  Executors.newFixedThreadPool(mainECThreads)
+    // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
+    // We use cats-effect (https://typelevel.org/cats-effect/) internally.
+    // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
+    // When using `unsafe` methods, you are expected to handle any exceptions
+    val logger = Slf4jLogger.create[IO].unsafeRunSync()
 
-    val blockingEC = ExecutionContext.fromExecutor(blockingExecutorService)
-    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(mainExecutorService)
-//    val dispatcherEC = ExecutionContext.fromExecutor(Executors.newWorkStealingPool(mainECThreads))
+    val uncaughtExceptionHandler = new UncaughtExceptionHandler {
+      override def uncaughtException(t: Thread, e: Throwable): Unit = {
+        logger.error(e)("Got an uncaught exception on thread " ++ t.getName).unsafeRunSync()
+      }
+    }
 
-//    val dispatcherEC = ExecutionContext.global
-//    val blockingEC = ExecutionContext.global
-//    implicit val mainEC: ExecutionContext = ExecutionContext.global
+    val tf = new ThreadFactory {
+      override def newThread(r: Runnable): Thread = {
+        val t = new Thread(r)
+        t.setName("blocking-" ++ t.getId.toString)
+        t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
+        t.setDaemon(true)
+        t
+      }
+    }
+
+    // The blocking execution context must create daemon threads if you want your app to shutdown
+    val blockingEC = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(tf))
+    // This is the execution context used to execute your application specific code
+    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(
+      new ForkJoinPool(
+        mainECParallelism,
+        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+        uncaughtExceptionHandler,
+        true
+      )
+    )
 
     val zookeeperDiscoveryPath = "/discovery"
 
     // This is just to demo, use an actual Zookeeper quorum.
-    //    val zkFake = new TestingServer()
-    //    val connStr = zkFake.getConnectString
-    val connStr = "localhost:2181"
+    val zkFake = new TestingServer()
+    val connStr = zkFake.getConnectString
 
     val ssd: ServerServiceDefinition = MyService.bindService(new MyService {
       override def greet(request: HelloRequest): Future[HelloResponse] =
-        Future.successful(HelloResponse(s"Hello ${request.name}"))
+        Future.successful(HelloResponse("Hello " ++ request.name))
     }, mainEC)
 
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
@@ -59,10 +81,10 @@ object Example {
       mainExecutionContext = mainEC,
       blockingExecutionContext = blockingEC,
       bossThreads = bossThreads,
-      mainExecutionContextThreads = mainECThreads
+      mainExecutionContextThreads = mainECParallelism
     )
 
-    val channel = WookieeGrpcChannel.unsafeOf(
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       zookeeperQuorum = connStr,
       serviceDiscoveryPath = zookeeperDiscoveryPath,
       zookeeperRetryInterval = 3.seconds,
@@ -72,27 +94,17 @@ object Example {
       blockingExecutionContext = blockingEC
     )
 
-    val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(
-      channel
-    )
+    val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
-    val logger = Slf4jLogger.create[IO].unsafeRunSync()
-
-    logger.info("########### logging work").unsafeRunSync()
-    val x = for {
+    val gRPCResponseF: Future[HelloResponse] = for {
       server <- serverF
-      _ <- Future.successful(logger.info(s"Calling greet").unsafeRunSync())
       resp <- stub.greet(HelloRequest("world!"))
-      _ <- Future(channel.shutdown())
-      _ <- Future(channel.awaitTermination(10, TimeUnit.HOURS))
-      _ <- Future.successful(logger.info(s"Got back response $resp. Shutting down server...").unsafeRunSync())
+      _ <- wookieeGrpcChannel.shutdownUnsafe()
       _ <- server.shutdownUnsafe()
-      _ <- Future.successful(logger.info(s"Server was shutdown").unsafeRunSync())
     } yield resp
 
-    println(Await.result(x, Duration.Inf))
-    blockingExecutorService.shutdownNow()
-    mainExecutorService.shutdownNow()
+    println(Await.result(gRPCResponseF, Duration.Inf))
+    zkFake.close()
     ()
   }
 }
