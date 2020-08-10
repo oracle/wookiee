@@ -44,6 +44,21 @@ object WookieeGrpcChannel {
       })
   }
 
+  private def addLoadBalancer(): IO[Unit] = IO {
+    LoadBalancerRegistry
+      .getDefaultRegistry
+      .register(new LoadBalancerProvider {
+        override def isAvailable: Boolean = true
+
+        override def getPriority: Int = 5
+
+        override def getPolicyName: String = "round_robin_weighted"
+
+        override def newLoadBalancer(helper: LoadBalancer.Helper): LoadBalancer =
+          new RoundRobinWeightedLoadBalancer(helper)
+      })
+  }
+
   private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
     override def execute(command: Runnable): Unit = executor.execute(command)
   }
@@ -63,7 +78,7 @@ object WookieeGrpcChannel {
     ManagedChannelBuilder
       .forTarget(s"zookeeper://$path")
       .asInstanceOf[NettyChannelBuilder]
-      .defaultLoadBalancingPolicy("round_robin")
+      .defaultLoadBalancingPolicy("round_robin_weighted")
       .usePlaintext()
       .executor(mainExecutorJava)
       .offloadExecutor(blockingExecutorJava)
@@ -111,6 +126,7 @@ object WookieeGrpcChannel {
         )(concurrent, logger),
         serviceDiscoveryPath
       )(cs, logger)
+      _ <- addLoadBalancer()
       channel <- buildChannel(serviceDiscoveryPath, mainExecutor, blockingExecutor)
     } yield channel
   }
