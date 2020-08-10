@@ -2,23 +2,37 @@ package com.oracle.infy.wookiee.grpc
 
 import java.net.InetAddress
 
-import cats.effect.IO
+import cats.effect.{Blocker, ContextShift, IO}
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.{Server, ServerBuilder, ServerServiceDefinition}
-import org.apache.curator.framework.CuratorFrameworkFactory
-import org.apache.curator.retry.ExponentialBackoffRetry
+import io.grpc.netty.shaded.io.netty.channel
+import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
+import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
+import io.grpc.{Server, ServerServiceDefinition}
+import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
-import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
 
-class WookieeGrpcServer(private val server: Server) {
+class WookieeGrpcServer(private val server: Server, private val curatorFramework: CuratorFramework)(
+    implicit cs: ContextShift[IO],
+    logger: Logger[IO],
+    blocker: Blocker
+) {
 
   def shutdown(): IO[Unit] = {
-    IO {
-      server.shutdown()
-    }.map(_ => ())
+    for {
+      _ <- logger.info("Closing curator client")
+      _ <- cs.blockOn(blocker)(IO(curatorFramework.close()))
+      _ <- logger.info("Shutting down gRPC server...")
+      _ <- cs.blockOn(blocker)(IO(server.shutdown()))
+      _ <- cs.blockOn(blocker)(IO(server.awaitTermination()))
+    } yield ()
   }
 
   def awaitTermination(): Unit = {
@@ -36,72 +50,157 @@ object WookieeGrpcServer {
   def start(
       zkQuorum: String,
       discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
-      port: Int
+      port: Int,
+      mainEC: ExecutionContext,
+      blockingEC: ExecutionContext,
+      bossThreads: Int,
+      mainECThreads: Int
+  )(
+      implicit cs: ContextShift[IO],
+      blocker: Blocker,
+      logger: Logger[IO]
   ): IO[WookieeGrpcServer] = {
-    IO {
+    cs.blockOn(blocker)(IO {
       InetAddress.getLocalHost.getCanonicalHostName
     }.flatMap { address =>
-      start(zkQuorum, discoveryPath, serverServiceDefinition, port, Host(0, address, port, Map("foo" -> "bar")))
-    }
+      start(
+        zkQuorum,
+        discoveryPath,
+        zookeeperRetryInterval,
+        zookeeperMaxRetries,
+        serverServiceDefinition,
+        port,
+        Host(0, address, port, Map.empty),
+        mainEC,
+        blockingEC,
+        bossThreads,
+        mainECThreads
+      )
+    })
   }
 
   def startUnsafe(
       zkQuorum: String,
       discoveryPath: String,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int
-  ): Future[WookieeGrpcServer] = {
-    start(zkQuorum, discoveryPath, serverServiceDefinition, port).unsafeToFuture()
-  }
-
-  @SuppressWarnings(
-    Array(
-      "scalafix:DisableSyntax.asInstanceOf"
-    )
-  )
-  def start(
-      zkQuorum: String,
-      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      localhost: Host
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainThreads: Int
+  ): Future[WookieeGrpcServer] = {
+
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+
+    start(
+      zkQuorum,
+      discoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      serverServiceDefinition,
+      port,
+      mainExecutionContext,
+      blockingExecutionContext,
+      bossThreads,
+      mainThreads
+    ).unsafeToFuture()
+  }
+
+  def start(
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      localhost: Host,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainExecutionContextThreads: Int
+  )(
+      implicit cs: ContextShift[IO],
+      blocker: Blocker,
+      logger: Logger[IO]
   ): IO[WookieeGrpcServer] = {
     for {
-      server <- IO {
-        ServerBuilder
+      server <- cs.blockOn(blocker)(IO {
+        NettyServerBuilder
           .forPort(port)
+          .channelFactory(new ChannelFactory[channel.ServerChannel] {
+            override def newChannel(): channel.ServerChannel = new NioServerSocketChannel()
+          })
+          .bossEventLoopGroup(eventLoopGroup(blockingExecutionContext, bossThreads))
+          .workerEventLoopGroup(eventLoopGroup(mainExecutionContext, mainExecutionContextThreads))
+          .executor(scalaToJavaExecutor(mainExecutionContext))
           .addService(
             serverServiceDefinition
           )
-          .asInstanceOf[NettyServerBuilder]
           .build()
-      }
-      _ <- IO {
+      })
+      _ <- cs.blockOn(blocker)(IO {
         server.start()
-      }
-      _ <- IO(registerInZookeeper(discoveryPath, zkQuorum, localhost))
-
-    } yield new WookieeGrpcServer(server)
+      })
+      _ <- logger.info("gRPC server started...")
+      curator <- cs.blockOn(blocker)(
+        IO(
+          curatorFramework(
+            zookeeperQuorum,
+            blockingExecutionContext,
+            exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
+          )
+        )
+      )
+      _ <- cs.blockOn(blocker)(IO(curator.start()))
+      _ <- logger.info("Registering gRPC server in zookeeper...")
+      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
+    } yield new WookieeGrpcServer(server, curator)
   }
 
   def startUnsafe(
-      zkQuorum: String,
+      zookeeperQuorum: String,
       discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      localhost: Host
+      localhost: Host,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      mainExecutionContextThreads: Int
   ): Future[WookieeGrpcServer] = {
-    start(zkQuorum, discoveryPath, serverServiceDefinition, port, localhost).unsafeToFuture()
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    start(
+      zookeeperQuorum,
+      discoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      serverServiceDefinition,
+      port,
+      localhost,
+      mainExecutionContext,
+      blockingExecutionContext,
+      bossThreads,
+      mainExecutionContextThreads
+    ).unsafeToFuture()
   }
 
-  private def registerInZookeeper(discoveryPath: String, zkConnectString: String, host: Host): Unit = {
-    val curator = CuratorFrameworkFactory
-      .builder()
-      .connectString(zkConnectString)
-      .retryPolicy(new ExponentialBackoffRetry(1000, 3000))
-      .build()
-    curator.start()
+  private def registerInZookeeper(
+      discoveryPath: String,
+      curator: CuratorFramework,
+      host: Host
+  ): Unit = {
+
     if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
       curator
         .create()

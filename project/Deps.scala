@@ -11,7 +11,7 @@ object Deps {
     val µTestVersion = "0.7.2"
     val scalacheckVersion = "1.14.1"
     val fs2Version = "2.4.0"
-    val grpcVersion = "1.27.2"
+    val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
     val slf4jVersion = "1.7.5"
     val slf4jImplVersion = "2.13.3"
@@ -70,10 +70,12 @@ object Deps {
 //    val slf4jAPI: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
 //    val slf4jLog4j: ModuleID = "org.slf4j" % "slf4j-log4j12" % slf4jVersion
     val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion
+    val log4CatsNoop: ModuleID = "io.chrisdavenport" %% "log4cats-noop" % log4CatsVersion
 
     //val slf4jSimple: ModuleID = "org.slf4j" % "slf4j-simple" % slf4jVersion
 
     val all: Seq[ModuleID] = Seq(
+      log4CatsNoop,
       slf4jLog4jImpl,
       scalacheck,
       µTest,

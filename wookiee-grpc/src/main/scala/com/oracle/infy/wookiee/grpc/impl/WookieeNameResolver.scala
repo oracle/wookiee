@@ -5,7 +5,7 @@ import java.net.InetSocketAddress
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{ContextShift, Fiber, IO}
+import cats.effect.{Blocker, ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -21,7 +21,7 @@ protected[grpc] class WookieeNameResolver(
     fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
     hostNameService: HostnameServiceContract[IO, Stream],
     discoveryPath: String
-)(implicit cs: ContextShift[IO], logger: Logger[IO])
+)(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends NameResolver {
 
   override def getServiceAuthority: String = {
@@ -30,6 +30,7 @@ protected[grpc] class WookieeNameResolver(
 
   override def shutdown(): Unit = {
     val computation = for {
+      _ <- logger.info("Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {
@@ -63,6 +64,7 @@ protected[grpc] class WookieeNameResolver(
   override def start(listener: NameResolver.Listener2): Unit = {
 
     val computation = for {
+      _ <- logger.info("Start was called on NameResolver")
       wookieeListener <- new WookieeGrpcHostListener(listenerCallback(listener), hostNameService, discoveryPath)
         .pure[IO]
 
@@ -76,6 +78,7 @@ protected[grpc] class WookieeNameResolver(
         .value
         .start
       _ <- fiberRef.set(Some(fiber))
+      _ <- logger.info("Running listener in the background")
     } yield ()
 
     semaphore.acquire.bracket(_ => computation)(_ => semaphore.release).unsafeRunSync()

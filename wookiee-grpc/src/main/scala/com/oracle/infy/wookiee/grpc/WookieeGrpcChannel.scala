@@ -1,11 +1,13 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
+import java.util.concurrent.TimeUnit
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{ConcurrentEffect, ContextShift, Fiber, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
@@ -14,11 +16,26 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
+import io.grpc.netty.shaded.io.netty.channel
+import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
+import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
+import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
-import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
-import org.apache.curator.retry.ExponentialBackoffRetry
 
-import scala.concurrent.{ExecutionContext}
+import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
+
+class WookieeGrpcChannel(val managedChannel: ManagedChannel)(implicit cs: ContextShift[IO], blocker: Blocker) {
+
+  def shutdown(): IO[Unit] = {
+    for {
+      _ <- cs.blockOn(blocker)(IO(managedChannel.shutdown()))
+      _ <- cs.blockOn(blocker)(IO(managedChannel.awaitTermination(Long.MaxValue, TimeUnit.DAYS)))
+    } yield ()
+  }
+
+  def shutdownUnsafe(): Future[Unit] = shutdown().unsafeToFuture()
+}
 
 object WookieeGrpcChannel {
 
@@ -28,7 +45,7 @@ object WookieeGrpcChannel {
       fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String
-  )(implicit cs: ContextShift[IO], logger: Logger[IO]) = IO {
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = IO {
     NameResolverRegistry
       .getDefaultRegistry
       .register(new NameResolverProvider {
@@ -70,16 +87,22 @@ object WookieeGrpcChannel {
   )
   private def buildChannel(
       path: String,
+      grpcChannelThreadLimit: Int,
       mainExecutor: ExecutionContext,
       blockingExecutor: ExecutionContext
   ): IO[ManagedChannel] = IO {
     val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
     val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
-    ManagedChannelBuilder
+
+    NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
       .asInstanceOf[NettyChannelBuilder]
       .defaultLoadBalancingPolicy("round_robin_weighted")
       .usePlaintext()
+      .channelFactory(new ChannelFactory[channel.Channel] {
+        override def newChannel(): channel.Channel = new NioSocketChannel()
+      })
+      .eventLoopGroup(eventLoopGroup(blockingExecutor, grpcChannelThreadLimit))
       .executor(mainExecutorJava)
       .offloadExecutor(blockingExecutorJava)
       .build()
@@ -88,58 +111,82 @@ object WookieeGrpcChannel {
   def of(
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      grpcChannelThreadLimit: Int,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
   )(
       implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO]
-  ): IO[ManagedChannel] = {
+      concurrent: ConcurrentEffect[IO],
+      blocker: Blocker,
+      logger: Logger[IO]
+  ): IO[WookieeGrpcChannel] = {
 
-    val retryPolicy = new ExponentialBackoffRetry(1000, 3)
+    val retryPolicy = exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
+
     for {
-      logger <- Slf4jLogger.create[IO]
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
-      curator <- Ref.of[IO, CuratorFramework](
-        CuratorFrameworkFactory
-          .builder()
-          .runSafeService(scalaToJavaExecutor(blockingExecutor))
-          .connectString(zookeeperQuorum)
-          .retryPolicy(retryPolicy)
-          .build()
+      curator <- cs.blockOn(blocker)(
+        Ref.of[IO, CuratorFramework](
+          curatorFramework(zookeeperQuorum, blockingExecutionContext, retryPolicy)
+        )
       )
       hostnameServiceSemaphore <- Semaphore(1)
       nameResolverSemaphore <- Semaphore(1)
       queue <- Queue.unbounded[IO, Set[Host]]
       killSwitch <- Deferred[IO, Either[Throwable, Unit]]
       cache <- Ref.of[IO, Option[CuratorCache]](None)
-      _ <- addNameResolver(
-        listener,
-        nameResolverSemaphore,
-        fiberRef,
-        new ZookeeperHostnameService(
-          curator,
-          cache,
-          hostnameServiceSemaphore,
-          Fs2CloseableImpl(queue.dequeue, killSwitch),
-          queue.enqueue1
-        )(concurrent, logger),
-        serviceDiscoveryPath
-      )(cs, logger)
+      _ <- cs.blockOn(blocker)(
+        addNameResolver(
+          listener,
+          nameResolverSemaphore,
+          fiberRef,
+          new ZookeeperHostnameService(
+            curator,
+            cache,
+            hostnameServiceSemaphore,
+            Fs2CloseableImpl(queue.dequeue, killSwitch),
+            queue.enqueue1
+          )(blocker, cs, concurrent, logger),
+          serviceDiscoveryPath
+        )(cs, blocker, logger)
+      )
       _ <- addLoadBalancer()
-      channel <- buildChannel(serviceDiscoveryPath, mainExecutor, blockingExecutor)
-    } yield channel
+      channel <- cs.blockOn(blocker)(
+        buildChannel(
+          serviceDiscoveryPath,
+          grpcChannelThreadLimit,
+          mainExecutionContext,
+          blockingExecutionContext
+        )
+      )
+    } yield new WookieeGrpcChannel(channel)
   }
 
   def unsafeOf(
       zookeeperQuorum: String,
       serviceDiscoveryPath: String,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext
-  ): ManagedChannel = {
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutor)
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      grpcChannelThreadLimit: Int,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
+  ): WookieeGrpcChannel = {
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
 
-    of(zookeeperQuorum, serviceDiscoveryPath, mainExecutor, blockingExecutor).unsafeRunSync()
+    of(
+      zookeeperQuorum,
+      serviceDiscoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      grpcChannelThreadLimit,
+      mainExecutionContext,
+      blockingExecutionContext
+    ).unsafeRunSync()
   }
 }

@@ -1,60 +1,71 @@
 package com.oracle.infy.wookiee.grpc
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.function.UnaryOperator
 
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.RequestConnectionPicker
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
 import io.grpc.{ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 import io.grpc.ConnectivityState._
 
-class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper, subchannel: Subchannel) extends LoadBalancer {
+class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
+
+  val maybeSubChannel: AtomicReference[Option[Subchannel]] = new AtomicReference[Option[Subchannel]](None)
 
   override def handleNameResolutionError(error: Status): Unit = {
-    if (Option(subchannel).nonEmpty) {
-      subchannel.shutdown()
+    maybeSubChannel.get() match {
+      case Some(subchannel) =>
+        subchannel.shutdown()
+        // NB(lukaszx0) Whether we should propagate the error unconditionally is arguable. It's fine
+        // for time being.
+        helper.updateBalancingState(
+          TRANSIENT_FAILURE,
+          RequestConnectionPicker(Some(subchannel), helper, RoundRobinWeightedLoadBalancer.TRANSIENT_FAILURE)
+        )
+      case None =>
+        helper.updateBalancingState(
+          TRANSIENT_FAILURE,
+          RequestConnectionPicker(None, helper, RoundRobinWeightedLoadBalancer.TRANSIENT_FAILURE)
+        )
     }
-    // NB(lukaszx0) Whether we should propagate the error unconditionally is arguable. It's fine
-    // for time being.
-    helper.updateBalancingState(
-      TRANSIENT_FAILURE,
-      RequestConnectionPicker(subchannel, helper, RoundRobinWeightedLoadBalancer.CONNECTING)
-    )
   }
 
   override def handleResolvedAddresses(resolvedAddresses: LoadBalancer.ResolvedAddresses): Unit = {
     val servers: java.util.List[EquivalentAddressGroup] = resolvedAddresses.getAddresses
-    if (subchannel == null) {
-      val subchannel: LoadBalancer.Subchannel =
-        helper.createSubchannel(CreateSubchannelArgs.newBuilder.setAddresses(servers).build)
-      subchannel.start(new LoadBalancer.SubchannelStateListener() {
-        override def onSubchannelState(stateInfo: ConnectivityStateInfo): Unit = {
-          processSubchannelState(subchannel, stateInfo)
-        }
-      })
-      // The channel state does not get updated when doing name resolving today, so for the moment
-      // let LB report CONNECTION and call subchannel.requestConnection() immediately.
-      helper.updateBalancingState(
-        CONNECTING,
-        RequestConnectionPicker(subchannel, helper, RoundRobinWeightedLoadBalancer.CONNECTING)
-      )
-      subchannel.requestConnection()
-    } else {
-      subchannel.updateAddresses(servers)
+    maybeSubChannel.get() match {
+      case Some(subchannel) => subchannel.updateAddresses(servers)
+      case None =>
+        val subchannel: LoadBalancer.Subchannel =
+          helper.createSubchannel(CreateSubchannelArgs.newBuilder.setAddresses(servers).build)
+        subchannel.start(new LoadBalancer.SubchannelStateListener() {
+          override def onSubchannelState(stateInfo: ConnectivityStateInfo): Unit = {
+            processSubchannelState(subchannel, stateInfo)
+          }
+        })
+        maybeSubChannel.updateAndGet(new UnaryOperator[Option[Subchannel]] {
+          override def apply(t: Option[Subchannel]): Option[Subchannel] = {
+            val _ = t
+            Some(subchannel)
+          }
+        })
+        helper.updateBalancingState(
+          CONNECTING,
+          RequestConnectionPicker(Some(subchannel), helper, RoundRobinWeightedLoadBalancer.CONNECTING)
+        )
+        subchannel.requestConnection()
     }
   }
 
   override def shutdown(): Unit = {
-    if (Option(subchannel).nonEmpty)
-      subchannel.shutdown()
+    maybeSubChannel.get().foreach(_.shutdown())
   }
 
-  // TODO: override def handleNameResolutionError(Status error): Unit = ???
   private def processSubchannelState(subchannel: LoadBalancer.Subchannel, stateInfo: ConnectivityStateInfo): Unit = {
     val currentState = stateInfo.getState
     if (currentState eq SHUTDOWN) return
     val picker: SubchannelPicker = currentState match {
       case IDLE =>
         RoundRobinWeightedLoadBalancer.RequestConnectionPicker(
-          subchannel,
+          Some(subchannel),
           helper,
           RoundRobinWeightedLoadBalancer.IDLE,
           stateInfo
@@ -64,7 +75,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper, subchannel: Su
         // It's safe to use RequestConnectionPicker here, so when coming from IDLE we could leave
         // the current picker in-place. But ignoring the potential optimization is simpler.
         RoundRobinWeightedLoadBalancer.RequestConnectionPicker(
-          subchannel,
+          Some(subchannel),
           helper,
           RoundRobinWeightedLoadBalancer.CONNECTING,
           stateInfo
@@ -72,7 +83,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper, subchannel: Su
 
       case READY =>
         RoundRobinWeightedLoadBalancer.RequestConnectionPicker(
-          subchannel,
+          Some(subchannel),
           helper,
           RoundRobinWeightedLoadBalancer.READY,
           stateInfo
@@ -80,7 +91,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper, subchannel: Su
 
       case TRANSIENT_FAILURE =>
         RoundRobinWeightedLoadBalancer.RequestConnectionPicker(
-          subchannel,
+          Some(subchannel),
           helper,
           RoundRobinWeightedLoadBalancer.TRANSIENT_FAILURE,
           stateInfo
@@ -104,7 +115,7 @@ object RoundRobinWeightedLoadBalancer {
   object RequestConnectionPicker {
 
     def apply(
-        subchannel: Subchannel,
+        subchannel: Option[Subchannel],
         helper: LoadBalancer.Helper,
         connectionState: ConnectionState
     ): RequestConnectionPicker = {
@@ -119,7 +130,7 @@ object RoundRobinWeightedLoadBalancer {
 
   //TODO: this is where picking (weighted round robin) logic should happen (possibly ?)
   case class RequestConnectionPicker(
-      subchannel: Subchannel,
+      maybeSubChannel: Option[Subchannel],
       helper: LoadBalancer.Helper,
       connectionState: ConnectionState,
       stateInfo: ConnectivityStateInfo
@@ -127,8 +138,8 @@ object RoundRobinWeightedLoadBalancer {
     val requestedConnection = new AtomicBoolean(false)
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
-      connectionState match {
-        case IDLE =>
+      (connectionState, maybeSubChannel) match {
+        case (IDLE, Some(subchannel)) =>
           if (requestedConnection.compareAndSet(false, true)) {
             helper
               .getSynchronizationContext
@@ -139,9 +150,9 @@ object RoundRobinWeightedLoadBalancer {
               })
           }
           PickResult.withNoResult()
-        case CONNECTING        => PickResult.withNoResult
-        case READY             => PickResult.withSubchannel(subchannel)
-        case TRANSIENT_FAILURE => PickResult.withError(stateInfo.getStatus)
+        case (CONNECTING, _)           => PickResult.withNoResult
+        case (READY, Some(subchannel)) => PickResult.withSubchannel(subchannel)
+        case (TRANSIENT_FAILURE, _)    => PickResult.withError(stateInfo.getStatus)
       }
 
     }

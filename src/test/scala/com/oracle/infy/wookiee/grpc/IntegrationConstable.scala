@@ -1,7 +1,10 @@
 package com.oracle.infy.wookiee.grpc
 
+import java.util.concurrent.Executors
+
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{ConcurrentEffect, ContextShift, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
+import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
@@ -12,36 +15,25 @@ import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
-import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
-import org.apache.curator.retry.ExponentialBackoffRetry
 import org.apache.curator.test.TestingServer
 
 import scala.concurrent.ExecutionContext
 
 object IntegrationConstable extends ConstableCommon {
 
-  def curatorFactory(connStr: String): CuratorFramework = {
-    CuratorFrameworkFactory
-      .builder()
-      .connectString(connStr)
-      .retryPolicy(new ExponentialBackoffRetry(1000, 3000))
-      .build()
-  }
-
   def main(args: Array[String]): Unit = {
     implicit val ec: ExecutionContext = ExecutionContext.global
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
+    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blocker = Blocker.liftExecutionContext(blockingEC)
 
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
-    val curator = curatorFactory(connStr)
-    curator.start()
-
     val discoveryPath = "/example"
-    curator.create.orSetData().forPath(discoveryPath)
-    curator.close()
+    createDiscoveryPath(connStr, discoveryPath)
 
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
@@ -80,9 +72,9 @@ object IntegrationConstable extends ConstableCommon {
               semaphore,
               Fs2CloseableImpl(queue.dequeue, killSwitch),
               queue.enqueue1
-            )(concurrent, logger),
+            )(blocker, IO.contextShift(ec), concurrent, logger),
             discoveryPath = discoveryPath
-          )
+          )(cs, blocker, logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO {
@@ -99,7 +91,7 @@ object IntegrationConstable extends ConstableCommon {
 
     val grpcTests = GrpcListenerTest.tests(pushMessagesFuncAndListenerFactory)
 
-    val result = runTestsAsync(List(grpcTests -> "GrpcTest"))
+    val result = runTestsAsync(List(grpcTests -> "Integration - GrpcTest"))
     zkFake.stop()
     exitNegativeOnFailure(result)
   }

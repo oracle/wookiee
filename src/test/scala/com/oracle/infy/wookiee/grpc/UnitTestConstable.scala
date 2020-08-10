@@ -1,7 +1,10 @@
 package com.oracle.infy.wookiee.grpc
 
+import java.util.concurrent.Executors
+
 import cats.effect.concurrent.Deferred
-import cats.effect.{ConcurrentEffect, ContextShift, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
+import cats.implicits._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, MockHostNameService, WookieeGrpcHostListener}
@@ -9,6 +12,7 @@ import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, SerdeTest}
 import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
 import fs2.concurrent.Queue
+import io.chrisdavenport.log4cats.noop.NoOpLogger
 
 import scala.concurrent.ExecutionContext
 
@@ -17,12 +21,15 @@ object UnitTestConstable extends ConstableCommon {
   def main(args: Array[String]): Unit = {
     implicit val ec: ExecutionContext = ExecutionContext.global
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blocker = Blocker.liftExecutionContext(blockingEC)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
     ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
       for {
+        logger <- NoOpLogger.impl[IO].pure[IO]
         queue <- Queue.unbounded[IO, Set[Host]]
         killswitch <- Deferred[IO, Either[Throwable, Unit]]
 
@@ -35,7 +42,7 @@ object UnitTestConstable extends ConstableCommon {
             callback,
             new MockHostNameService(Fs2CloseableImpl(queue.dequeue, killswitch)),
             discoveryPath = ""
-          )
+          )(cs, blocker, logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO(())
@@ -50,8 +57,8 @@ object UnitTestConstable extends ConstableCommon {
     exitNegativeOnFailure(
       runTestsAsync(
         List(
-          (SerdeTest.tests, "Serde"),
-          (grpcTests, "GRPC Tests")
+          (SerdeTest.tests, "UnitTest - Serde"),
+          (grpcTests, "UnitTest - GRPC Tests")
         )
       )
     )

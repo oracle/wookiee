@@ -69,8 +69,8 @@ val commonSettings: Seq[Setting[_]] = Seq(
   }.value,
   compile := ((compile in Compile) dependsOn (compile in Test)).value,
   ciBuild := {
-      ((Keys.`package` in Compile) dependsOn (test in Test)).value
-      makePom.value
+    ((Keys.`packageSrc` in Compile) dependsOn (test in Test)).value
+    makePom.value
   },
   ciBuildNoTest := {
     (Keys.`package` in Compile).value
@@ -78,7 +78,8 @@ val commonSettings: Seq[Setting[_]] = Seq(
   }
 )
 
-lazy val `wookiee-core` = (project in file("wookiee-core"))
+lazy val `wookiee-core` = project
+  .in(file("wookiee-core"))
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Seq(
@@ -87,7 +88,8 @@ lazy val `wookiee-core` = (project in file("wookiee-core"))
     )
   )
 
-lazy val `wookiee-grpc` = (project in file("wookiee-grpc"))
+lazy val `wookiee-grpc` = project
+  .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Deps.build.all
@@ -95,20 +97,22 @@ lazy val `wookiee-grpc` = (project in file("wookiee-grpc"))
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
-lazy val root = (project in file("."))
+lazy val root = project
+  .in(file("."))
   .settings(commonSettings: _*)
   .settings(
     name := "wookiee",
     libraryDependencies ++= Deps.test.all,
     testFrameworks += new TestFramework("utest.runner.Framework"),
     test := {
-        (test in Test).value
-        (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (test in Test).value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
     },
     ciBuild := {
-        ((Keys.`package` in Compile) dependsOn (test in Compile)).value
-        makePom.value
-    },
+      ((Keys.`package` in Compile) dependsOn (test in Compile)).value
+      makePom.value
+    }
   )
   .dependsOn(
     `wookiee-core`,
@@ -118,3 +122,49 @@ lazy val root = (project in file("."))
     `wookiee-core`,
     `wookiee-grpc`
   )
+
+def readF[A](file: String, func: List[String] => A): A = {
+  val src = scala.io.Source.fromFile(file)
+  try func(src.getLines().toList.map(_ ++ "\n"))
+  finally src.close()
+}
+
+def readSection(file: String, section: String): String = {
+  val s = s"$section\n"
+  readF(file, _.dropWhile(a => !a.endsWith(s)).drop(1).takeWhile(a => !a.endsWith(s)).mkString)
+}
+
+val protoFile = "src/main/protobuf/myService.proto"
+
+lazy val `wookiee-docs` = project
+  .in(file("wookiee-docs"))
+  .settings(commonSettings)
+  .settings(
+    //scalaPB
+    libraryDependencies ++= Seq(
+      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+    ),
+    PB.targets in Compile := Seq(
+      scalapb.gen() -> (sourceManaged in Compile).value
+    ),
+    //scalaPB
+    mdocIn := file("wookiee-docs/docs"),
+    mdocOut := file("."),
+    mdocVariables := Map(
+      "VERSION" -> version.value,
+      "PROTO_FILE" -> protoFile,
+      "PROTO_DEF" -> readF(s"wookiee-docs/$protoFile", _.mkString),
+      "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
+      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
+    )
+  )
+  .settings(
+    libraryDependencies ++= Seq(
+      Deps.test.curatorTest,
+      Deps.test.slf4jLog4jImpl
+    )
+  )
+  .dependsOn(root)
+  .enablePlugins(MdocPlugin)
