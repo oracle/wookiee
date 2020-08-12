@@ -1,22 +1,26 @@
 package com.oracle.infy.wookiee.grpc
+import java.util
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.function.UnaryOperator
 
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.RequestConnectionPicker
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
-import io.grpc.{ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
+import io.grpc.{Attributes, ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 import io.grpc.ConnectivityState._
+import io.grpc.internal.GrpcAttributes
+import io.grpc.util.ForwardingSubchannel
 
 class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
 
   val maybeSubChannel: AtomicReference[Option[Subchannel]] = new AtomicReference[Option[Subchannel]](None)
+  // TODO: not sure which one of these is better
+  //val maybeSubChannels: AtomicReference[Option[util.HashMap[EquivalentAddressGroup, Subchannel]]] = new AtomicReference[Option[util.HashMap[EquivalentAddressGroup, Subchannel]]](None)
+  val maybeSubChannels: util.HashMap[EquivalentAddressGroup, Subchannel] = new util.HashMap[EquivalentAddressGroup, Subchannel]()
 
   override def handleNameResolutionError(error: Status): Unit = {
     maybeSubChannel.get() match {
       case Some(subchannel) =>
         subchannel.shutdown()
-        // NB(lukaszx0) Whether we should propagate the error unconditionally is arguable. It's fine
-        // for time being.
         helper.updateBalancingState(
           TRANSIENT_FAILURE,
           RequestConnectionPicker(Some(subchannel), helper, RoundRobinWeightedLoadBalancer.TRANSIENT_FAILURE)
@@ -31,7 +35,14 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
 
   override def handleResolvedAddresses(resolvedAddresses: LoadBalancer.ResolvedAddresses): Unit = {
     val servers: java.util.List[EquivalentAddressGroup] = resolvedAddresses.getAddresses
-    maybeSubChannel.get() match {
+    val attributes: Attributes = resolvedAddresses.getAttributes
+    val currentAddrs: util.Set[EquivalentAddressGroup] = maybeSubChannels.keySet
+    val latestAddrs: util.Map[EquivalentAddressGroup, EquivalentAddressGroup] = stripAttrs(servers)
+    val removedAddrs: util.Set[EquivalentAddressGroup] = setsDifference(currentAddrs, latestAddrs.keySet)
+
+    //val serviceConfig: util.Map[Option[String]] = attributes.get(GrpcAttributes.NAME_RESOLVER_SERVICE_CONFIG)
+    // This is for pickFirstLoadBalancer, not round robin.
+    /*maybeSubChannel.get() match {
       case Some(subchannel) => subchannel.updateAddresses(servers)
       case None =>
         val subchannel: LoadBalancer.Subchannel =
@@ -52,7 +63,16 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
           RequestConnectionPicker(Some(subchannel), helper, RoundRobinWeightedLoadBalancer.CONNECTING)
         )
         subchannel.requestConnection()
-    }
+    }*/
+    latestAddrs.entrySet().forEach(latestEntry => {
+      val strippedAddressGroup: EquivalentAddressGroup = latestEntry.getKey
+      val originalAddressGroup: EquivalentAddressGroup = latestEntry.getValue
+      val existingSubchannel: Option[Subchannel] = Option(maybeSubChannels.get(strippedAddressGroup))
+      existingSubchannel.get match {
+        case subchannel: ForwardingSubchannel =>
+        case _ =>
+      }
+    })
   }
 
   override def shutdown(): Unit = {
@@ -103,6 +123,22 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
     helper.updateBalancingState(currentState, picker)
   }
 
+  /**
+   * Converts list of {@link EquivalentAddressGroup} to {@link EquivalentAddressGroup} set and
+   * remove all attributes. The values are the original EAGs.
+   */
+  private def stripAttrs(groupList: util.List[EquivalentAddressGroup]) = {
+    val addrs = new util.HashMap[EquivalentAddressGroup, EquivalentAddressGroup](groupList.size * 2)
+    groupList.forEach(_ => addrs.put(stripAttrs(_), _))
+    addrs
+  }
+
+  private def setsDifference[T](a: util.Set[T], b: util.Set[T]) = {
+    val aCopy = new util.HashSet[T](a)
+    aCopy.removeAll(b)
+    aCopy
+  }
+
 }
 
 object RoundRobinWeightedLoadBalancer {
@@ -150,9 +186,10 @@ object RoundRobinWeightedLoadBalancer {
               })
           }
           PickResult.withNoResult()
-        case (CONNECTING, _)           => PickResult.withNoResult
-        case (READY, Some(subchannel)) => PickResult.withSubchannel(subchannel)
-        case (TRANSIENT_FAILURE, _)    => PickResult.withError(stateInfo.getStatus)
+        case (CONNECTING, _)                       => PickResult.withNoResult
+        case (READY, Some(subchannel))             => PickResult.withSubchannel(subchannel)
+        case (TRANSIENT_FAILURE | IDLE | READY, _) => PickResult.withError(stateInfo.getStatus)
+        case (_)                                   => throw new IllegalArgumentException("Unsupported state:" + stateInfo)
       }
 
     }
