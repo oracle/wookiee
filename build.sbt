@@ -152,7 +152,7 @@ lazy val `wookiee-docs` = project
     mdocIn := file("wookiee-docs/docs"),
     mdocOut := file("."),
     mdocVariables := Map(
-      "VERSION" -> version.value,
+      "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
       "PROTO_FILE" -> protoFile,
       "PROTO_DEF" -> readF(s"wookiee-docs/$protoFile", _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
