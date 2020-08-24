@@ -5,7 +5,12 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.function.UnaryOperator
 
 import com.google.common.base.{MoreObjects, Objects}
-import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, Ref, RoundRobinWeightedPicker}
+import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{
+  EmptyPicker,
+  ReadyPicker,
+  Ref,
+  RoundRobinWeightedPicker
+}
 import io.grpc.ConnectivityState._
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
 import io.grpc.util.ForwardingSubchannel
@@ -93,32 +98,35 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   }
 
   private def processSubchannelState(subchannel: Subchannel, connectivityStateInfo: ConnectivityStateInfo): Unit = {
-    // TODO: verify this returns Unit at this point
-    if (subChannels.get(stripAttrs(subchannel.getAddresses)) != subchannel) {
-      return ()
-    }
-    if (connectivityStateInfo.getState == IDLE) {
-      subchannel.requestConnection()
-    }
-    val subchannelStateRef: RoundRobinWeightedLoadBalancer.Ref[ConnectivityStateInfo] = getSubchannelStateInfoRef(
-      subchannel
-    )
-    if (subchannelStateRef.value.get.getState.equals(TRANSIENT_FAILURE)) {
-      if (connectivityStateInfo.getState.equals(CONNECTING) || connectivityStateInfo.getState.equals(IDLE)) {
-        return ()
+    if (subChannels.get(stripAttrs(subchannel.getAddresses)) == subchannel) {
+      if (connectivityStateInfo.getState == IDLE) {
+        subchannel.requestConnection()
+      }
+      val subchannelStateRef: RoundRobinWeightedLoadBalancer.Ref[ConnectivityStateInfo] = getSubchannelStateInfoRef(
+        subchannel
+      )
+      if (!(subchannelStateRef.value.get.getState.equals(TRANSIENT_FAILURE) && (connectivityStateInfo
+            .getState
+            .equals(CONNECTING) || connectivityStateInfo.getState.equals(IDLE)))) {
+        subchannelStateRef
+          .value
+          .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
+            override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
+          })
+        updateBalancingState()
       }
     }
-    subchannelStateRef.value.getAndUpdate(new UnaryOperator[ConnectivityStateInfo]{
-      override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
-    })
-    updateBalancingState()
+    ()
   }
 
   private def shutdownSubchannel(subchannel: Subchannel): Unit = {
     subchannel.shutdown()
-    getSubchannelStateInfoRef(subchannel).value.getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
-      override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = ConnectivityStateInfo.forNonError(SHUTDOWN)
-    })
+    getSubchannelStateInfoRef(subchannel)
+      .value
+      .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
+        override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo =
+          ConnectivityStateInfo.forNonError(SHUTDOWN)
+      })
     ()
   }
 
@@ -300,7 +308,7 @@ object RoundRobinWeightedLoadBalancer {
 //      AtomicIntegerFieldUpdater.newUpdater(classOf[RoundRobinWeightedLoadBalancer.ReadyPicker], "index")
 //
 //    @volatile private var index = startIndex - 1
-    private val index: AtomicReference[Int] = new AtomicReference[Int](startIndex-1)
+    private val index: AtomicReference[Int] = new AtomicReference[Int](startIndex - 1)
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult =
       PickResult.withSubchannel(nextSubchannel)
@@ -311,7 +319,7 @@ object RoundRobinWeightedLoadBalancer {
     private def nextSubchannel = {
       val size = list.size()
       //val currentIndex = indexUpdater.incrementAndGet(this)
-      val currentIndex = index.updateAndGet(new UnaryOperator[Int]{
+      val currentIndex = index.updateAndGet(new UnaryOperator[Int] {
         override def apply(t: Int): Int = index.get() + 1
       })
       if (currentIndex >= size) {
