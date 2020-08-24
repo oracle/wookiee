@@ -74,7 +74,6 @@ object WookieeGrpcChannel {
         override def newLoadBalancer(helper: LoadBalancer.Helper): LoadBalancer =
           new RoundRobinWeightedLoadBalancer(helper)
       })
-    ()
   }
 
   private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {

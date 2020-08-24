@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 import java.util
 import java.util.List
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicIntegerFieldUpdater, AtomicReference}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import java.util.function.UnaryOperator
 
 import com.google.common.base.{MoreObjects, Objects}
@@ -15,10 +15,6 @@ import scala.util.Random
 
 class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
 
-  // For pickfirst loadbalancer, not round robin.
-  //val maybeSubChannel: AtomicReference[Option[Subchannel]] = new AtomicReference[Option[Subchannel]](None)
-
-  // Round robin loadbalancer data members.
   private[wookiee] val STATE_INFO: Attributes.Key[Ref[ConnectivityStateInfo]] = Attributes.Key.create("state-info")
 
   val subChannels: util.HashMap[EquivalentAddressGroup, Subchannel] =
@@ -80,12 +76,13 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
         }
       })
     val removedSubchannels: util.ArrayList[Subchannel] = new util.ArrayList[Subchannel]()
-    removedAddrs.forEach { addressGroup =>
+    removedAddrs.forEach(addressGroup => {
       removedSubchannels.add(subChannels.remove(addressGroup))
       ()
-    }
+    })
     updateBalancingState()
-    removedSubchannels.forEach(removedSubchannel => shutdownSubchannel(removedSubchannel))
+    removedSubchannels.forEach((removedSubchannel: Subchannel) => shutdownSubchannel(removedSubchannel))
+    //shutdown()
   }
 
   override def handleNameResolutionError(error: Status): Unit = {
@@ -97,27 +94,31 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
 
   private def processSubchannelState(subchannel: Subchannel, connectivityStateInfo: ConnectivityStateInfo): Unit = {
     // TODO: verify this returns Unit at this point
-    if (subChannels.get(stripAttrs(subchannel.getAddresses)) ne subchannel) {
-      ()
+    if (subChannels.get(stripAttrs(subchannel.getAddresses)) != subchannel) {
+      return ()
     }
-    if (connectivityStateInfo.getState eq IDLE) {
+    if (connectivityStateInfo.getState == IDLE) {
       subchannel.requestConnection()
     }
     val subchannelStateRef: RoundRobinWeightedLoadBalancer.Ref[ConnectivityStateInfo] = getSubchannelStateInfoRef(
       subchannel
     )
-    if (subchannelStateRef.value.get.getState == TRANSIENT_FAILURE) {
-      if (connectivityStateInfo.getState == CONNECTING || connectivityStateInfo.getState == IDLE) {
-        ()
+    if (subchannelStateRef.value.get.getState.equals(TRANSIENT_FAILURE)) {
+      if (connectivityStateInfo.getState.equals(CONNECTING) || connectivityStateInfo.getState.equals(IDLE)) {
+        return ()
       }
     }
-    subchannelStateRef.value.updateAndGet((t: ConnectivityStateInfo) => t)
+    subchannelStateRef.value.getAndUpdate(new UnaryOperator[ConnectivityStateInfo]{
+      override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
+    })
     updateBalancingState()
   }
 
-  private def shutdownSubchannel(subchannel: LoadBalancer.Subchannel): Unit = {
+  private def shutdownSubchannel(subchannel: Subchannel): Unit = {
     subchannel.shutdown()
-    getSubchannelStateInfoRef(subchannel).value.getAndSet(ConnectivityStateInfo.forNonError(SHUTDOWN))
+    getSubchannelStateInfoRef(subchannel).value.getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
+      override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = ConnectivityStateInfo.forNonError(SHUTDOWN)
+    })
     ()
   }
 
@@ -236,28 +237,6 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
     aCopy
   }
 
-  /*private def connectionRequest(
-      originalAddressGroup: EquivalentAddressGroup,
-      strippedAddressGroups: EquivalentAddressGroup
-  ): Unit = {
-    val subchannelAttrs = Attributes
-      .newBuilder()
-      .set(STATE_INFO, new AtomicReference[ConnectivityStateInfo](ConnectivityStateInfo.forNonError(IDLE)))
-    val subchannel = checkNotNull(
-      helper.createSubchannel(
-        CreateSubchannelArgs.newBuilder.setAddresses(originalAddressGroup).setAttributes(subchannelAttrs.build).build
-      ),
-      "subchannel"
-    )
-    subchannel.start(new LoadBalancer.SubchannelStateListener() {
-      override def onSubchannelState(state: ConnectivityStateInfo): Unit = {
-        processSubchannelState(subchannel, state)
-      }
-    })
-    subChannels.put(strippedAddressGroups, subchannel)
-    subchannel.requestConnection()
-  }*/
-
 }
 
 object RoundRobinWeightedLoadBalancer {
@@ -317,8 +296,11 @@ object RoundRobinWeightedLoadBalancer {
 
   case class ReadyPicker(list: util.List[Subchannel], startIndex: Int) extends SubchannelPicker {
 
-    private val indexUpdater: AtomicIntegerFieldUpdater[ReadyPicker] =
-      AtomicIntegerFieldUpdater.newUpdater(classOf[RoundRobinWeightedLoadBalancer.ReadyPicker], "index")
+//    private val indexUpdater: AtomicIntegerFieldUpdater[ReadyPicker] =
+//      AtomicIntegerFieldUpdater.newUpdater(classOf[RoundRobinWeightedLoadBalancer.ReadyPicker], "index")
+//
+//    @volatile private var index = startIndex - 1
+    private val index: AtomicReference[Int] = new AtomicReference[Int](startIndex-1)
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult =
       PickResult.withSubchannel(nextSubchannel)
@@ -328,10 +310,13 @@ object RoundRobinWeightedLoadBalancer {
 
     private def nextSubchannel = {
       val size = list.size()
-      val currentIndex = indexUpdater.incrementAndGet(this)
+      //val currentIndex = indexUpdater.incrementAndGet(this)
+      val currentIndex = index.updateAndGet(new UnaryOperator[Int]{
+        override def apply(t: Int): Int = index.get() + 1
+      })
       if (currentIndex >= size) {
         val newIndex = currentIndex % size
-        indexUpdater.compareAndSet(this, currentIndex, newIndex)
+        //indexUpdater.compareAndSet(this, currentIndex, newIndex)
         list.get(newIndex)
       } else {
         list.get(currentIndex)
