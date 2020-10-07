@@ -16,17 +16,30 @@
 package com.webtrends.harness.logging
 
 import ch.qos.logback.classic.Level
-import org.slf4j.LoggerFactory
+import org.slf4j.{Logger, LoggerFactory}
 
 private[harness] trait Slf4jLogging extends LogProcessor with AkkaLogProcessor {
 
   protected def getRootLevel: Level = {
-    val root = LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[ch.qos.logback.classic.Logger]
-    root.getLevel
+    LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) match {
+      case classic: ch.qos.logback.classic.Logger => classic.getLevel
+      case logger => translateLevel(logger)
+    }
   }
 
-  def setLogLevel(level:Level) = {
-    val root = LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[ch.qos.logback.classic.Logger]
-    root.setLevel(level)
+  def setLogLevel(level:Level): Unit = {
+    LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) match {
+      case classic: ch.qos.logback.classic.Logger => classic.setLevel(level)
+      case log =>
+        log.info(s"Not using 'ch.qos.logback.classic.Logger', actually using '${log.getClass}', so not changing level to $level")
+    }
+  }
+
+  private def translateLevel(logger: Logger): Level = {
+    if (logger.isTraceEnabled) Level.TRACE
+    else if (logger.isDebugEnabled) Level.DEBUG
+    else if (logger.isInfoEnabled) Level.INFO
+    else if (logger.isWarnEnabled) Level.WARN
+    else Level.ERROR
   }
 }
