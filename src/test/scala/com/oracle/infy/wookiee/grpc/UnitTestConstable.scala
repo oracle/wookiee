@@ -52,7 +52,7 @@ object UnitTestConstable extends ConstableCommon {
       }
     }
 
-    val grpcTests = GrpcListenerTest.tests(pushMessagesFuncAndListenerFactory)
+    val grpcTests = GrpcListenerTest.tests(100, pushMessagesFuncAndListenerFactory)
 
     exitNegativeOnFailure(
       runTestsAsync(

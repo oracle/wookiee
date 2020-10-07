@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
-import java.util.concurrent.TimeUnit
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
@@ -30,7 +29,6 @@ class WookieeGrpcChannel(val managedChannel: ManagedChannel)(implicit cs: Contex
   def shutdown(): IO[Unit] = {
     for {
       _ <- cs.blockOn(blocker)(IO(managedChannel.shutdown()))
-      _ <- cs.blockOn(blocker)(IO(managedChannel.awaitTermination(Long.MaxValue, TimeUnit.DAYS)))
     } yield ()
   }
 

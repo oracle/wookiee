@@ -18,12 +18,16 @@ trait UTestScalaCheck {
   implicit protected[grpc] class PropWrapper(prop: Prop) {
 
     def checkUTest(): Unit = {
+      checkUTest(100)
+    }
+
+    def checkUTest(minSuccessfulTests: Int): Unit = {
       prop.check(
         Test
           .Parameters
           .default
           .withTestCallback(UTestReporter)
-          .withMinSuccessfulTests(100)
+          .withMinSuccessfulTests(minSuccessfulTests)
       )
     }
   }

@@ -28,6 +28,7 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
   }
 
   def tests[F[_]: Monad: Sync: Concurrent, S[_[_], _]](
+      minSuccessfulRuns: Int,
       factory: (Set[Host] => F[Unit]) => F[(Set[Host] => F[Unit], () => F[Unit], ListenerContract[F, S])]
   )(implicit fToProp: EitherT[F, WookieeGrpcError, Boolean] => Prop): Tests = {
 
@@ -79,11 +80,11 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 
     Tests {
       test("call back is invoked after start listening") {
-        callbackIsInvokedAfterStartListening.checkUTest()
+        callbackIsInvokedAfterStartListening.checkUTest(minSuccessfulRuns)
       }
 
       test("Shutdown is idempotent") {
-        shutdownIsIdempotent.checkUTest()
+        shutdownIsIdempotent.checkUTest(minSuccessfulRuns)
       }
     }
   }
