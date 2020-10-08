@@ -43,30 +43,14 @@ libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.10.8"
 
 Configure the project in `build.sbt` so that ScalaPB can generate code
 ```sbt
-    mdocIn := file("wookiee-docs/docs"),
-    mdocOut := file("."),
-    mdocVariables := Map(
-      "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
-      "PROTO_FILE" -> protoFile,
-      "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
-      "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
-      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
-    )
-  )
-  .settings(
     libraryDependencies ++= Seq(
-      Deps.test.curatorTest,
-      Deps.test.slf4jLog4jImpl
+      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+    ),
+    PB.targets in Compile := Seq(
+      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )
-  .dependsOn(root, `wookiee-proto`)
-  .enablePlugins(MdocPlugin)
-
-lazy val `wookiee-proto` = project
-  .in(file("wookiee-proto"))
-  .settings(commonSettings)
-  .settings(
 
 ```
 

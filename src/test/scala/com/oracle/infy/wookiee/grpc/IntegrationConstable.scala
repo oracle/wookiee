@@ -1,8 +1,5 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.lang.Thread.UncaughtExceptionHandler
-import java.util.concurrent.{Executors, ThreadFactory}
-
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
@@ -24,27 +21,14 @@ import scala.concurrent.ExecutionContext
 
 object IntegrationConstable extends ConstableCommon {
 
-  val uncaughtExceptionHandler = new UncaughtExceptionHandler {
-    override def uncaughtException(t: Thread, e: Throwable): Unit = {
-      println(s"Got an uncaught exception on thread: $e" ++ t.getName)
-    }
-  }
 
-  private def blockingThreadFactory(prefix: String): ThreadFactory = (r: Runnable) => {
-    val t = new Thread(r)
-    t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
-    t.setName(s"$prefix-blocking-${t.getId.toString}")
-    t.setDaemon(true)
-    t
-  }
 
   def main(args: Array[String]): Unit = {
-    implicit val ec: ExecutionContext = ExecutionContext.global
+    val mainECParallelism = 100
+    implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
-    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(
-      blockingThreadFactory("x")
-    ))
+    val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
     val blocker = Blocker.liftExecutionContext(blockingEC)
 
     val zkFake = new TestingServer()
@@ -107,7 +91,7 @@ object IntegrationConstable extends ConstableCommon {
     }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism = 5)
+    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism )
 
     val result = runTestsAsync(
       List((grpcTests, "Integration - GrpcTest"), (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"))
