@@ -43,13 +43,30 @@ libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.10.8"
 
 Configure the project in `build.sbt` so that ScalaPB can generate code
 ```sbt
+    mdocIn := file("wookiee-docs/docs"),
+    mdocOut := file("."),
+    mdocVariables := Map(
+      "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
+      "PROTO_FILE" -> protoFile,
+      "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
+      "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
+      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
+    )
+  )
+  .settings(
     libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
-      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
-    ),
+      Deps.test.curatorTest,
+      Deps.test.slf4jLog4jImpl
+    )
+  )
+  .dependsOn(root, `wookiee-proto`)
+  .enablePlugins(MdocPlugin)
+
+lazy val `wookiee-proto` = project
+  .in(file("wookiee-proto"))
+  .settings(commonSettings)
+  .settings(
 
 ```
 
@@ -79,9 +96,8 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 object Example {
 
   def main(args: Array[String]): Unit = {
-
-    val bossThreads = 2
-    val mainECParallelism = 4
+    val bossThreads = 10
+    val mainECParallelism = 10
 
     // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
     // We use cats-effect (https://typelevel.org/cats-effect/) internally.
@@ -123,10 +139,15 @@ object Example {
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
 
-    val ssd: ServerServiceDefinition = MyService.bindService(new MyService {
-      override def greet(request: HelloRequest): Future[HelloResponse] =
-        Future.successful(HelloResponse("Hello " ++ request.name))
-    }, mainEC)
+    val ssd: ServerServiceDefinition = MyService.bindService(
+      new MyService {
+        override def greet(request: HelloRequest): Future[HelloResponse] = {
+          println("received request")
+          Future.successful(HelloResponse("Hello " ++ request.name))
+        }
+      },
+      mainEC
+    )
 
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
       zookeeperQuorum = connStr,
@@ -170,6 +191,7 @@ object Example {
 }
 
 Example.main(Array.empty[String])
+// received request
 // HelloResponse(Hello world!,UnknownFieldSet(Map()))
 ```
 

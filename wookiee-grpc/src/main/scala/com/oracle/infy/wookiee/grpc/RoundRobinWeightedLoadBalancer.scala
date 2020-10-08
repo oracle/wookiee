@@ -30,7 +30,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   // Either a subchannel is ready, or it is not. If it is ready, then use a ready picker, which
   // will pick a subchannel based on its current load. Otherwise, use an empty picker.
   private val eitherPicker: AtomicReference[Either[ReadyPicker, EmptyPicker]] =
-  new AtomicReference[Either[ReadyPicker, EmptyPicker]](Right(EmptyPicker(EMPTY_OK)))
+    new AtomicReference[Either[ReadyPicker, EmptyPicker]](Right(EmptyPicker(EMPTY_OK)))
 
   val random: Random = new Random()
   val currentState: AtomicReference[ConnectivityState] = new AtomicReference[ConnectivityState]()
@@ -110,7 +110,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
         subchannel
       )
       if (!(subchannelStateRef.get.getState === TRANSIENT_FAILURE && (connectivityStateInfo.getState
-        === CONNECTING || connectivityStateInfo.getState === IDLE))) {
+            === CONNECTING || connectivityStateInfo.getState === IDLE))) {
         subchannelStateRef
           .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
             override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
@@ -190,8 +190,8 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   }
 
   /**
-   * Filters out non-ready subchannels.
-   */
+    * Filters out non-ready subchannels.
+    */
   private def filterNonFailingSubchannels(subchannels: util.Collection[LoadBalancer.Subchannel]) = {
     val readySubchannels = new util.ArrayList[LoadBalancer.Subchannel](subchannels.size)
     subchannels.forEach(subchannel => {
@@ -238,8 +238,8 @@ object RoundRobinWeightedLoadBalancer {
   object RoundRobinWeightedPicker {
 
     def apply(
-               list: List[Subchannel]
-             ): ReadyPicker = {
+        list: List[Subchannel]
+    ): ReadyPicker = {
       ReadyPicker(
         list: List[Subchannel]
       )
@@ -261,9 +261,9 @@ object RoundRobinWeightedLoadBalancer {
     }
 
     def isEquivalentTo(
-                        currentPicker: Either[ReadyPicker, EmptyPicker],
-                        picker: Either[ReadyPicker, EmptyPicker]
-                      ): Boolean = {
+        currentPicker: Either[ReadyPicker, EmptyPicker],
+        picker: Either[ReadyPicker, EmptyPicker]
+    ): Boolean = {
       currentPicker match {
         case Left(currentReadyPicker) =>
           picker match {

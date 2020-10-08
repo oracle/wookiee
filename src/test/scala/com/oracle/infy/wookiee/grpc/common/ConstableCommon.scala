@@ -43,7 +43,8 @@ trait ConstableCommon {
 
     if (existsFailure) {
       System.exit(-1)
-    }
+    } //else
+//      System.exit(0)
     ()
   }
 

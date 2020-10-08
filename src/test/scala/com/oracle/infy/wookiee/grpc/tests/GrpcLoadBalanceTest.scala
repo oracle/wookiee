@@ -17,7 +17,7 @@ import scala.concurrent.{ExecutionContext, Future}
 object GrpcLoadBalanceTest extends UTestScalaCheck {
 
   def loadBalancerTest(blockingEC: ExecutionContext, connStr: String, mainECParallelism: Int)(
-    implicit mainEC: ExecutionContext
+      implicit mainEC: ExecutionContext
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 2
@@ -111,11 +111,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
                 } yield res
               }
           )
-
-          .andThen {
-            case a => println(a)
-          }
-          .map(_.map(a => if (a)  1 else 0).sum)
+          .map(_.map(a => if (a) 1 else 0).sum)
           .map(_ > (finish * 0.95))
       }
 
@@ -139,4 +135,3 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
     }
   }
 }
-
