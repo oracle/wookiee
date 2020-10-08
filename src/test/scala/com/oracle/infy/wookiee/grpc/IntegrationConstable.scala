@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.util.concurrent.Executors
-
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
@@ -9,7 +7,7 @@ import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.tests.GrpcListenerTest
+import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, GrpcLoadBalanceTest}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
@@ -23,11 +21,14 @@ import scala.concurrent.ExecutionContext
 
 object IntegrationConstable extends ConstableCommon {
 
+
+
   def main(args: Array[String]): Unit = {
-    implicit val ec: ExecutionContext = ExecutionContext.global
+    val mainECParallelism = 100
+    implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
-    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
     val blocker = Blocker.liftExecutionContext(blockingEC)
 
     val zkFake = new TestingServer()
@@ -90,8 +91,11 @@ object IntegrationConstable extends ConstableCommon {
     }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
+    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism )
 
-    val result = runTestsAsync(List(grpcTests -> "Integration - GrpcTest"))
+    val result = runTestsAsync(
+      List((grpcTests, "Integration - GrpcTest"), (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"))
+    )
     zkFake.stop()
     exitNegativeOnFailure(result)
   }

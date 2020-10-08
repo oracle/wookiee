@@ -116,11 +116,13 @@ lazy val root = project
   )
   .dependsOn(
     `wookiee-core`,
-    `wookiee-grpc`
+    `wookiee-grpc`,
+    `wookiee-proto`
   )
   .aggregate(
     `wookiee-core`,
-    `wookiee-grpc`
+    `wookiee-grpc`,
+    `wookiee-proto`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
@@ -140,21 +142,13 @@ lazy val `wookiee-docs` = project
   .in(file("wookiee-docs"))
   .settings(commonSettings)
   .settings(
-    //scalaPB
-    libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
-      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
-    ),
-    //scalaPB
+    // NOTE: DO NOT use $ in variable value, otherwise mdoc complains
     mdocIn := file("wookiee-docs/docs"),
     mdocOut := file("."),
     mdocVariables := Map(
       "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
       "PROTO_FILE" -> protoFile,
-      "PROTO_DEF" -> readF(s"wookiee-docs/$protoFile", _.mkString),
+      "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
       "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
@@ -166,5 +160,19 @@ lazy val `wookiee-docs` = project
       Deps.test.slf4jLog4jImpl
     )
   )
-  .dependsOn(root)
+  .dependsOn(root, `wookiee-proto`)
   .enablePlugins(MdocPlugin)
+
+lazy val `wookiee-proto` = project
+  .in(file("wookiee-proto"))
+  .settings(commonSettings)
+  .settings(
+    //scalaPB
+    libraryDependencies ++= Seq(
+      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+    ),
+    PB.targets in Compile := Seq(
+      scalapb.gen() -> (sourceManaged in Compile).value
+    )
+  )

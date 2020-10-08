@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.util.concurrent.Executors
-
 import cats.effect.concurrent.Deferred
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
 import cats.implicits._
@@ -19,9 +17,9 @@ import scala.concurrent.ExecutionContext
 object UnitTestConstable extends ConstableCommon {
 
   def main(args: Array[String]): Unit = {
-    implicit val ec: ExecutionContext = ExecutionContext.global
+    implicit val ec: ExecutionContext = mainExecutionContext(4)
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
-    val blockingEC: ExecutionContext = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool())
+    val blockingEC: ExecutionContext = blockingExecutionContext("unit-test")
     val blocker = Blocker.liftExecutionContext(blockingEC)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 

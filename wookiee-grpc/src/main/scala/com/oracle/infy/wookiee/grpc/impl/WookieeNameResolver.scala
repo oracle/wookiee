@@ -50,10 +50,7 @@ protected[grpc] class WookieeNameResolver(
     IO {
       val addresses = hosts.map { host =>
         val attrBuilder = Attributes.newBuilder()
-        host.metadata.foreach {
-          case (key, value) =>
-            attrBuilder.set[String](Attributes.Key.create(key), value)
-        }
+        attrBuilder.set(WookieeNameResolver.METADATA, host.metadata)
         new EquivalentAddressGroup(new InetSocketAddress(host.address, host.port), attrBuilder.build())
       }.toList
 
@@ -85,4 +82,9 @@ protected[grpc] class WookieeNameResolver(
   }
 
   override def refresh(): Unit = {}
+}
+
+object WookieeNameResolver {
+  protected[grpc] val METADATA: Attributes.Key[Map[String, String]] = Attributes.Key.create("metadata")
+
 }

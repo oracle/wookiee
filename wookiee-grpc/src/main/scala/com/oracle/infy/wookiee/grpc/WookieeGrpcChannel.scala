@@ -59,6 +59,30 @@ object WookieeGrpcChannel {
       })
   }
 
+  private def addLoadBalancer(): IO[Unit] = IO {
+    LoadBalancerRegistry
+      .getDefaultRegistry
+      .register(new LoadBalancerProvider {
+        override def isAvailable: Boolean = true
+
+        override def getPriority: Int = 5
+
+        override def getPolicyName: String = "round_robin_weighted"
+
+        override def newLoadBalancer(helper: LoadBalancer.Helper): LoadBalancer =
+          new RoundRobinWeightedLoadBalancer(helper)
+      })
+  }
+
+  private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
+    override def execute(command: Runnable): Unit = executor.execute(command)
+  }
+
+  @SuppressWarnings(
+    Array(
+      "scalafix:DisableSyntax.asInstanceOf"
+    )
+  )
   private def buildChannel(
       path: String,
       grpcChannelThreadLimit: Int,
@@ -70,7 +94,8 @@ object WookieeGrpcChannel {
 
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
-      .defaultLoadBalancingPolicy("round_robin")
+      .asInstanceOf[NettyChannelBuilder]
+      .defaultLoadBalancingPolicy("round_robin_weighted")
       .usePlaintext()
       .channelFactory(new ChannelFactory[channel.Channel] {
         override def newChannel(): channel.Channel = new NioSocketChannel()
@@ -126,6 +151,7 @@ object WookieeGrpcChannel {
           serviceDiscoveryPath
         )(cs, blocker, logger)
       )
+      _ <- addLoadBalancer()
       channel <- cs.blockOn(blocker)(
         buildChannel(
           serviceDiscoveryPath,

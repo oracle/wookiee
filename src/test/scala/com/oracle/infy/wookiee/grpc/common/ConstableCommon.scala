@@ -1,5 +1,8 @@
 package com.oracle.infy.wookiee.grpc.common
 
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
+
 import cats.data.EitherT
 import cats.effect.{ContextShift, IO, Timer}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -12,6 +15,38 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 
 trait ConstableCommon {
+
+  private def uncaughtExceptionHandler: UncaughtExceptionHandler = (t: Thread, e: Throwable) => {
+    println(s"Got an uncaught exception on thread: $e" ++ t.getName)
+  }
+
+  private def blockingThreadFactory(prefix: String): ThreadFactory = (r: Runnable) => {
+    val t = new Thread(r)
+    t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
+    t.setName(s"$prefix-blocking-${t.getId.toString}")
+    t.setDaemon(true)
+    t
+  }
+
+  def mainExecutionContext(parallelism: Int): ExecutionContext = {
+    ExecutionContext.fromExecutor(
+      new ForkJoinPool(
+        parallelism,
+        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+        uncaughtExceptionHandler,
+        true
+      )
+    )
+  }
+
+  def blockingExecutionContext(prefix: String): ExecutionContext = {
+    ExecutionContext.fromExecutorService(
+      Executors.newCachedThreadPool(
+        blockingThreadFactory(prefix)
+      )
+    )
+
+  }
 
   implicit def eitherTListenerErrorToProp: EitherT[IO, WookieeGrpcError, Boolean] => Prop = { e =>
     val result = e

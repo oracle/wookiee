@@ -203,6 +203,7 @@ object WookieeGrpcServer {
     if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
       curator
         .create()
+        .orSetData()
         .creatingParentsIfNeeded()
         .forPath(discoveryPath)
     }
