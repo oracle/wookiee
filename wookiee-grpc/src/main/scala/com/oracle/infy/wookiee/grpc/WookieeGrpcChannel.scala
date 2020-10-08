@@ -95,7 +95,7 @@ object WookieeGrpcChannel {
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
       .asInstanceOf[NettyChannelBuilder]
-      .defaultLoadBalancingPolicy("round_robin")
+      .defaultLoadBalancingPolicy("round_robin_weighted")
       .usePlaintext()
       .channelFactory(new ChannelFactory[channel.Channel] {
         override def newChannel(): channel.Channel = new NioSocketChannel()

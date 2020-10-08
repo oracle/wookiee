@@ -19,9 +19,8 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 object Example {
 
   def main(args: Array[String]): Unit = {
-
-    val bossThreads = 2
-    val mainECParallelism = 4
+    val bossThreads = 10
+    val mainECParallelism = 10
 
     // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
     // We use cats-effect (https://typelevel.org/cats-effect/) internally.
@@ -63,10 +62,15 @@ object Example {
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
 
-    val ssd: ServerServiceDefinition = MyService.bindService(new MyService {
-      override def greet(request: HelloRequest): Future[HelloResponse] =
-        Future.successful(HelloResponse("Hello " ++ request.name))
-    }, mainEC)
+    val ssd: ServerServiceDefinition = MyService.bindService(
+      new MyService {
+        override def greet(request: HelloRequest): Future[HelloResponse] = {
+          println("received request")
+          Future.successful(HelloResponse("Hello " ++ request.name))
+        }
+      },
+      mainEC
+    )
 
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
       zookeeperQuorum = connStr,
