@@ -21,8 +21,6 @@ import scala.concurrent.ExecutionContext
 
 object IntegrationConstable extends ConstableCommon {
 
-
-
   def main(args: Array[String]): Unit = {
     val mainECParallelism = 100
     implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
@@ -91,7 +89,7 @@ object IntegrationConstable extends ConstableCommon {
     }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism )
+    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism)
 
     val result = runTestsAsync(
       List((grpcTests, "Integration - GrpcTest"), (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"))
