@@ -7,7 +7,7 @@ object ZookeeperUtils {
 
   def curatorFactory(connStr: String): CuratorFramework = {
     CuratorFrameworkFactory
-      .builder().sessionTimeoutMs(10)
+      .builder()
       .connectString(connStr)
       .retryPolicy(new ExponentialBackoffRetry(1000, 3000))
       .build()
