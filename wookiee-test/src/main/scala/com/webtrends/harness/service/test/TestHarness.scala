@@ -16,8 +16,6 @@
 
 package com.webtrends.harness.service.test
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
@@ -81,7 +79,7 @@ class TestHarness(conf:Config,
   var config: Config = conf.withFallback(defaultConfig)
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
 
-  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  implicit val timeout: Timeout = Timeout(timeToWait)
 
   Harness.externalLogger.info("Starting Harness...")
   Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
@@ -118,7 +116,7 @@ class TestHarness(conf:Config,
     TestHarness.log.setLogLevel(level)
 
   def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem) {
-    while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor().get ? ReadyCheck, 10.seconds).asInstanceOf[Boolean]) {
+    while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor().get ? ReadyCheck, timeToWait).asInstanceOf[Boolean]) {
     }
 
     if (timeOut.isOverdue()) {
@@ -160,7 +158,7 @@ class TestHarness(conf:Config,
     if (timeOut.isOverdue()) {
       throw new IllegalStateException(s"Component $componentName did not start up")
     }
-    Await.result(componentManager.get ? LoadComponent(componentName, componentClass), 5.seconds) match {
+    Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
       case Some(m) =>
         val component = m.asInstanceOf[ActorRef]
         TestHarness.log.info(s"Loaded component $componentName, ${component.path.toString}")
@@ -174,7 +172,7 @@ class TestHarness(conf:Config,
     if (timeOut.isOverdue()) {
       throw new IllegalStateException(s"Service $serviceName did not start up")
     }
-    Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), 3.seconds) match {
+    Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
       case Some(m) =>
         val service = m.asInstanceOf[ActorRef]
         TestHarness.log.info(s"Loaded service $serviceName, ${service.path.toString}")

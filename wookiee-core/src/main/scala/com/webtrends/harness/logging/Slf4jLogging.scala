@@ -16,7 +16,7 @@
 package com.webtrends.harness.logging
 
 import ch.qos.logback.classic.Level
-import org.slf4j.{Logger, LoggerFactory}
+import org.slf4j.{Logger => SlfLogger, LoggerFactory}
 
 private[harness] trait Slf4jLogging extends LogProcessor with AkkaLogProcessor {
 
@@ -35,7 +35,7 @@ private[harness] trait Slf4jLogging extends LogProcessor with AkkaLogProcessor {
     }
   }
 
-  private def translateLevel(logger: Logger): Level = {
+  private def translateLevel(logger: SlfLogger): Level = {
     if (logger.isTraceEnabled) Level.TRACE
     else if (logger.isDebugEnabled) Level.DEBUG
     else if (logger.isInfoEnabled) Level.INFO
