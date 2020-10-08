@@ -294,17 +294,21 @@ object RoundRobinWeightedLoadBalancer {
   // the subchannel is in a non-error state, and if so it will continue normally, otherwise it will throw an exception.
   case class ReadyPicker(list: List[Subchannel]) extends SubchannelPicker {
 
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult =
-      PickResult.withSubchannel(nextSubchannel)
+    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
+      nextSubchannel match {
+        case Some(subchannel) => PickResult.withSubchannel(subchannel)
+        case None             => PickResult.withError(Status.UNKNOWN)
+      }
+    }
 
     override def toString: String =
       MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
 
-    private def nextSubchannel: Subchannel = {
+    private def nextSubchannel: Option[Subchannel] = {
       val sortedList = list.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
-      sortedList.head
+      sortedList.headOption
     }
 
     private[wookiee] def getList: List[Subchannel] = list
