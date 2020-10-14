@@ -1,6 +1,6 @@
 import java.io.File
 
-import sbt.Keys._
+import sbt.Keys.{libraryDependencies, _}
 import sbt._
 
 import scala.language.postfixOps
@@ -97,6 +97,13 @@ lazy val `wookiee-grpc` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
+lazy val `wookiee-grpc-dev` = project
+  .in(file("wookiee-grpc-dev"))
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Seq(Deps.build.scalaReflect(scalaVersion.value))
+  )
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -116,11 +123,13 @@ lazy val root = project
   )
   .dependsOn(
     `wookiee-core`,
+    `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`
   )
   .aggregate(
     `wookiee-core`,
+    `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`
   )

@@ -37,6 +37,7 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
+    def scalaReflect(scalaVersion: String): ModuleID = "org.scala-lang" % "scala-reflect" % scalaVersion
 
     val scalaCollectionCompat
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
