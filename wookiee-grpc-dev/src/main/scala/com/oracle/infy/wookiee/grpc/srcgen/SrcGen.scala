@@ -387,7 +387,7 @@ trait SrcGen {
        |// NOTE: This code is generated. DO NOT EDIT!!
        |syntax = "proto3";
        |
-       |package $classPackage
+       |package $classPackage;
        |
        |service $serviceName {
        |$rpcStr
