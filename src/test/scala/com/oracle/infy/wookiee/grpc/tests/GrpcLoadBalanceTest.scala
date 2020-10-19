@@ -6,6 +6,7 @@ import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.grpc.ServerServiceDefinition
@@ -25,19 +26,15 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
       val zookeeperDiscoveryPath = "/discovery"
 
       val ssd: ServerServiceDefinition = MyService.bindService(
-        new MyService {
-          override def greet(request: HelloRequest): Future[HelloResponse] = {
-            Future.successful(HelloResponse("Hello1 " ++ request.name))
-          }
+        (request: HelloRequest) => {
+          Future.successful(HelloResponse("Hello1 " ++ request.name))
         },
         mainEC
       )
 
       val ssd2: ServerServiceDefinition = MyService.bindService(
-        new MyService {
-          override def greet(request: HelloRequest): Future[HelloResponse] = {
-            Future.successful(HelloResponse("Hello2 " ++ request.name))
-          }
+        (request: HelloRequest) => {
+          Future.successful(HelloResponse("Hello2 " ++ request.name))
         },
         mainEC
       )
@@ -85,6 +82,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
         zookeeperRetryInterval = 1.seconds,
         zookeeperMaxRetries = 2,
         grpcChannelThreadLimit = bossThreads,
+        lbPolicy = RoundRobinWeightedPolicy,
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC
       )

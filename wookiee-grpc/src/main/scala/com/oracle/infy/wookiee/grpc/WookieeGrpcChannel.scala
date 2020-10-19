@@ -8,15 +8,14 @@ import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerC
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
+import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
-import io.grpc.netty.shaded.io.netty.channel
-import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
@@ -59,47 +58,47 @@ object WookieeGrpcChannel {
       })
   }
 
-  private def addLoadBalancer(): IO[Unit] = IO {
-    LoadBalancerRegistry
-      .getDefaultRegistry
-      .register(new LoadBalancerProvider {
-        override def isAvailable: Boolean = true
+  private def addLoadBalancer(lbPolicy: LBPolicy): IO[Unit] = IO {
+    lbPolicy match {
+      case RoundRobinPolicy => ()
+      case LoadBalancers.RoundRobinWeightedPolicy =>
+        LoadBalancerRegistry
+          .getDefaultRegistry
+          .register(new LoadBalancerProvider {
+            override def isAvailable: Boolean = true
 
-        override def getPriority: Int = 5
+            override def getPriority: Int = 5
 
-        override def getPolicyName: String = "round_robin_weighted"
+            override def getPolicyName: String = "round_robin_weighted"
 
-        override def newLoadBalancer(helper: LoadBalancer.Helper): LoadBalancer =
-          new RoundRobinWeightedLoadBalancer(helper)
-      })
+            override def newLoadBalancer(helper: LoadBalancer.Helper) =
+              new RoundRobinWeightedLoadBalancer(helper)
+          })
+    }
   }
 
   private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
     override def execute(command: Runnable): Unit = executor.execute(command)
   }
 
-  @SuppressWarnings(
-    Array(
-      "scalafix:DisableSyntax.asInstanceOf"
-    )
-  )
   private def buildChannel(
       path: String,
       grpcChannelThreadLimit: Int,
       mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext
+      blockingExecutor: ExecutionContext,
+      lbPolicy: LBPolicy
   ): IO[ManagedChannel] = IO {
     val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
     val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
 
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
-      .asInstanceOf[NettyChannelBuilder]
-      .defaultLoadBalancingPolicy("round_robin_weighted")
-      .usePlaintext()
-      .channelFactory(new ChannelFactory[channel.Channel] {
-        override def newChannel(): channel.Channel = new NioSocketChannel()
+      .defaultLoadBalancingPolicy(lbPolicy match {
+        case RoundRobinPolicy                       => "round_robin"
+        case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
       })
+      .usePlaintext()
+      .channelFactory(() => new NioSocketChannel())
       .eventLoopGroup(eventLoopGroup(blockingExecutor, grpcChannelThreadLimit))
       .executor(mainExecutorJava)
       .offloadExecutor(blockingExecutorJava)
@@ -112,6 +111,33 @@ object WookieeGrpcChannel {
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
       grpcChannelThreadLimit: Int,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
+  )(
+      implicit cs: ContextShift[IO],
+      concurrent: ConcurrentEffect[IO],
+      blocker: Blocker,
+      logger: Logger[IO]
+  ): IO[WookieeGrpcChannel] = {
+    of(
+      zookeeperQuorum,
+      serviceDiscoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      grpcChannelThreadLimit,
+      RoundRobinPolicy,
+      mainExecutionContext,
+      blockingExecutionContext
+    )
+  }
+
+  def of(
+      zookeeperQuorum: String,
+      serviceDiscoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      grpcChannelThreadLimit: Int,
+      lbPolicy: LBPolicy,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext
   )(
@@ -151,13 +177,14 @@ object WookieeGrpcChannel {
           serviceDiscoveryPath
         )(cs, blocker, logger)
       )
-      _ <- addLoadBalancer()
+      _ <- addLoadBalancer(lbPolicy)
       channel <- cs.blockOn(blocker)(
         buildChannel(
           serviceDiscoveryPath,
           grpcChannelThreadLimit,
           mainExecutionContext,
-          blockingExecutionContext
+          blockingExecutionContext,
+          lbPolicy
         )
       )
     } yield new WookieeGrpcChannel(channel)
@@ -172,6 +199,28 @@ object WookieeGrpcChannel {
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext
   ): WookieeGrpcChannel = {
+    unsafeOf(
+      zookeeperQuorum,
+      serviceDiscoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      grpcChannelThreadLimit,
+      RoundRobinPolicy,
+      mainExecutionContext,
+      blockingExecutionContext
+    )
+  }
+
+  def unsafeOf(
+      zookeeperQuorum: String,
+      serviceDiscoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      grpcChannelThreadLimit: Int,
+      lbPolicy: LBPolicy,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext
+  ): WookieeGrpcChannel = {
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
@@ -183,6 +232,7 @@ object WookieeGrpcChannel {
       zookeeperRetryInterval,
       zookeeperMaxRetries,
       grpcChannelThreadLimit,
+      lbPolicy,
       mainExecutionContext,
       blockingExecutionContext
     ).unsafeRunSync()

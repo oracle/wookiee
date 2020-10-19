@@ -6,7 +6,7 @@ wookiee
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```sbt
-libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "1.0.0"
+libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "1.1.0"
 ```
 
 ## Setup ScalaPB
