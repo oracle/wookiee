@@ -34,8 +34,8 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
     } yield ()
   }
 
-  def awaitTermination(): Unit = {
-    server.awaitTermination()
+  def awaitTermination(): IO[Unit] = {
+    cs.blockOn(blocker)(IO(server.awaitTermination()))
   }
 
   def shutdownUnsafe(): Future[Unit] = {
