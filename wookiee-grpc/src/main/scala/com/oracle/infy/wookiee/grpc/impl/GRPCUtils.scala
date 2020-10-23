@@ -22,18 +22,17 @@ private[grpc] object GRPCUtils {
     new ExponentialBackoffRetry(baseSleepTime.toMillis.toInt, maxRetries)
   }
 
-  protected[grpc] def scalaToJavaExecutor(executor: ExecutionContext): Executor = new java.util.concurrent.Executor {
-    override def execute(command: Runnable): Unit = executor.execute(command)
-  }
+  protected[grpc] def scalaToJavaExecutor(executor: ExecutionContext): Executor =
+    (command: Runnable) => executor.execute(command)
 
   protected[grpc] def curatorFramework(
       zookeeperQuorum: String,
-      blockingExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
       retryPolicy: ExponentialBackoffRetry
   ): CuratorFramework = {
     CuratorFrameworkFactory
       .builder()
-      .runSafeService(scalaToJavaExecutor(blockingExecutionContext))
+      .runSafeService(scalaToJavaExecutor(zookeeperBlockingExecutionContext))
       .connectString(zookeeperQuorum)
       .retryPolicy(retryPolicy)
       .build()

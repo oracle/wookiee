@@ -9,8 +9,6 @@ import com.oracle.infy.wookiee.model.Host
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.netty.shaded.io.netty.channel
-import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.{Server, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
@@ -53,10 +51,12 @@ object WookieeGrpcServer {
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      workerThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -73,10 +73,12 @@ object WookieeGrpcServer {
         serverServiceDefinition,
         port,
         Host(0, address, port, Map.empty),
-        mainExecutionContext,
-        blockingExecutionContext,
+        bossExecutionContext,
+        workerExecutionContext,
+        applicationExecutionContext,
+        zookeeperBlockingExecutionContext,
         bossThreads,
-        mainExecutionContextThreads
+        workerThreads
       )
     })
   }
@@ -90,8 +92,12 @@ object WookieeGrpcServer {
       port: Int,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      workerThreads: Int
   ): Future[WookieeGrpcServer] = {
 
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
@@ -105,10 +111,12 @@ object WookieeGrpcServer {
       zookeeperMaxRetries,
       serverServiceDefinition,
       port,
-      mainExecutionContext,
-      blockingExecutionContext,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      zookeeperBlockingExecutionContext,
       bossThreads,
-      mainExecutionContextThreads
+      workerThreads
     ).unsafeToFuture()
   }
 
@@ -120,10 +128,12 @@ object WookieeGrpcServer {
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       localhost: Host,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      workerThreads: Int
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -133,12 +143,10 @@ object WookieeGrpcServer {
       server <- cs.blockOn(blocker)(IO {
         NettyServerBuilder
           .forPort(port)
-          .channelFactory(new ChannelFactory[channel.ServerChannel] {
-            override def newChannel(): channel.ServerChannel = new NioServerSocketChannel()
-          })
-          .bossEventLoopGroup(eventLoopGroup(blockingExecutionContext, bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(mainExecutionContext, mainExecutionContextThreads))
-          .executor(scalaToJavaExecutor(mainExecutionContext))
+          .channelFactory(() => new NioServerSocketChannel())
+          .bossEventLoopGroup(eventLoopGroup(bossExecutionContext, bossThreads))
+          .workerEventLoopGroup(eventLoopGroup(workerExecutionContext, workerThreads))
+          .executor(scalaToJavaExecutor(applicationExecutionContext))
           .addService(
             serverServiceDefinition
           )
@@ -152,7 +160,7 @@ object WookieeGrpcServer {
         IO(
           curatorFramework(
             zookeeperQuorum,
-            blockingExecutionContext,
+            zookeeperBlockingExecutionContext,
             exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
           )
         )
@@ -173,8 +181,12 @@ object WookieeGrpcServer {
       localhost: Host,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      workerThreads: Int
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
@@ -187,10 +199,12 @@ object WookieeGrpcServer {
       serverServiceDefinition,
       port,
       localhost,
-      mainExecutionContext,
-      blockingExecutionContext,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      zookeeperBlockingExecutionContext,
       bossThreads,
-      mainExecutionContextThreads
+      workerThreads
     ).unsafeToFuture()
   }
 

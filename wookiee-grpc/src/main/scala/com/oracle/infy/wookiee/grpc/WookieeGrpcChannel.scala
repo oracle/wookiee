@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
+import java.util.concurrent.Executor
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
@@ -77,19 +78,19 @@ object WookieeGrpcChannel {
     }
   }
 
-  private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
-    override def execute(command: Runnable): Unit = executor.execute(command)
-  }
+  private def scalaToJavaExecutor(executor: ExecutionContext): Executor =
+    (command: Runnable) => executor.execute(command)
 
   private def buildChannel(
       path: String,
-      grpcChannelThreadLimit: Int,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext,
+      eventLoopGroupExecutionContext: ExecutionContext,
+      channelExecutionContext: ExecutionContext,
+      offloadExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContextThreads: Int,
       lbPolicy: LBPolicy
   ): IO[ManagedChannel] = IO {
-    val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
-    val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
+    val channelExecutorJava = scalaToJavaExecutor(channelExecutionContext)
+    val offloadExecutorJava = scalaToJavaExecutor(offloadExecutionContext)
 
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
@@ -99,9 +100,9 @@ object WookieeGrpcChannel {
       })
       .usePlaintext()
       .channelFactory(() => new NioSocketChannel())
-      .eventLoopGroup(eventLoopGroup(blockingExecutor, grpcChannelThreadLimit))
-      .executor(mainExecutorJava)
-      .offloadExecutor(blockingExecutorJava)
+      .eventLoopGroup(eventLoopGroup(eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads))
+      .executor(channelExecutorJava)
+      .offloadExecutor(offloadExecutorJava)
       .build()
   }
 
@@ -110,36 +111,12 @@ object WookieeGrpcChannel {
       serviceDiscoveryPath: String,
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  )(
-      implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO],
-      blocker: Blocker,
-      logger: Logger[IO]
-  ): IO[WookieeGrpcChannel] = {
-    of(
-      zookeeperQuorum,
-      serviceDiscoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      RoundRobinPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
-    )
-  }
-
-  def of(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      lbPolicy: LBPolicy,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
+      zookeeperBlockingExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContext: ExecutionContext,
+      channelExecutionContext: ExecutionContext,
+      offloadExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContextThreads: Int,
+      lbPolicy: LBPolicy
   )(
       implicit cs: ContextShift[IO],
       concurrent: ConcurrentEffect[IO],
@@ -154,7 +131,7 @@ object WookieeGrpcChannel {
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
       curator <- cs.blockOn(blocker)(
         Ref.of[IO, CuratorFramework](
-          curatorFramework(zookeeperQuorum, blockingExecutionContext, retryPolicy)
+          curatorFramework(zookeeperQuorum, zookeeperBlockingExecutionContext, retryPolicy)
         )
       )
       hostnameServiceSemaphore <- Semaphore(1)
@@ -181,9 +158,10 @@ object WookieeGrpcChannel {
       channel <- cs.blockOn(blocker)(
         buildChannel(
           serviceDiscoveryPath,
-          grpcChannelThreadLimit,
-          mainExecutionContext,
-          blockingExecutionContext,
+          eventLoopGroupExecutionContext,
+          channelExecutionContext,
+          offloadExecutionContext,
+          eventLoopGroupExecutionContextThreads,
           lbPolicy
         )
       )
@@ -195,31 +173,14 @@ object WookieeGrpcChannel {
       serviceDiscoveryPath: String,
       zookeeperRetryInterval: FiniteDuration,
       zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
       mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  ): WookieeGrpcChannel = {
-    unsafeOf(
-      zookeeperQuorum,
-      serviceDiscoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      RoundRobinPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
-    )
-  }
-
-  def unsafeOf(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      lbPolicy: LBPolicy,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
+      blockingExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContext: ExecutionContext,
+      channelExecutionContext: ExecutionContext,
+      offloadExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContextThreads: Int,
+      lbPolicy: LBPolicy
   ): WookieeGrpcChannel = {
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
@@ -231,10 +192,12 @@ object WookieeGrpcChannel {
       serviceDiscoveryPath,
       zookeeperRetryInterval,
       zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      lbPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
+      zookeeperBlockingExecutionContext,
+      eventLoopGroupExecutionContext,
+      channelExecutionContext,
+      offloadExecutionContext,
+      eventLoopGroupExecutionContextThreads,
+      lbPolicy
     ).unsafeRunSync()
   }
 }
