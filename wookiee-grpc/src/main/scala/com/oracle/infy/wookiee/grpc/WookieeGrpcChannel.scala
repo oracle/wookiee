@@ -86,7 +86,7 @@ object WookieeGrpcChannel {
       grpcChannelThreadLimit: Int,
       mainExecutor: ExecutionContext,
       blockingExecutor: ExecutionContext,
-      lbPolicy: LBPolicy
+      lbPolicy: LBPolicy //TODO: add load number here?
   ): IO[ManagedChannel] = IO {
     val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
     val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)

@@ -18,8 +18,14 @@ import org.apache.zookeeper.CreateMode
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
+//import fs2.Stream
 
-class WookieeGrpcServer(private val server: Server, private val curatorFramework: CuratorFramework)(
+class WookieeGrpcServer(
+    private val server: Server,
+    private val curatorFramework: CuratorFramework,
+    host: Host,
+    discoveryPath: String
+)(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
     blocker: Blocker
@@ -38,8 +44,21 @@ class WookieeGrpcServer(private val server: Server, private val curatorFramework
     cs.blockOn(blocker)(IO(server.awaitTermination()))
   }
 
+  // todo: add a method that takes a stream as an argument and calls assignLoad repeatedly, then batches the calls
+  //  to zk as a stream
+
   def shutdownUnsafe(): Future[Unit] = {
     shutdown().unsafeToFuture()
+  }
+
+  def assignLoad(load: Int): IO[Unit] = { // todo: I think this will need the discovery path and hostname...otherwise
+    curatorFramework
+      .setData()
+      .forPath(s"$discoveryPath/${host.address}:${server.getPort}") //todo: not sure if this should go here or outside class
+  }
+
+  def unsafeAssignLoad(load: Int): Future[Unit] = {
+    assignLoad(load).unsafeToFuture()
   }
 
 }
@@ -72,7 +91,7 @@ object WookieeGrpcServer {
         zookeeperMaxRetries,
         serverServiceDefinition,
         port,
-        Host(0, address, port, Map.empty),
+        Host(0, address, port, Map.empty), //todo: this should probably be modified to add load so it can be tracked
         mainExecutionContext,
         blockingExecutionContext,
         bossThreads,
@@ -160,7 +179,7 @@ object WookieeGrpcServer {
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
-    } yield new WookieeGrpcServer(server, curator)
+    } yield new WookieeGrpcServer(server, curator, localhost, discoveryPath)
   }
 
   def startUnsafe(
@@ -174,7 +193,7 @@ object WookieeGrpcServer {
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      mainExecutionContextThreads: Int //TODO: add load number here? not sure if zookeeper actually needs to know the load number
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
