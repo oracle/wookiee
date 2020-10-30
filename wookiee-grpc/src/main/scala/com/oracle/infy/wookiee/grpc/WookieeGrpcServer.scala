@@ -23,8 +23,8 @@ import scala.concurrent.{ExecutionContext, Future}
 class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
-    host: Host,
-    discoveryPath: String
+    private val host: Host,
+    private val discoveryPath: String
 )(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
@@ -52,9 +52,11 @@ class WookieeGrpcServer(
   }
 
   def assignLoad(load: Int): IO[Unit] = { // todo: I think this will need the discovery path and hostname...otherwise
+    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString)) // todo: should version be updated here?
     curatorFramework
       .setData()
-      .forPath(s"$discoveryPath/${host.address}:${server.getPort}") //todo: not sure if this should go here or outside class
+      .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+    IO(())
   }
 
   def unsafeAssignLoad(load: Int): Future[Unit] = {
