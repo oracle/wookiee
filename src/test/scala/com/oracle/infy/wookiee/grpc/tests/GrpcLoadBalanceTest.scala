@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import java.util.Random
 
+import cats.effect.{ConcurrentEffect, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
@@ -9,6 +10,7 @@ import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
+import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import utest.{Tests, test}
 
@@ -22,6 +24,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 2
+      implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
+      implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
 
       val zookeeperDiscoveryPath = "/discovery"
 
@@ -56,7 +60,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
-        mainExecutionContextThreads = mainECParallelism
+        mainExecutionContextThreads = mainECParallelism,
+        queue = Queue.unbounded[IO, Int].unsafeToFuture()
       )
 
       // Create a second server with another randomly generated load number. If load number is the same, the first
@@ -72,7 +77,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
-        mainExecutionContextThreads = mainECParallelism
+        mainExecutionContextThreads = mainECParallelism,
+        queue = Queue.unbounded[IO, Int].unsafeToFuture()
       )
 
       val _ = mainECParallelism

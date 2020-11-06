@@ -2,10 +2,12 @@ package com.oracle.infy.wookiee.grpc
 
 import java.net.InetAddress
 
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.{Blocker, ContextShift, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
+import fs2.Stream
+import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
@@ -18,13 +20,13 @@ import org.apache.zookeeper.CreateMode
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
-//import fs2.Stream
 
 class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
     private val host: Host,
-    private val discoveryPath: String
+    private val discoveryPath: String,
+    private val loadQueue: Queue[IO, Int]
 )(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
@@ -44,18 +46,30 @@ class WookieeGrpcServer(
     cs.blockOn(blocker)(IO(server.awaitTermination()))
   }
 
-  // todo: add a method that takes a stream as an argument and calls assignLoad repeatedly, then batches the calls
-  //  to zk as a stream
-
   def shutdownUnsafe(): Future[Unit] = {
     shutdown().unsafeToFuture()
   }
 
-  def assignLoad(load: Int): IO[Unit] = { // todo: I think this will need the discovery path and hostname...otherwise
-    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString)) // todo: should version be updated here?
+  // TODO: pass in a queue with desired load numbers as param for this class. Then call stream loads instead of
+  //  assignLoad from UpdateLoadTest.
+  def streamLoads(): IO[Unit] = {
+    implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
+    val stream: Stream[IO, Int] = loadQueue.dequeue
+    stream.debounce(100.millis).evalTap(assignLoad(_)).compile.drain.unsafeRunTimed(1.second)
+    IO(())
+  }
+
+  def assignLoad(load: Int): IO[Unit] = {
+    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
+    val data: Either[HostSerde.HostSerdeError, Host] =
+      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
+    println(data)
     curatorFramework
       .setData()
       .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+    val data2: Either[HostSerde.HostSerdeError, Host] =
+      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
+    println(data2)
     IO(())
   }
 
@@ -93,11 +107,12 @@ object WookieeGrpcServer {
         zookeeperMaxRetries,
         serverServiceDefinition,
         port,
-        Host(0, address, port, Map.empty), //todo: this should probably be modified to add load so it can be tracked
+        Host(0, address, port, Map.empty),
         mainExecutionContext,
         blockingExecutionContext,
         bossThreads,
-        mainExecutionContextThreads
+        mainExecutionContextThreads,
+        Queue.unbounded[IO, Int].unsafeRunSync()
       )
     })
   }
@@ -144,7 +159,8 @@ object WookieeGrpcServer {
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int
+      mainExecutionContextThreads: Int,
+      queue: Queue[IO, Int]
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -181,7 +197,7 @@ object WookieeGrpcServer {
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
-    } yield new WookieeGrpcServer(server, curator, localhost, discoveryPath)
+    } yield new WookieeGrpcServer(server, curator, localhost, discoveryPath, queue)
   }
 
   def startUnsafe(
@@ -195,7 +211,8 @@ object WookieeGrpcServer {
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      mainExecutionContextThreads: Int //TODO: add load number here? not sure if zookeeper actually needs to know the load number
+      mainExecutionContextThreads: Int,
+      queue: Queue[IO, Int]
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
@@ -211,7 +228,8 @@ object WookieeGrpcServer {
       mainExecutionContext,
       blockingExecutionContext,
       bossThreads,
-      mainExecutionContextThreads
+      mainExecutionContextThreads,
+      queue
     ).unsafeToFuture()
   }
 

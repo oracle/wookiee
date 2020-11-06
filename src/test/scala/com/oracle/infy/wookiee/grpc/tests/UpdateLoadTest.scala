@@ -2,29 +2,21 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import java.util.Random
 
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
-import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import com.oracle.infy.wookiee.grpc.IntegrationConstable.{blockingExecutionContext, mainExecutionContext}
-import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
-import com.oracle.infy.wookiee.grpc.ZookeeperUtils.{createDiscoveryPath, curatorFactory}
-import com.oracle.infy.wookiee.grpc.contract.ListenerContract
-import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
-import com.oracle.infy.wookiee.grpc.json.HostSerde
+import cats.effect.{ConcurrentEffect, ContextShift, IO}
+import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
+import com.oracle.infy.wookiee.grpc.common.ConstableCommon
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
-import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse}
-import fs2.Stream
+import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
-import org.apache.curator.framework.CuratorFramework
-import org.apache.curator.framework.recipes.cache.CuratorCache
-import org.apache.curator.test.TestingServer
 
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
 
-object UpdateLoadTest {
+object UpdateLoadTest extends ConstableCommon {
 
   def main(args: Array[String]): Unit = {
     val _ = args
@@ -35,74 +27,22 @@ object UpdateLoadTest {
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
     val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
-    val blocker = Blocker.liftExecutionContext(blockingEC)
 
-    val zkFake = new TestingServer()
-    val connStr = "localhost:1081" // todo: pretty sure this is where zk runs but verify
+    val connStr = "localhost:2181"
     val discoveryPath = "/example"
     createDiscoveryPath(connStr, discoveryPath)
 
-    def pushMessagesFuncAndListenerFactory(
-        callback: Set[Host] => IO[Unit]
-    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
-      for {
-        queue <- Queue.unbounded[IO, Set[Host]]
-        killSwitch <- Deferred[IO, Either[Throwable, Unit]]
-
-        logger <- Slf4jLogger.create[IO]
-        hostConsumerCuratorRef <- Ref.of[IO, CuratorFramework](curatorFactory(connStr))
-        hostProducerCurator <- IO {
-          val curator = curatorFactory(connStr)
-          curator.start()
-          curator
-        }
-        semaphore <- Semaphore(1)
-        cache <- Ref.of[IO, Option[CuratorCache]](None)
-
-      } yield {
-
-        val pushMessagesFunc = { hosts: Set[Host] =>
-          IO {
-            hosts.foreach { host =>
-              val nodePath = s"$discoveryPath/${host.address}"
-              hostProducerCurator.create().orSetData().forPath(nodePath, HostSerde.serialize(host))
-            }
-          }
-        }
-
-        val listener: ListenerContract[IO, Stream] =
-          new WookieeGrpcHostListener(
-            callback,
-            new ZookeeperHostnameService(
-              hostConsumerCuratorRef,
-              cache,
-              semaphore,
-              Fs2CloseableImpl(queue.dequeue, killSwitch),
-              queue.enqueue1
-            )(blocker, IO.contextShift(ec), concurrent, logger),
-            discoveryPath = discoveryPath
-          )(cs, blocker, logger)
-
-        val cleanup: () => IO[Unit] = () => {
-          IO {
-            hostProducerCurator.getChildren.forPath(discoveryPath).asScala.foreach { child =>
-              hostProducerCurator.delete().guaranteed().forPath(s"$discoveryPath/$child")
-            }
-            hostProducerCurator.close()
-            ()
-          }
-        }
-        (pushMessagesFunc, cleanup, listener)
-      }
-    }
-
     val ssd: ServerServiceDefinition = MyService.bindService(
       (request: HelloRequest) => {
-        Future.successful(HelloResponse("Hello1 " ++ request.name))
+        Future.successful(HelloResponse("Hello " ++ request.name))
       },
       ec
     )
-
+    val queue = Queue.unbounded[IO, Int].unsafeRunSync()
+    val start = 0
+    val finish = 10
+    Future
+      .sequence((start to finish).map(queue.enqueue1(_).unsafeToFuture()))
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
       zookeeperQuorum = connStr,
       discoveryPath = discoveryPath,
@@ -111,18 +51,33 @@ object UpdateLoadTest {
       serverServiceDefinition = ssd,
       port = 8080,
       // Host is given a randomly generated load number: this is used to determine which server is the least busy.
-      localhost = Host(0, "localhost", 8080, Map[String, String](("load", load.toString))),
+      localhost = Host(0, "localhost", 2181, Map[String, String](("load", load.toString))),
       mainExecutionContext = ec,
       blockingExecutionContext = blockingEC,
       bossThreads = 2,
-      mainExecutionContextThreads = mainECParallelism
+      mainExecutionContextThreads = mainECParallelism,
+      queue = queue
     )
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
+      zookeeperQuorum = connStr,
+      serviceDiscoveryPath = discoveryPath,
+      zookeeperRetryInterval = 1.seconds,
+      zookeeperMaxRetries = 2,
+      grpcChannelThreadLimit = 3,
+      lbPolicy = RoundRobinWeightedPolicy,
+      mainExecutionContext = ec,
+      blockingExecutionContext = blockingEC
+    )
+    val _: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
-    for {
-      server <- serverF
-      //thread.sleep in order to observe load was assigned
-      _ <- Future(server.assignLoad(load - 5))
-    } yield ()
+    val res = {
+      for {
+        server <- serverF
+        _ <- Future(server.assignLoad(load + 2))
+        _ <- server.shutdownUnsafe()
+      } yield ()
+    }
+    println(Await.result(res, Duration.Inf))
     ()
   }
 }
