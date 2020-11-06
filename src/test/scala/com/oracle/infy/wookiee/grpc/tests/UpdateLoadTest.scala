@@ -41,8 +41,9 @@ object UpdateLoadTest extends ConstableCommon {
     val queue = Queue.unbounded[IO, Int].unsafeRunSync()
     val start = 0
     val finish = 10
-    Future
-      .sequence((start to finish).map(queue.enqueue1(_).unsafeToFuture()))
+    //TODO: it's not running, pretty sure this has something to do with it. Need to evaluate future, or find another way of
+    // resolving future.
+    Future.sequence((start to finish).map(queue.enqueue1(_).unsafeToFuture()))
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
       zookeeperQuorum = connStr,
       discoveryPath = discoveryPath,
@@ -56,7 +57,7 @@ object UpdateLoadTest extends ConstableCommon {
       blockingExecutionContext = blockingEC,
       bossThreads = 2,
       mainExecutionContextThreads = mainECParallelism,
-      queue = queue
+      queue = Option(queue)
     )
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       zookeeperQuorum = connStr,

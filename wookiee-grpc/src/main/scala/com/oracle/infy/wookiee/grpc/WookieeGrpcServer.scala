@@ -212,7 +212,7 @@ object WookieeGrpcServer {
       blockingExecutionContext: ExecutionContext,
       bossThreads: Int,
       mainExecutionContextThreads: Int,
-      queue: Queue[IO, Int]
+      queue: Option[Queue[IO, Int]]
   ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
@@ -229,7 +229,7 @@ object WookieeGrpcServer {
       blockingExecutionContext,
       bossThreads,
       mainExecutionContextThreads,
-      queue
+      queue.get
     ).unsafeToFuture()
   }
 
