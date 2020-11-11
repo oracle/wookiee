@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.grpc
 
 import java.net.InetAddress
 
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
@@ -24,8 +24,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
-    private val host: Host,
-    private val discoveryPath: String,
+    private val fiber: Fiber[IO, Unit],
     private val loadQueue: Queue[IO, Int]
 )(
     implicit cs: ContextShift[IO],
@@ -35,6 +34,8 @@ class WookieeGrpcServer(
 
   def shutdown(): IO[Unit] = {
     for {
+      _ <- logger.info("Stopping load writing process")
+      _ <- fiber.cancel
       _ <- logger.info("Closing curator client")
       _ <- cs.blockOn(blocker)(IO(curatorFramework.close()))
       _ <- logger.info("Shutting down gRPC server...")
@@ -50,36 +51,71 @@ class WookieeGrpcServer(
     shutdown().unsafeToFuture()
   }
 
-  // TODO: pass in a queue with desired load numbers as param for this class. Then call stream loads instead of
-  //  assignLoad from UpdateLoadTest.
-  def streamLoads(): IO[Unit] = {
-    implicit val timer: Timer[IO] = IO.timer(ExecutionContext.global)
-    val stream: Stream[IO, Int] = loadQueue.dequeue
-    stream.debounce(100.millis).evalTap(assignLoad(_)).compile.drain.unsafeRunTimed(1.second)
-    IO(())
-  }
-
   def assignLoad(load: Int): IO[Unit] = {
-    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
-    val data: Either[HostSerde.HostSerdeError, Host] =
-      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
-    println(data)
-    curatorFramework
-      .setData()
-      .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-    val data2: Either[HostSerde.HostSerdeError, Host] =
-      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
-    println(data2)
-    IO(())
-  }
-
-  def unsafeAssignLoad(load: Int): Future[Unit] = {
-    assignLoad(load).unsafeToFuture()
+    loadQueue.enqueue1(load)
   }
 
 }
 
 object WookieeGrpcServer {
+
+  private def streamLoads(
+      loadQueue: Queue[IO, Int],
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = {
+    val stream: Stream[IO, Int] = loadQueue.dequeue
+    stream
+      .debounce(100.millis)
+      .evalTap { f: Int =>
+      println(f)
+        assignLoad(f, host, discoveryPath, curatorFramework)
+      }
+      .compile
+      .drain
+  }
+
+  private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework)(
+      implicit logger: Logger[IO]
+  ): IO[Int] = {
+//    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
+//    val data: Either[HostSerde.HostSerdeError, Host] =
+//      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
+//    println("#####################")
+//    for {
+//      _ <- logger.info(data.getOrElse(0).toString)
+//      _ = curatorFramework
+//        .setData()
+//        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+//      data2: Either[HostSerde.HostSerdeError, Host] = HostSerde.deserialize(
+//        curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")
+//      )
+//      _ <- logger.info("#####################")
+//      _ <- logger.info(data2.getOrElse(0).toString)
+//      l = load
+//    } yield l
+val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
+    val _ = logger
+    IO {
+      val data: Either[HostSerde.HostSerdeError, Host] =
+        HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
+      println("#####################")
+      println(data.getOrElse(0))
+      curatorFramework
+        .setData()
+        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+      val data2: Either[HostSerde.HostSerdeError, Host] = HostSerde.deserialize(
+        curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")
+      )
+      println(data2.getOrElse(0))
+      load
+    }
+  }
+//
+//  def unsafeAssignLoad(load: Int): Future[Int] = {
+//    assignLoad(load).unsafeToFuture()
+//  }
 
   def start(
       zookeeperQuorum: String,
@@ -95,7 +131,8 @@ object WookieeGrpcServer {
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
-      logger: Logger[IO]
+      logger: Logger[IO],
+      timer: Timer[IO]
   ): IO[WookieeGrpcServer] = {
     cs.blockOn(blocker)(IO {
       InetAddress.getLocalHost.getCanonicalHostName
@@ -126,6 +163,7 @@ object WookieeGrpcServer {
       port: Int,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
+      timerEC: ExecutionContext,
       bossThreads: Int,
       mainExecutionContextThreads: Int
   ): Future[WookieeGrpcServer] = {
@@ -133,6 +171,7 @@ object WookieeGrpcServer {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    implicit val timer: Timer[IO] = IO.timer(timerEC)
 
     start(
       zookeeperQuorum,
@@ -164,7 +203,8 @@ object WookieeGrpcServer {
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
-      logger: Logger[IO]
+      logger: Logger[IO],
+      timer: Timer[IO]
   ): IO[WookieeGrpcServer] = {
     for {
       server <- cs.blockOn(blocker)(IO {
@@ -197,7 +237,9 @@ object WookieeGrpcServer {
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
-    } yield new WookieeGrpcServer(server, curator, localhost, discoveryPath, queue)
+      fiber <- streamLoads(queue, localhost, discoveryPath, curator).start
+
+    } yield new WookieeGrpcServer(server, curator, fiber, queue)
   }
 
   def startUnsafe(
@@ -210,6 +252,7 @@ object WookieeGrpcServer {
       localhost: Host,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
+      timerEC: ExecutionContext,
       bossThreads: Int,
       mainExecutionContextThreads: Int,
       queue: Option[Queue[IO, Int]]
@@ -217,6 +260,7 @@ object WookieeGrpcServer {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    implicit val timer: Timer[IO] = IO.timer(timerEC)
     start(
       zookeeperQuorum,
       discoveryPath,

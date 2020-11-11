@@ -38,12 +38,10 @@ object UpdateLoadTest extends ConstableCommon {
       },
       ec
     )
-    val queue = Queue.unbounded[IO, Int].unsafeRunSync()
-    val start = 0
-    val finish = 10
-    //TODO: it's not running, pretty sure this has something to do with it. Need to evaluate future, or find another way of
-    // resolving future.
-    Future.sequence((start to finish).map(queue.enqueue1(_).unsafeToFuture()))
+    val queue: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
+    Seq.from(0 to 5).foreach(f => queue.enqueue1(f).unsafeRunSync())
+    val timerEC = mainExecutionContext(mainECParallelism)
+
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
       zookeeperQuorum = connStr,
       discoveryPath = discoveryPath,
@@ -55,6 +53,7 @@ object UpdateLoadTest extends ConstableCommon {
       localhost = Host(0, "localhost", 2181, Map[String, String](("load", load.toString))),
       mainExecutionContext = ec,
       blockingExecutionContext = blockingEC,
+      timerEC = timerEC,
       bossThreads = 2,
       mainExecutionContextThreads = mainECParallelism,
       queue = Option(queue)
@@ -73,10 +72,13 @@ object UpdateLoadTest extends ConstableCommon {
 
     val res = {
       for {
+      //TODO: this only works correctly if thread.sleep is called. Need to figure out how to keep the server alive
+      // long enough for debounce to execute the println otherwise.
         server <- serverF
-        _ <- Future(server.assignLoad(load + 2))
+        result <- server.assignLoad(12).unsafeToFuture()
+       // _ <- Future(Thread.sleep(1000))
         _ <- server.shutdownUnsafe()
-      } yield ()
+      } yield result
     }
     println(Await.result(res, Duration.Inf))
     ()

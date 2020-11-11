@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.grpc.tests
 import java.util.Random
 
 import cats.implicits.{catsSyntaxEq => _}
-import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
+import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
@@ -15,7 +15,7 @@ import utest.{Tests, test}
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
-object GrpcLoadBalanceTest extends UTestScalaCheck {
+object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
   def loadBalancerTest(blockingEC: ExecutionContext, connStr: String, mainECParallelism: Int)(
       implicit mainEC: ExecutionContext
@@ -42,6 +42,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
       val randomLoad: Random = new Random()
       val load1 = randomLoad.nextInt(10)
       val load2 = randomLoad.nextInt(10)
+      val timerEC = mainExecutionContext(mainECParallelism)
 
       val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
         zookeeperQuorum = connStr,
@@ -54,6 +55,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
         localhost = Host(0, "localhost", 8080, Map[String, String](("load", load1.toString))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
+        timerEC = timerEC,
         bossThreads = bossThreads,
         mainExecutionContextThreads = mainECParallelism,
         None
@@ -71,6 +73,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck {
         localhost = Host(0, "localhost", 9090, Map[String, String](("load", load2.toString))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
+        timerEC = timerEC,
         bossThreads = bossThreads,
         mainExecutionContextThreads = mainECParallelism,
         None
