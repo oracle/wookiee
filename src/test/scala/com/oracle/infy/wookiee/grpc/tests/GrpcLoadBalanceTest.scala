@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import java.util.Random
 
+import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
@@ -9,6 +10,7 @@ import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
+import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import utest.{Tests, test}
 
@@ -43,6 +45,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val load1 = randomLoad.nextInt(10)
       val load2 = randomLoad.nextInt(10)
       val timerEC = mainExecutionContext(mainECParallelism)
+      implicit val cs : ContextShift[IO] = IO.contextShift(mainEC)
+
+      val queue: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
+      Seq.from(0 to 5).foreach(f => queue.enqueue1(f).unsafeRunSync())
+      val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
+      Seq.from(0 to 5).foreach(f => queue2.enqueue1(f).unsafeRunSync())
 
       val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
         zookeeperQuorum = connStr,
@@ -58,7 +66,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerEC = timerEC,
         bossThreads = bossThreads,
         mainExecutionContextThreads = mainECParallelism,
-        None
+        Option(queue)
       )
 
       // Create a second server with another randomly generated load number. If load number is the same, the first
@@ -76,7 +84,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerEC = timerEC,
         bossThreads = bossThreads,
         mainExecutionContextThreads = mainECParallelism,
-        None
+        Option(queue2)
       )
 
       val _ = mainECParallelism
@@ -95,7 +103,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       def verifyResponseHandledCorrectly(): Future[Boolean] = {
         val start = 0
-        val finish = 100
+        val finish = 10000
         Future
           .sequence(
             (start to finish)
@@ -110,6 +118,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                       .toString
                       .contains("Hello1") && load1 <= load2) || (resp.toString.contains("Hello2") && load2 <= load1)
                   )
+                  _ <- Future(println(res))
                 } yield res
               }
           )
@@ -120,6 +129,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val gRPCResponseF: Future[Boolean] = for {
         server <- serverF
         server2 <- serverF2
+        _ <- server.unsafeAssignLoad(load1)
+        _ <- server2.unsafeAssignLoad(load2)
         // If hello request resolves to 1 ("Hello1") then server1 was given the load.
         // Otherwise, server2 was given the load.
         result <- verifyResponseHandledCorrectly()

@@ -308,6 +308,7 @@ object RoundRobinWeightedLoadBalancer {
       val sortedList = list.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
+      list.foreach(f => println(f.getAttributes))
       sortedList.headOption
     }
 

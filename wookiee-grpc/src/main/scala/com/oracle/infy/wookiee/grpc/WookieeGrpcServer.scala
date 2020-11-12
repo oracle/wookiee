@@ -55,6 +55,12 @@ class WookieeGrpcServer(
     loadQueue.enqueue1(load)
   }
 
+  def unsafeAssignLoad(
+      load: Int
+  ): Future[Unit] = {
+    assignLoad(load).unsafeToFuture()
+  }
+
 }
 
 object WookieeGrpcServer {
@@ -64,43 +70,23 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = {
+  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
     val stream: Stream[IO, Int] = loadQueue.dequeue
     stream
       .debounce(100.millis)
       .evalTap { f: Int =>
-      println(f)
+        println(f)
         assignLoad(f, host, discoveryPath, curatorFramework)
       }
       .compile
       .drain
   }
 
-  private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework)(
-      implicit logger: Logger[IO]
-  ): IO[Int] = {
-//    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
-//    val data: Either[HostSerde.HostSerdeError, Host] =
-//      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
-//    println("#####################")
-//    for {
-//      _ <- logger.info(data.getOrElse(0).toString)
-//      _ = curatorFramework
-//        .setData()
-//        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-//      data2: Either[HostSerde.HostSerdeError, Host] = HostSerde.deserialize(
-//        curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")
-//      )
-//      _ <- logger.info("#####################")
-//      _ <- logger.info(data2.getOrElse(0).toString)
-//      l = load
-//    } yield l
-val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
-    val _ = logger
+  private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): IO[Int] = {
+    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
     IO {
       val data: Either[HostSerde.HostSerdeError, Host] =
         HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
-      println("#####################")
       println(data.getOrElse(0))
       curatorFramework
         .setData()
@@ -112,10 +98,6 @@ val newHost = Host(host.version, host.address, host.port, host.metadata.updated(
       load
     }
   }
-//
-//  def unsafeAssignLoad(load: Int): Future[Int] = {
-//    assignLoad(load).unsafeToFuture()
-//  }
 
   def start(
       zookeeperQuorum: String,
