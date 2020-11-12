@@ -6,6 +6,7 @@ import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
@@ -63,11 +64,9 @@ object Example {
     val connStr = zkFake.getConnectString
 
     val ssd: ServerServiceDefinition = MyService.bindService(
-      new MyService {
-        override def greet(request: HelloRequest): Future[HelloResponse] = {
-          println("received request")
-          Future.successful(HelloResponse("Hello " ++ request.name))
-        }
+      (request: HelloRequest) => {
+        println("received request")
+        Future.successful(HelloResponse("Hello " ++ request.name))
       },
       mainEC
     )
@@ -84,8 +83,12 @@ object Example {
       localhost = Host(0, "localhost", 9091, Map.empty),
       mainExecutionContext = mainEC,
       blockingExecutionContext = blockingEC,
+      bossExecutionContext = blockingEC,
+      workerExecutionContext = mainEC,
+      applicationExecutionContext = mainEC,
+      zookeeperBlockingExecutionContext = blockingEC,
       bossThreads = bossThreads,
-      mainExecutionContextThreads = mainECParallelism
+      workerThreads = mainECParallelism
     )
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
@@ -93,9 +96,14 @@ object Example {
       serviceDiscoveryPath = zookeeperDiscoveryPath,
       zookeeperRetryInterval = 3.seconds,
       zookeeperMaxRetries = 20,
-      grpcChannelThreadLimit = bossThreads,
       mainExecutionContext = mainEC,
-      blockingExecutionContext = blockingEC
+      blockingExecutionContext = blockingEC,
+      zookeeperBlockingExecutionContext = blockingEC,
+      eventLoopGroupExecutionContext = blockingEC,
+      channelExecutionContext = mainEC,
+      offloadExecutionContext = blockingEC,
+      eventLoopGroupExecutionContextThreads = bossThreads,
+      lbPolicy = RoundRobinPolicy
     )
 
     val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
