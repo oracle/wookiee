@@ -18,8 +18,8 @@ trait SrcGen {
       })
   }
 
-  private def between(start: Char, end: Char, str: String): String = {
-    str.dropWhile(_ /== start).drop(1).takeWhile(_ /== end)
+  private def between(start: Char, str: String) = {
+    str.dropWhile(_ /== start).drop(1).dropRight(1)
   }
 
   private def toProtoType(t: String, sealedTypeLookup: Set[String]): ProtoType = {
@@ -33,20 +33,20 @@ trait SrcGen {
         if (other.contains("[")) {
           other.takeWhile(_ /== '[') match {
             case "Option" =>
-              val innerType = between('[', ']', other)
-              OptionType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
+              val innerType = between('[', other)
+              OptionType(toProtoType(innerType, sealedTypeLookup), other)
 
             case "List" =>
-              val innerType = between('[', ']', other)
-              ListType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
+              val innerType = between('[', other)
+              ListType(toProtoType(innerType, sealedTypeLookup), other)
             case "Map" =>
-              val innerTypes = between('[', ']', other)
+              val innerTypes = between('[', other)
               val innerType1 = innerTypes.split(",").headOption.getOrElse("unknown")
               val innerType2 = innerTypes.split(",").lastOption.getOrElse("unknown")
               MapType(
                 toProtoType(innerType1, sealedTypeLookup),
                 toProtoType(innerType2, sealedTypeLookup),
-                stripPackageNames(other)
+                other
               )
             case unknown => CustomType(unknown, sealedTypeLookup.contains(unknown), unknown)
           }
@@ -307,13 +307,13 @@ trait SrcGen {
           .map {
             case (t, _) =>
               val name = stripPackageNames(generateScalaType(t))
-              val typeWithoutPackage = s"Option[${stripPackageNames(between('[', ']', t))}]"
+              val typeWithoutPackage = s"Option[${stripPackageNames(between('[', t))}]"
               SealedTrait(
                 s"Option$name",
                 typeWithoutPackage,
                 List(
                   CaseClass(s"None$name", typeWithoutPackage, List.empty),
-                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> between('[', ']', t)))
+                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> between('[', t)))
                 )
               )
           }
