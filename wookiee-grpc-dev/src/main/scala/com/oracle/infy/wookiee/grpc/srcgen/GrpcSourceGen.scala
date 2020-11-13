@@ -12,11 +12,14 @@ object GrpcSourceGen extends SrcGen {
   final case class SuccessfulResponse() extends SomeResponse
   final case class FailureResponse(err: String) extends SomeResponse
 
+  final case class RequestWithOption(field: Option[SomeRequest])
+
   def main(args: Array[String]): Unit = {
 
     val types = List(
       typeOf[SomeRequest],
-      typeOf[SomeResponse]
+      typeOf[SomeResponse],
+      typeOf[RequestWithOption]
     ).map(_.typeSymbol)
 
     val sealedTypeLookup = sealedTypes(types)
