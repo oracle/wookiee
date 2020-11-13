@@ -23,7 +23,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       implicit mainEC: ExecutionContext
   ): Tests = {
     val testWeightedLoadBalancer = {
-      val bossThreads = 2
+      val bossThreads = 5
       val zookeeperDiscoveryPath = "/discovery"
 
       val ssd: ServerServiceDefinition = MyService.bindService(
@@ -60,7 +60,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         serverServiceDefinition = ssd,
         port = 8080,
         // Host is given a randomly generated load number: this is used to determine which server is the least busy.
-        localhost = Host(0, "localhost", 8080, Map[String, String](("load", load1.toString))),
+        localhost = Host(0, "localhost", 8080, Map[String, String](("load", "0"))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
         timerEC = timerEC,
@@ -83,7 +83,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd2,
         port = 9090,
-        localhost = Host(0, "localhost", 9090, Map[String, String](("load", load2.toString))),
+        localhost = Host(0, "localhost", 9090, Map[String, String](("load", "0"))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
         timerEC = timerEC,
@@ -116,7 +116,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       def verifyResponseHandledCorrectly(): Future[Boolean] = {
         val start = 0
-        val finish = 10000
+        val finish = 100000
         Future
           .sequence(
             (start to finish)
@@ -131,7 +131,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                       .toString
                       .contains("Hello1") && load1 <= load2) || (resp.toString.contains("Hello2") && load2 <= load1)
                   )
-                  _ <- Future(println(res))
+                _ <- Future(println(res))
                 } yield res
               }
           )

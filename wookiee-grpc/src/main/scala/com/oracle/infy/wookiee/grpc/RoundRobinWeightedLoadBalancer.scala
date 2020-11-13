@@ -137,7 +137,9 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
 
   private def updateBalancingState(): Unit = {
     val activeList: List[LoadBalancer.Subchannel] = filterNonFailingSubchannels(getSubchannels).asScala.toList
-    if (activeList.isEmpty) { // No READY subchannels, determine aggregate state and error status
+    // TODO: this is not a great way of fixing the problem, but the issue appears to be that it doesn't actually pop back up
+    //  here to see if there are any new ready subchannels after it finds one that is ready.
+    if (activeList.isEmpty || activeList.size < subChannels.size()) { // No READY subchannels, determine aggregate state and error status
       val isConnecting: AtomicBoolean = new AtomicBoolean(false)
       val aggStatus: AtomicReference[Status] = new AtomicReference[Status](EMPTY_OK)
       subChannels
@@ -308,7 +310,8 @@ object RoundRobinWeightedLoadBalancer {
       val sortedList = list.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
-      list.foreach(f => println(f.getAttributes))
+      list.foreach(p => print(p.getAttributes))
+      println()
       sortedList.headOption
     }
 
