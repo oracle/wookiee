@@ -34,25 +34,37 @@ trait SrcGen {
           other.takeWhile(_ /== '[') match {
             case "Option" =>
               val innerType = between('[', ']', other)
-              OptionType(toProtoType(innerType, sealedTypeLookup), other)
+              OptionType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
 
             case "List" =>
               val innerType = between('[', ']', other)
-              ListType(toProtoType(innerType, sealedTypeLookup), other)
+              ListType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
             case "Map" =>
               val innerTypes = between('[', ']', other)
               val innerType1 = innerTypes.split(",").headOption.getOrElse("unknown")
               val innerType2 = innerTypes.split(",").lastOption.getOrElse("unknown")
-              MapType(toProtoType(innerType1, sealedTypeLookup), toProtoType(innerType2, sealedTypeLookup), other)
+              MapType(
+                toProtoType(innerType1, sealedTypeLookup),
+                toProtoType(innerType2, sealedTypeLookup),
+                stripPackageNames(other)
+              )
             case unknown => CustomType(unknown, sealedTypeLookup.contains(unknown), unknown)
           }
         } else {
           if (other.contains(".")) {
-            toProtoType(other.split("\\.").lastOption.getOrElse("unknown"), sealedTypeLookup)
+            toProtoType(stripPackageNames(other), sealedTypeLookup)
           } else {
             CustomType(other, sealedTypeLookup.contains(other), other)
           }
         }
+    }
+  }
+
+  def stripPackageNames(innerType: String): String = {
+    if (innerType.contains(".")) {
+      innerType.split("\\.").lastOption.getOrElse("unknown")
+    } else {
+      innerType
     }
   }
 
@@ -294,13 +306,14 @@ trait SrcGen {
           }
           .map {
             case (t, _) =>
-              val name = generateScalaType(t)
+              val name = stripPackageNames(generateScalaType(t))
+              val typeWithoutPackage = s"Option[${stripPackageNames(between('[', ']', t))}]"
               SealedTrait(
                 s"Option$name",
-                t,
+                typeWithoutPackage,
                 List(
-                  CaseClass(s"None$name", t, List.empty),
-                  CaseClass(s"Some$name", t, List("value" -> between('[', ']', t)))
+                  CaseClass(s"None$name", typeWithoutPackage, List.empty),
+                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> between('[', ']', t)))
                 )
               )
           }
@@ -409,7 +422,7 @@ trait SrcGen {
   // ...[aa[bb]] --> aabb
   // ...[aa[bb[cc]]] -> aabbcc
   private def generateScalaType(str: String): String = {
-    str.split(s"\\[").drop(1).map(_.filterNot(_ === ']')).mkString
+    str.split(s"\\[").drop(1).map(_.filterNot(_ === ']')).map(stripPackageNames).mkString
   }
 
 }
