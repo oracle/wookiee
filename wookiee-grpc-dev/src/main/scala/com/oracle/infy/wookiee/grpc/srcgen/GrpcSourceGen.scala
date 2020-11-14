@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc.srcgen
 
-import java.nio.file.{Files, Paths}
-
 import com.oracle.infy.wookiee.grpc.srcgen.Model.IO
 
 import scala.reflect.runtime.universe.typeOf
@@ -15,9 +13,9 @@ object GrpcSourceGen extends SrcGen {
   final case class FailureResponse(err: String) extends SomeResponse
 
   final case class RequestWithOption(
-                                      field: Option[SomeRequest],
-                                      listField: Option[List[String]]
-                                    )
+      field: Option[SomeRequest],
+      listField: Option[List[String]]
+  )
 
   def main(args: Array[String]): Unit = {
 
