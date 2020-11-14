@@ -37,10 +37,6 @@ object GrpcSourceGen extends SrcGen {
 
     val scalaSrc = genScala(records, sealedTypeLookup, "import some.header")
 
-
-    Files.write(Paths.get("/Users/msiegfri/work/wookiee/deleteMe.proto"), protoSrc.getBytes("UTF8"))
-    Files.write(Paths.get("/Users/msiegfri/work/wookiee/deleteMe2.scala"), scalaSrc.getBytes("UTF8"))
-
     // Write these to a file
     println(protoSrc)
     println(scalaSrc)

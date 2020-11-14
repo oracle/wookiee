@@ -18,8 +18,8 @@ trait SrcGen {
       })
   }
 
-  private def between(start: Char, str: String) = {
-    str.dropWhile(_ /== start).drop(1).dropRight(1)
+  private def betweenOuterBrackets(str: String) = {
+    str.dropWhile(_ /== '[').drop(1).dropRight(1)
   }
 
   private def toProtoType(t: String, sealedTypeLookup: Set[String]): ProtoType = {
@@ -33,14 +33,14 @@ trait SrcGen {
         if (other.contains("[")) {
           other.takeWhile(_ /== '[') match {
             case "Option" =>
-              val innerType = between('[', other)
+              val innerType = betweenOuterBrackets(other)
               OptionType(toProtoType(innerType, sealedTypeLookup), other)
 
             case "List" =>
-              val innerType = between('[', other)
+              val innerType = betweenOuterBrackets(other)
               ListType(toProtoType(innerType, sealedTypeLookup), other)
             case "Map" =>
-              val innerTypes = between('[', other)
+              val innerTypes = betweenOuterBrackets(other)
               val innerType1 = innerTypes.split(",").headOption.getOrElse("unknown")
               val innerType2 = innerTypes.split(",").lastOption.getOrElse("unknown")
               MapType(
@@ -307,13 +307,13 @@ trait SrcGen {
           .map {
             case (t, _) =>
               val name = stripPackageNames(generateScalaType(t))
-              val typeWithoutPackage = s"Option[${stripPackageNames(between('[', t))}]"
+              val typeWithoutPackage = s"Option[${stripPackageNames(betweenOuterBrackets(t))}]"
               SealedTrait(
                 s"Option$name",
                 typeWithoutPackage,
                 List(
                   CaseClass(s"None$name", typeWithoutPackage, List.empty),
-                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> between('[', t)))
+                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> betweenOuterBrackets(t)))
                 )
               )
           }
