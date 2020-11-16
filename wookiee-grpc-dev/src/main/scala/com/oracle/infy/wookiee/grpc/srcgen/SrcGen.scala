@@ -238,12 +238,24 @@ trait SrcGen {
     record match {
       case SealedTrait(name, recordType, records) =>
         if (recordType.startsWith("Option")) {
-          val body = s"""
-                        |lhs match {
-                        |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                        |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
-                        |}
-                        |""".stripMargin.trim
+
+          val protoT = toProtoType(recordType, sealedTypeLookup)
+          val body = protoT match {
+            case OptionType(_: CustomType, _) =>
+              s"""
+                |lhs match {
+                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
+                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v))
+                |}
+                |""".stripMargin.trim
+            case _ =>
+              s"""
+                |lhs match {
+                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
+                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
+                |}
+                |""".stripMargin.trim
+          }
           implicitClass(name, recordType, body)
         } else {
           val body =
