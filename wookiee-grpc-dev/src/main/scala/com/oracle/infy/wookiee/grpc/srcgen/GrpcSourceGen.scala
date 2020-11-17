@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc.srcgen
 
-import java.nio.file.{Files, Paths}
-
 import com.oracle.infy.wookiee.grpc.srcgen.Model.IO
 
 import scala.reflect.runtime.universe.typeOf
