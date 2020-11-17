@@ -245,7 +245,7 @@ trait SrcGen {
               s"""
                 |lhs match {
                 |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v))
+                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
                 |}
                 |""".stripMargin.trim
             case _ =>
