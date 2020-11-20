@@ -73,7 +73,6 @@ object WookieeGrpcServer {
     stream
       .debounce(100.millis)
       .evalTap { f: Int =>
-        println(f)
         assignLoad(f, host, discoveryPath, curatorFramework)
       }
       .compile
@@ -83,19 +82,17 @@ object WookieeGrpcServer {
   private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): IO[Int] = {
     val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
     IO {
-      val data: Either[HostSerde.HostSerdeError, Host] =
-        HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
-      println(data.getOrElse(0))
       curatorFramework
         .setData()
         .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-      val data2: Either[HostSerde.HostSerdeError, Host] = HostSerde.deserialize(
-        curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")
-      )
-      println(data2.getOrElse(0))
       load
     }
   }
+
+//  def verifyLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): Boolean = {
+//    val data: Either[HostSerde.HostSerdeError, Host] =
+//      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")).flatMap(f => f.)
+//  }
 
   def start(
       zookeeperQuorum: String,
