@@ -59,6 +59,16 @@ class WookieeGrpcServer(
     assignLoad(load).unsafeToFuture()
   }
 
+  def verifyLoad(load: Int, address: String, port: Int, discoveryPath: String): Boolean = {
+    val data: Either[HostSerde.HostSerdeError, Host] =
+      HostSerde
+        .deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${address}:${port}"))
+    data match {
+      case Left(_) => false
+      case Right(host) => host.metadata.getOrElse("load", "-500") == load.toString
+    }
+  }
+
 }
 
 object WookieeGrpcServer {
@@ -88,11 +98,6 @@ object WookieeGrpcServer {
       load
     }
   }
-
-//  def verifyLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): Boolean = {
-//    val data: Either[HostSerde.HostSerdeError, Host] =
-//      HostSerde.deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${host.address}:${host.port}")).flatMap(f => f.)
-//  }
 
   def start(
       zookeeperQuorum: String,

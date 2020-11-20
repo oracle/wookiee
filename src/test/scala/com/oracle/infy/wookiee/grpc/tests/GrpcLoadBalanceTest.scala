@@ -25,6 +25,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
     val testWeightedLoadBalancer = {
       val bossThreads = 5
       val zookeeperDiscoveryPath = "/discovery"
+      implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {
@@ -52,7 +53,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val load1 = randomLoad.nextInt(10)
       val load2 = randomLoad.nextInt(10)
       val timerEC = mainExecutionContext(mainECParallelism)
-      implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
 
       val queue: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
       Seq.from(0 to 5).foreach(f => queue.enqueue1(f).unsafeRunSync())
@@ -201,10 +201,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           res2 <- verifyLastServerIsUsed()
           _ <- server3.shutdownUnsafe()
         } yield res2
+        load1Result = server.verifyLoad(load1, "localhost", 8080, zookeeperDiscoveryPath)
+        load2Result = server.verifyLoad(load2, "localhost", 9090, zookeeperDiscoveryPath)
         _ <- server2.shutdownUnsafe()
         _ <- server.shutdownUnsafe()
         _ <- wookieeGrpcChannel.shutdownUnsafe()
-      } yield result && result2
+      } yield result && result2 && load1Result && load2Result
 
       gRPCResponseF
     }
