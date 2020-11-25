@@ -1,17 +1,22 @@
 package com.oracle.infy.wookiee.grpc.tests
 
+import java.net.InetAddress
 import java.util.Random
 
-import cats.effect.{ContextShift, IO}
+import cats.effect.{Blocker, ContextShift, IO, Timer}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
+import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import fs2.concurrent.Queue
+import io.chrisdavenport.log4cats.Logger
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
+import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
 
 import scala.concurrent.duration._
@@ -19,7 +24,12 @@ import scala.concurrent.{ExecutionContext, Future}
 
 object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
-  def loadBalancerTest(blockingEC: ExecutionContext, connStr: String, mainECParallelism: Int)(
+  def loadBalancerTest(
+      blockingEC: ExecutionContext,
+      connStr: String,
+      mainECParallelism: Int,
+      curator: CuratorFramework
+  )(
       implicit mainEC: ExecutionContext
   ): Tests = {
     val testWeightedLoadBalancer = {
@@ -83,7 +93,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       // Create a second server with another randomly generated load number. If load number is the same, the first
       // will be used.
 
-      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
+      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
@@ -170,7 +180,23 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           .map(_ > 1)
       }
 
+      def verifyLoad(
+          load: Int,
+          address: String,
+          port: Int,
+          discoveryPath: String,
+          curator: CuratorFramework
+      ): Boolean = {
+        val data: Either[HostSerde.HostSerdeError, Host] =
+          HostSerde.deserialize(curator.getData.forPath(s"$discoveryPath/${address}:${port}"))
+        data match {
+          case Left(_)     => false
+          case Right(host) => host.metadata.getOrElse("load", "-500") == load.toString
+        }
+      }
+
       val gRPCResponseF: Future[Boolean] = for {
+        _ <- Future(curator.start())
         server <- serverF
         server2 <- serverF2
         _ <- server.unsafeAssignLoad(load1)
@@ -201,11 +227,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           res2 <- verifyLastServerIsUsed()
           _ <- server3.shutdownUnsafe()
         } yield res2
-        load1Result = server.verifyLoad(load1, "localhost", 8080, zookeeperDiscoveryPath)
-        load2Result = server.verifyLoad(load2, "localhost", 9090, zookeeperDiscoveryPath)
+        load1Result = verifyLoad(load1, "localhost", 8080, zookeeperDiscoveryPath, curator)
+        load2Result = verifyLoad(load2, "localhost", 9090, zookeeperDiscoveryPath, curator)
         _ <- server2.shutdownUnsafe()
         _ <- server.shutdownUnsafe()
         _ <- wookieeGrpcChannel.shutdownUnsafe()
+        _ <- Future(curator.close())
       } yield result && result2 && load1Result && load2Result
 
       gRPCResponseF

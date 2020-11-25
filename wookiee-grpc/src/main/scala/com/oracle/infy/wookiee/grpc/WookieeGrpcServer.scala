@@ -59,19 +59,140 @@ class WookieeGrpcServer(
     assignLoad(load).unsafeToFuture()
   }
 
-  def verifyLoad(load: Int, address: String, port: Int, discoveryPath: String): Boolean = {
-    val data: Either[HostSerde.HostSerdeError, Host] =
-      HostSerde
-        .deserialize(curatorFramework.getData.forPath(s"$discoveryPath/${address}:${port}"))
-    data match {
-      case Left(_) => false
-      case Right(host) => host.metadata.getOrElse("load", "-500") == load.toString
-    }
-  }
-
 }
 
 object WookieeGrpcServer {
+
+  case class ServerSettings(
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      host: Host,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
+      blocker: Blocker,
+      cs: ContextShift[IO],
+      bossThreads: Int,
+      workerThreads: Int,
+      queue: Queue[IO, Int]
+  )
+
+  def apply(
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      host: Host,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      timerEC: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
+      blocker: Blocker,
+      cs: ContextShift[IO],
+      bossThreads: Int,
+      workerThreads: Int,
+      queue: Queue[IO, Int]
+  ): ServerSettings = {
+    ServerSettings(
+      zookeeperQuorum,
+      discoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      serverServiceDefinition,
+      port,
+      host,
+      mainExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      zookeeperBlockingExecutionContext,
+      blocker,
+      cs,
+      bossThreads,
+      workerThreads,
+      queue
+    )
+  }
+
+  def apply(
+      zookeeperQuorum: String,
+      discoveryPath: String,
+      zookeeperRetryInterval: FiniteDuration,
+      zookeeperMaxRetries: Int,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
+      timerEC: ExecutionContext,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      zookeeperBlockingExecutionContext: ExecutionContext,
+      blocker: Blocker,
+      cs: ContextShift[IO],
+      bossThreads: Int,
+      workerThreads: Int
+  ): ServerSettings = {
+    implicit val c: ContextShift[IO] = IO.contextShift(mainExecutionContext)
+    implicit val ec: ExecutionContext = timerEC
+    val ss = for {
+      queue <- Queue.unbounded[IO, Int]
+      address <- cs.blockOn(blocker)(IO {
+        InetAddress.getLocalHost.getCanonicalHostName
+      })
+      serverSettings <- IO(ServerSettings(
+        zookeeperQuorum,
+        discoveryPath,
+        zookeeperRetryInterval,
+        zookeeperMaxRetries,
+        serverServiceDefinition,
+        port,
+        Host(0, address, port, Map.empty),
+        mainExecutionContext,
+        workerExecutionContext,
+        applicationExecutionContext,
+        zookeeperBlockingExecutionContext,
+        blocker,
+        cs,
+        bossThreads,
+        workerThreads,
+        queue
+      ))
+    } yield serverSettings
+    ss.unsafeRunSync()
+  }
+
+  def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(serverSettings.zookeeperBlockingExecutionContext)
+    implicit val cs: ContextShift[IO] = IO.contextShift(serverSettings.bossExecutionContext)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    implicit val timer: Timer[IO] = IO.timer(timerEC)
+    start(
+      serverSettings.zookeeperQuorum,
+      serverSettings.discoveryPath,
+      serverSettings.zookeeperRetryInterval,
+      serverSettings.zookeeperMaxRetries,
+      serverSettings.serverServiceDefinition,
+      serverSettings.port,
+      serverSettings.host,
+      serverSettings.bossExecutionContext,
+      serverSettings.workerExecutionContext,
+      serverSettings.applicationExecutionContext,
+      serverSettings.zookeeperBlockingExecutionContext,
+      serverSettings.bossThreads,
+      serverSettings.workerThreads,
+      serverSettings.queue
+    ).unsafeToFuture()
+  }
 
   private def streamLoads(
       loadQueue: Queue[IO, Int],
