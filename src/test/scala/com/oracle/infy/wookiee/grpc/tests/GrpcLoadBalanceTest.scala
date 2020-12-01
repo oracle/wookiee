@@ -69,45 +69,44 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
       Seq.from(0 to 5).foreach(f => queue2.enqueue1(f).unsafeRunSync())
 
-      val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
+      val serverF: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
         zookeeperMaxRetries = 20,
-        serverServiceDefinition = ssd,
+        serverServiceDefinition = ssd2,
         port = 8080,
-        // Host is given a randomly generated load number: this is used to determine which server is the least busy.
-        localhost = Host(0, "localhost", 8080, Map[String, String](("load", "0"))),
+        host = Host(0, "localhost", 8080, Map[String, String](("load", "0"))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
-        timerEC = timerEC,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
         zookeeperBlockingExecutionContext = blockingEC,
+        timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue
+        queue = queue2
       )
 
       // Create a second server with another randomly generated load number. If load number is the same, the first
       // will be used.
 
-      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer(
+      val serverF2: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
         zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd2,
         port = 9090,
-        localhost = Host(0, "localhost", 9090, Map[String, String](("load", "0"))),
+        host = Host(0, "localhost", 9090, Map[String, String](("load", "0"))),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
-        timerEC = timerEC,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
         zookeeperBlockingExecutionContext = blockingEC,
+        timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         queue = queue2

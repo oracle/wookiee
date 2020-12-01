@@ -75,8 +75,7 @@ object WookieeGrpcServer {
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       zookeeperBlockingExecutionContext: ExecutionContext,
-      blocker: Blocker,
-      cs: ContextShift[IO],
+      timerExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
       queue: Queue[IO, Int]
@@ -92,13 +91,11 @@ object WookieeGrpcServer {
       host: Host,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
-      timerEC: ExecutionContext,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       zookeeperBlockingExecutionContext: ExecutionContext,
-      blocker: Blocker,
-      cs: ContextShift[IO],
+      timerExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
       queue: Queue[IO, Int]
@@ -115,8 +112,7 @@ object WookieeGrpcServer {
       workerExecutionContext,
       applicationExecutionContext,
       zookeeperBlockingExecutionContext,
-      blocker,
-      cs,
+      timerExecutionContext,
       bossThreads,
       workerThreads,
       queue
@@ -132,21 +128,20 @@ object WookieeGrpcServer {
       port: Int,
       mainExecutionContext: ExecutionContext,
       blockingExecutionContext: ExecutionContext,
-      timerEC: ExecutionContext,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       zookeeperBlockingExecutionContext: ExecutionContext,
+      timerExecutionContext: ExecutionContext,
       blocker: Blocker,
-      cs: ContextShift[IO],
       bossThreads: Int,
       workerThreads: Int
   ): ServerSettings = {
     implicit val c: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val ec: ExecutionContext = timerEC
+    implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
     val ss = for {
       queue <- Queue.unbounded[IO, Int]
-      address <- cs.blockOn(blocker)(IO {
+      address <- c.blockOn(blocker)(IO {
         InetAddress.getLocalHost.getCanonicalHostName
       })
       serverSettings <- IO(ServerSettings(
@@ -161,21 +156,20 @@ object WookieeGrpcServer {
         workerExecutionContext,
         applicationExecutionContext,
         zookeeperBlockingExecutionContext,
-        blocker,
-        cs,
+        timerExecutionContext,
         bossThreads,
         workerThreads,
         queue
       ))
     } yield serverSettings
-    ss.unsafeRunSync()
+    ss.unsafeRunSync() //TODO: pretty sure this shouldn't be here
   }
 
   def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(serverSettings.zookeeperBlockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(serverSettings.bossExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    implicit val timer: Timer[IO] = IO.timer(timerEC)
+    implicit val timer: Timer[IO] = IO.timer(serverSettings.timerExecutionContext)
     start(
       serverSettings.zookeeperQuorum,
       serverSettings.discoveryPath,
