@@ -1,9 +1,8 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import java.net.InetAddress
 import java.util.Random
 
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
@@ -13,8 +12,6 @@ import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
@@ -69,16 +66,14 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
       Seq.from(0 to 5).foreach(f => queue2.enqueue1(f).unsafeRunSync())
 
-      val serverF: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
+      val serverSettings: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
         zookeeperMaxRetries = 20,
-        serverServiceDefinition = ssd2,
+        serverServiceDefinition = ssd,
         port = 8080,
         host = Host(0, "localhost", 8080, Map[String, String](("load", "0"))),
-        mainExecutionContext = mainEC,
-        blockingExecutionContext = blockingEC,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -86,13 +81,15 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue = queue2
+        queue = queue
       )
+
+      val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings)
 
       // Create a second server with another randomly generated load number. If load number is the same, the first
       // will be used.
 
-      val serverF2: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
+      val serverSettings2: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
@@ -100,8 +97,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         serverServiceDefinition = ssd2,
         port = 9090,
         host = Host(0, "localhost", 9090, Map[String, String](("load", "0"))),
-        mainExecutionContext = mainEC,
-        blockingExecutionContext = blockingEC,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -111,6 +106,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         workerThreads = mainECParallelism,
         queue = queue2
       )
+
+      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2)
 
       val _ = mainECParallelism
       val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
@@ -204,25 +201,26 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         result <- verifyResponseHandledCorrectly()
         // Spin up a third server with load 0, and verify that it is used at least once.
         result2 <- for {
-          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(
-            zookeeperQuorum = connStr,
-            discoveryPath = zookeeperDiscoveryPath,
-            zookeeperRetryInterval = 3.seconds,
-            zookeeperMaxRetries = 20,
-            serverServiceDefinition = ssd3,
-            port = 9091,
-            localhost = Host(0, "localhost", 9091, Map[String, String](("load", "0"))),
-            mainExecutionContext = mainEC,
-            blockingExecutionContext = blockingEC,
-            timerEC = timerEC,
-            bossExecutionContext = blockingEC,
-            workerExecutionContext = mainEC,
-            applicationExecutionContext = mainEC,
-            zookeeperBlockingExecutionContext = blockingEC,
-            bossThreads = bossThreads,
-            workerThreads = mainECParallelism,
-            queue
+          serverSettings3: WookieeGrpcServer.ServerSettings <- Future(
+            WookieeGrpcServer(
+              zookeeperQuorum = connStr,
+              discoveryPath = zookeeperDiscoveryPath,
+              zookeeperRetryInterval = 3.seconds,
+              zookeeperMaxRetries = 20,
+              serverServiceDefinition = ssd3,
+              port = 9091,
+              host = Host(0, "localhost", 9091, Map[String, String](("load", "0"))),
+              bossExecutionContext = blockingEC,
+              workerExecutionContext = mainEC,
+              applicationExecutionContext = mainEC,
+              zookeeperBlockingExecutionContext = blockingEC,
+              timerExecutionContext = timerEC,
+              bossThreads = bossThreads,
+              workerThreads = mainECParallelism,
+              queue = queue2
+            )
           )
+          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)
           res2 <- verifyLastServerIsUsed()
           _ <- server3.shutdownUnsafe()
         } yield res2

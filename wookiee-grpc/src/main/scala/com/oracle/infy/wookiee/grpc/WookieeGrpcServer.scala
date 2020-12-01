@@ -89,8 +89,6 @@ object WookieeGrpcServer {
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       host: Host,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -108,7 +106,7 @@ object WookieeGrpcServer {
       serverServiceDefinition,
       port,
       host,
-      mainExecutionContext,
+      bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
       zookeeperBlockingExecutionContext,
@@ -126,18 +124,15 @@ object WookieeGrpcServer {
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
+      timerExecutionContext: ExecutionContext,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       zookeeperBlockingExecutionContext: ExecutionContext,
-      timerExecutionContext: ExecutionContext,
-      blocker: Blocker,
       bossThreads: Int,
       workerThreads: Int
   ): ServerSettings = {
-    implicit val c: ContextShift[IO] = IO.contextShift(mainExecutionContext)
+    implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
     implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
     val ss = for {
       queue <- Queue.unbounded[IO, Int]
@@ -152,7 +147,7 @@ object WookieeGrpcServer {
         serverServiceDefinition,
         port,
         Host(0, address, port, Map.empty),
-        mainExecutionContext,
+        bossExecutionContext,
         workerExecutionContext,
         applicationExecutionContext,
         zookeeperBlockingExecutionContext,
