@@ -1,10 +1,11 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.InetAddress
+import java.util.concurrent.ForkJoinPool
 
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
-import com.oracle.infy.wookiee.grpc.json.HostSerde
+import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
 import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
 import fs2.concurrent.Queue
@@ -63,101 +64,15 @@ class WookieeGrpcServer(
 
 object WookieeGrpcServer {
 
-  case class ServerSettings(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      host: Host,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      timerExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int,
-      queue: Queue[IO, Int]
-  )
-
-  def apply(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      host: Host,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      timerExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int,
-      queue: Queue[IO, Int]
-  ): ServerSettings = {
-    ServerSettings(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      host,
-      bossExecutionContext,
-      workerExecutionContext,
-      applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
-      timerExecutionContext,
-      bossThreads,
-      workerThreads,
-      queue
+  def createExecutionContext(parallelism: Int): ExecutionContext = {
+    ExecutionContext.fromExecutor(
+      new ForkJoinPool(
+        parallelism,
+        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+        (t: Thread, e: Throwable) => { println(s"Got an uncaught exception on thread: $e" ++ t.getName) },
+        true
+      )
     )
-  }
-
-  def apply(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      timerExecutionContext: ExecutionContext,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int
-  ): ServerSettings = {
-    implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
-    implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
-    val ss = for {
-      queue <- Queue.unbounded[IO, Int]
-      address <- c.blockOn(blocker)(IO {
-        InetAddress.getLocalHost.getCanonicalHostName
-      })
-      serverSettings <- IO(ServerSettings(
-        zookeeperQuorum,
-        discoveryPath,
-        zookeeperRetryInterval,
-        zookeeperMaxRetries,
-        serverServiceDefinition,
-        port,
-        Host(0, address, port, Map.empty),
-        bossExecutionContext,
-        workerExecutionContext,
-        applicationExecutionContext,
-        zookeeperBlockingExecutionContext,
-        timerExecutionContext,
-        bossThreads,
-        workerThreads,
-        queue
-      ))
-    } yield serverSettings
-    ss.unsafeRunSync() //TODO: pretty sure this shouldn't be here
   }
 
   def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
@@ -216,88 +131,6 @@ object WookieeGrpcServer {
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int
-  )(
-      implicit cs: ContextShift[IO],
-      blocker: Blocker,
-      logger: Logger[IO],
-      timer: Timer[IO]
-  ): IO[WookieeGrpcServer] = {
-    for {
-      queue <- Queue.unbounded[IO, Int]
-      address <- cs.blockOn(blocker)(IO {
-        InetAddress.getLocalHost.getCanonicalHostName
-      })
-      wookieeGrpcServer <- start(
-        zookeeperQuorum,
-        discoveryPath,
-        zookeeperRetryInterval,
-        zookeeperMaxRetries,
-        serverServiceDefinition,
-        port,
-        Host(0, address, port, Map.empty),
-        bossExecutionContext,
-        workerExecutionContext,
-        applicationExecutionContext,
-        zookeeperBlockingExecutionContext,
-        bossThreads,
-        workerThreads,
-        queue
-      )
-    } yield wookieeGrpcServer
-  }
-
-  def startUnsafe(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      timerEC: ExecutionContext,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int
-  ): Future[WookieeGrpcServer] = {
-
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    implicit val timer: Timer[IO] = IO.timer(timerEC)
-
-    start(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      bossExecutionContext,
-      workerExecutionContext,
-      applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
-      bossThreads,
-      workerThreads
-    ).unsafeToFuture()
-  }
-
-  def start(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
       localhost: Host,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
@@ -305,7 +138,7 @@ object WookieeGrpcServer {
       zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
-      queue: Queue[IO, Int]
+      queueIO: IO[Queue[IO, Int]]
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -340,51 +173,11 @@ object WookieeGrpcServer {
       )
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
+      queue <- queueIO
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
       fiber <- streamLoads(queue, localhost, discoveryPath, curator).start
 
     } yield new WookieeGrpcServer(server, curator, fiber, queue)
-  }
-
-  def startUnsafe(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: Host,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      timerEC: ExecutionContext,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int,
-      queue: Queue[IO, Int]
-  ): Future[WookieeGrpcServer] = {
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    implicit val timer: Timer[IO] = IO.timer(timerEC)
-    start(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      localhost,
-      bossExecutionContext,
-      workerExecutionContext,
-      applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
-      bossThreads,
-      workerThreads,
-      queue
-    ).unsafeToFuture()
   }
 
   private def registerInZookeeper(

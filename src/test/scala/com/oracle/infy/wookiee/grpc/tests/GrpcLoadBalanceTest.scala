@@ -5,7 +5,7 @@ import java.util.Random
 import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
-import com.oracle.infy.wookiee.grpc.json.HostSerde
+import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
@@ -61,12 +61,13 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val load2 = randomLoad.nextInt(10)
       val timerEC = mainExecutionContext(mainECParallelism)
 
-      val queue: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
-      Seq.from(0 to 5).foreach(f => queue.enqueue1(f).unsafeRunSync())
+      //TODO: refactoring Queue -> IO[Queue]
+      val queue = Queue.unbounded[IO, Int]
+      Seq.from(0 to 5).foreach(f => queue.enqueue1(f)
       val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
       Seq.from(0 to 5).foreach(f => queue2.enqueue1(f).unsafeRunSync())
 
-      val serverSettings: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
+      val serverSettings: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
@@ -89,7 +90,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       // Create a second server with another randomly generated load number. If load number is the same, the first
       // will be used.
 
-      val serverSettings2: WookieeGrpcServer.ServerSettings = WookieeGrpcServer(
+      val serverSettings2: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
@@ -201,8 +202,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         result <- verifyResponseHandledCorrectly()
         // Spin up a third server with load 0, and verify that it is used at least once.
         result2 <- for {
-          serverSettings3: WookieeGrpcServer.ServerSettings <- Future(
-            WookieeGrpcServer(
+          serverSettings3: ServerSettings <- Future(
+            ServerSettings(
               zookeeperQuorum = connStr,
               discoveryPath = zookeeperDiscoveryPath,
               zookeeperRetryInterval = 3.seconds,
