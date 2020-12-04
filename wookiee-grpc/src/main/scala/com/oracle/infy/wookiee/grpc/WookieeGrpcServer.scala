@@ -1,6 +1,5 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.net.InetAddress
 import java.util.concurrent.ForkJoinPool
 
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}

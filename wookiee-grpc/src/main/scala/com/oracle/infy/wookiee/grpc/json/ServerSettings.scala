@@ -7,9 +7,8 @@ import com.oracle.infy.wookiee.model.Host
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{FiniteDuration, _}
 
 case class ServerSettings(
     zookeeperQuorum: String,
@@ -113,8 +112,6 @@ object ServerSettings {
   def apply(
       zookeeperQuorum: String,
       discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration = 3.seconds,
-      zookeeperMaxRetries: Int = 20,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       timerExecutionContext: ExecutionContext,
@@ -128,17 +125,22 @@ object ServerSettings {
     implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
     implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
         val queue = generateDefaultQueue(bossExecutionContext)
-        val address = c.blockOn(blocker)(IO {
-          InetAddress.getLocalHost.getCanonicalHostName
-        }).unsafeRunSync() //TODO, see if there's a way around this
+        val host = {
+          for {
+            address <- c.blockOn(blocker)(IO {
+              InetAddress.getLocalHost.getCanonicalHostName
+            })
+            host = Host(0, address, port, Map.empty)
+          } yield host
+        }
         ServerSettings(
           zookeeperQuorum,
           discoveryPath,
-          zookeeperRetryInterval,
-          zookeeperMaxRetries,
+          3.seconds,
+          20,
           serverServiceDefinition,
           port,
-          Host(0, address, port, Map.empty),
+          host.unsafeRunSync(),
           bossExecutionContext,
           workerExecutionContext,
           applicationExecutionContext,
