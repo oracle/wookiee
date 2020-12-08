@@ -130,7 +130,7 @@ object WookieeGrpcServer {
       zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
-      localhost: Host,
+      localhost: IO[Host],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -172,9 +172,10 @@ object WookieeGrpcServer {
       )
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
+      host <- localhost
       queue <- queueIO
-      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
-      fiber <- streamLoads(queue, localhost, discoveryPath, curator).start
+      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, host)))
+      fiber <- streamLoads(queue, host, discoveryPath, curator).start
 
     } yield new WookieeGrpcServer(server, curator, fiber, queue)
   }

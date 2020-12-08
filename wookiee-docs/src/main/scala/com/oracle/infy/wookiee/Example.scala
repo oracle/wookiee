@@ -81,7 +81,7 @@ object Example {
       port = 9091,
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
-      host = Host(0, "localhost", 9091, Map.empty),
+      host = IO(Host(0, "localhost", 9091, Map.empty)),
       bossExecutionContext = mainEC,
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,
