@@ -42,7 +42,6 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
       .asScala
       .flatMap(eag => Map[EquivalentAddressGroup, EquivalentAddressGroup]((stripAttrs(eag), eag)))
       .toList
-      .sortBy(subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel._2.getAttributes))
     // Set of keys of addresses after channel has made connection
     val currentAddrs: Set[EquivalentAddressGroup] = subChannels.keySet.asScala.toSet
     // Addresses that are no longer in use and need to be shutdown
@@ -137,7 +136,8 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
 
   private def updateBalancingState(): Unit = {
     val activeList: List[LoadBalancer.Subchannel] = filterNonFailingSubchannels(getSubchannels).asScala.toList
-    if (activeList.isEmpty) { // No READY subchannels, determine aggregate state and error status
+    if (activeList.isEmpty || activeList.size < subChannels
+          .size()) { // No READY subchannels, determine aggregate state and error status
       val isConnecting: AtomicBoolean = new AtomicBoolean(false)
       val aggStatus: AtomicReference[Status] = new AtomicReference[Status](EMPTY_OK)
       subChannels
@@ -296,8 +296,10 @@ object RoundRobinWeightedLoadBalancer {
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
       nextSubchannel match {
-        case Some(subchannel) => PickResult.withSubchannel(subchannel)
-        case None             => PickResult.withError(Status.UNKNOWN)
+        case Some(subchannel) => {
+          PickResult.withSubchannel(subchannel)
+        }
+        case None => PickResult.withError(Status.UNKNOWN)
       }
     }
 

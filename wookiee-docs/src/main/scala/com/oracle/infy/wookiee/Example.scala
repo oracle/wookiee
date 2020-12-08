@@ -4,6 +4,7 @@ import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 
 import cats.effect.IO
+import com.oracle.infy.wookiee.grpc.json.ServerSettings
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
@@ -71,7 +72,7 @@ object Example {
       mainEC
     )
 
-    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
+    val serverSettingsF: ServerSettings = ServerSettings(
       zookeeperQuorum = connStr,
       discoveryPath = zookeeperDiscoveryPath,
       zookeeperRetryInterval = 3.seconds,
@@ -80,16 +81,17 @@ object Example {
       port = 9091,
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
-      localhost = Host(0, "localhost", 9091, Map.empty),
-      mainExecutionContext = mainEC,
-      blockingExecutionContext = blockingEC,
-      bossExecutionContext = blockingEC,
+      host = IO(Host(0, "localhost", 9091, Map.empty)),
+      bossExecutionContext = mainEC,
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,
       zookeeperBlockingExecutionContext = blockingEC,
+      timerExecutionContext = blockingEC,
       bossThreads = bossThreads,
       workerThreads = mainECParallelism
     )
+
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF)
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       zookeeperQuorum = connStr,
