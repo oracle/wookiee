@@ -61,26 +61,25 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val load2 = randomLoad.nextInt(10)
       val timerEC = mainExecutionContext(mainECParallelism)
 
-//      val queue = {
-//        for {
-//          queue <- Queue.unbounded[IO, Int]
-//          //_ = Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
-//        } yield queue
-//      }
-//      Seq.from(0 to 5).foreach(f => queue.unsafeRunSync().enqueue1(f))
-//
-//
-//      val queue2 = {
-//        for {
-//          queue2 <- Queue.unbounded[IO, Int]
-//         //_ = Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
-//        } yield queue2
-//      }
-//      Seq.from(0 to 5).foreach(f => queue2.unsafeRunSync().enqueue1(f))
-  val queue = Queue.unbounded[IO, Int].unsafeRunSync()
-      Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
-      val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
-      Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
+      val queue = {
+        for {
+          queue <- Queue.unbounded[IO, Int]
+          _ = Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
+        } yield queue
+      }
+      //Seq.from(0 to 5).foreach(f => queue.unsafeRunSync().enqueue1(f))
+
+      val queue2 = {
+        for {
+          queue2 <- Queue.unbounded[IO, Int]
+          _ = Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
+        } yield queue2
+      }
+      //Seq.from(0 to 5).foreach(f => queue2.unsafeRunSync().enqueue1(f))
+//      val queue = Queue.unbounded[IO, Int].unsafeRunSync()
+//      Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
+//      val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
+//      Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
 
       val serverSettings: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
@@ -97,7 +96,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue = IO(queue)
+        queue = queue
       )
 
       val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings)
@@ -120,7 +119,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue = IO(queue2)
+        queue = queue2
       )
 
       val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2)
@@ -222,8 +221,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               zookeeperQuorum = connStr,
               discoveryPath = zookeeperDiscoveryPath,
               zookeeperRetryInterval = 3.seconds,
-              zookeeperMaxRetries = 20,
               serverServiceDefinition = ssd3,
+              zookeeperMaxRetries = 20,
               port = 9091,
               host = Host(0, "localhost", 9091, Map[String, String](("load", "0"))),
               bossExecutionContext = blockingEC,
@@ -232,8 +231,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               zookeeperBlockingExecutionContext = blockingEC,
               timerExecutionContext = timerEC,
               bossThreads = bossThreads,
-              workerThreads = mainECParallelism,
-              queue = Queue.unbounded[IO, Int]
+              workerThreads = mainECParallelism
             )
           )
           server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)

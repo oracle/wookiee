@@ -51,42 +51,6 @@ object ServerSettings {
       zookeeperBlockingExecutionContext: ExecutionContext,
       timerExecutionContext: ExecutionContext,
       bossThreads: Int,
-      workerThreads: Int,
-      queue: IO[Queue[IO, Int]]
-  ): ServerSettings = {
-    ServerSettings(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      host,
-      bossExecutionContext,
-      workerExecutionContext,
-      applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
-      timerExecutionContext,
-      bossThreads,
-      workerThreads,
-      queue
-    )
-  }
-
-  def apply(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration = 3.seconds,
-      zookeeperMaxRetries: Int = 20,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      host: Host,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      timerExecutionContext: ExecutionContext,
-      bossThreads: Int,
       workerThreads: Int
   ): ServerSettings = {
     val queue = generateDefaultQueue(bossExecutionContext)
