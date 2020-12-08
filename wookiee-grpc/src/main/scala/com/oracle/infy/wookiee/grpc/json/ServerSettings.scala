@@ -55,21 +55,21 @@ object ServerSettings {
   ): ServerSettings = {
     val queue = generateDefaultQueue(bossExecutionContext)
     ServerSettings(
-        zookeeperQuorum,
-        discoveryPath,
-        zookeeperRetryInterval,
-        zookeeperMaxRetries,
-        serverServiceDefinition,
-        port,
-        host,
-        bossExecutionContext,
-        workerExecutionContext,
-        applicationExecutionContext,
-        zookeeperBlockingExecutionContext,
-        timerExecutionContext,
-        bossThreads,
-        workerThreads,
-        queue
+      zookeeperQuorum,
+      discoveryPath,
+      zookeeperRetryInterval,
+      zookeeperMaxRetries,
+      serverServiceDefinition,
+      port,
+      host,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      zookeeperBlockingExecutionContext,
+      timerExecutionContext,
+      bossThreads,
+      workerThreads,
+      queue
     )
   }
 
@@ -88,31 +88,31 @@ object ServerSettings {
   ): ServerSettings = {
     implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
     implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
-        val queue = generateDefaultQueue(bossExecutionContext)
-        val host = {
-          for {
-            address <- c.blockOn(blocker)(IO {
-              InetAddress.getLocalHost.getCanonicalHostName
-            })
-            host = Host(0, address, port, Map.empty)
-          } yield host
-        }
-        ServerSettings(
-          zookeeperQuorum,
-          discoveryPath,
-          3.seconds,
-          20,
-          serverServiceDefinition,
-          port,
-          host.unsafeRunSync(),
-          bossExecutionContext,
-          workerExecutionContext,
-          applicationExecutionContext,
-          zookeeperBlockingExecutionContext,
-          timerExecutionContext,
-          bossThreads,
-          workerThreads,
-          queue
-        )
+    val queue = generateDefaultQueue(bossExecutionContext)
+    val host = {
+      for {
+        address <- c.blockOn(blocker)(IO {
+          InetAddress.getLocalHost.getCanonicalHostName
+        })
+        host = Host(0, address, port, Map.empty)
+      } yield host
+    }
+    ServerSettings(
+      zookeeperQuorum,
+      discoveryPath,
+      3.seconds,
+      20,
+      serverServiceDefinition,
+      port,
+      host.unsafeRunSync(),
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      zookeeperBlockingExecutionContext,
+      timerExecutionContext,
+      bossThreads,
+      workerThreads,
+      queue
+    )
   }
 }
