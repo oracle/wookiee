@@ -18,8 +18,8 @@ trait SrcGen {
       })
   }
 
-  private def between(start: Char, end: Char, str: String): String = {
-    str.dropWhile(_ /== start).drop(1).takeWhile(_ /== end)
+  private def betweenOuterBrackets(str: String) = {
+    str.dropWhile(_ /== '[').drop(1).dropRight(1)
   }
 
   private def toProtoType(t: String, sealedTypeLookup: Set[String]): ProtoType = {
@@ -33,20 +33,20 @@ trait SrcGen {
         if (other.contains("[")) {
           other.takeWhile(_ /== '[') match {
             case "Option" =>
-              val innerType = between('[', ']', other)
-              OptionType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
+              val innerType = betweenOuterBrackets(other)
+              OptionType(toProtoType(innerType, sealedTypeLookup), other)
 
             case "List" =>
-              val innerType = between('[', ']', other)
-              ListType(toProtoType(innerType, sealedTypeLookup), stripPackageNames(other))
+              val innerType = betweenOuterBrackets(other)
+              ListType(toProtoType(innerType, sealedTypeLookup), other)
             case "Map" =>
-              val innerTypes = between('[', ']', other)
+              val innerTypes = betweenOuterBrackets(other)
               val innerType1 = innerTypes.split(",").headOption.getOrElse("unknown")
               val innerType2 = innerTypes.split(",").lastOption.getOrElse("unknown")
               MapType(
                 toProtoType(innerType1, sealedTypeLookup),
                 toProtoType(innerType2, sealedTypeLookup),
-                stripPackageNames(other)
+                other
               )
             case unknown => CustomType(unknown, sealedTypeLookup.contains(unknown), unknown)
           }
@@ -238,12 +238,24 @@ trait SrcGen {
     record match {
       case SealedTrait(name, recordType, records) =>
         if (recordType.startsWith("Option")) {
-          val body = s"""
-                        |lhs match {
-                        |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                        |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
-                        |}
-                        |""".stripMargin.trim
+
+          val protoT = toProtoType(recordType, sealedTypeLookup)
+          val body = protoT match {
+            case OptionType(_: CustomType, _) =>
+              s"""
+                |lhs match {
+                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
+                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
+                |}
+                |""".stripMargin.trim
+            case _ =>
+              s"""
+                |lhs match {
+                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
+                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
+                |}
+                |""".stripMargin.trim
+          }
           implicitClass(name, recordType, body)
         } else {
           val body =
@@ -307,13 +319,13 @@ trait SrcGen {
           .map {
             case (t, _) =>
               val name = stripPackageNames(generateScalaType(t))
-              val typeWithoutPackage = s"Option[${stripPackageNames(between('[', ']', t))}]"
+              val typeWithoutPackage = s"Option[${stripPackageNames(betweenOuterBrackets(t))}]"
               SealedTrait(
                 s"Option$name",
                 typeWithoutPackage,
                 List(
                   CaseClass(s"None$name", typeWithoutPackage, List.empty),
-                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> between('[', ']', t)))
+                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> betweenOuterBrackets(t)))
                 )
               )
           }
