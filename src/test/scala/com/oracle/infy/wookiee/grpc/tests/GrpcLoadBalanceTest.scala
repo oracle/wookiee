@@ -15,6 +15,7 @@ import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
+import com.oracle.infy.wookiee.utils.implicits._
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -177,7 +178,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                       .toString
                       .contains("Hello3")
                   )
-                  sameValCase <- Future(load1 == 0 || load2 == 0)
+                  sameValCase <- Future(load1 === 0 || load2 === 0)
                 } yield res || sameValCase
               }
           )
@@ -196,7 +197,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           HostSerde.deserialize(curator.getData.forPath(s"$discoveryPath/${address}:${port}"))
         data match {
           case Left(_)     => false
-          case Right(host) => host.metadata.getOrElse("load", "-500") == load.toString
+          case Right(host) => host.metadata.getOrElse("load", "-500") === load.toString
         }
       }
 
