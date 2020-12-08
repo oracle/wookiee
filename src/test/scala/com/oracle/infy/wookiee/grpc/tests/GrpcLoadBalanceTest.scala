@@ -67,7 +67,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           _ = Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
         } yield queue
       }
-      //Seq.from(0 to 5).foreach(f => queue.unsafeRunSync().enqueue1(f))
 
       val queue2 = {
         for {
@@ -75,11 +74,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           _ = Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
         } yield queue2
       }
-      //Seq.from(0 to 5).foreach(f => queue2.unsafeRunSync().enqueue1(f))
-//      val queue = Queue.unbounded[IO, Int].unsafeRunSync()
-//      Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
-//      val queue2: Queue[IO, Int] = Queue.unbounded[IO, Int].unsafeRunSync()
-//      Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
 
       val serverSettings: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
@@ -188,7 +182,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               }
           )
           .map(_.map(a => if (a) 1 else 0).sum)
-          .map(_ > 1)
+          .map(_ > finish * 0.8)
       }
 
       def verifyLoad(
@@ -234,6 +228,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               workerThreads = mainECParallelism
             )
           )
+          // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
           server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)
           res2 <- verifyLastServerIsUsed()
           _ <- server3.shutdownUnsafe()
