@@ -255,9 +255,10 @@ object RoundRobinWeightedLoadBalancer {
     def sortByLoad(attrs: Attributes): Int = {
       attrs
         .get(WookieeNameResolver.METADATA)
-        .get("load")
-        .flatMap(l => Try { l.toInt }.toOption)
-        .getOrElse(0)
+        .load
+//        .get("load")
+//        .flatMap(l => Try { l.toInt }.toOption)
+//        .getOrElse(0)
     }
 
     def isEquivalentTo(
@@ -308,7 +309,8 @@ object RoundRobinWeightedLoadBalancer {
 
     private def nextSubchannel: Option[Subchannel] = {
       val validList =
-        list.filter(p => p.getAttributes.get(WookieeNameResolver.METADATA).getOrElse("load", "None") != "None")
+        list.filter(p => !p.getAttributes.get(WookieeNameResolver.METADATA).quarantined)
+        //list.filter(p => p.getAttributes.get(WookieeNameResolver.METADATA).getOrElse("load", "None") != "None")
       val sortedList = validList.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )

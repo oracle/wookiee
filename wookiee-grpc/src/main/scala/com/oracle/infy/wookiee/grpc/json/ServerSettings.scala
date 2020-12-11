@@ -4,7 +4,7 @@ import java.net.InetAddress
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 
@@ -97,7 +97,7 @@ object ServerSettings {
         address <- c.blockOn(blocker)(IO {
           InetAddress.getLocalHost.getCanonicalHostName
         })
-        host = Host(0, address, port, Map.empty)
+        host = Host(0, address, port, HostMetadata(0, false))
       } yield host
     }
     ServerSettings(

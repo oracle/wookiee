@@ -6,9 +6,10 @@ import cats.effect.concurrent.Ref
 import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
+import com.oracle.infy.wookiee.grpc.impl.HostMetadata
 import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
@@ -79,9 +80,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       }
 
       // Hosts for the servers that will be generated later.
-      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0")))
-      val host2 = Host(0, "localhost", 9090, Map[String, String](("load", "0")))
-      val host3 = Host(0, "localhost", 9091, Map[String, String](("load", "0")))
+//      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))
+//      val host2 = Host(0, "localhost", 9090, Map[String, String](("load", "0")))
+//      val host3 = Host(0, "localhost", 9091, Map[String, String](("load", "0")))
+      val host1 = Host(0, "localhost", 8080, HostMetadata(0, false))
+      val host2 = Host(0, "localhost", 9090, HostMetadata(0, false))
+      val host3 = Host(0, "localhost", 9091, HostMetadata(0, false))
 
       // Create first server. Use server settings object to initialize.
       val serverSettings: ServerSettings = ServerSettings(
@@ -205,7 +209,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           HostSerde.deserialize(curator.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
         data match {
           case Left(_)     => false
-          case Right(host) => host.metadata.getOrElse("load", "-500") === load.toString
+          case Right(host) => host.metadata.load === load
         }
       }
 
