@@ -307,7 +307,9 @@ object RoundRobinWeightedLoadBalancer {
       MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
 
     private def nextSubchannel: Option[Subchannel] = {
-      val sortedList = list.sortBy(
+      val validList =
+        list.filter(p => p.getAttributes.get(WookieeNameResolver.METADATA).getOrElse("load", "None") != "None")
+      val sortedList = validList.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
       sortedList.headOption

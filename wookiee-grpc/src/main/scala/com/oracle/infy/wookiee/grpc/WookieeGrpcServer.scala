@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc
 
 import java.util.concurrent.ForkJoinPool
 
+import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
@@ -23,7 +24,10 @@ class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
     private val fiber: Fiber[IO, Unit],
-    private val loadQueue: Queue[IO, Int]
+    private val loadQueue: Queue[IO, Int],
+    private val host: Host,
+    private val discoveryPath: String,
+    private val quarantined: Quarantine
 )(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
@@ -59,6 +63,18 @@ class WookieeGrpcServer(
     assignLoad(load).unsafeToFuture()
   }
 
+  def enterQuarantine(): IO[Unit] = {
+    quarantined.update(true)
+    WookieeGrpcServer.assignLoad("None", host, discoveryPath, curatorFramework)
+    IO(())
+  }
+
+  def exitQuarantine(): IO[Unit] = {
+    quarantined.update(false)
+    WookieeGrpcServer.assignLoad(0, host, discoveryPath, curatorFramework)
+    IO(())
+  }
+
 }
 
 object WookieeGrpcServer {
@@ -72,6 +88,58 @@ object WookieeGrpcServer {
         true
       )
     )
+  }
+
+  // Wrapper for streamLoads: map IO to Boolean and use to verify that server is not in quarantined state before using.
+  private def streamLoads(
+      loadQueue: Queue[IO, Int],
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework,
+      quarantineRef: Quarantine
+  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
+    for {
+      quarantined <- quarantineRef.isQuarantined()
+      result <- streamLoads(loadQueue, host, discoveryPath, curatorFramework, quarantined)
+    } yield result
+  }
+
+  private def streamLoads(
+      queue: Queue[IO, Int],
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework,
+      quarantined: Boolean
+  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
+    if (!quarantined) {
+      val stream: Stream[IO, Int] = queue.dequeue
+      stream
+        .debounce(100.millis)
+        .evalTap { load: Int =>
+          assignLoad(load, host, discoveryPath, curatorFramework)
+        }
+        .compile
+        .drain
+    }
+    else
+      IO(())
+  }
+
+  private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): IO[Unit] = {
+    assignLoad(load.toString, host, discoveryPath, curatorFramework)
+  }
+
+  private def assignLoad(
+      load: String,
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework
+  ): IO[Unit] = {
+    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load))
+    curatorFramework
+      .setData()
+      .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+    IO(())
   }
 
   def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
@@ -93,34 +161,9 @@ object WookieeGrpcServer {
       serverSettings.zookeeperBlockingExecutionContext,
       serverSettings.bossThreads,
       serverSettings.workerThreads,
-      serverSettings.queue
+      serverSettings.queue,
+      serverSettings.quarantined
     ).unsafeToFuture()
-  }
-
-  private def streamLoads(
-      loadQueue: Queue[IO, Int],
-      host: Host,
-      discoveryPath: String,
-      curatorFramework: CuratorFramework
-  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
-    val stream: Stream[IO, Int] = loadQueue.dequeue
-    stream
-      .debounce(100.millis)
-      .evalTap { f: Int =>
-        assignLoad(f, host, discoveryPath, curatorFramework)
-      }
-      .compile
-      .drain
-  }
-
-  private def assignLoad(load: Int, host: Host, discoveryPath: String, curatorFramework: CuratorFramework): IO[Int] = {
-    val newHost = Host(host.version, host.address, host.port, host.metadata.updated("load", load.toString))
-    IO {
-      curatorFramework
-        .setData()
-        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-      load
-    }
   }
 
   def start(
@@ -137,7 +180,8 @@ object WookieeGrpcServer {
       zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
-      queueIO: IO[Queue[IO, Int]]
+      queueIO: IO[Queue[IO, Int]],
+      quarantinedRef: IO[Ref[IO, Boolean]]
   )(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
@@ -174,10 +218,13 @@ object WookieeGrpcServer {
       _ <- logger.info("Registering gRPC server in zookeeper...")
       host <- localhost
       queue <- queueIO
+      q <- quarantinedRef
+      // Create an object that stores whether or not the server is quarantined.
+      quarantined = new Quarantine(q)
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, host)))
-      fiber <- streamLoads(queue, host, discoveryPath, curator).start
+      fiber <- streamLoads(queue, host, discoveryPath, curator, quarantined).start
 
-    } yield new WookieeGrpcServer(server, curator, fiber, queue)
+    } yield new WookieeGrpcServer(server, curator, fiber, queue, host, discoveryPath, quarantined)
   }
 
   private def registerInZookeeper(
@@ -200,5 +247,16 @@ object WookieeGrpcServer {
       .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(host))
     ()
   }
+}
 
+class Quarantine(quarantined: Ref[IO, Boolean]){
+
+  def update(quarantine: Boolean): IO[Unit] = {
+    quarantined.getAndSet(quarantine)
+    IO(())
+  }
+
+  def isQuarantined(): IO[Boolean] = {
+    quarantined.get
+  }
 }

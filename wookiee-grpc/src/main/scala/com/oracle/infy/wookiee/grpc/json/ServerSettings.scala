@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc.json
 
 import java.net.InetAddress
 
+import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.model.Host
 import fs2.concurrent.Queue
@@ -25,7 +26,8 @@ case class ServerSettings(
     timerExecutionContext: ExecutionContext,
     bossThreads: Int,
     workerThreads: Int,
-    queue: IO[Queue[IO, Int]]
+    queue: IO[Queue[IO, Int]],
+    quarantined: IO[Ref[IO, Boolean]]
 )
 
 object ServerSettings {
@@ -69,7 +71,8 @@ object ServerSettings {
       timerExecutionContext,
       bossThreads,
       workerThreads,
-      queue
+      queue,
+      Ref.of[IO, Boolean](false)
     )
   }
 
@@ -112,7 +115,8 @@ object ServerSettings {
       timerExecutionContext,
       bossThreads,
       workerThreads,
-      queue
+      queue,
+      Ref.of[IO, Boolean](false)
     )
   }
 }

@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import java.util.Random
 
+import cats.effect.concurrent.Ref
 import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
@@ -62,6 +63,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val load2 = randomLoad.nextInt(10)
       val timerEC = mainExecutionContext(mainECParallelism)
 
+      // Queues for the server load info. Initialize with numbers 0-5 for testing purposes.
       val queue = {
         for {
           queue <- Queue.unbounded[IO, Int]
@@ -76,14 +78,19 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         } yield queue2
       }
 
+      // Hosts for the servers that will be generated later.
+      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0")))
+      val host2 = Host(0, "localhost", 9090, Map[String, String](("load", "0")))
+      val host3 = Host(0, "localhost", 9091, Map[String, String](("load", "0")))
+
+      // Create first server. Use server settings object to initialize.
       val serverSettings: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
-        zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd,
         port = 8080,
-        host = IO(Host(0, "localhost", 8080, Map[String, String](("load", "0")))),
+        host = IO(host1),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -91,22 +98,20 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue = queue
+        queue = queue,
+        quarantined = Ref.of[IO, Boolean](false)
       )
 
       val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings)
 
-      // Create a second server with another randomly generated load number. If load number is the same, the first
-      // will be used.
-
+      // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
         zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
-        zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd2,
         port = 9090,
-        host = IO(Host(0, "localhost", 9090, Map[String, String](("load", "0")))),
+        host = IO(host2),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -114,12 +119,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
-        queue = queue2
+        queue = queue2,
+        quarantined = Ref.of[IO, Boolean](false)
       )
 
       val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2)
 
-      val _ = mainECParallelism
       val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
         zookeeperQuorum = connStr,
         serviceDiscoveryPath = zookeeperDiscoveryPath,
@@ -137,6 +142,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
+      // Verifies that the correct server handled the request at least 95% of the time.
       def verifyResponseHandledCorrectly(): Future[Boolean] = {
         val start = 0
         val finish = 100
@@ -161,7 +167,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           .map(_ > (finish * 0.95))
       }
 
-      def verifyLastServerIsUsed(): Future[Boolean] = {
+      // Verify that the last server was used at least some of the time. (Since it is spun up later, we do not expect
+      // that it will immediately handle all requests perfectly.
+      def verifyLastServerIsUsed(quarantined: Boolean = false): Future[Boolean] = {
         val start = 0
         val finish = 1000
         Future
@@ -179,22 +187,22 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                       .contains("Hello3")
                   )
                   sameValCase <- Future(load1 === 0 || load2 === 0)
-                } yield res || sameValCase
+                } yield res || (sameValCase && !quarantined)
               }
           )
           .map(_.map(a => if (a) 1 else 0).sum)
           .map(_ > finish * 0.8)
       }
 
+      // Verify that the load associated with this host in zookeeper matches what we expect.
       def verifyLoad(
           load: Int,
-          address: String,
-          port: Int,
+          host: Host,
           discoveryPath: String,
           curator: CuratorFramework
       ): Boolean = {
         val data: Either[HostSerde.HostSerdeError, Host] =
-          HostSerde.deserialize(curator.getData.forPath(s"$discoveryPath/${address}:${port}"))
+          HostSerde.deserialize(curator.getData.forPath(s"$discoveryPath/${host.address}:${host.port}"))
         data match {
           case Left(_)     => false
           case Right(host) => host.metadata.getOrElse("load", "-500") === load.toString
@@ -219,7 +227,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               serverServiceDefinition = ssd3,
               zookeeperMaxRetries = 20,
               port = 9091,
-              host = IO(Host(0, "localhost", 9091, Map[String, String](("load", "0")))),
+              host = IO(host3),
               bossExecutionContext = blockingEC,
               workerExecutionContext = mainEC,
               applicationExecutionContext = mainEC,
@@ -232,10 +240,18 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
           server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)
           res2 <- verifyLastServerIsUsed()
+          _ <- server3
+            .enterQuarantine()
+            .unsafeToFuture()
+          res3 <- verifyLastServerIsUsed(true)
+          _ <- server3
+            .exitQuarantine()
+            .unsafeToFuture()
+          res4 <- verifyLastServerIsUsed()
           _ <- server3.shutdownUnsafe()
-        } yield res2
-        load1Result = verifyLoad(load1, "localhost", 8080, zookeeperDiscoveryPath, curator)
-        load2Result = verifyLoad(load2, "localhost", 9090, zookeeperDiscoveryPath, curator)
+        } yield res2 && !res3 && res4
+        load1Result = verifyLoad(load1, host1, zookeeperDiscoveryPath, curator)
+        load2Result = verifyLoad(load2, host2, zookeeperDiscoveryPath, curator)
         _ <- server2.shutdownUnsafe()
         _ <- server.shutdownUnsafe()
         _ <- wookieeGrpcChannel.shutdownUnsafe()
