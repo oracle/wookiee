@@ -27,7 +27,7 @@ class WookieeGrpcServer(
     private val loadQueue: Queue[IO, Int],
     private val host: Host,
     private val discoveryPath: String,
-    private val quarantined: Quarantine
+    private val quarantined: Ref[IO, Boolean]
 )(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
@@ -64,13 +64,13 @@ class WookieeGrpcServer(
   }
 
   def enterQuarantine(): IO[Unit] = {
-    quarantined.update(true)
+    quarantined.getAndSet(true)
     WookieeGrpcServer.assignLoad("None", host, discoveryPath, curatorFramework)
     IO(())
   }
 
   def exitQuarantine(): IO[Unit] = {
-    quarantined.update(false)
+    quarantined.getAndSet(false)
     WookieeGrpcServer.assignLoad(0, host, discoveryPath, curatorFramework)
     IO(())
   }
@@ -96,10 +96,10 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework,
-      quarantineRef: Quarantine
+      quarantineRef: Ref[IO, Boolean]
   )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
     for {
-      quarantined <- quarantineRef.isQuarantined()
+      quarantined <- quarantineRef.get
       result <- streamLoads(loadQueue, host, discoveryPath, curatorFramework, quarantined)
     } yield result
   }
@@ -218,9 +218,8 @@ object WookieeGrpcServer {
       _ <- logger.info("Registering gRPC server in zookeeper...")
       host <- localhost
       queue <- queueIO
-      q <- quarantinedRef
+      quarantined <- quarantinedRef
       // Create an object that stores whether or not the server is quarantined.
-      quarantined = new Quarantine(q)
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, host)))
       fiber <- streamLoads(queue, host, discoveryPath, curator, quarantined).start
 
@@ -246,17 +245,5 @@ object WookieeGrpcServer {
       .withMode(CreateMode.EPHEMERAL)
       .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(host))
     ()
-  }
-}
-
-class Quarantine(quarantined: Ref[IO, Boolean]){
-
-  def update(quarantine: Boolean): IO[Unit] = {
-    quarantined.getAndSet(quarantine)
-    IO(())
-  }
-
-  def isQuarantined(): IO[Boolean] = {
-    quarantined.get
   }
 }
