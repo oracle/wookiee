@@ -6,7 +6,7 @@ import org.scalacheck.{Arbitrary, Gen}
 
 trait HostGenerator {
 
-  implicit val a: Arbitrary[HostMetadata] = Arbitrary(HostMetadata(0, false))
+  implicit def a: Arbitrary[HostMetadata] = Arbitrary(HostMetadata(0, quarantined = false))
 
   implicit def hostGenerator: Arbitrary[Host] = {
     Arbitrary(for {

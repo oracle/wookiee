@@ -172,7 +172,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       // Verify that the last server was used at least some of the time. (Since it is spun up later, we do not expect
       // that it will immediately handle all requests perfectly.
-      def verifyLastServerIsUsed(quarantined: Boolean = false): Future[Boolean] = {
+      def verifyLastServerIsUsed(quarantined: Boolean): Future[Boolean] = {
         val start = 0
         val finish = 1000
         Future
@@ -242,15 +242,15 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           )
           // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
           server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)
-          res2 <- verifyLastServerIsUsed()
+          res2 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3
             .enterQuarantine()
             .unsafeToFuture()
-          res3 <- verifyLastServerIsUsed(true)
+          res3 <- verifyLastServerIsUsed(quarantined = true)
           _ <- server3
             .exitQuarantine()
             .unsafeToFuture()
-          res4 <- verifyLastServerIsUsed()
+          res4 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3.shutdownUnsafe()
         } yield res2 && !res3 && res4
         load1Result = verifyLoad(load1, host1, zookeeperDiscoveryPath, curator)
