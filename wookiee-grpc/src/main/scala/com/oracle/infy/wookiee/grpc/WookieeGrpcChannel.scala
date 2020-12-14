@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 
 import java.net.URI
-import java.util.concurrent.Executor
+import java.util.concurrent.{Executor, TimeUnit}
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
@@ -94,6 +94,7 @@ object WookieeGrpcChannel {
 
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
+      .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
       .defaultLoadBalancingPolicy(lbPolicy match {
         case RoundRobinPolicy                       => "round_robin"
         case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
