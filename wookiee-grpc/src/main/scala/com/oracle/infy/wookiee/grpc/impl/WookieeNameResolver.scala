@@ -85,7 +85,6 @@ protected[grpc] class WookieeNameResolver(
 }
 
 object WookieeNameResolver {
-  //protected[grpc] val METADATA: Attributes.Key[Map[String, String]] = Attributes.Key.create("metadata")
   protected[grpc] val METADATA: Attributes.Key[HostMetadata] = Attributes.Key.create("metadata")
 
 }

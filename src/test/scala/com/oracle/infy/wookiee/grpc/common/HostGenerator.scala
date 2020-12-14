@@ -1,17 +1,19 @@
 package com.oracle.infy.wookiee.grpc.common
 
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.{Arbitrary, Gen}
 
 trait HostGenerator {
+
+  implicit val a: Arbitrary[HostMetadata] = Arbitrary(HostMetadata(0, false))
 
   implicit def hostGenerator: Arbitrary[Host] = {
     Arbitrary(for {
       address <- (Gen.alphaNumStr).suchThat(_.nonEmpty)
       version <- arbitrary[Long]
       port <- Gen.choose[Int](0, 9999)
-      metadata <- arbitrary[Map[String, String]]
+      metadata <- arbitrary[HostMetadata]
     } yield Host(version, address, port, metadata))
   }
 

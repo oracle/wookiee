@@ -1,5 +1,5 @@
 package com.oracle.infy.wookiee.grpc.json
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
 import io.circe.parser.parse
 import io.circe.syntax._
@@ -9,8 +9,11 @@ object HostSerde {
 
   final case class HostSerdeError(msg: String)
 
-  implicit private val hostDecoder: Decoder[Host] = deriveDecoder[Host]
-  implicit private val hostEncoder: Encoder[Host] = deriveEncoder[Host]
+  implicit val hostMetadataDecoder: Decoder[HostMetadata] = deriveDecoder[HostMetadata]
+  implicit val hostMetadataEncoder: Encoder[HostMetadata] = deriveEncoder[HostMetadata]
+
+  implicit val hostDecoder: Decoder[Host] = deriveDecoder[Host]
+  implicit val hostEncoder: Encoder[Host] = deriveEncoder[Host]
 
   private val encoding = "utf8"
 

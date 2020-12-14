@@ -6,7 +6,6 @@ import cats.effect.concurrent.Ref
 import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
-import com.oracle.infy.wookiee.grpc.impl.HostMetadata
 import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}

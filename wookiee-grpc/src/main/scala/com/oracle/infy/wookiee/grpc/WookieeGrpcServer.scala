@@ -16,6 +16,7 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.{Server, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
+import org.apache.zookeeper.data.Stat
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -63,16 +64,14 @@ class WookieeGrpcServer(
     assignLoad(load).unsafeToFuture()
   }
 
-  def enterQuarantine(): IO[Unit] = {
+  def enterQuarantine(): IO[Stat] = {
     quarantined.getAndSet(true)
-    WookieeGrpcServer.assignQuarantine(true, host, discoveryPath, curatorFramework)
-    IO(())
+    WookieeGrpcServer.assignQuarantine(isQuarantined = true, host, discoveryPath, curatorFramework)
   }
 
-  def exitQuarantine(): IO[Unit] = {
+  def exitQuarantine(): IO[Stat] = {
     quarantined.getAndSet(false)
-    WookieeGrpcServer.assignQuarantine(false, host, discoveryPath, curatorFramework)
-    IO(())
+    WookieeGrpcServer.assignQuarantine(isQuarantined = false, host, discoveryPath, curatorFramework)
   }
 
 }
@@ -120,8 +119,9 @@ object WookieeGrpcServer {
         }
         .compile
         .drain
-    } else
+    } else {
       IO(())
+    }
   }
 
   private def assignLoad(
@@ -129,13 +129,14 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  ): IO[Unit] = {
-    IO {
+  ): IO[Stat] = {
+    val x = IO {
       val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
       curatorFramework
         .setData()
         .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
     }
+    x
   }
 
   private def assignQuarantine(
@@ -143,13 +144,14 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  ): IO[Unit] = {
-    IO {
+  ): IO[Stat] = {
+    val x = IO {
       val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
       curatorFramework
         .setData()
         .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
     }
+    x
   }
 
   def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
