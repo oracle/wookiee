@@ -130,13 +130,13 @@ object WookieeGrpcServer {
       discoveryPath: String,
       curatorFramework: CuratorFramework
   ): IO[Stat] = {
-    val x = IO {
+    val stat = IO {
       val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
       curatorFramework
         .setData()
         .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
     }
-    x
+    stat
   }
 
   private def assignQuarantine(
@@ -145,13 +145,13 @@ object WookieeGrpcServer {
       discoveryPath: String,
       curatorFramework: CuratorFramework
   ): IO[Stat] = {
-    val x = IO {
+    val stat = IO {
       val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
       curatorFramework
         .setData()
         .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
     }
-    x
+    stat
   }
 
   def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
