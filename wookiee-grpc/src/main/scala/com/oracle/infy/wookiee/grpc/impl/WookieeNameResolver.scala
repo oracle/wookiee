@@ -70,7 +70,7 @@ protected[grpc] class WookieeNameResolver(
       fiber <- wookieeListener
         .startListening
         .leftFlatMap { err =>
-          EitherT(logger.error("Error on listen start").map(_ => err.asLeft[Unit]))
+          EitherT(logger.error(s"Error on listen start: $err").map(_ => err.asLeft[Unit]))
         }
         .value
         .start
