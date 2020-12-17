@@ -78,13 +78,17 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         } yield queue2
       }
 
+      val port1 = 7080
+      val port2 = 7090
+      val port3 = 7091
+
       // Hosts for the servers that will be generated later.
 //      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))
 //      val host2 = Host(0, "localhost", 9090, Map[String, String](("load", "0")))
 //      val host3 = Host(0, "localhost", 9091, Map[String, String](("load", "0")))
-      val host1 = Host(0, "localhost", 8080, HostMetadata(0, false))
-      val host2 = Host(0, "localhost", 9090, HostMetadata(0, false))
-      val host3 = Host(0, "localhost", 9091, HostMetadata(0, false))
+      val host1 = Host(0, "localhost", port1, HostMetadata(0, quarantined = false))
+      val host2 = Host(0, "localhost", port2, HostMetadata(0, quarantined = false))
+      val host3 = Host(0, "localhost", port3, HostMetadata(0, quarantined = false))
 
       // Create first server. Use server settings object to initialize.
       val serverSettings: ServerSettings = ServerSettings(
@@ -92,7 +96,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
         serverServiceDefinition = ssd,
-        port = 8080,
+        port = port1,
         host = IO(host1),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
@@ -113,7 +117,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         discoveryPath = zookeeperDiscoveryPath,
         zookeeperRetryInterval = 3.seconds,
         serverServiceDefinition = ssd2,
-        port = 9090,
+        port = port2,
         host = IO(host2),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
@@ -142,7 +146,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           lbPolicy = RoundRobinWeightedPolicy
         ),
         mainExecutionContext = mainEC,
-        blockingExecutionContext = blockingEC,
+        blockingExecutionContext = blockingEC
       )
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
@@ -231,7 +235,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               zookeeperRetryInterval = 3.seconds,
               serverServiceDefinition = ssd3,
               zookeeperMaxRetries = 20,
-              port = 9091,
+              port = port3,
               host = IO(host3),
               bossExecutionContext = blockingEC,
               workerExecutionContext = mainEC,

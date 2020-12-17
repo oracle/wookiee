@@ -76,7 +76,6 @@ class WookieeGrpcServer(
 
 object WookieeGrpcServer {
 
-
   // Wrapper for streamLoads: map IO to Boolean and use to verify that server is not in quarantined state before using.
   private def streamLoads(
       loadQueue: Queue[IO, Int],

@@ -1,12 +1,13 @@
 package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
+import cats.effect.IO
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
+import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-import cats.effect.IO
-import com.oracle.infy.wookiee.grpc.settings.ServerSettings
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
@@ -93,18 +94,20 @@ object Example {
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF)
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
-      zookeeperQuorum = connStr,
-      serviceDiscoveryPath = zookeeperDiscoveryPath,
-      zookeeperRetryInterval = 3.seconds,
-      zookeeperMaxRetries = 20,
+      ChannelSettings(
+        zookeeperQuorum = connStr,
+        serviceDiscoveryPath = zookeeperDiscoveryPath,
+        zookeeperRetryInterval = 3.seconds,
+        zookeeperMaxRetries = 20,
+        zookeeperBlockingExecutionContext = blockingEC,
+        eventLoopGroupExecutionContext = blockingEC,
+        channelExecutionContext = mainEC,
+        offloadExecutionContext = blockingEC,
+        eventLoopGroupExecutionContextThreads = bossThreads,
+        lbPolicy = RoundRobinPolicy
+      ),
       mainExecutionContext = mainEC,
-      blockingExecutionContext = blockingEC,
-      zookeeperBlockingExecutionContext = blockingEC,
-      eventLoopGroupExecutionContext = blockingEC,
-      channelExecutionContext = mainEC,
-      offloadExecutionContext = blockingEC,
-      eventLoopGroupExecutionContextThreads = bossThreads,
-      lbPolicy = RoundRobinPolicy
+      blockingExecutionContext = blockingEC
     )
 
     val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)

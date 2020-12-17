@@ -6,7 +6,12 @@ import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
-import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownCuratorShutdownError, UnknownHostStreamError, UnknownShutdownError, WookieeGrpcError}
+import com.oracle.infy.wookiee.grpc.errors.Errors.{
+  UnknownCuratorShutdownError,
+  UnknownHostStreamError,
+  UnknownShutdownError,
+  WookieeGrpcError
+}
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
@@ -39,7 +44,6 @@ protected[grpc] class ZookeeperHostnameService(
     pushHosts: Set[Host] => IO[Unit]
 )(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
-
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {

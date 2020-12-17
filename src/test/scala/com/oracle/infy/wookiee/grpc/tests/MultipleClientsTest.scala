@@ -107,10 +107,10 @@ object MultipleClientsTest extends UTestScalaCheck {
         zookeeperRetryInterval = 3.seconds,
         zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd,
-        port = 9091,
+        port = 9097,
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
-        host = IO(Host(0, "localhost", 9091, HostMetadata(0, quarantined = false))),
+        host = IO(Host(0, "localhost", 9097, HostMetadata(0, quarantined = false))),
         bossExecutionContext = mainEC1,
         workerExecutionContext = mainEC1,
         applicationExecutionContext = mainEC1,
@@ -126,10 +126,10 @@ object MultipleClientsTest extends UTestScalaCheck {
         zookeeperRetryInterval = 3.seconds,
         zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd2,
-        port = 9092,
+        port = 9096,
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
-        host = IO(Host(0, "localhost", 9092, HostMetadata(0, quarantined = false))),
+        host = IO(Host(0, "localhost", 9096, HostMetadata(0, quarantined = false))),
         bossExecutionContext = mainEC2,
         workerExecutionContext = mainEC2,
         applicationExecutionContext = mainEC2,
