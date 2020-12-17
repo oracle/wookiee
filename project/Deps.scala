@@ -5,9 +5,9 @@ object Deps {
   object versions {
     val shapelessVersion = "1.2.3"
     val curatorVersion = "5.1.0"
-    val catsVersion = "2.0.0"
+    val catsVersion = "2.3.0"
     val log4CatsVersion = "1.1.1"
-    val circeVersion = "0.12.3"
+    val circeVersion = "0.13.0"
     val µTestVersion = "0.7.2"
     val scalacheckVersion = "1.14.1"
     val fs2Version = "2.4.0"

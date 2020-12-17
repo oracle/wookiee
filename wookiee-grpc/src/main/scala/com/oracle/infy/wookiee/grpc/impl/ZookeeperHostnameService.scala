@@ -1,15 +1,12 @@
 package com.oracle.infy.wookiee.grpc.impl
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
 import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
-import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
+import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownCuratorShutdownError, UnknownHostStreamError, UnknownShutdownError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
@@ -18,6 +15,9 @@ import fs2._
 import io.chrisdavenport.log4cats.Logger
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
+
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 protected[grpc] object ZookeeperHostnameService {
 
@@ -40,6 +40,8 @@ protected[grpc] class ZookeeperHostnameService(
 )(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
 
+  println("######## Zookeeper hostname")
+
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
       curator <- curatorRef.get
@@ -47,9 +49,9 @@ protected[grpc] class ZookeeperHostnameService(
       _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
       _ <- cs.blockOn(blocker)(IO(curator.close()))
     } yield ())
-      .toEitherT(t => UnknownWookieeGrpcError(t.getMessage))
+      .toEitherT(t => UnknownCuratorShutdownError(t.stackTrace): WookieeGrpcError)
 
-    val shutdownStream = closableStream.shutdown().leftMap(err => UnknownWookieeGrpcError(err.toString))
+    val shutdownStream = closableStream.shutdown().leftMap(err => UnknownShutdownError(err.toString): WookieeGrpcError)
 
     EitherT(
       s.acquire
@@ -95,7 +97,7 @@ protected[grpc] class ZookeeperHostnameService(
 
     s.acquire
       .bracket(_ => computation)(_ => s.release)
-      .toEitherT(t => UnknownWookieeGrpcError(t.getMessage))
+      .toEitherT(t => UnknownHostStreamError(t.stackTrace))
   }
 
   private def cacheListener(

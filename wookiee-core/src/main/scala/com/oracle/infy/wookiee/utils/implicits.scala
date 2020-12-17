@@ -1,13 +1,13 @@
 package com.oracle.infy.wookiee.utils
 
-import java.util
-import java.util.concurrent.ConcurrentHashMap
-
 import cats.Monad
 import cats.data.EitherT
 import cats.effect.Sync
 import cats.implicits._
 
+import java.io.{ByteArrayOutputStream, PrintWriter}
+import java.util
+import java.util.concurrent.ConcurrentHashMap
 import scala.annotation.tailrec
 
 object implicits {
@@ -16,6 +16,17 @@ object implicits {
     def ===(right: T): Boolean = left == right //scalafix:ok
     def /==(right: T): Boolean = left != right //scalafix:ok
     def =/=(right: T): Boolean = left /== right
+  }
+
+  implicit class ThrowableHelpers(t: Throwable) {
+
+    def stackTrace: String = {
+      val baos = new ByteArrayOutputStream()
+      val pw = new PrintWriter(baos)
+      t.printStackTrace(pw)
+      pw.flush()
+      baos.toString
+    }
   }
 
   implicit class ToEitherT[A, F[_]: Monad: Sync](lhs: F[A]) {
