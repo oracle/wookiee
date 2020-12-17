@@ -40,7 +40,6 @@ protected[grpc] class ZookeeperHostnameService(
 )(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
 
-  println("######## Zookeeper hostname")
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {

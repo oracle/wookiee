@@ -2,9 +2,8 @@ package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-
 import cats.effect.IO
-import com.oracle.infy.wookiee.grpc.json.ServerSettings
+import com.oracle.infy.wookiee.grpc.settings.ServerSettings
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy

@@ -1,6 +1,4 @@
-package com.oracle.infy.wookiee.grpc.json
-
-import java.net.InetAddress
+package com.oracle.infy.wookiee.grpc.settings
 
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
@@ -8,10 +6,11 @@ import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 
+import java.net.InetAddress
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
-case class ServerSettings(
+final case class ServerSettings(
     zookeeperQuorum: String,
     discoveryPath: String,
     zookeeperRetryInterval: FiniteDuration = 3.seconds,
@@ -88,16 +87,14 @@ object ServerSettings {
       zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int
-  ): ServerSettings = {
-    implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
-    implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val queue = generateDefaultQueue(bossExecutionContext)
     val host = {
       for {
-        address <- c.blockOn(blocker)(IO {
+        address <- cs.blockOn(blocker)(IO {
           InetAddress.getLocalHost.getCanonicalHostName
         })
-        host = Host(0, address, port, HostMetadata(0, false))
+        host = Host(0, address, port, HostMetadata(0, quarantined = false))
       } yield host
     }
     ServerSettings(

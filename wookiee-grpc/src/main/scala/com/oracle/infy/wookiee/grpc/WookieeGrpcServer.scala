@@ -1,24 +1,23 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.util.concurrent.ForkJoinPool
-
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
-import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
+import com.oracle.infy.wookiee.grpc.json.HostSerde
+import com.oracle.infy.wookiee.grpc.settings.ServerSettings
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.grpc.Server
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
-import io.grpc.{Server, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
+import scala.concurrent.Future
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
 
 class WookieeGrpcServer(
     private val server: Server,
@@ -77,16 +76,6 @@ class WookieeGrpcServer(
 
 object WookieeGrpcServer {
 
-  def createExecutionContext(parallelism: Int): ExecutionContext = {
-    ExecutionContext.fromExecutor(
-      new ForkJoinPool(
-        parallelism,
-        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
-        (t: Thread, e: Throwable) => { println(s"Got an uncaught exception on thread: $e" ++ t.getName) },
-        true
-      )
-    )
-  }
 
   // Wrapper for streamLoads: map IO to Boolean and use to verify that server is not in quarantined state before using.
   private def streamLoads(
@@ -158,42 +147,10 @@ object WookieeGrpcServer {
     implicit val cs: ContextShift[IO] = IO.contextShift(serverSettings.bossExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
     implicit val timer: Timer[IO] = IO.timer(serverSettings.timerExecutionContext)
-    start(
-      serverSettings.zookeeperQuorum,
-      serverSettings.discoveryPath,
-      serverSettings.zookeeperRetryInterval,
-      serverSettings.zookeeperMaxRetries,
-      serverSettings.serverServiceDefinition,
-      serverSettings.port,
-      serverSettings.host,
-      serverSettings.bossExecutionContext,
-      serverSettings.workerExecutionContext,
-      serverSettings.applicationExecutionContext,
-      serverSettings.zookeeperBlockingExecutionContext,
-      serverSettings.bossThreads,
-      serverSettings.workerThreads,
-      serverSettings.queue,
-      serverSettings.quarantined
-    ).unsafeToFuture()
+    start(serverSettings).unsafeToFuture()
   }
 
-  def start(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: IO[Host],
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int,
-      queueIO: IO[Queue[IO, Int]],
-      quarantinedRef: IO[Ref[IO, Boolean]]
-  )(
+  def start(serverSettings: ServerSettings)(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
       logger: Logger[IO],
@@ -202,13 +159,13 @@ object WookieeGrpcServer {
     for {
       server <- cs.blockOn(blocker)(IO {
         NettyServerBuilder
-          .forPort(port)
+          .forPort(serverSettings.port)
           .channelFactory(() => new NioServerSocketChannel())
-          .bossEventLoopGroup(eventLoopGroup(bossExecutionContext, bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(workerExecutionContext, workerThreads))
-          .executor(scalaToJavaExecutor(applicationExecutionContext))
+          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
+          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
+          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
           .addService(
-            serverServiceDefinition
+            serverSettings.serverServiceDefinition
           )
           .build()
       })
@@ -219,22 +176,22 @@ object WookieeGrpcServer {
       curator <- cs.blockOn(blocker)(
         IO(
           curatorFramework(
-            zookeeperQuorum,
-            zookeeperBlockingExecutionContext,
-            exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
+            serverSettings.zookeeperQuorum,
+            serverSettings.zookeeperBlockingExecutionContext,
+            exponentialBackoffRetry(serverSettings.zookeeperRetryInterval, serverSettings.zookeeperMaxRetries)
           )
         )
       )
       _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
-      host <- localhost
-      queue <- queueIO
-      quarantined <- quarantinedRef
+      host <- serverSettings.host
+      queue <- serverSettings.queue
+      quarantined <- serverSettings.quarantined
       // Create an object that stores whether or not the server is quarantined.
-      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, host)))
-      fiber <- streamLoads(queue, host, discoveryPath, curator, quarantined).start
+      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(serverSettings.discoveryPath, curator, host)))
+      fiber <- streamLoads(queue, host, serverSettings.discoveryPath, curator, quarantined).start
 
-    } yield new WookieeGrpcServer(server, curator, fiber, queue, host, discoveryPath, quarantined)
+    } yield new WookieeGrpcServer(server, curator, fiber, queue, host, serverSettings.discoveryPath, quarantined)
   }
 
   private def registerInZookeeper(

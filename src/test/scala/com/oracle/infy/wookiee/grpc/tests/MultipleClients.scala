@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc.tests
 
 import cats.effect.{Blocker, ContextShift, IO, Timer}
-import com.oracle.infy.wookiee.grpc.json.ServerSettings
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
@@ -9,7 +9,7 @@ import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import com.oracle.infy.wookiee.myService2.MyService2Grpc.MyService2
 import com.oracle.infy.wookiee.myService2.{HelloRequest2, HelloResponse2, MyService2Grpc}
-import io.chrisdavenport.log4cats.{Logger, SelfAwareStructuredLogger}
+import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.test.TestingServer
@@ -20,16 +20,16 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 
 object MultipleClients {
+
+  // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
+  // We use cats-effect (https://typelevel.org/cats-effect/) internally.
+  // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
+  // When using `unsafe` methods, you are expected to handle any exceptions
+  implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+
   def main(args: Array[String]): Unit = {
     val bossThreads = 10
     val mainECParallelism = 10
-
-    // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
-    // We use cats-effect (https://typelevel.org/cats-effect/) internally.
-    // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
-    // When using `unsafe` methods, you are expected to handle any exceptions
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-
 
     val uncaughtExceptionHandler = new UncaughtExceptionHandler {
       override def uncaughtException(t: Thread, e: Throwable): Unit = {
@@ -73,13 +73,12 @@ object MultipleClients {
     implicit val timer: Timer[IO] = IO.timer(mainEC1)
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC1)
 
-    val zookeeperDiscoveryPath = "/discovery"
+    val zookeeperDiscoveryPath1 = "/discovery"
     val zookeeperDiscoveryPath2 = "/example"
 
     // This is just to demo, use an actual Zookeeper quorum.
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
-
 
     val ssd: ServerServiceDefinition = MyService.bindService(
       (request: HelloRequest) => {
@@ -99,7 +98,7 @@ object MultipleClients {
 
     val serverSettings1F: ServerSettings = ServerSettings(
       zookeeperQuorum = connStr,
-      discoveryPath = zookeeperDiscoveryPath,
+      discoveryPath = zookeeperDiscoveryPath1,
       zookeeperRetryInterval = 3.seconds,
       zookeeperMaxRetries = 20,
       serverServiceDefinition = ssd,
@@ -122,10 +121,10 @@ object MultipleClients {
       zookeeperRetryInterval = 3.seconds,
       zookeeperMaxRetries = 20,
       serverServiceDefinition = ssd2,
-      port = 9090,
+      port = 9092,
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
-      host = IO(Host(0, "localhost", 9091, HostMetadata(0, quarantined = false))),
+      host = IO(Host(0, "localhost", 9092, HostMetadata(0, quarantined = false))),
       bossExecutionContext = mainEC2,
       workerExecutionContext = mainEC2,
       applicationExecutionContext = mainEC2,
@@ -139,35 +138,36 @@ object MultipleClients {
     val serverF2 = WookieeGrpcServer.start(serverSettingsF2)
 
     val wookieeGrpcChannel1 = WookieeGrpcChannel.of(
-      zookeeperQuorum = connStr,
-      serviceDiscoveryPath = zookeeperDiscoveryPath,
-      zookeeperRetryInterval = 3.seconds,
-      zookeeperMaxRetries = 20,
-      mainExecutionContext = mainEC1,
-      blockingExecutionContext = blockingEC1,
-      zookeeperBlockingExecutionContext = blockingEC1,
-      eventLoopGroupExecutionContext = blockingEC1,
-      channelExecutionContext = mainEC1,
-      offloadExecutionContext = blockingEC1,
-      eventLoopGroupExecutionContextThreads = bossThreads,
-      lbPolicy = RoundRobinPolicy
+      ChannelSettings(
+        zookeeperQuorum = connStr,
+        serviceDiscoveryPath = zookeeperDiscoveryPath1,
+        zookeeperRetryInterval = 3.seconds,
+        zookeeperMaxRetries = 20,
+        zookeeperBlockingExecutionContext = blockingEC1,
+        eventLoopGroupExecutionContext = blockingEC1,
+        channelExecutionContext = mainEC1,
+        offloadExecutionContext = blockingEC1,
+        eventLoopGroupExecutionContextThreads = bossThreads,
+        lbPolicy = RoundRobinPolicy
+      ),
+      "client1"
     )
 
     val wookieeGrpcChannel2 = WookieeGrpcChannel.of(
-      zookeeperQuorum = connStr,
-      serviceDiscoveryPath = zookeeperDiscoveryPath2,
-      zookeeperRetryInterval = 3.seconds,
-      zookeeperMaxRetries = 20,
-      mainExecutionContext = mainEC2,
-      blockingExecutionContext = blockingEC2,
-      zookeeperBlockingExecutionContext = blockingEC2,
-      eventLoopGroupExecutionContext = blockingEC2,
-      channelExecutionContext = mainEC2,
-      offloadExecutionContext = blockingEC2,
-      eventLoopGroupExecutionContextThreads = bossThreads,
-      lbPolicy = RoundRobinPolicy
+      ChannelSettings(
+        zookeeperQuorum = connStr,
+        serviceDiscoveryPath = zookeeperDiscoveryPath2,
+        zookeeperRetryInterval = 3.seconds,
+        zookeeperMaxRetries = 20,
+        zookeeperBlockingExecutionContext = blockingEC2,
+        eventLoopGroupExecutionContext = blockingEC2,
+        channelExecutionContext = mainEC2,
+        offloadExecutionContext = blockingEC2,
+        eventLoopGroupExecutionContextThreads = bossThreads,
+        lbPolicy = RoundRobinPolicy
+      ),
+      "client2"
     )
-
 
     val gRPCResponseF = for {
 
@@ -177,8 +177,8 @@ object MultipleClients {
       stub2 = MyService2Grpc.stub(c2.managedChannel)
       server1 <- serverF1
       server2 <- serverF2
-      resp <- IO{stub1.greet(HelloRequest("world!"))}
-      resp2 <- IO{stub2.greet2(HelloRequest2("world!"))}
+      resp <- IO.fromFuture(IO { stub1.greet(HelloRequest("world!")) })
+      resp2 <- IO.fromFuture(IO { stub2.greet2(HelloRequest2("world!")) })
       _ <- c1.shutdown()
       _ <- c2.shutdown()
       _ <- server2.shutdown()

@@ -1,23 +1,23 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import java.util.Random
-
 import cats.effect.concurrent.Ref
 import cats.effect.{ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
-import com.oracle.infy.wookiee.grpc.json.{HostSerde, ServerSettings}
+import com.oracle.infy.wookiee.grpc.json.HostSerde
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
+import com.oracle.infy.wookiee.utils.implicits._
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
-import com.oracle.infy.wookiee.utils.implicits._
 
+import java.util.Random
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -129,18 +129,21 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2)
 
       val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
-        zookeeperQuorum = connStr,
-        serviceDiscoveryPath = zookeeperDiscoveryPath,
-        zookeeperRetryInterval = 1.seconds,
-        zookeeperMaxRetries = 2,
+        ChannelSettings(
+          zookeeperQuorum = connStr,
+          serviceDiscoveryPath = zookeeperDiscoveryPath,
+          zookeeperRetryInterval = 1.seconds,
+          zookeeperMaxRetries = 2,
+          zookeeperBlockingExecutionContext = blockingEC,
+          eventLoopGroupExecutionContext = blockingEC,
+          channelExecutionContext = mainEC,
+          offloadExecutionContext = blockingEC,
+          eventLoopGroupExecutionContextThreads = bossThreads,
+          lbPolicy = RoundRobinWeightedPolicy
+        ),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
-        zookeeperBlockingExecutionContext = blockingEC,
-        eventLoopGroupExecutionContext = blockingEC,
-        channelExecutionContext = mainEC,
-        offloadExecutionContext = blockingEC,
-        eventLoopGroupExecutionContextThreads = bossThreads,
-        lbPolicy = RoundRobinWeightedPolicy
+        ""
       )
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
