@@ -72,7 +72,7 @@ object IntegrationConstable extends ConstableCommon {
               cache,
               semaphore,
               Fs2CloseableImpl(queue.dequeue, killSwitch),
-              queue.enqueue1,
+              queue.enqueue1
             )(blocker, IO.contextShift(ec), concurrent, logger),
             discoveryPath = discoveryPath
           )(cs, blocker, logger)
