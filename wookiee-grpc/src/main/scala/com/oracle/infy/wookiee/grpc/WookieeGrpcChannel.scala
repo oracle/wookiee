@@ -141,8 +141,7 @@ object WookieeGrpcChannel {
             cache,
             hostnameServiceSemaphore,
             Fs2CloseableImpl(queue.dequeue, killSwitch),
-            queue.enqueue1,
-            key
+            queue.enqueue1
           ),
           settings.serviceDiscoveryPath,
           key
