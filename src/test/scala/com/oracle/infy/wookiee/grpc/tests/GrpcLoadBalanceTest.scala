@@ -143,7 +143,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         ),
         mainExecutionContext = mainEC,
         blockingExecutionContext = blockingEC,
-        ""
       )
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)

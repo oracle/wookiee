@@ -20,18 +20,17 @@ protected[grpc] class WookieeNameResolver(
     semaphore: Semaphore[IO],
     fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
     hostNameService: HostnameServiceContract[IO, Stream],
-    discoveryPath: String,
-    client: String
+    discoveryPath: String
 )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends NameResolver {
 
   override def getServiceAuthority: String = {
-    s"zookeeper$client"
+    s"zookeeper"
   }
 
   override def shutdown(): Unit = {
     val computation = for {
-      _ <- logger.info(s"Shutdown was called on NameResolver $client")
+      _ <- logger.info(s"Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {
