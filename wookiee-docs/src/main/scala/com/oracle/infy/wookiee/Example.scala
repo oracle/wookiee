@@ -86,12 +86,11 @@ object Example {
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,
       zookeeperBlockingExecutionContext = blockingEC,
-      timerExecutionContext = blockingEC,
       bossThreads = bossThreads,
       workerThreads = mainECParallelism
     )
 
-    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF)
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, blockingEC)
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       ChannelSettings(

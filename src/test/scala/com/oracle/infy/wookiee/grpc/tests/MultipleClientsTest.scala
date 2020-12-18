@@ -115,7 +115,6 @@ object MultipleClientsTest extends UTestScalaCheck {
         workerExecutionContext = mainEC1,
         applicationExecutionContext = mainEC1,
         zookeeperBlockingExecutionContext = blockingEC1,
-        timerExecutionContext = blockingEC1,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism
       )
@@ -134,7 +133,6 @@ object MultipleClientsTest extends UTestScalaCheck {
         workerExecutionContext = mainEC2,
         applicationExecutionContext = mainEC2,
         zookeeperBlockingExecutionContext = blockingEC2,
-        timerExecutionContext = blockingEC2,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism
       )

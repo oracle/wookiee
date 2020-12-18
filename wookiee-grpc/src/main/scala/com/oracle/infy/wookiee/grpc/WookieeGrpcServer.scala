@@ -16,8 +16,8 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
-import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
 
 class WookieeGrpcServer(
     private val server: Server,
@@ -141,11 +141,14 @@ object WookieeGrpcServer {
     }
   }
 
-  def startUnsafe(serverSettings: ServerSettings): Future[WookieeGrpcServer] = {
+  def startUnsafe(
+      serverSettings: ServerSettings,
+      timerExecutionContext: ExecutionContext
+  ): Future[WookieeGrpcServer] = {
     implicit val blocker: Blocker = Blocker.liftExecutionContext(serverSettings.zookeeperBlockingExecutionContext)
     implicit val cs: ContextShift[IO] = IO.contextShift(serverSettings.bossExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    implicit val timer: Timer[IO] = IO.timer(serverSettings.timerExecutionContext)
+    implicit val timer: Timer[IO] = IO.timer(timerExecutionContext)
     start(serverSettings).unsafeToFuture()
   }
 

@@ -102,14 +102,13 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
         zookeeperBlockingExecutionContext = blockingEC,
-        timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         queue = queue,
         quarantined = Ref.of[IO, Boolean](false)
       )
 
-      val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings)
+      val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings, timerEC)
 
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
@@ -123,14 +122,13 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
         zookeeperBlockingExecutionContext = blockingEC,
-        timerExecutionContext = timerEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         queue = queue2,
         quarantined = Ref.of[IO, Boolean](false)
       )
 
-      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2)
+      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2, timerEC)
 
       val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
         ChannelSettings(
@@ -241,13 +239,12 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               workerExecutionContext = mainEC,
               applicationExecutionContext = mainEC,
               zookeeperBlockingExecutionContext = blockingEC,
-              timerExecutionContext = timerEC,
               bossThreads = bossThreads,
               workerThreads = mainECParallelism
             )
           )
           // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
-          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3)
+          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3, timerEC)
           res2 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3
             .enterQuarantine()
