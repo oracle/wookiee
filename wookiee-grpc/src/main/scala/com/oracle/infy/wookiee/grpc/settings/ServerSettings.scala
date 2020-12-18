@@ -1,16 +1,16 @@
-package com.oracle.infy.wookiee.grpc.json
+package com.oracle.infy.wookiee.grpc.settings
 
-import java.net.InetAddress
-
+import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 
+import java.net.InetAddress
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
-case class ServerSettings(
+final case class ServerSettings(
     zookeeperQuorum: String,
     discoveryPath: String,
     zookeeperRetryInterval: FiniteDuration = 3.seconds,
@@ -25,7 +25,8 @@ case class ServerSettings(
     timerExecutionContext: ExecutionContext,
     bossThreads: Int,
     workerThreads: Int,
-    queue: IO[Queue[IO, Int]]
+    queue: IO[Queue[IO, Int]],
+    quarantined: IO[Ref[IO, Boolean]]
 )
 
 object ServerSettings {
@@ -69,7 +70,8 @@ object ServerSettings {
       timerExecutionContext,
       bossThreads,
       workerThreads,
-      queue
+      queue,
+      Ref.of[IO, Boolean](false)
     )
   }
 
@@ -85,16 +87,14 @@ object ServerSettings {
       zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int
-  ): ServerSettings = {
-    implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
-    implicit val blocker = Blocker.liftExecutionContext(zookeeperBlockingExecutionContext)
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val queue = generateDefaultQueue(bossExecutionContext)
     val host = {
       for {
-        address <- c.blockOn(blocker)(IO {
+        address <- cs.blockOn(blocker)(IO {
           InetAddress.getLocalHost.getCanonicalHostName
         })
-        host = Host(0, address, port, Map.empty)
+        host = Host(0, address, port, HostMetadata(0, quarantined = false))
       } yield host
     }
     ServerSettings(
@@ -112,7 +112,8 @@ object ServerSettings {
       timerExecutionContext,
       bossThreads,
       workerThreads,
-      queue
+      queue,
+      Ref.of[IO, Boolean](false)
     )
   }
 }

@@ -6,14 +6,14 @@ import java.util.function.UnaryOperator
 import com.google.common.base.{MoreObjects, Objects}
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, RoundRobinWeightedPicker}
 import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
+import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
 import io.grpc.ConnectivityState._
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
 import io.grpc.util.ForwardingSubchannel
 import io.grpc.{Attributes, ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 
 import scala.jdk.CollectionConverters._
-import scala.util.{Random, Try}
-import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
+import scala.util.Random
 
 class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
 
@@ -255,9 +255,7 @@ object RoundRobinWeightedLoadBalancer {
     def sortByLoad(attrs: Attributes): Int = {
       attrs
         .get(WookieeNameResolver.METADATA)
-        .get("load")
-        .flatMap(l => Try { l.toInt }.toOption)
-        .getOrElse(0)
+        .load
     }
 
     def isEquivalentTo(
@@ -307,7 +305,9 @@ object RoundRobinWeightedLoadBalancer {
       MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
 
     private def nextSubchannel: Option[Subchannel] = {
-      val sortedList = list.sortBy(
+      val validList =
+        list.filter(p => !p.getAttributes.get(WookieeNameResolver.METADATA).quarantined)
+      val sortedList = validList.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
       sortedList.headOption

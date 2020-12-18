@@ -71,10 +71,12 @@ val commonSettings: Seq[Setting[_]] = Seq(
   ciBuild := {
     ((Keys.`packageSrc` in Compile) dependsOn (test in Test)).value
     makePom.value
+    ()
   },
   ciBuildNoTest := {
     (Keys.`package` in Compile).value
     makePom.value
+    ()
   }
 )
 
@@ -119,6 +121,7 @@ lazy val root = project
     ciBuild := {
       ((Keys.`package` in Compile) dependsOn (test in Compile)).value
       makePom.value
+      ()
     }
   )
   .dependsOn(

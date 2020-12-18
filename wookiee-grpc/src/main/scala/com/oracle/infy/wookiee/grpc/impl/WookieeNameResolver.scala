@@ -9,7 +9,7 @@ import cats.effect.{Blocker, ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
 import io.chrisdavenport.log4cats.Logger
@@ -25,12 +25,12 @@ protected[grpc] class WookieeNameResolver(
     extends NameResolver {
 
   override def getServiceAuthority: String = {
-    "zk"
+    s"zookeeper"
   }
 
   override def shutdown(): Unit = {
     val computation = for {
-      _ <- logger.info("Shutdown was called on NameResolver")
+      _ <- logger.info(s"Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {
@@ -70,7 +70,7 @@ protected[grpc] class WookieeNameResolver(
       fiber <- wookieeListener
         .startListening
         .leftFlatMap { err =>
-          EitherT(logger.error("Error on listen start").map(_ => err.asLeft[Unit]))
+          EitherT(logger.error(s"Error on listen start: $err").map(_ => err.asLeft[Unit]))
         }
         .value
         .start
@@ -85,6 +85,6 @@ protected[grpc] class WookieeNameResolver(
 }
 
 object WookieeNameResolver {
-  protected[grpc] val METADATA: Attributes.Key[Map[String, String]] = Attributes.Key.create("metadata")
+  protected[grpc] val METADATA: Attributes.Key[HostMetadata] = Attributes.Key.create("metadata")
 
 }
