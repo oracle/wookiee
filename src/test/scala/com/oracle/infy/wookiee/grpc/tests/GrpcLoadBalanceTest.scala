@@ -67,14 +67,14 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val queue = {
         for {
           queue <- Queue.unbounded[IO, Int]
-          _ = Seq.from(0 to 5).foreach(f => queue.enqueue1(f))
+          _ = (0 to 5).foreach(f => queue.enqueue1(f))
         } yield queue
       }
 
       val queue2 = {
         for {
           queue2 <- Queue.unbounded[IO, Int]
-          _ = Seq.from(0 to 5).foreach(f => queue2.enqueue1(f))
+          _ = (0 to 5).foreach(f => queue2.enqueue1(f))
         } yield queue2
       }
 
