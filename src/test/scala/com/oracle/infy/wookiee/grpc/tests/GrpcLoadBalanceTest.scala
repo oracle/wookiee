@@ -104,6 +104,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         zookeeperBlockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
+        loadUpdateInterval = 100.millis,
         queue = queue,
         quarantined = Ref.of[IO, Boolean](false)
       )
@@ -124,6 +125,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         zookeeperBlockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
+        loadUpdateInterval = 100.millis,
         queue = queue2,
         quarantined = Ref.of[IO, Boolean](false)
       )

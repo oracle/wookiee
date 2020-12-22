@@ -25,12 +25,12 @@ protected[grpc] class WookieeNameResolver(
     extends NameResolver {
 
   override def getServiceAuthority: String = {
-    s"zookeeper"
+    "zk"
   }
 
   override def shutdown(): Unit = {
     val computation = for {
-      _ <- logger.info(s"Shutdown was called on NameResolver")
+      _ <- logger.info("Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {

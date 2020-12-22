@@ -24,6 +24,7 @@ final case class ServerSettings(
     zookeeperBlockingExecutionContext: ExecutionContext,
     bossThreads: Int,
     workerThreads: Int,
+    loadUpdateInterval: FiniteDuration,
     queue: IO[Queue[IO, Int]],
     quarantined: IO[Ref[IO, Boolean]]
 )
@@ -67,6 +68,7 @@ object ServerSettings {
       zookeeperBlockingExecutionContext,
       bossThreads,
       workerThreads,
+      1.minute,
       queue,
       Ref.of[IO, Boolean](false)
     )
@@ -107,6 +109,7 @@ object ServerSettings {
       zookeeperBlockingExecutionContext,
       bossThreads,
       workerThreads,
+      1.minute,
       queue,
       Ref.of[IO, Boolean](false)
     )

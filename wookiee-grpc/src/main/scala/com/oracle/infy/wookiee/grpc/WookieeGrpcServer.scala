@@ -16,7 +16,6 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
-import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
 class WookieeGrpcServer(
@@ -82,11 +81,12 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework,
+      serverSettings: ServerSettings,
       quarantineRef: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = {
     for {
       quarantined <- quarantineRef.get
-      result <- streamLoads(loadQueue, host, discoveryPath, curatorFramework, quarantined)
+      result <- streamLoads(loadQueue, host, discoveryPath, curatorFramework, serverSettings, quarantined)
     } yield result
   }
 
@@ -95,12 +95,16 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework,
+      serverSettings: ServerSettings,
       quarantined: Boolean
-  )(implicit timer: Timer[IO], cs: ContextShift[IO]): IO[Unit] = {
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], logger: Logger[IO]): IO[Unit] = {
     if (!quarantined) {
       val stream: Stream[IO, Int] = queue.dequeue
       stream
-        .debounce(100.millis)
+        .debounce(serverSettings.loadUpdateInterval)
+        .evalTap{ load =>
+          logger.info(s"Writing load to zookeeper: load = $load")
+        }
         .evalTap { load: Int =>
           assignLoad(load, host, discoveryPath, curatorFramework)
         }
@@ -191,7 +195,7 @@ object WookieeGrpcServer {
       quarantined <- serverSettings.quarantined
       // Create an object that stores whether or not the server is quarantined.
       _ <- cs.blockOn(blocker)(IO(registerInZookeeper(serverSettings.discoveryPath, curator, host)))
-      fiber <- streamLoads(queue, host, serverSettings.discoveryPath, curator, quarantined).start
+      fiber <- streamLoads(queue, host, serverSettings.discoveryPath, curator, serverSettings, quarantined).start
 
     } yield new WookieeGrpcServer(server, curator, fiber, queue, host, serverSettings.discoveryPath, quarantined)
   }

@@ -82,7 +82,7 @@ object WookieeGrpcChannel {
           override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver = {
             new WookieeNameResolver(listenerRef, semaphore, fiberRef, hostnameServiceContract, discoveryPath)
           }
-          override def getDefaultScheme: String = s"zookeeper"
+          override def getDefaultScheme: String = "zookeeper"
         }
       )
       .defaultLoadBalancingPolicy(lbPolicy match {
