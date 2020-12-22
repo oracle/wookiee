@@ -102,7 +102,7 @@ object WookieeGrpcServer {
       val stream: Stream[IO, Int] = queue.dequeue
       stream
         .debounce(serverSettings.loadUpdateInterval)
-        .evalTap{ load =>
+        .evalTap { load =>
           logger.info(s"Writing load to zookeeper: load = $load")
         }
         .evalTap { load: Int =>
@@ -147,10 +147,12 @@ object WookieeGrpcServer {
 
   def startUnsafe(
       serverSettings: ServerSettings,
+      mainExecutionContext: ExecutionContext,
+      blockingExecutionContext: ExecutionContext,
       timerExecutionContext: ExecutionContext
   ): Future[WookieeGrpcServer] = {
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(serverSettings.zookeeperBlockingExecutionContext)
-    implicit val cs: ContextShift[IO] = IO.contextShift(serverSettings.bossExecutionContext)
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
     implicit val timer: Timer[IO] = IO.timer(timerExecutionContext)
     start(serverSettings).unsafeToFuture()
