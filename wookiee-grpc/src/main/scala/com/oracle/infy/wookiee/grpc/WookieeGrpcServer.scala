@@ -12,7 +12,6 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.Server
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
@@ -168,10 +167,11 @@ object WookieeGrpcServer {
       server <- cs.blockOn(blocker)(IO {
         NettyServerBuilder
           .forPort(serverSettings.port)
-          .channelFactory(() => new NioServerSocketChannel())
-          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
-          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
+          // TODO: Figure out why this is not working
+          //          .channelFactory(() => new NioServerSocketChannel())
+          //          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
+          //          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
+          //          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
           .addService(
             serverSettings.serverServiceDefinition
           )

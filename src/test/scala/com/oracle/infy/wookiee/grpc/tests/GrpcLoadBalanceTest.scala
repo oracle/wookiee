@@ -109,7 +109,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         quarantined = Ref.of[IO, Boolean](false)
       )
 
-      val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings, timerEC)
+      val serverF: Future[WookieeGrpcServer] =
+        WookieeGrpcServer.startUnsafe(serverSettings, mainEC, blockingEC, timerEC)
 
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
@@ -130,7 +131,8 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         quarantined = Ref.of[IO, Boolean](false)
       )
 
-      val serverF2: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettings2, timerEC)
+      val serverF2: Future[WookieeGrpcServer] =
+        WookieeGrpcServer.startUnsafe(serverSettings2, mainEC, blockingEC, timerEC)
 
       val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
         ChannelSettings(
@@ -246,7 +248,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
             )
           )
           // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
-          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3, timerEC)
+          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3, mainEC, blockingEC, timerEC)
           res2 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3
             .enterQuarantine()

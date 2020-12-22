@@ -30,9 +30,9 @@ private[grpc] object GRPCUtils {
       zookeeperBlockingExecutionContext: ExecutionContext,
       retryPolicy: ExponentialBackoffRetry
   ): CuratorFramework = {
+    val _ = zookeeperBlockingExecutionContext
     CuratorFrameworkFactory
       .builder()
-      .runSafeService(scalaToJavaExecutor(zookeeperBlockingExecutionContext))
       .connectString(zookeeperQuorum)
       .retryPolicy(retryPolicy)
       .build()

@@ -15,7 +15,6 @@ import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
-import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
@@ -74,6 +73,9 @@ object WookieeGrpcChannel {
     val channelExecutorJava = scalaToJavaExecutor(channelExecutionContext)
     val offloadExecutorJava = scalaToJavaExecutor(offloadExecutionContext)
 
+    val _ =
+      (channelExecutorJava, offloadExecutorJava, eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads)
+
     NettyChannelBuilder
       .forTarget(s"zookeeper://$path")
       .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
@@ -90,10 +92,11 @@ object WookieeGrpcChannel {
         case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
       })
       .usePlaintext()
-      .channelFactory(() => new NioSocketChannel())
-      .eventLoopGroup(eventLoopGroup(eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads))
-      .executor(channelExecutorJava)
-      .offloadExecutor(offloadExecutorJava)
+      // TODO: Figure out why this is not working
+      //      .channelFactory(() => new NioSocketChannel())
+      //      .eventLoopGroup(eventLoopGroup(eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads))
+      //      .executor(channelExecutorJava)
+      //      .offloadExecutor(offloadExecutorJava)
       .build()
   }
 
