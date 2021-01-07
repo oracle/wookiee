@@ -213,7 +213,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       }
 
       val gRPCResponseF: Future[Boolean] = for {
-        _ <- Future(curator.start())
         server <- serverF
         server2 <- serverF2
         _ <- server.assignLoad(load1).unsafeToFuture()

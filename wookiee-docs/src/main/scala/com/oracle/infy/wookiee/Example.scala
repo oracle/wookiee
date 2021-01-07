@@ -1,13 +1,14 @@
 package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
-import cats.effect.IO
-import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
-import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
+
+import cats.effect.{Blocker, ContextShift, IO, Timer}
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
+import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import io.chrisdavenport.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
@@ -28,11 +29,10 @@ object Example {
     // We use cats-effect (https://typelevel.org/cats-effect/) internally.
     // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
     // When using `unsafe` methods, you are expected to handle any exceptions
-    val logger = Slf4jLogger.create[IO].unsafeRunSync()
 
     val uncaughtExceptionHandler = new UncaughtExceptionHandler {
       override def uncaughtException(t: Thread, e: Throwable): Unit = {
-        logger.error(e)("Got an uncaught exception on thread " ++ t.getName).unsafeRunSync()
+        System.err.println("Got an uncaught exception on thread " ++ t.getName ++ " " ++ e.toString)
       }
     }
 
@@ -58,11 +58,22 @@ object Example {
       )
     )
 
+    // Use a separate execution context for the timer
+    val timerEC = ExecutionContext.fromExecutorService(Executors.newSingleThreadExecutor())
+
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
+    implicit val timer: Timer[IO] = IO.timer(timerEC)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+
     val zookeeperDiscoveryPath = "/discovery"
 
     // This is just to demo, use an actual Zookeeper quorum.
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
+
+    val curator = WookieeGrpcUtils.createCurator(connStr, 5.seconds, blockingEC).unsafeRunSync()
+    curator.start()
 
     val ssd: ServerServiceDefinition = MyService.bindService(
       (request: HelloRequest) => {
@@ -73,52 +84,44 @@ object Example {
     )
 
     val serverSettingsF: ServerSettings = ServerSettings(
-      zookeeperQuorum = connStr,
       discoveryPath = zookeeperDiscoveryPath,
-      zookeeperRetryInterval = 3.seconds,
-      zookeeperMaxRetries = 20,
       serverServiceDefinition = ssd,
-      port = 9091,
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
-      host = IO(Host(0, "localhost", 9091, HostMetadata(0, quarantined = false))),
+      host = Host(0, "localhost", 9091, HostMetadata(0, quarantined = false)),
       bossExecutionContext = mainEC,
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,
-      zookeeperBlockingExecutionContext = blockingEC,
       bossThreads = bossThreads,
-      workerThreads = mainECParallelism
+      workerThreads = mainECParallelism,
+      curatorFramework = curator
     )
 
-    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, mainEC, blockingEC, mainEC)
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.start(serverSettingsF).unsafeToFuture()
 
-    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.of(
       ChannelSettings(
-        zookeeperQuorum = connStr,
         serviceDiscoveryPath = zookeeperDiscoveryPath,
-        zookeeperRetryInterval = 3.seconds,
-        zookeeperMaxRetries = 20,
-        zookeeperBlockingExecutionContext = blockingEC,
         eventLoopGroupExecutionContext = blockingEC,
         channelExecutionContext = mainEC,
         offloadExecutionContext = blockingEC,
         eventLoopGroupExecutionContextThreads = bossThreads,
-        lbPolicy = RoundRobinPolicy
-      ),
-      mainExecutionContext = mainEC,
-      blockingExecutionContext = blockingEC
-    )
+        lbPolicy = RoundRobinPolicy,
+        curatorFramework = curator
+      )
+    ).unsafeRunSync()
 
     val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
     val gRPCResponseF: Future[HelloResponse] = for {
       server <- serverF
       resp <- stub.greet(HelloRequest("world!"))
-      _ <- wookieeGrpcChannel.shutdownUnsafe()
-      _ <- server.shutdownUnsafe()
+      _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
+      _ <- server.shutdown().unsafeToFuture()
     } yield resp
 
     println(Await.result(gRPCResponseF, Duration.Inf))
+    curator.close()
     zkFake.close()
     ()
   }
