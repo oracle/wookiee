@@ -37,7 +37,7 @@ protected[grpc] object ZookeeperHostnameService {
 }
 
 protected[grpc] class ZookeeperHostnameService(
-    curatorRef: Ref[IO, CuratorFramework],
+    curator: CuratorFramework,
     cacheRef: Ref[IO, Option[CuratorCache]],
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
@@ -47,10 +47,8 @@ protected[grpc] class ZookeeperHostnameService(
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
-      curator <- curatorRef.get
       cache <- cacheRef.get
       _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
-      _ <- cs.blockOn(blocker)(IO(curator.close()))
     } yield ())
       .toEitherT(t => UnknownCuratorShutdownError(t.stackTrace): WookieeGrpcError)
 
@@ -75,9 +73,7 @@ protected[grpc] class ZookeeperHostnameService(
     val state = new ConcurrentHashMap[String, CachedNodeReference]()
 
     val computation = for {
-      curator <- curatorRef.get
-      _ <- cs.blockOn(blocker)(IO(curator.start()))
-      _ <- logger.info(s"GRPC Service Discovery curator has started. Looking under path $rootPath")
+      _ <- logger.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
       cache <- cs.blockOn(blocker)(
         IO(
           CuratorCache

@@ -5,88 +5,67 @@ import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
+import org.apache.curator.framework.CuratorFramework
 
 import java.net.InetAddress
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
 final case class ServerSettings(
-    zookeeperQuorum: String,
     discoveryPath: String,
-    zookeeperRetryInterval: FiniteDuration = 3.seconds,
-    zookeeperMaxRetries: Int = 20,
     serverServiceDefinition: ServerServiceDefinition,
-    port: Int,
     host: IO[Host],
     bossExecutionContext: ExecutionContext,
     workerExecutionContext: ExecutionContext,
     applicationExecutionContext: ExecutionContext,
-    zookeeperBlockingExecutionContext: ExecutionContext,
     bossThreads: Int,
     workerThreads: Int,
     loadUpdateInterval: FiniteDuration,
     queue: IO[Queue[IO, Int]],
-    quarantined: IO[Ref[IO, Boolean]]
+    quarantined: IO[Ref[IO, Boolean]],
+    curatorFramework: CuratorFramework
 )
 
 object ServerSettings {
 
-  def generateDefaultQueue(
-      bossExecutionContext: ExecutionContext
-  ): IO[Queue[IO, Int]] = {
-    implicit val c: ContextShift[IO] = IO.contextShift(bossExecutionContext)
-    Queue.unbounded[IO, Int]
-  }
-
   def apply(
-      zookeeperQuorum: String,
       discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
       serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      host: IO[Host],
+      host: Host,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      workerThreads: Int
-  ): ServerSettings = {
-    val queue = generateDefaultQueue(bossExecutionContext)
+      workerThreads: Int,
+      curatorFramework: CuratorFramework
+  )(implicit cs: ContextShift[IO]): ServerSettings = {
     ServerSettings(
-      zookeeperQuorum,
       discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
       serverServiceDefinition,
-      port,
-      host,
+      IO(host),
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
       bossThreads,
       workerThreads,
       1.minute,
-      queue,
-      Ref.of[IO, Boolean](false)
+      Queue.unbounded[IO, Int],
+      Ref.of[IO, Boolean](false),
+      curatorFramework
     )
   }
 
   def apply(
-      zookeeperQuorum: String,
       discoveryPath: String,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
-      zookeeperBlockingExecutionContext: ExecutionContext,
       bossThreads: Int,
-      workerThreads: Int
+      workerThreads: Int,
+      curatorFramework: CuratorFramework
   )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
-    val queue = generateDefaultQueue(bossExecutionContext)
     val host = {
       for {
         address <- cs.blockOn(blocker)(IO {
@@ -96,22 +75,18 @@ object ServerSettings {
       } yield host
     }
     ServerSettings(
-      zookeeperQuorum,
-      discoveryPath,
-      3.seconds,
-      20,
-      serverServiceDefinition,
-      port,
-      host,
-      bossExecutionContext,
-      workerExecutionContext,
-      applicationExecutionContext,
-      zookeeperBlockingExecutionContext,
-      bossThreads,
-      workerThreads,
-      1.minute,
-      queue,
-      Ref.of[IO, Boolean](false)
+      discoveryPath = discoveryPath,
+      serverServiceDefinition = serverServiceDefinition,
+      host = host,
+      bossExecutionContext = bossExecutionContext,
+      workerExecutionContext = workerExecutionContext,
+      applicationExecutionContext = applicationExecutionContext,
+      bossThreads = bossThreads,
+      workerThreads = workerThreads,
+      loadUpdateInterval = 1.minute,
+      queue = Queue.unbounded[IO, Int],
+      quarantined = Ref.of[IO, Boolean](false),
+      curatorFramework = curatorFramework
     )
   }
 }

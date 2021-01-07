@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc.tests
 
 import cats.effect.concurrent.Ref
-import cats.effect.{ContextShift, IO}
+import cats.effect.{Blocker, ContextShift, IO, Timer}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
@@ -13,6 +13,7 @@ import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.concurrent.Queue
+import io.chrisdavenport.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
@@ -25,16 +26,18 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
   def loadBalancerTest(
       blockingEC: ExecutionContext,
-      connStr: String,
       mainECParallelism: Int,
       curator: CuratorFramework
   )(
-      implicit mainEC: ExecutionContext
+      implicit mainEC: ExecutionContext,
+      cs: ContextShift[IO],
+      blocker: Blocker,
+      timer: Timer[IO],
+      logger: Logger[IO]
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 5
       val zookeeperDiscoveryPath = "/discovery"
-      implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {
@@ -61,7 +64,6 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val randomLoad: Random = new Random()
       val load1 = randomLoad.nextInt(10)
       val load2 = randomLoad.nextInt(10)
-      val timerEC = mainExecutionContext(mainECParallelism)
 
       // Queues for the server load info. Initialize with numbers 0-5 for testing purposes.
       val queue = {
@@ -90,66 +92,56 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val host2 = Host(0, "localhost", port2, HostMetadata(0, quarantined = false))
       val host3 = Host(0, "localhost", port3, HostMetadata(0, quarantined = false))
 
-      // Create first server. Use server settings object to initialize.
       val serverSettings: ServerSettings = ServerSettings(
-        zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
-        zookeeperRetryInterval = 3.seconds,
         serverServiceDefinition = ssd,
-        port = port1,
         host = IO(host1),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
-        zookeeperBlockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         loadUpdateInterval = 100.millis,
         queue = queue,
-        quarantined = Ref.of[IO, Boolean](false)
+        quarantined = Ref.of[IO, Boolean](false),
+        curatorFramework = curator
       )
 
       val serverF: Future[WookieeGrpcServer] =
-        WookieeGrpcServer.startUnsafe(serverSettings, mainEC, blockingEC, timerEC)
+        WookieeGrpcServer.start(serverSettings).unsafeToFuture()
 
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
-        zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath,
-        zookeeperRetryInterval = 3.seconds,
         serverServiceDefinition = ssd2,
-        port = port2,
         host = IO(host2),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
-        zookeeperBlockingExecutionContext = blockingEC,
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         loadUpdateInterval = 100.millis,
         queue = queue2,
-        quarantined = Ref.of[IO, Boolean](false)
+        quarantined = Ref.of[IO, Boolean](false),
+        curatorFramework = curator
       )
 
       val serverF2: Future[WookieeGrpcServer] =
-        WookieeGrpcServer.startUnsafe(serverSettings2, mainEC, blockingEC, timerEC)
+        WookieeGrpcServer.start(serverSettings2).unsafeToFuture()
 
-      val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
-        ChannelSettings(
-          zookeeperQuorum = connStr,
-          serviceDiscoveryPath = zookeeperDiscoveryPath,
-          zookeeperRetryInterval = 1.seconds,
-          zookeeperMaxRetries = 2,
-          zookeeperBlockingExecutionContext = blockingEC,
-          eventLoopGroupExecutionContext = blockingEC,
-          channelExecutionContext = mainEC,
-          offloadExecutionContext = blockingEC,
-          eventLoopGroupExecutionContextThreads = bossThreads,
-          lbPolicy = RoundRobinWeightedPolicy
-        ),
-        mainExecutionContext = mainEC,
-        blockingExecutionContext = blockingEC
-      )
+      val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel
+        .of(
+          ChannelSettings(
+            serviceDiscoveryPath = zookeeperDiscoveryPath,
+            eventLoopGroupExecutionContext = blockingEC,
+            channelExecutionContext = mainEC,
+            offloadExecutionContext = blockingEC,
+            eventLoopGroupExecutionContextThreads = bossThreads,
+            lbPolicy = RoundRobinWeightedPolicy,
+            curatorFramework = curator
+          )
+        )
+        .unsafeRunSync()
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
@@ -224,31 +216,27 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         _ <- Future(curator.start())
         server <- serverF
         server2 <- serverF2
-        _ <- server.unsafeAssignLoad(load1)
-        _ <- server2.unsafeAssignLoad(load2)
+        _ <- server.assignLoad(load1).unsafeToFuture()
+        _ <- server2.assignLoad(load2).unsafeToFuture()
         // If hello request resolves to 1 ("Hello1") then server1 was given the load.
         result <- verifyResponseHandledCorrectly()
         // Spin up a third server with load 0, and verify that it is used at least once.
         result2 <- for {
           serverSettings3: ServerSettings <- Future(
             ServerSettings(
-              zookeeperQuorum = connStr,
               discoveryPath = zookeeperDiscoveryPath,
-              zookeeperRetryInterval = 3.seconds,
               serverServiceDefinition = ssd3,
-              zookeeperMaxRetries = 20,
-              port = port3,
-              host = IO(host3),
+              host = host3,
               bossExecutionContext = blockingEC,
               workerExecutionContext = mainEC,
               applicationExecutionContext = mainEC,
-              zookeeperBlockingExecutionContext = blockingEC,
               bossThreads = bossThreads,
-              workerThreads = mainECParallelism
+              workerThreads = mainECParallelism,
+              curatorFramework = curator
             )
           )
           // Spin up a third server with load set to 0. Verify that the server is used to handle some requests.
-          server3: WookieeGrpcServer <- WookieeGrpcServer.startUnsafe(serverSettings3, mainEC, blockingEC, timerEC)
+          server3: WookieeGrpcServer <- WookieeGrpcServer.start(serverSettings3).unsafeToFuture()
           res2 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3
             .enterQuarantine()
@@ -258,14 +246,13 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
             .exitQuarantine()
             .unsafeToFuture()
           res4 <- verifyLastServerIsUsed(quarantined = false)
-          _ <- server3.shutdownUnsafe()
+          _ <- server3.shutdown().unsafeToFuture()
         } yield res2 && !res3 && res4
         load1Result = verifyLoad(load1, host1, zookeeperDiscoveryPath, curator)
         load2Result = verifyLoad(load2, host2, zookeeperDiscoveryPath, curator)
-        _ <- server2.shutdownUnsafe()
-        _ <- server.shutdownUnsafe()
-        _ <- wookieeGrpcChannel.shutdownUnsafe()
-        _ <- Future(curator.close())
+        _ <- server2.shutdown().unsafeToFuture()
+        _ <- server.shutdown().unsafeToFuture()
+        _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
       } yield result && result2 && load1Result && load2Result
 
       gRPCResponseF

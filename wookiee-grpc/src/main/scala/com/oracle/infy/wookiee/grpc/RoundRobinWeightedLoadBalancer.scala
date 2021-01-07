@@ -1,8 +1,4 @@
 package com.oracle.infy.wookiee.grpc
-import java.util
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-import java.util.function.UnaryOperator
-
 import com.google.common.base.{MoreObjects, Objects}
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, RoundRobinWeightedPicker}
 import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
@@ -12,6 +8,8 @@ import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, Subch
 import io.grpc.util.ForwardingSubchannel
 import io.grpc.{Attributes, ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 
+import java.util
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters._
 import scala.util.Random
 
@@ -38,7 +36,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   override def handleResolvedAddresses(resolvedAddresses: LoadBalancer.ResolvedAddresses): Unit = {
     // Map of equivalent address groups: EAG stripped of Attributes -> Original EAG with Attributes
     val latestAddrs: List[(EquivalentAddressGroup, EquivalentAddressGroup)] = resolvedAddresses
-      .getAddresses()
+      .getAddresses
       .asScala
       .flatMap(eag => Map[EquivalentAddressGroup, EquivalentAddressGroup]((stripAttrs(eag), eag)))
       .toList
@@ -111,8 +109,9 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
       if (!(subchannelStateRef.get.getState === TRANSIENT_FAILURE && (connectivityStateInfo.getState
             === CONNECTING || connectivityStateInfo.getState === IDLE))) {
         subchannelStateRef
-          .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
-            override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
+          .getAndUpdate((t: ConnectivityStateInfo) => {
+            val _ = t
+            connectivityStateInfo
           })
         updateBalancingState()
       }
@@ -123,9 +122,9 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   private def shutdownSubchannel(subchannel: Subchannel): Unit = {
     subchannel.shutdown()
     getSubchannelStateInfoRef(subchannel)
-      .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
-        override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo =
-          ConnectivityStateInfo.forNonError(SHUTDOWN)
+      .getAndUpdate((t: ConnectivityStateInfo) => {
+        val _ = t
+        ConnectivityStateInfo.forNonError(SHUTDOWN)
       })
     ()
   }
@@ -174,15 +173,15 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
       picker match {
         case Left(readyPicker) =>
           helper.updateBalancingState(state, readyPicker)
-          eitherPicker.getAndUpdate(new UnaryOperator[Either[ReadyPicker, EmptyPicker]] {
-            override def apply(t: Either[ReadyPicker, EmptyPicker]): Either[ReadyPicker, EmptyPicker] =
-              Left(readyPicker)
+          eitherPicker.getAndUpdate((t: Either[ReadyPicker, EmptyPicker]) => {
+            val _ = t
+            Left(readyPicker)
           })
         case Right(emptyPicker) =>
           helper.updateBalancingState(state, emptyPicker)
-          eitherPicker.getAndUpdate(new UnaryOperator[Either[ReadyPicker, EmptyPicker]] {
-            override def apply(t: Either[ReadyPicker, EmptyPicker]): Either[ReadyPicker, EmptyPicker] =
-              Right(emptyPicker)
+          eitherPicker.getAndUpdate((t: Either[ReadyPicker, EmptyPicker]) => {
+            val _ = t
+            Right(emptyPicker)
           })
       }
     }
@@ -294,9 +293,9 @@ object RoundRobinWeightedLoadBalancer {
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
       nextSubchannel match {
-        case Some(subchannel) => {
+        case Some(subchannel) =>
           PickResult.withSubchannel(subchannel)
-        }
+
         case None => PickResult.withError(Status.UNKNOWN)
       }
     }

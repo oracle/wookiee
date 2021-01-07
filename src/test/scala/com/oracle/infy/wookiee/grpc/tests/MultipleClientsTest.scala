@@ -1,12 +1,9 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import java.lang.Thread.UncaughtExceptionHandler
-import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-
 import cats.effect.{Blocker, ContextShift, IO, Timer}
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, ZookeeperUtils}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
@@ -17,10 +14,12 @@ import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
 import io.chrisdavenport.log4cats.Logger
 import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
+import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer
 import utest.{Tests, test}
 
-import scala.concurrent.duration._
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.{ExecutionContext, Future}
 
 object MultipleClientsTest extends UTestScalaCheck {
@@ -31,7 +30,13 @@ object MultipleClientsTest extends UTestScalaCheck {
   // When using `unsafe` methods, you are expected to handle any exceptions
   implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
-  def multipleClientTest(implicit implicitEC: ExecutionContext): Tests = {
+  def multipleClientTest(
+      implicit implicitEC: ExecutionContext,
+      cs: ContextShift[IO],
+      blocker: Blocker,
+      timer: Timer[IO],
+      logger: Logger[IO]
+  ): Tests = {
 
     val testBody = {
 
@@ -76,16 +81,13 @@ object MultipleClientsTest extends UTestScalaCheck {
         )
       )
 
-      implicit val cs: ContextShift[IO] = IO.contextShift(mainEC1)
-      implicit val timer: Timer[IO] = IO.timer(mainEC1)
-      implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC1)
-
       val zookeeperDiscoveryPath1 = "/discovery"
       val zookeeperDiscoveryPath2 = "/example"
 
       // This is just to demo, use an actual Zookeeper quorum.
       val zkFake = new TestingServer()
       val connStr = zkFake.getConnectString
+      val curator: CuratorFramework = ZookeeperUtils.curatorFactory(connStr)
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {
@@ -102,39 +104,31 @@ object MultipleClientsTest extends UTestScalaCheck {
       )
 
       val serverSettings1F: ServerSettings = ServerSettings(
-        zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath1,
-        zookeeperRetryInterval = 3.seconds,
-        zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd,
-        port = 9097,
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
-        host = IO(Host(0, "localhost", 9097, HostMetadata(0, quarantined = false))),
+        host = Host(0, "localhost", 9097, HostMetadata(0, quarantined = false)),
         bossExecutionContext = mainEC1,
         workerExecutionContext = mainEC1,
         applicationExecutionContext = mainEC1,
-        zookeeperBlockingExecutionContext = blockingEC1,
         bossThreads = bossThreads,
-        workerThreads = mainECParallelism
+        workerThreads = mainECParallelism,
+        curatorFramework = curator
       )
 
       val serverSettingsF2: ServerSettings = ServerSettings(
-        zookeeperQuorum = connStr,
         discoveryPath = zookeeperDiscoveryPath2,
-        zookeeperRetryInterval = 3.seconds,
-        zookeeperMaxRetries = 20,
         serverServiceDefinition = ssd2,
-        port = 9096,
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
-        host = IO(Host(0, "localhost", 9096, HostMetadata(0, quarantined = false))),
+        host = Host(0, "localhost", 9096, HostMetadata(0, quarantined = false)),
         bossExecutionContext = mainEC2,
         workerExecutionContext = mainEC2,
         applicationExecutionContext = mainEC2,
-        zookeeperBlockingExecutionContext = blockingEC2,
         bossThreads = bossThreads,
-        workerThreads = mainECParallelism
+        workerThreads = mainECParallelism,
+        curatorFramework = curator
       )
 
       val serverF1 = WookieeGrpcServer.start(serverSettings1F)
@@ -142,31 +136,25 @@ object MultipleClientsTest extends UTestScalaCheck {
 
       val wookieeGrpcChannel1 = WookieeGrpcChannel.of(
         ChannelSettings(
-          zookeeperQuorum = connStr,
           serviceDiscoveryPath = zookeeperDiscoveryPath1,
-          zookeeperRetryInterval = 3.seconds,
-          zookeeperMaxRetries = 20,
-          zookeeperBlockingExecutionContext = blockingEC1,
           eventLoopGroupExecutionContext = blockingEC1,
           channelExecutionContext = mainEC1,
           offloadExecutionContext = blockingEC1,
           eventLoopGroupExecutionContextThreads = bossThreads,
-          lbPolicy = RoundRobinPolicy
+          lbPolicy = RoundRobinPolicy,
+          curatorFramework = curator
         )
       )
 
       val wookieeGrpcChannel2 = WookieeGrpcChannel.of(
         ChannelSettings(
-          zookeeperQuorum = connStr,
           serviceDiscoveryPath = zookeeperDiscoveryPath2,
-          zookeeperRetryInterval = 3.seconds,
-          zookeeperMaxRetries = 20,
-          zookeeperBlockingExecutionContext = blockingEC2,
           eventLoopGroupExecutionContext = blockingEC2,
           channelExecutionContext = mainEC2,
           offloadExecutionContext = blockingEC2,
           eventLoopGroupExecutionContextThreads = bossThreads,
-          lbPolicy = RoundRobinPolicy
+          lbPolicy = RoundRobinPolicy,
+          curatorFramework = curator
         )
       )
 
