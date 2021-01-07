@@ -6,7 +6,7 @@ wookiee
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```sbt
-libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.0.4"
+libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.0.5"
 ```
 
 ## Setup ScalaPB
@@ -151,7 +151,7 @@ object Example {
       workerThreads = mainECParallelism
     )
 
-    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, blockingEC)
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, mainEC, blockingEC, mainEC)
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       ChannelSettings(

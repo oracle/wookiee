@@ -90,7 +90,7 @@ object Example {
       workerThreads = mainECParallelism
     )
 
-    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, blockingEC)
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(serverSettingsF, mainEC, blockingEC, mainEC)
 
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
       ChannelSettings(
