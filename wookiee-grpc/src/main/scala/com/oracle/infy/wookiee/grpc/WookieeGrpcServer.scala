@@ -73,10 +73,10 @@ object WookieeGrpcServer {
       timer: Timer[IO]
   ): IO[WookieeGrpcServer] = {
     for {
-      port <- serverSettings.host.map(_.port)
+      host <- serverSettings.host
       server <- cs.blockOn(blocker)(IO {
         NettyServerBuilder
-          .forPort(port)
+          .forPort(host.port)
           .channelFactory(() => new NioServerSocketChannel())
           .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
           .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
@@ -89,7 +89,6 @@ object WookieeGrpcServer {
       _ <- cs.blockOn(blocker)(IO { server.start() })
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
-      host <- serverSettings.host
       queue <- serverSettings.queue
       quarantined <- serverSettings.quarantined
       // Create an object that stores whether or not the server is quarantined.

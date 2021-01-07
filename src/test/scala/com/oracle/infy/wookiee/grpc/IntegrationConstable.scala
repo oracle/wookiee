@@ -39,6 +39,8 @@ object IntegrationConstable extends ConstableCommon {
     createDiscoveryPath(connStr, discoveryPath)
 
     val curator = curatorFactory(connStr)
+    curator.start()
+
 
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
@@ -95,6 +97,7 @@ object IntegrationConstable extends ConstableCommon {
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
     val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
+
 
     val result = runTestsAsync(
       List(

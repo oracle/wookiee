@@ -81,13 +81,14 @@ object MultipleClientsTest extends UTestScalaCheck {
         )
       )
 
-      val zookeeperDiscoveryPath1 = "/discovery"
-      val zookeeperDiscoveryPath2 = "/example"
+      val zookeeperDiscoveryPath1 = "/multi/discovery"
+      val zookeeperDiscoveryPath2 = "/multi/example"
 
       // This is just to demo, use an actual Zookeeper quorum.
       val zkFake = new TestingServer()
       val connStr = zkFake.getConnectString
       val curator: CuratorFramework = ZookeeperUtils.curatorFactory(connStr)
+      curator.start()
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {
@@ -176,6 +177,7 @@ object MultipleClientsTest extends UTestScalaCheck {
         _ <- c2.shutdown()
         _ <- server2.shutdown()
         _ <- server1.shutdown()
+        _ <- IO(curator.close())
         _ <- IO(zkFake.close())
       } yield resp.resp === "Hello world!" && resp2.resp === "Hello2 world!"
 
