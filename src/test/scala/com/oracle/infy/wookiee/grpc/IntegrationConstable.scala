@@ -41,7 +41,6 @@ object IntegrationConstable extends ConstableCommon {
     val curator = curatorFactory(connStr)
     curator.start()
 
-
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
     ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
@@ -97,7 +96,6 @@ object IntegrationConstable extends ConstableCommon {
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
     val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
-
 
     val result = runTestsAsync(
       List(
