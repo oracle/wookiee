@@ -75,7 +75,7 @@ object WookieeGrpcServer {
     for {
       host <- serverSettings.host
       server <- cs.blockOn(blocker)(IO {
-        var builder = NettyServerBuilder
+        val builder = NettyServerBuilder
           .forPort(host.port)
           .channelFactory(() => new NioServerSocketChannel())
           .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
@@ -83,7 +83,7 @@ object WookieeGrpcServer {
           .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
 
         serverSettings.serverServiceDefinitions.map { service =>
-          builder = builder.addService(service)
+          builder.addService(service)
         }
 
         builder.build()
