@@ -6,14 +6,16 @@ import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
-
 import java.net.InetAddress
+
+import cats.data.NonEmptyList
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
 final case class ServerSettings(
     discoveryPath: String,
-    serverServiceDefinition: ServerServiceDefinition,
+    serverServiceDefinitions: NonEmptyList[ServerServiceDefinition],
     host: IO[Host],
     bossExecutionContext: ExecutionContext,
     workerExecutionContext: ExecutionContext,
@@ -39,9 +41,41 @@ object ServerSettings {
       workerThreads: Int,
       curatorFramework: CuratorFramework
   )(implicit cs: ContextShift[IO]): ServerSettings = {
+    apply(discoveryPath, host, bossExecutionContext, workerExecutionContext, applicationExecutionContext,
+      bossThreads, workerThreads, curatorFramework, serverServiceDefinition)
+  }
+
+  def apply(
+      discoveryPath: String,
+      serverServiceDefinition: ServerServiceDefinition,
+      port: Int,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+    apply(discoveryPath, port, bossExecutionContext, workerExecutionContext, applicationExecutionContext,
+      bossThreads, workerThreads, curatorFramework, serverServiceDefinition)
+  }
+
+  // Use when you'd like to register more than one class to this host and discoveryPath
+  def apply(
+             discoveryPath: String,
+             host: Host,
+             bossExecutionContext: ExecutionContext,
+             workerExecutionContext: ExecutionContext,
+             applicationExecutionContext: ExecutionContext,
+             bossThreads: Int,
+             workerThreads: Int,
+             curatorFramework: CuratorFramework,
+             firstServiceDefinition: ServerServiceDefinition,
+             addtnlServiceDefinition: ServerServiceDefinition*
+           )(implicit cs: ContextShift[IO]): ServerSettings = {
     ServerSettings(
       discoveryPath,
-      serverServiceDefinition,
+      NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
       IO(host),
       bossExecutionContext,
       workerExecutionContext,
@@ -56,16 +90,17 @@ object ServerSettings {
   }
 
   def apply(
-      discoveryPath: String,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      bossExecutionContext: ExecutionContext,
-      workerExecutionContext: ExecutionContext,
-      applicationExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      workerThreads: Int,
-      curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+             discoveryPath: String,
+             port: Int,
+             bossExecutionContext: ExecutionContext,
+             workerExecutionContext: ExecutionContext,
+             applicationExecutionContext: ExecutionContext,
+             bossThreads: Int,
+             workerThreads: Int,
+             curatorFramework: CuratorFramework,
+             firstServiceDefinition: ServerServiceDefinition,
+             addtnlServiceDefinition: ServerServiceDefinition*
+           )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val host = {
       for {
         address <- cs.blockOn(blocker)(IO {
@@ -76,7 +111,7 @@ object ServerSettings {
     }
     ServerSettings(
       discoveryPath = discoveryPath,
-      serverServiceDefinition = serverServiceDefinition,
+      serverServiceDefinitions = NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
       host = host,
       bossExecutionContext = bossExecutionContext,
       workerExecutionContext = workerExecutionContext,

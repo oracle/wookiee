@@ -146,7 +146,7 @@ object Example {
 
     val serverSettingsF: ServerSettings = ServerSettings(
       discoveryPath = zookeeperDiscoveryPath,
-      serverServiceDefinition = ssd,
+      serverServiceDefinitions = NonEmptyList(ssd, Nil),
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
       host = Host(0, "localhost", 9091, HostMetadata(0, quarantined = false)),

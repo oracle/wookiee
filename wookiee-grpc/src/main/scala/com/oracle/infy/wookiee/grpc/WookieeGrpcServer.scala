@@ -75,16 +75,18 @@ object WookieeGrpcServer {
     for {
       host <- serverSettings.host
       server <- cs.blockOn(blocker)(IO {
-        NettyServerBuilder
+        var builder = NettyServerBuilder
           .forPort(host.port)
           .channelFactory(() => new NioServerSocketChannel())
           .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
           .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
           .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
-          .addService(
-            serverSettings.serverServiceDefinition
-          )
-          .build()
+
+        serverSettings.serverServiceDefinitions.map { service =>
+          builder = builder.addService(service)
+        }
+
+        builder.build()
       })
       _ <- cs.blockOn(blocker)(IO { server.start() })
       _ <- logger.info("gRPC server started...")
