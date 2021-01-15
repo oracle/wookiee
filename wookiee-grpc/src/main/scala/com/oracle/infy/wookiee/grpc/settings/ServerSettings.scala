@@ -41,8 +41,17 @@ object ServerSettings {
       workerThreads: Int,
       curatorFramework: CuratorFramework
   )(implicit cs: ContextShift[IO]): ServerSettings = {
-    apply(discoveryPath, host, bossExecutionContext, workerExecutionContext, applicationExecutionContext,
-      bossThreads, workerThreads, curatorFramework, serverServiceDefinition)
+    apply(
+      discoveryPath,
+      host,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      bossThreads,
+      workerThreads,
+      curatorFramework,
+      serverServiceDefinition
+    )
   }
 
   def apply(
@@ -56,23 +65,32 @@ object ServerSettings {
       workerThreads: Int,
       curatorFramework: CuratorFramework
   )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
-    apply(discoveryPath, port, bossExecutionContext, workerExecutionContext, applicationExecutionContext,
-      bossThreads, workerThreads, curatorFramework, serverServiceDefinition)
+    apply(
+      discoveryPath,
+      port,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      bossThreads,
+      workerThreads,
+      curatorFramework,
+      serverServiceDefinition
+    )
   }
 
   // Use when you'd like to register more than one class to this host and discoveryPath
   def apply(
-             discoveryPath: String,
-             host: Host,
-             bossExecutionContext: ExecutionContext,
-             workerExecutionContext: ExecutionContext,
-             applicationExecutionContext: ExecutionContext,
-             bossThreads: Int,
-             workerThreads: Int,
-             curatorFramework: CuratorFramework,
-             firstServiceDefinition: ServerServiceDefinition,
-             addtnlServiceDefinition: ServerServiceDefinition*
-           )(implicit cs: ContextShift[IO]): ServerSettings = {
+      discoveryPath: String,
+      host: Host,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework,
+      firstServiceDefinition: ServerServiceDefinition,
+      addtnlServiceDefinition: ServerServiceDefinition*
+  )(implicit cs: ContextShift[IO]): ServerSettings = {
     ServerSettings(
       discoveryPath,
       NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
@@ -90,17 +108,17 @@ object ServerSettings {
   }
 
   def apply(
-             discoveryPath: String,
-             port: Int,
-             bossExecutionContext: ExecutionContext,
-             workerExecutionContext: ExecutionContext,
-             applicationExecutionContext: ExecutionContext,
-             bossThreads: Int,
-             workerThreads: Int,
-             curatorFramework: CuratorFramework,
-             firstServiceDefinition: ServerServiceDefinition,
-             addtnlServiceDefinition: ServerServiceDefinition*
-           )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+      discoveryPath: String,
+      port: Int,
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework,
+      firstServiceDefinition: ServerServiceDefinition,
+      addtnlServiceDefinition: ServerServiceDefinition*
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val host = {
       for {
         address <- cs.blockOn(blocker)(IO {
