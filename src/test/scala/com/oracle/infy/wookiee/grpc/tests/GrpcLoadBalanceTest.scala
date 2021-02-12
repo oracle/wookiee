@@ -17,8 +17,10 @@ import io.chrisdavenport.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
-
 import java.util.Random
+
+import cats.data.NonEmptyList
+
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -94,7 +96,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       val serverSettings: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinition = ssd,
+        serverServiceDefinitions = NonEmptyList(ssd, Nil),
         host = IO(host1),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
@@ -113,7 +115,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinition = ssd2,
+        serverServiceDefinitions = NonEmptyList(ssd2, Nil),
         host = IO(host2),
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
