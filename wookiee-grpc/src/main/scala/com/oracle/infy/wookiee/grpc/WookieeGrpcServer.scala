@@ -15,6 +15,8 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
+import scala.util.Try
+
 final class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
@@ -191,11 +193,21 @@ object WookieeGrpcServer {
             .creatingParentsIfNeeded()
             .forPath(discoveryPath)
         }
+
+        val path = s"$discoveryPath/${host.address}:${host.port}"
+
+        // Remove any nodes attached to old sessions first (if they exists)
+        Try {
+          curator
+            .delete()
+            .forPath(path)
+        }
+
         curator
           .create
           .orSetData()
           .withMode(CreateMode.EPHEMERAL)
-          .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(host))
+          .forPath(path, HostSerde.serialize(host))
         ()
       }
     )
