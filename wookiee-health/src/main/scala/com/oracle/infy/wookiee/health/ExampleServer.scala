@@ -2,8 +2,8 @@ package com.oracle.infy.wookiee.health
 
 import cats.effect.{ExitCode, IO, IOApp}
 import com.oracle.infy.wookiee.health.model._
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.http4s.HttpRoutes
+import org.http4s.dsl.io._
 
 import scala.concurrent.ExecutionContext
 
@@ -12,9 +12,8 @@ object ExampleServer extends IOApp {
   implicit val ec = ExecutionContext.global
 
   def run(args: List[String]): IO[ExitCode] = {
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    for {
-      server <- HeathCheckServer.of(
+    HeathCheckServer
+      .of(
         () =>
           IO(
             Health(
@@ -24,10 +23,20 @@ object ExampleServer extends IOApp {
             )
           ),
         "localhost",
-        8081
+        8081,
+        ec,
+        Some(additionalRoutes)
       )
-      exitStatus <- server.compile.drain.as(ExitCode.Success)
-    } yield exitStatus
+      .compile
+      .drain
+      .as(ExitCode.Success)
+  }
+
+  def additionalRoutes: HttpRoutes[IO] = {
+    HttpRoutes
+      .of[IO] {
+        case GET -> Root / "ping" => Ok("Pong")
+      }
   }
 
 }
