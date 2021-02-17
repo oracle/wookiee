@@ -1,39 +1,39 @@
 package com.oracle.infy.wookiee.health
 
-import cats.data.Kleisli
 import cats.effect.{IO, _}
+import cats.implicits._
 import com.oracle.infy.wookiee.health.json.Serde
 import com.oracle.infy.wookiee.health.model.{Critical, Degraded, Health, Normal}
-import fs2.Stream
-import io.chrisdavenport.log4cats.Logger
-import org.http4s.dsl.io._
-import org.http4s.implicits._
-import org.http4s.server.blaze._
-import org.http4s.{HttpRoutes, Request, Response}
 import com.oracle.infy.wookiee.utils.implicits._
+import fs2.Stream
+import com.oracle.infy.wookiee.http.WookieeHttpServer
+import org.http4s.HttpRoutes
+import org.http4s.dsl.io._
 
 import scala.concurrent.ExecutionContext
 
 object HeathCheckServer extends Serde {
 
-  def of(healthF: () => IO[Health], host: String, port: Int)(
-      implicit executionContext: ExecutionContext,
-      timer: Timer[IO],
-      cs: ContextShift[IO],
-      logger: Logger[IO]
-  ): IO[Stream[IO, ExitCode]] = {
-    for {
-      _ <- IO(logger.info("Health check server started"))
-      server <- IO(
-        BlazeServerBuilder[IO](executionContext)
-          .bindHttp(port = port, host = host)
-          .withHttpApp(healthService(healthF))
-          .serve
-      )
-    } yield server
+  def of(
+      healthF: () => IO[Health],
+      host: String,
+      port: Int,
+      executionContext: ExecutionContext,
+      additionalRoutes: Option[HttpRoutes[IO]]
+  )(
+      implicit timer: Timer[IO],
+      cs: ContextShift[IO]
+  ): Stream[IO, ExitCode] = {
+
+    val routes = additionalRoutes match {
+      case Some(r) => healthService(healthF) <+> r
+      case None    => healthService(healthF)
+    }
+
+    WookieeHttpServer.of(host, port, routes, executionContext)
   }
 
-  def healthService(healthF: () => IO[Health]): Kleisli[IO, Request[IO], Response[IO]] = {
+  def healthService(healthF: () => IO[Health]): HttpRoutes[IO] = {
     HttpRoutes
       .of[IO] {
         case GET -> Root / "healthcheck" =>
@@ -43,7 +43,6 @@ object HeathCheckServer extends Serde {
         case GET -> Root / "healthcheck" / "nagios" =>
           checkHealth(healthF()).flatMap(h => Ok(s"${h.state}|${h.details}"))
       }
-      .orNotFound
   }
 
   private def checkHealth(health: IO[Health]): IO[Health] =

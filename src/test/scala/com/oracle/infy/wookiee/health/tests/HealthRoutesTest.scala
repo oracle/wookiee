@@ -5,10 +5,10 @@ import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.health.HeathCheckServer
 import com.oracle.infy.wookiee.health.json.Serde
 import com.oracle.infy.wookiee.health.model.{Critical, Health, Normal, State}
+import com.oracle.infy.wookiee.utils.implicits._
 import org.http4s._
 import org.http4s.implicits._
 import utest.{Tests, test}
-import com.oracle.infy.wookiee.utils.implicits._
 
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -33,18 +33,18 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
 
     val health = Health(Normal, "Thunderbirds are GO", Map("ZK" -> (Health(Critical, "no host found"))))
     val response: IO[Response[IO]] = HeathCheckServer
-      .healthService(() => IO(health))
+      .healthService(() => IO(health)).orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck")
       )
     val lbResponse: IO[Response[IO]] = HeathCheckServer
-      .healthService(() => IO(health))
+      .healthService(() => IO(health)).orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck/lb")
       )
 
     val nagiosResponse: IO[Response[IO]] = HeathCheckServer
-      .healthService(() => IO(health))
+      .healthService(() => IO(health)).orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck/nagios")
       )
