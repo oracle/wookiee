@@ -15,9 +15,9 @@ import scala.concurrent.ExecutionContext
 object HeathCheckServer extends Serde {
 
   def of(
-      healthF: () => IO[Health],
       host: String,
       port: Int,
+      healthF: () => IO[Health],
       executionContext: ExecutionContext,
       additionalRoutes: Option[HttpRoutes[IO]]
   )(
@@ -26,14 +26,14 @@ object HeathCheckServer extends Serde {
   ): Stream[IO, ExitCode] = {
 
     val routes = additionalRoutes match {
-      case Some(r) => healthService(healthF) <+> r
-      case None    => healthService(healthF)
+      case Some(r) => healthCheckRoutes(healthF) <+> r
+      case None    => healthCheckRoutes(healthF)
     }
 
     WookieeHttpServer.of(host, port, routes, executionContext)
   }
 
-  def healthService(healthF: () => IO[Health]): HttpRoutes[IO] = {
+  def healthCheckRoutes(healthF: () => IO[Health]): HttpRoutes[IO] = {
     HttpRoutes
       .of[IO] {
         case GET -> Root / "healthcheck" =>

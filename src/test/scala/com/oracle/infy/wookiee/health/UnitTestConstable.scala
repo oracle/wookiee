@@ -15,7 +15,7 @@ object UnitTestConstable extends ConstableCommon {
     exitNegativeOnFailure(
       runTestsAsync(
         List(
-          (HealthRoutesTest.tests(), "UnitTest - routes test")
+          (HealthRoutesTest.tests(), "UnitTest - health routes test")
         )
       )
     )

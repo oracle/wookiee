@@ -14,10 +14,11 @@ object WookieeHttpServer {
       implicit timer: Timer[IO],
       cs: ContextShift[IO]
   ): Stream[IO, ExitCode] = {
+    val httpApp = httpRoutes.orNotFound
     BlazeServerBuilder[IO](executionContext)
       .bindHttp(port, host)
       .withoutBanner
-      .withHttpApp(httpRoutes.orNotFound)
+      .withHttpApp(httpApp)
       .serve
   }
 }
