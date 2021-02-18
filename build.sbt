@@ -106,6 +106,28 @@ lazy val `wookiee-grpc-dev` = project
     libraryDependencies ++= Seq(Deps.build.scalaReflect(scalaVersion.value))
   )
 
+lazy val `wookiee-http` = project
+  .in(file("wookiee-http"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.http4s
+  )
+  .dependsOn(`wookiee-core`)
+  .aggregate(`wookiee-core`)
+
+lazy val `wookiee-health` = project
+  .in(file("wookiee-health"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Seq(
+      Deps.build.circeCore,
+      Deps.build.circeGeneric,
+      Deps.build.circeParser
+    )
+  )
+  .dependsOn(`wookiee-http`)
+  .aggregate(`wookiee-http`)
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -128,13 +150,17 @@ lazy val root = project
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
-    `wookiee-proto`
+    `wookiee-proto`,
+    `wookiee-http`,
+    `wookiee-health`
   )
   .aggregate(
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
-    `wookiee-proto`
+    `wookiee-proto`,
+    `wookiee-http`,
+    `wookiee-health`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
