@@ -110,7 +110,7 @@ lazy val `wookiee-http` = project
   .in(file("wookiee-http"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.build.http4s
+    libraryDependencies ++= Deps.build.http4s
   )
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
@@ -119,10 +119,12 @@ lazy val `wookiee-health` = project
   .in(file("wookiee-health"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.build.http4s
+    libraryDependencies ++= Seq(
+      Deps.build.circeCore,
+      Deps.build.circeGeneric,
+      Deps.build.circeParser
+    )
   )
-  .dependsOn(`wookiee-core`)
-  .aggregate(`wookiee-core`)
   .dependsOn(`wookiee-http`)
   .aggregate(`wookiee-http`)
 
