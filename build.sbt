@@ -128,6 +128,22 @@ lazy val `wookiee-health` = project
   .dependsOn(`wookiee-http`)
   .aggregate(`wookiee-http`)
 
+lazy val `wookiee-metrics` = project
+  .in(file("wookiee-metrics"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Seq(
+      "io.dropwizard.metrics" % "metrics-core" % "4.1.17",
+      "io.dropwizard.metrics" % "metrics-json" % "4.1.17",
+      "io.dropwizard.metrics" % "metrics-jvm" % "4.1.17",
+      "io.dropwizard.metrics" % "metrics-graphite" % "4.1.17",
+      "io.dropwizard.metrics" % "metrics-jmx" % "4.1.17",
+
+    )
+  )
+  .dependsOn(`wookiee-core`)
+  .aggregate(`wookiee-core`)
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -152,7 +168,8 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
-    `wookiee-health`
+    `wookiee-health`,
+    `wookiee-metrics`
   )
   .aggregate(
     `wookiee-core`,
@@ -160,7 +177,8 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
-    `wookiee-health`
+    `wookiee-health`,
+    `wookiee-metrics`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
