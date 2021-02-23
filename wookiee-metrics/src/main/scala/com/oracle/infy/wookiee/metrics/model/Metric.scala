@@ -3,7 +3,14 @@ package com.oracle.infy.wookiee.metrics.model
 import java.util.concurrent.TimeUnit
 
 import cats.effect.IO
-import com.codahale.metrics.{Counter => DWCounter, Histogram => DWHistogram, Meter => DWMeter, Timer => DWTimer, _}
+import com.codahale.metrics.{
+  Counter => DWCounter,
+  Histogram => DWHistogram,
+  Meter => DWMeter,
+  Timer => DWTimer,
+  Gauge => DWGauge,
+  _
+}
 
 import scala.jdk.CollectionConverters._
 
@@ -18,7 +25,7 @@ case class Timer(timer: IO[DWTimer]) extends Metric {
       _ <- IO(c.stop())
     } yield result
 
-  def update(time: Long, unit: TimeUnit = TimeUnit.NANOSECONDS): IO[Unit] = timer.map(_.update(time, unit))
+  def update(time: Long, unit: TimeUnit): IO[Unit] = timer.map(_.update(time, unit))
 }
 
 object Timer {
@@ -72,9 +79,9 @@ case class Histogram(histogram: IO[DWHistogram]) extends Metric {
 
 object Histogram {
 
-  def apply(name: String, registry: MetricRegistry, biased: Boolean = false): IO[Histogram] = {
+  def apply(name: String, registry: MetricRegistry, biased: Boolean): IO[Histogram] = {
 
-    val histogram = IO.delay(registry.getHistograms(MetricFilter.contains(name)).values().asScala.headOption match {
+    val histogram = IO.delay(registry.getHistograms(MetricFilter.startsWith(name)).values().asScala.headOption match {
       case Some(h) => h
       case None =>
         if (biased) {
@@ -84,5 +91,21 @@ object Histogram {
         }
     })
     IO.pure(Histogram(histogram))
+  }
+}
+
+case class Gauge[A](dwGauge: IO[DWGauge[A]]) extends Metric {
+  def getValue: IO[A] = dwGauge.map(_.getValue())
+}
+
+object Gauge {
+
+  def apply[A](name: String, registry: MetricRegistry, f: => A): IO[Gauge[A]] = {
+    val gauge: IO[DWGauge[A]] =
+      IO.delay(registry.register(name, new DWGauge[A]() {
+        override def getValue: A = f
+      }))
+    IO.pure(Gauge[A](gauge))
+
   }
 }

@@ -1,6 +1,7 @@
-package com.oracle.infy.wookiee.metrics.contract
+package com.oracle.infy.wookiee.metrics.core
 
-import com.oracle.infy.wookiee.metrics.model.{Counter, Histogram, Meter, Timer}
+import com.oracle.infy.wookiee.metrics.model.{Counter, Gauge, Histogram, Meter, Timer}
+import io.circe.Json
 
 trait WookieeMetrics[F[_]] {
 
@@ -12,9 +13,11 @@ trait WookieeMetrics[F[_]] {
 
   def histogram(name: String, biased: Boolean): F[Histogram]
 
+  def gauge[A](name: String, f: => A): F[Gauge[A]]
+
   def remove(name: String): F[Boolean]
 
-  def startReports(): F[Unit]
+  def getMetrics: F[Json]
 
   def stopReports(): F[Unit]
 

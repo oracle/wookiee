@@ -138,6 +138,9 @@ lazy val `wookiee-metrics` = project
       "io.dropwizard.metrics" % "metrics-jvm" % "4.1.17",
       "io.dropwizard.metrics" % "metrics-graphite" % "4.1.17",
       "io.dropwizard.metrics" % "metrics-jmx" % "4.1.17",
+      Deps.build.circeCore,
+      Deps.build.circeGeneric,
+      Deps.build.circeParser
 
     )
   )
