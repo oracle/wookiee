@@ -57,7 +57,7 @@ case class Meter(meter: IO[DWMeter]) extends Metric {
 
   def mark(amount: Long): IO[Unit] = meter.map(_.mark(amount))
 
-  def mark[A]()(f: IO[A]): IO[A] = {
+  def markFunc[A]()(f: IO[A]): IO[A] = {
     for {
       result <- f
       _ <- meter.map(_.mark())
@@ -73,7 +73,7 @@ object Meter {
 }
 
 case class Histogram(histogram: IO[DWHistogram]) extends Metric {
-  def update(amount: Double): IO[Unit] = histogram.map(_.update(amount.toLong))
+  def update(amount: Long): IO[Unit] = histogram.map(_.update(amount))
 
 }
 
@@ -85,9 +85,9 @@ object Histogram {
       case Some(h) => h
       case None =>
         if (biased) {
-          new DWHistogram(new ExponentiallyDecayingReservoir())
+          registry.register(name, new DWHistogram(new ExponentiallyDecayingReservoir()))
         } else {
-          new DWHistogram(new UniformReservoir())
+          registry.register(name, new DWHistogram(new UniformReservoir()))
         }
     })
     IO.pure(Histogram(histogram))
@@ -100,10 +100,10 @@ case class Gauge[A](dwGauge: IO[DWGauge[A]]) extends Metric {
 
 object Gauge {
 
-  def apply[A](name: String, registry: MetricRegistry, f: => A): IO[Gauge[A]] = {
+  def apply[A](name: String, registry: MetricRegistry, f: () => A): IO[Gauge[A]] = {
     val gauge: IO[DWGauge[A]] =
       IO.delay(registry.register(name, new DWGauge[A]() {
-        override def getValue: A = f
+        override def getValue: A = f()
       }))
     IO.pure(Gauge[A](gauge))
 

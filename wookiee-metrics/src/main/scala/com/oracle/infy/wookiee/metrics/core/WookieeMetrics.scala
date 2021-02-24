@@ -13,7 +13,7 @@ trait WookieeMetrics[F[_]] {
 
   def histogram(name: String, biased: Boolean): F[Histogram]
 
-  def gauge[A](name: String, f: => A): F[Gauge[A]]
+  def gauge[A](name: String, f:() => A): F[Gauge[A]]
 
   def remove(name: String): F[Boolean]
 

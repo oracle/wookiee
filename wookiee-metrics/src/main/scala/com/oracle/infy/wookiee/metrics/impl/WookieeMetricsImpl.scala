@@ -24,7 +24,7 @@ class WookieeMetricsImpl(registry: WookieeRegistry, reporter: WookieeMetricsRepo
   override def histogram(name: String, biased: Boolean): IO[Histogram] =
     Histogram(name, registry.metricRegistry, biased)
 
-  override def gauge[A](name: String, f: => A): IO[Gauge[A]] = Gauge(name, registry.metricRegistry, f)
+  override def gauge[A](name: String, f:() => A): IO[Gauge[A]] = Gauge(name, registry.metricRegistry, f)
 
   override def remove(name: String): IO[Boolean] = IO.delay(registry.metricRegistry.remove(name))
 

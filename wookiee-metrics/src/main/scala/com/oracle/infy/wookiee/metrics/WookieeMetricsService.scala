@@ -8,6 +8,7 @@ import com.codahale.metrics.jvm._
 import com.oracle.infy.wookiee.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
 import com.oracle.infy.wookiee.metrics.impl.{WookieeMetricsImpl, WookieeMetricsNoOpImpl}
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
+
 import scala.jdk.CollectionConverters._
 
 object WookieeMetricsService {
@@ -22,7 +23,7 @@ object WookieeMetricsService {
     } yield new WookieeMetricsImpl(WookieeRegistry(registry, jvmRegistry), r)
   }
 
-  def noOpRegister(): IO[WookieeMetrics[IO]] = IO(new MetricRegistry()).map(r => new WookieeMetricsNoOpImpl(r))
+  def noOpRegister(): IO[WookieeMetrics[IO]] = IO(new WookieeMetricsNoOpImpl())
 
   private def registerJvmMetrics(jvmRegistry: MetricRegistry): IO[Unit] =
     IO.delay {
