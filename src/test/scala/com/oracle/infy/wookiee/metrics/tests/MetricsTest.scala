@@ -5,8 +5,7 @@ import java.util.concurrent.TimeUnit
 import cats.effect.IO
 import com.codahale.metrics.MetricRegistry
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
-import com.oracle.infy.wookiee.health.json.Serde
-import com.oracle.infy.wookiee.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
+import com.oracle.infy.wookiee.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.metrics.impl.WookieeMetricsImpl
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
 import com.oracle.infy.wookiee.utils.implicits._
@@ -14,17 +13,13 @@ import utest.{Tests, test}
 
 import scala.concurrent.{ExecutionContext, Future}
 
-object MetricsTest extends UTestScalaCheck with Serde {
+object MetricsTest extends UTestScalaCheck {
 
   def tests()(implicit executionContext: ExecutionContext): Tests = {
 
     val registry = new MetricRegistry()
     val jvmRegistry = new MetricRegistry()
-    val wookieeRegistry = WookieeRegistry(registry, jvmRegistry)
-    val wookieeMetrics: WookieeMetrics[IO] = new WookieeMetricsImpl(wookieeRegistry, new WookieeMetricsReporter[IO]() {
-      override def start(): IO[Unit] = IO.unit
-      override def stop(): IO[Unit] = IO.unit
-    })
+    val wookieeMetrics: WookieeMetrics[IO] = new WookieeMetricsImpl(WookieeRegistry(registry, jvmRegistry))
     val timerName = "timerTest"
     val counterName = "counterTest"
     val meterName = "meterTest"
@@ -35,8 +30,9 @@ object MetricsTest extends UTestScalaCheck with Serde {
       (for {
         timer <- wookieeMetrics.timer(timerName)
         _ <- timer.update(1000, TimeUnit.NANOSECONDS)
+        _ <- wookieeMetrics.time(timerName)(IO("test"))
       } yield {
-        registry.getTimers.containsKey(timerName) && registry.timer(timerName).getCount === 1
+        registry.getTimers.containsKey(timerName) && registry.timer(timerName).getCount === 2
       }).unsafeToFuture()
     }
 
@@ -88,7 +84,7 @@ object MetricsTest extends UTestScalaCheck with Serde {
       }).unsafeToFuture()
     }
 
-    def getMetricsCheck(): Future[Boolean] = {
+    def getMetricsCheck(): Future[Boolean] =
       (for {
         timer <- wookieeMetrics.timer("timer")
         _ <- timer.update(1000, TimeUnit.NANOSECONDS)
@@ -98,10 +94,9 @@ object MetricsTest extends UTestScalaCheck with Serde {
       } yield {
         val metricsJson = json.hcursor.downField("system").downField("metrics")
         val timerCount = metricsJson.downField("timer").downField("rate").downField("count").as[Int]
-        val meterCount = metricsJson.downField("counter").as[Int]
-        timerCount === Right(1) && meterCount === Right(2)
+        val counterCount = metricsJson.downField("counter").as[Int]
+        timerCount === Right(1) && counterCount === Right(2)
       }).unsafeToFuture()
-    }
 
     Tests {
       test("able register timer and record it") {

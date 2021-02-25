@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.metrics
 
 import java.lang.management.ManagementFactory
 
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import com.codahale.metrics.MetricRegistry
 import com.codahale.metrics.jvm._
 import com.oracle.infy.wookiee.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
@@ -13,20 +13,24 @@ import scala.jdk.CollectionConverters._
 
 object WookieeMetricsService {
 
-  def register(report: WookieeRegistry => IO[WookieeMetricsReporter[IO]]): IO[WookieeMetrics[IO]] = {
-    for {
-      registry <- IO.delay(new MetricRegistry())
-      jvmRegistry <- IO.delay(new MetricRegistry())
-      _ <- registerJvmMetrics(jvmRegistry)
-      r <- report(WookieeRegistry(registry, jvmRegistry))
-      _ <- r.start()
-    } yield new WookieeMetricsImpl(WookieeRegistry(registry, jvmRegistry), r)
+  def register(reporter: WookieeRegistry => IO[WookieeMetricsReporter[IO]]): Resource[IO, WookieeMetrics[IO]] = {
+    Resource
+      .make {
+        for {
+          metricRegistry <- IO(new MetricRegistry())
+          jvmRegistry <- IO(new MetricRegistry())
+          _ <- registerJvmMetrics(jvmRegistry)
+          r <- reporter(WookieeRegistry(metricRegistry, jvmRegistry))
+          _ <- r.report()
+        } yield (new WookieeMetricsImpl(WookieeRegistry(metricRegistry, jvmRegistry)), r)
+      } { case (_, reporter) => reporter.stop() }
+      .map(_._1)
   }
 
-  def noOpRegister(): IO[WookieeMetrics[IO]] = IO(new WookieeMetricsNoOpImpl())
+  def noOpRegister(): Resource[IO, WookieeMetrics[IO]] = Resource.liftF(IO(new WookieeMetricsNoOpImpl()))
 
   private def registerJvmMetrics(jvmRegistry: MetricRegistry): IO[Unit] =
-    IO.delay {
+    IO {
       {
         val gc = new GarbageCollectorMetricSet()
         val bufferPoolMetricSet = new BufferPoolMetricSet(ManagementFactory.getPlatformMBeanServer)

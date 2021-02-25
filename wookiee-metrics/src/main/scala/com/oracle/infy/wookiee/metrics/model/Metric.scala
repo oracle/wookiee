@@ -31,8 +31,8 @@ case class Timer(timer: IO[DWTimer]) extends Metric {
 object Timer {
 
   def apply(name: String, registry: MetricRegistry): IO[Timer] = {
-    IO.pure(
-      Timer(IO.delay(registry.timer(name)))
+    IO(
+      Timer(IO(registry.timer(name)))
     )
   }
 }
@@ -47,7 +47,7 @@ case class Counter(counter: IO[DWCounter]) extends Metric {
 object Counter {
 
   def apply(name: String, registry: MetricRegistry): IO[Counter] = {
-    IO.pure(Counter(IO.delay(registry.counter(name))))
+    IO(Counter(IO(registry.counter(name))))
   }
 }
 
@@ -68,7 +68,7 @@ case class Meter(meter: IO[DWMeter]) extends Metric {
 object Meter {
 
   def apply(name: String, registry: MetricRegistry): IO[Meter] = {
-    IO.pure(Meter(IO.delay(registry.meter(name))))
+    IO(Meter(IO(registry.meter(name))))
   }
 }
 
@@ -81,7 +81,7 @@ object Histogram {
 
   def apply(name: String, registry: MetricRegistry, biased: Boolean): IO[Histogram] = {
 
-    val histogram = IO.delay(registry.getHistograms(MetricFilter.startsWith(name)).values().asScala.headOption match {
+    val histogram = IO(registry.getHistograms(MetricFilter.startsWith(name)).values().asScala.headOption match {
       case Some(h) => h
       case None =>
         if (biased) {
@@ -90,7 +90,7 @@ object Histogram {
           registry.register(name, new DWHistogram(new UniformReservoir()))
         }
     })
-    IO.pure(Histogram(histogram))
+    IO(Histogram(histogram))
   }
 }
 
@@ -102,10 +102,10 @@ object Gauge {
 
   def apply[A](name: String, registry: MetricRegistry, f: () => A): IO[Gauge[A]] = {
     val gauge: IO[DWGauge[A]] =
-      IO.delay(registry.register(name, new DWGauge[A]() {
+      IO(registry.register(name, new DWGauge[A]() {
         override def getValue: A = f()
       }))
-    IO.pure(Gauge[A](gauge))
+    IO(Gauge[A](gauge))
 
   }
 }

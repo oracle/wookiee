@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.metrics.impl
 
 import cats.effect.IO
 import com.codahale.metrics.{Metric, MetricRegistry}
-import com.oracle.infy.wookiee.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
+import com.oracle.infy.wookiee.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.metrics.json.Serde
 import com.oracle.infy.wookiee.metrics.model._
 import io.circe.Json
@@ -11,9 +11,7 @@ import io.circe.syntax._
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
-class WookieeMetricsImpl(registry: WookieeRegistry, reporter: WookieeMetricsReporter[IO])
-    extends WookieeMetrics[IO]
-    with Serde {
+class WookieeMetricsImpl(registry: WookieeRegistry) extends WookieeMetrics[IO] with Serde {
 
   override def timer(name: String): IO[Timer] = Timer(name, registry.metricRegistry)
 
@@ -24,12 +22,18 @@ class WookieeMetricsImpl(registry: WookieeRegistry, reporter: WookieeMetricsRepo
   override def histogram(name: String, biased: Boolean): IO[Histogram] =
     Histogram(name, registry.metricRegistry, biased)
 
-  override def gauge[A](name: String, f:() => A): IO[Gauge[A]] = Gauge(name, registry.metricRegistry, f)
+  override def gauge[A](name: String, f: () => A): IO[Gauge[A]] = Gauge(name, registry.metricRegistry, f)
 
-  override def remove(name: String): IO[Boolean] = IO.delay(registry.metricRegistry.remove(name))
+  override def time[A](name: String)(inner: IO[A]): IO[A] =
+    for {
+      timer <- timer(name)
+      result <- timer.time()(inner)
+    } yield result
+
+  override def remove(name: String): IO[Boolean] = IO(registry.metricRegistry.remove(name))
 
   def getMetrics: IO[Json] = {
-    IO.delay(
+    IO(
       Json
         .obj(
           (
@@ -42,11 +46,6 @@ class WookieeMetricsImpl(registry: WookieeRegistry, reporter: WookieeMetricsRepo
         )
     )
   }
-
-  override def stopReports(): IO[Unit] =
-    for {
-      _ <- reporter.stop()
-    } yield ()
 
   private def processJvmRegistry(jvmRegistry: MetricRegistry): Map[String, mutable.Map[String, Metric]] = {
     jvmRegistry

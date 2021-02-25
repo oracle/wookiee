@@ -33,18 +33,21 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
 
     val health = Health(Normal, "Thunderbirds are GO", Map("ZK" -> Health(Critical, "no host found")))
     val response: IO[Response[IO]] = HeathCheckServer
-      .healthCheckRoutes(() => IO(health)).orNotFound
+      .healthCheckRoutes(() => IO(health))
+      .orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck")
       )
     val lbResponse: IO[Response[IO]] = HeathCheckServer
-      .healthCheckRoutes(() => IO(health)).orNotFound
+      .healthCheckRoutes(() => IO(health))
+      .orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck/lb")
       )
 
     val nagiosResponse: IO[Response[IO]] = HeathCheckServer
-      .healthCheckRoutes(() => IO(health)).orNotFound
+      .healthCheckRoutes(() => IO(health))
+      .orNotFound
       .run(
         Request(method = Method.GET, uri = uri"/healthcheck/nagios")
       )

@@ -7,6 +7,8 @@ trait WookieeMetrics[F[_]] {
 
   def timer(name: String): F[Timer]
 
+  def time[A](name: String)(inner: F[A]): F[A]
+
   def counter(name: String): F[Counter]
 
   def meter(name: String): F[Meter]
@@ -18,7 +20,5 @@ trait WookieeMetrics[F[_]] {
   def remove(name: String): F[Boolean]
 
   def getMetrics: F[Json]
-
-  def stopReports(): F[Unit]
 
 }

@@ -1,7 +1,14 @@
 package com.oracle.infy.wookiee.metrics.impl
 
 import cats.effect.IO
-import com.codahale.metrics.{UniformReservoir, Counter => DWCounter, Gauge => DWGauge, Histogram => DWHistogram, Meter => DWMeter, Timer => DWTimer}
+import com.codahale.metrics.{
+  UniformReservoir,
+  Counter => DWCounter,
+  Gauge => DWGauge,
+  Histogram => DWHistogram,
+  Meter => DWMeter,
+  Timer => DWTimer
+}
 import com.oracle.infy.wookiee.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.metrics.model._
 import io.circe.Json
@@ -52,9 +59,12 @@ class WookieeMetricsNoOpImpl() extends WookieeMetrics[IO] {
       override def getValue: A = f()
     })))
 
-  override def remove(name: String): IO[Boolean] = IO.pure(true)
+  override def time[A](name: String)(inner: IO[A]): IO[A] =
+    for {
+      result <- inner
+    } yield result
 
-  override def stopReports(): IO[Unit] = IO.unit
+  override def remove(name: String): IO[Boolean] = IO(true)
 
   def getMetrics: IO[Json] = IO(Json.Null)
 
