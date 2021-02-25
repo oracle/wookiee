@@ -16,7 +16,7 @@ object UnitTestConstable extends ConstableCommon {
       runTestsAsync(
         List(
           (MetricsTest.tests(), "UnitTest - metrics test"),
-            (MetricsServiceTest.tests(), "UnitTest - service test")
+          (MetricsServiceTest.tests(), "UnitTest - service test")
         )
       )
     )

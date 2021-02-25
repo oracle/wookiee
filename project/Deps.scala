@@ -17,6 +17,7 @@ object Deps {
     val slf4jImplVersion = "2.13.3"
     val scalaCollectionCompatVersion = "2.1.6"
     val http4sVersion = "0.21.4"
+    val dropwizardMetricsVersion = "4.1.17"
   }
 
   object build {

@@ -133,11 +133,11 @@ lazy val `wookiee-metrics` = project
   .settings(commonSettings: _*)
   .settings(
     libraryDependencies ++= Seq(
-      "io.dropwizard.metrics" % "metrics-core" % "4.1.17",
-      "io.dropwizard.metrics" % "metrics-json" % "4.1.17",
-      "io.dropwizard.metrics" % "metrics-jvm" % "4.1.17",
-      "io.dropwizard.metrics" % "metrics-graphite" % "4.1.17",
-      "io.dropwizard.metrics" % "metrics-jmx" % "4.1.17",
+      "io.dropwizard.metrics" % "metrics-core" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-json" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-jvm" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-graphite" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-jmx" % Deps.versions.dropwizardMetricsVersion,
       Deps.build.circeCore,
       Deps.build.circeGeneric,
       Deps.build.circeParser

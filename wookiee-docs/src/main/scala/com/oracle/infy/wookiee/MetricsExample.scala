@@ -14,7 +14,7 @@ object MetricsExample extends IOApp {
   override def run(args: List[String]): IO[ExitCode] = {
 
     // This is reporter implementation to dump metrics data into console
-    def consoleReport(wookieeRegistry: WookieeRegistry): IO[WookieeMetricsReporter[IO]] =
+    val consoleReporter = (wookieeRegistry: WookieeRegistry) =>
       IO(new WookieeMetricsReporter[IO]() {
         val consoleReport: ConsoleReporter = ConsoleReporter
           .forRegistry(wookieeRegistry.metricRegistry)
@@ -30,15 +30,15 @@ object MetricsExample extends IOApp {
         _ <- IO.sleep(3.seconds)
       } yield msg
 
-    // Register with a reporter implementation(graphite/sl4J/JMX) to pump the metrics data into targeted consumer
+    // Register metric service with a reporter(graphite/sl4J/JMX/..) to pump the metrics data into target consumer
     WookieeMetricsService
-      .register(consoleReport)
+      .register(consoleReporter)
       .use(
         metrics =>
           for {
-            _ <- metrics.time("timer")(foo("bar"))
             t <- metrics.timer("timer")
             _ <- t.update(1000, TimeUnit.NANOSECONDS)
+            _ <- metrics.time("timer")(foo("bar"))
             c <- metrics.counter("counter")
             _ <- c.inc(2)
             m <- metrics.meter("meter")
