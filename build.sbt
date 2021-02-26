@@ -128,6 +128,25 @@ lazy val `wookiee-health` = project
   .dependsOn(`wookiee-http`)
   .aggregate(`wookiee-http`)
 
+lazy val `wookiee-metrics` = project
+  .in(file("wookiee-metrics"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Seq(
+      "io.dropwizard.metrics" % "metrics-core" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-json" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-jvm" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-graphite" % Deps.versions.dropwizardMetricsVersion,
+      "io.dropwizard.metrics" % "metrics-jmx" % Deps.versions.dropwizardMetricsVersion,
+      Deps.build.circeCore,
+      Deps.build.circeGeneric,
+      Deps.build.circeParser
+
+    )
+  )
+  .dependsOn(`wookiee-core`)
+  .aggregate(`wookiee-core`)
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -152,7 +171,8 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
-    `wookiee-health`
+    `wookiee-health`,
+    `wookiee-metrics`
   )
   .aggregate(
     `wookiee-core`,
@@ -160,7 +180,8 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
-    `wookiee-health`
+    `wookiee-health`,
+    `wookiee-metrics`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
@@ -189,7 +210,8 @@ lazy val `wookiee-docs` = project
       "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString),
+      "METRICSEXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/MetricsExample.scala", _.drop(2).mkString)
     )
   )
   .settings(

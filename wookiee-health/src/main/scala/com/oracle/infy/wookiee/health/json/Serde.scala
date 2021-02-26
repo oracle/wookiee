@@ -13,7 +13,7 @@ trait Serde {
   implicit def healthEncoder: Encoder[Health] = deriveEncoder[Health]
   implicit def healthDecoder: Decoder[Health] = deriveDecoder[Health]
 
-  implicit def statusEncoder: Encoder[State] = Encoder.instance { state: State =>
+  implicit def stateEncoder: Encoder[State] = Encoder.instance { state: State =>
     s"""${state.toStr}""".asJson
   }
 
