@@ -69,7 +69,7 @@ object MetricsTest extends UTestScalaCheck {
         gauge <- wookieeMetrics.gauge(gaugeName, () => "foo")
         gValue <- gauge.getValue
       } yield {
-        registry.getGauges.containsKey(gaugeName) && gValue == "foo"
+        registry.getGauges.containsKey(gaugeName) && gValue === "foo"
       }).unsafeToFuture()
     }
 
