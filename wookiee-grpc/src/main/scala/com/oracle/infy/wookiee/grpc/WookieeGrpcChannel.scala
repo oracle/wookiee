@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.settings.ChannelSettings
+import com.oracle.infy.wookiee.health.model.{Degraded, Critical, Health, Normal}
 import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
@@ -33,6 +34,17 @@ final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
     }))
   }
 
+  def getHealth(): IO[Health] = {
+    //TODO check to see if the managed channel has any discovered hosts
+    // Then create the Health object according to the results
+    IO {
+      managedChannel.getState(true) match { //TODO this is just looking at the state of the managedChannel, not ensuring
+        case ConnectivityState.READY => Health(Normal, "Good to go") //TODO Fix up status messaging after POC
+        case ConnectivityState.CONNECTING => Health(Degraded, "Not quite right")
+        case _ => Health(Critical, "gRPC Channel not in Ready state")
+      }
+    }
+  }
 }
 
 object WookieeGrpcChannel {

@@ -6,18 +6,13 @@ import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
-import com.oracle.infy.wookiee.grpc.errors.Errors.{
-  UnknownCuratorShutdownError,
-  UnknownHostStreamError,
-  UnknownShutdownError,
-  WookieeGrpcError
-}
+import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownCuratorShutdownError, UnknownHostStreamError, UnknownShutdownError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
-import fs2._
 import io.chrisdavenport.log4cats.Logger
+import fs2._
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
 

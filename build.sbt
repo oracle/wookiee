@@ -96,8 +96,8 @@ lazy val `wookiee-grpc` = project
   .settings(
     libraryDependencies ++= Deps.build.all
   )
-  .dependsOn(`wookiee-core`)
-  .aggregate(`wookiee-core`)
+  .dependsOn(`wookiee-health`)
+  .aggregate(`wookiee-health`)
 
 lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
