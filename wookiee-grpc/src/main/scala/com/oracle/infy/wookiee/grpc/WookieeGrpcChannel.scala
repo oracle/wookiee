@@ -144,14 +144,14 @@ object WookieeGrpcChannel {
       .offloadExecutor(offloadExecutorJava)
 
     if (sslClientSettings.nonEmpty) {
-      logger.info("gRPC client using mTLS to establish connections.")
+      logger.info("gRPC client using mTLS to establish connections for ["+path+"].")
       builder
         .negotiationType(NegotiationType.TLS)
         .sslContext(buildSslContext(sslClientSettings.get))
     }
 
     if (authClientSettings.nonEmpty) {
-      logger.info("gRPC client using bearer token authentication.")
+      logger.info("gRPC client using bearer token authentication for ["+path+"].")
       builder.intercept(BearerTokenClientProvider(authClientSettings.get))
     }
 
