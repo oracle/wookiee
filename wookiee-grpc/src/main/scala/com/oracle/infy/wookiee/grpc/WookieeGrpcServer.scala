@@ -1,17 +1,21 @@
 package com.oracle.infy.wookiee.grpc
 
+import java.io.File
+import java.nio.file.Paths
+
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
+import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.settings.ServerSettings
+import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-import fs2.Stream
 import fs2.concurrent.Queue
 import io.chrisdavenport.log4cats.Logger
-import io.grpc.Server
-import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
+import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
+import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslContextBuilder, SslProvider}
+import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
@@ -80,12 +84,25 @@ object WookieeGrpcServer {
         val builder = NettyServerBuilder
           .forPort(host.port)
           .channelFactory(() => new NioServerSocketChannel())
+
+        if (serverSettings.sslServerSettings.nonEmpty) {
+          builder.sslContext(getSslContextBuilder(serverSettings.sslServerSettings.get))
+        }
+
+        builder
           .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
           .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
           .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
 
         serverSettings.serverServiceDefinitions.map { service =>
-          builder.addService(service)
+          val authSettings = serverSettings.authSettings.find(p => p.serviceName == service.getServiceDescriptor.getName)
+          if (authSettings.nonEmpty) {
+            logger.info("Adding gRPC service [" + authSettings.get.serviceName + "] with authentication enabled")
+            builder.addService(ServerInterceptors.intercept(service, BearerTokenAuthenticator(authSettings.get)))
+          } else {
+            logger.info("Adding gRPC service [" + service.getServiceDescriptor.getName + "]")
+            builder.addService(service)
+          }
         }
 
         builder.build()
@@ -117,6 +134,26 @@ object WookieeGrpcServer {
     )
   }
 
+  private def getSslContextBuilder(sslServerSettings: SSLServerSettings)(implicit logger: Logger[IO]): SslContext = {
+    val sslClientContextBuilder: SslContextBuilder = if (sslServerSettings.sslPassphrase.nonEmpty)
+      SslContextBuilder.forServer(new File(sslServerSettings.sslCertificateChainPath),
+        new File(sslServerSettings.sslPrivateKeyPath),
+        sslServerSettings.sslPassphrase.get)
+    else SslContextBuilder.forServer(
+      new File(sslServerSettings.sslCertificateChainPath),
+      new File(sslServerSettings.sslPrivateKeyPath))
+
+    val storePath = Paths.get(sslServerSettings.sslCertificateTrustPath).toFile
+    if (storePath.exists()) {
+      logger.info("gRPC server will require mTLS for client connections.")
+      sslClientContextBuilder.trustManager(storePath)
+      sslClientContextBuilder.clientAuth(ClientAuth.REQUIRE)
+    } else {
+      logger.info("gRPC server has TLS enabled.")
+    }
+    GrpcSslContexts.configure(sslClientContextBuilder, SslProvider.OPENSSL).build()
+  }
+
   private def streamLoads(
       queue: Queue[IO, Int],
       host: Host,
@@ -124,8 +161,8 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
-    val stream: Stream[IO, Int] = queue.dequeue
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]) = {
+    val stream = queue.dequeue
     stream
       .debounce(serverSettings.loadUpdateInterval)
       .evalTap { load: Int =>

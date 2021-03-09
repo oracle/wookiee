@@ -17,6 +17,8 @@ final case class ServerSettings(
     discoveryPath: String,
     serverServiceDefinitions: NonEmptyList[ServerServiceDefinition],
     host: IO[Host],
+    sslServerSettings: Option[SSLServerSettings],
+    authSettings: List[ServiceAuthSettings],
     bossExecutionContext: ExecutionContext,
     workerExecutionContext: ExecutionContext,
     applicationExecutionContext: ExecutionContext,
@@ -25,7 +27,19 @@ final case class ServerSettings(
     loadUpdateInterval: FiniteDuration,
     queue: IO[Queue[IO, Int]],
     quarantined: IO[Ref[IO, Boolean]],
-    curatorFramework: CuratorFramework
+    curatorFramework: CuratorFramework,
+)
+
+final case class SSLServerSettings(
+    sslCertificateChainPath: String,
+    sslPrivateKeyPath: String,
+    sslPassphrase: Option[String],
+    sslCertificateTrustPath: String
+)
+
+final case class ServiceAuthSettings(
+    serviceName: String,
+    token: String
 )
 
 object ServerSettings {
@@ -34,6 +48,8 @@ object ServerSettings {
       discoveryPath: String,
       serverServiceDefinition: ServerServiceDefinition,
       host: Host,
+      sslServerSettings: Option[SSLServerSettings],
+      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -44,6 +60,8 @@ object ServerSettings {
     apply(
       discoveryPath,
       host,
+      sslServerSettings,
+      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
@@ -58,6 +76,8 @@ object ServerSettings {
       discoveryPath: String,
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
+      sslServerSettings: Option[SSLServerSettings],
+      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -68,6 +88,8 @@ object ServerSettings {
     apply(
       discoveryPath,
       port,
+      sslServerSettings,
+      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
@@ -82,6 +104,8 @@ object ServerSettings {
   def apply(
       discoveryPath: String,
       host: Host,
+      sslServerSettings: Option[SSLServerSettings],
+      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -95,6 +119,8 @@ object ServerSettings {
       discoveryPath,
       NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
       IO(host),
+      sslServerSettings,
+      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
@@ -110,6 +136,8 @@ object ServerSettings {
   def apply(
       discoveryPath: String,
       port: Int,
+      sslServerSettings: Option[SSLServerSettings],
+      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -131,6 +159,8 @@ object ServerSettings {
       discoveryPath = discoveryPath,
       serverServiceDefinitions = NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
       host = host,
+      sslServerSettings = sslServerSettings,
+      authSettings,
       bossExecutionContext = bossExecutionContext,
       workerExecutionContext = workerExecutionContext,
       applicationExecutionContext = applicationExecutionContext,

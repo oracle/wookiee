@@ -12,5 +12,18 @@ final case class ChannelSettings(
     offloadExecutionContext: ExecutionContext,
     eventLoopGroupExecutionContextThreads: Int,
     lbPolicy: LoadBalancingPolicy,
-    curatorFramework: CuratorFramework
+    curatorFramework: CuratorFramework,
+    sslClientSettings: Option[SSLClientSettings] = None,
+    clientAuthSettings: Option[ClientAuthSettings] = None
+)
+
+final case class SSLClientSettings(
+    sslCertificateChainPath: String,
+    sslPrivateKeyPath: String,
+    sslPassphrase: Option[String],
+    sslCertificateTrustPath: String
+)
+
+final case class ClientAuthSettings(
+    token: String
 )

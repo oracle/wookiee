@@ -89,6 +89,8 @@ object Example {
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
       host = Host(0, "localhost", 9091, HostMetadata(0, quarantined = false)),
+      sslServerSettings = None,
+      authSettings = List.empty,
       bossExecutionContext = mainEC,
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,

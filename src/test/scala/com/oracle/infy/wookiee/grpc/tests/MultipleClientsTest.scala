@@ -110,6 +110,8 @@ object MultipleClientsTest extends UTestScalaCheck {
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
         host = Host(0, "localhost", 9097, HostMetadata(0, quarantined = false)),
+        sslServerSettings = None,
+        authSettings = List.empty,
         bossExecutionContext = mainEC1,
         workerExecutionContext = mainEC1,
         applicationExecutionContext = mainEC1,
@@ -124,6 +126,8 @@ object MultipleClientsTest extends UTestScalaCheck {
         // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
         // If you are running this locally, its better to explicitly set the hostname
         host = Host(0, "localhost", 9096, HostMetadata(0, quarantined = false)),
+        sslServerSettings = None,
+        authSettings = List.empty,
         bossExecutionContext = mainEC2,
         workerExecutionContext = mainEC2,
         applicationExecutionContext = mainEC2,
