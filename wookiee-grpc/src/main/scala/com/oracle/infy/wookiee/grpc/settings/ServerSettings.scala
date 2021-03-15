@@ -1,24 +1,22 @@
 package com.oracle.infy.wookiee.grpc.settings
 
+import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
+
 import java.net.InetAddress
-
-import cats.data.NonEmptyList
-
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
 final case class ServerSettings(
     discoveryPath: String,
-    serverServiceDefinitions: NonEmptyList[ServerServiceDefinition],
+    serverServiceDefinitions: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings])],
     host: IO[Host],
     sslServerSettings: Option[SSLServerSettings],
-    authSettings: List[ServiceAuthSettings],
     bossExecutionContext: ExecutionContext,
     workerExecutionContext: ExecutionContext,
     applicationExecutionContext: ExecutionContext,
@@ -27,19 +25,7 @@ final case class ServerSettings(
     loadUpdateInterval: FiniteDuration,
     queue: IO[Queue[IO, Int]],
     quarantined: IO[Ref[IO, Boolean]],
-    curatorFramework: CuratorFramework,
-)
-
-final case class SSLServerSettings(
-    sslCertificateChainPath: String,
-    sslPrivateKeyPath: String,
-    sslPassphrase: Option[String],
-    sslCertificateTrustPath: String
-)
-
-final case class ServiceAuthSettings(
-    serviceName: String,
-    token: String
+    curatorFramework: CuratorFramework
 )
 
 object ServerSettings {
@@ -49,7 +35,7 @@ object ServerSettings {
       serverServiceDefinition: ServerServiceDefinition,
       host: Host,
       sslServerSettings: Option[SSLServerSettings],
-      authSettings: List[ServiceAuthSettings],
+      authSettings: Option[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -61,14 +47,13 @@ object ServerSettings {
       discoveryPath,
       host,
       sslServerSettings,
-      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
       bossThreads,
       workerThreads,
       curatorFramework,
-      serverServiceDefinition
+      (serverServiceDefinition, authSettings)
     )
   }
 
@@ -77,7 +62,7 @@ object ServerSettings {
       serverServiceDefinition: ServerServiceDefinition,
       port: Int,
       sslServerSettings: Option[SSLServerSettings],
-      authSettings: List[ServiceAuthSettings],
+      authSettings: Option[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
@@ -89,14 +74,13 @@ object ServerSettings {
       discoveryPath,
       port,
       sslServerSettings,
-      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
       bossThreads,
       workerThreads,
       curatorFramework,
-      serverServiceDefinition
+      (serverServiceDefinition, authSettings)
     )
   }
 
@@ -105,22 +89,20 @@ object ServerSettings {
       discoveryPath: String,
       host: Host,
       sslServerSettings: Option[SSLServerSettings],
-      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework,
-      firstServiceDefinition: ServerServiceDefinition,
-      addtnlServiceDefinition: ServerServiceDefinition*
+      serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
+      otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
   )(implicit cs: ContextShift[IO]): ServerSettings = {
     ServerSettings(
       discoveryPath,
-      NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
+      NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
       IO(host),
       sslServerSettings,
-      authSettings,
       bossExecutionContext,
       workerExecutionContext,
       applicationExecutionContext,
@@ -137,15 +119,14 @@ object ServerSettings {
       discoveryPath: String,
       port: Int,
       sslServerSettings: Option[SSLServerSettings],
-      authSettings: List[ServiceAuthSettings],
       bossExecutionContext: ExecutionContext,
       workerExecutionContext: ExecutionContext,
       applicationExecutionContext: ExecutionContext,
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework,
-      firstServiceDefinition: ServerServiceDefinition,
-      addtnlServiceDefinition: ServerServiceDefinition*
+      serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
+      otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
   )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val host = {
       for {
@@ -157,10 +138,9 @@ object ServerSettings {
     }
     ServerSettings(
       discoveryPath = discoveryPath,
-      serverServiceDefinitions = NonEmptyList(firstServiceDefinition, addtnlServiceDefinition.toList),
+      serverServiceDefinitions = NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
       host = host,
       sslServerSettings = sslServerSettings,
-      authSettings,
       bossExecutionContext = bossExecutionContext,
       workerExecutionContext = workerExecutionContext,
       applicationExecutionContext = applicationExecutionContext,

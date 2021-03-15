@@ -7,7 +7,7 @@ import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, GrpcLoadBalanceTest, MultipleClientsTest}
+import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, GrpcLoadBalanceTest, GrpcMultipleClientsTest, GrpcTLSAuthTest}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
@@ -101,7 +101,8 @@ object IntegrationConstable extends ConstableCommon {
       List(
         (grpcTests, "Integration - GrpcTest"),
         (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"),
-        (MultipleClientsTest.multipleClientTest, "Integration - MultipleClientTest")
+        (GrpcMultipleClientsTest.multipleClientTest, "Integration - MultipleClientTest"),
+        (GrpcTLSAuthTest.tests, "Integration - GrpcTLSAuthTest")
       )
     )
     curator.close()

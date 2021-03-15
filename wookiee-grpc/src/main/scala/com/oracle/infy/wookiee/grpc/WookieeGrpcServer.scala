@@ -1,8 +1,5 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.io.File
-import java.nio.file.Paths
-
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
@@ -19,6 +16,8 @@ import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
+import java.io.File
+import java.nio.file.Paths
 import scala.util.Try
 
 final class WookieeGrpcServer(
@@ -80,33 +79,7 @@ object WookieeGrpcServer {
   ): IO[WookieeGrpcServer] = {
     for {
       host <- serverSettings.host
-      server <- cs.blockOn(blocker)(IO {
-        val builder = NettyServerBuilder
-          .forPort(host.port)
-          .channelFactory(() => new NioServerSocketChannel())
-
-        if (serverSettings.sslServerSettings.nonEmpty) {
-          builder.sslContext(getSslContextBuilder(serverSettings.sslServerSettings.get))
-        }
-
-        builder
-          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
-          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
-
-        serverSettings.serverServiceDefinitions.map { service =>
-          val authSettings = serverSettings.authSettings.find(p => p.serviceName == service.getServiceDescriptor.getName)
-          if (authSettings.nonEmpty) {
-            logger.info("Adding gRPC service [" + authSettings.get.serviceName + "] with authentication enabled")
-            builder.addService(ServerInterceptors.intercept(service, BearerTokenAuthenticator(authSettings.get)))
-          } else {
-            logger.info("Adding gRPC service [" + service.getServiceDescriptor.getName + "]")
-            builder.addService(service)
-          }
-        }
-
-        builder.build()
-      })
+      server <- cs.blockOn(blocker)(buildServer(serverSettings, host))
       _ <- cs.blockOn(blocker)(IO { server.start() })
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
@@ -134,24 +107,106 @@ object WookieeGrpcServer {
     )
   }
 
-  private def getSslContextBuilder(sslServerSettings: SSLServerSettings)(implicit logger: Logger[IO]): SslContext = {
-    val sslClientContextBuilder: SslContextBuilder = if (sslServerSettings.sslPassphrase.nonEmpty)
-      SslContextBuilder.forServer(new File(sslServerSettings.sslCertificateChainPath),
-        new File(sslServerSettings.sslPrivateKeyPath),
-        sslServerSettings.sslPassphrase.get)
-    else SslContextBuilder.forServer(
-      new File(sslServerSettings.sslCertificateChainPath),
-      new File(sslServerSettings.sslPrivateKeyPath))
+  private def buildServer(serverSettings: ServerSettings, host: Host)(implicit logger: Logger[IO]): IO[Server] = {
+    for {
+      _ <- logger.info("Building gRPC server...")
+      builder0 = NettyServerBuilder
+        .forPort(host.port)
+        .channelFactory(() => new NioServerSocketChannel())
 
-    val storePath = Paths.get(sslServerSettings.sslCertificateTrustPath).toFile
-    if (storePath.exists()) {
-      logger.info("gRPC server will require mTLS for client connections.")
-      sslClientContextBuilder.trustManager(storePath)
-      sslClientContextBuilder.clientAuth(ClientAuth.REQUIRE)
-    } else {
-      logger.info("gRPC server has TLS enabled.")
-    }
-    GrpcSslContexts.configure(sslClientContextBuilder, SslProvider.OPENSSL).build()
+      builder1 <- serverSettings
+        .sslServerSettings
+        .map(getSslContextBuilder)
+        .map(_.map(sslCtx => builder0.sslContext(sslCtx)))
+        .getOrElse(IO(builder0))
+
+      builder2 = IO {
+        builder1
+          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
+          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
+          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
+      }
+
+      builder3 <- serverSettings
+        .serverServiceDefinitions
+        .foldLeft(builder2) {
+          case (builderIO, (serverServiceDefinition, maybeAuth)) =>
+            maybeAuth
+              .map { authSettings =>
+                logger
+                  .info(
+                    s"Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] with authentication"
+                  )
+                  .*>(builderIO)
+                  .map { builder =>
+                    builder.addService(
+                      ServerInterceptors.intercept(serverServiceDefinition, BearerTokenAuthenticator(authSettings))
+                    )
+                  }
+              }
+              .getOrElse(
+                logger
+                  .info(
+                    s"Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] without authentication"
+                  )
+                  .*>(builderIO)
+                  .map { builder =>
+                    builder.addService(serverServiceDefinition)
+                  }
+              )
+        }
+
+      _ <- logger.info("Successfully built gRPC server")
+      server <- IO { builder3.build() }
+
+    } yield server
+  }
+
+  private def getSslContextBuilder(
+      sslServerSettings: SSLServerSettings
+  )(implicit logger: Logger[IO]): IO[SslContext] = {
+
+    for {
+
+      sslClientContextBuilder0 <- IO {
+        sslServerSettings
+          .sslPassphrase
+          .map { passphrase =>
+            SslContextBuilder.forServer(
+              new File(sslServerSettings.sslCertificateChainPath),
+              new File(sslServerSettings.sslPrivateKeyPath),
+              passphrase
+            )
+          }
+          .getOrElse(
+            SslContextBuilder.forServer(
+              new File(sslServerSettings.sslCertificateChainPath),
+              new File(sslServerSettings.sslPrivateKeyPath)
+            )
+          )
+      }
+
+      storeFile <- IO { Paths.get(sslServerSettings.sslCertificateTrustPath).toFile }
+      sslContextBuilder1 <- IO {
+        if (storeFile.exists()) {
+          logger
+            .info("gRPC server will require mTLS for client connections.")
+            .as(
+              sslClientContextBuilder0
+                .trustManager(storeFile)
+                .clientAuth(ClientAuth.REQUIRE)
+            )
+        } else {
+          logger
+            .info("gRPC server has TLS enabled.")
+            .as(sslClientContextBuilder0)
+        }
+      }.flatMap(identity)
+
+      sslContext <- IO {
+        GrpcSslContexts.configure(sslContextBuilder1, SslProvider.OPENSSL).build()
+      }
+    } yield sslContext
   }
 
   private def streamLoads(
@@ -161,7 +216,7 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]) = {
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
     val stream = queue.dequeue
     stream
       .debounce(serverSettings.loadUpdateInterval)

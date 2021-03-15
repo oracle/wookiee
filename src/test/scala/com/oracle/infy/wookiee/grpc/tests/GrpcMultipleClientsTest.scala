@@ -12,7 +12,6 @@ import com.oracle.infy.wookiee.myService2.MyService2Grpc.MyService2
 import com.oracle.infy.wookiee.myService2.{HelloRequest2, HelloResponse2, MyService2Grpc}
 import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
 import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer
@@ -22,13 +21,7 @@ import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.{ExecutionContext, Future}
 
-object MultipleClientsTest extends UTestScalaCheck {
-
-  // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
-  // We use cats-effect (https://typelevel.org/cats-effect/) internally.
-  // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
-  // When using `unsafe` methods, you are expected to handle any exceptions
-  implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+object GrpcMultipleClientsTest extends UTestScalaCheck {
 
   def multipleClientTest(
       implicit implicitEC: ExecutionContext,
@@ -111,7 +104,7 @@ object MultipleClientsTest extends UTestScalaCheck {
         // If you are running this locally, its better to explicitly set the hostname
         host = Host(0, "localhost", 9097, HostMetadata(0, quarantined = false)),
         sslServerSettings = None,
-        authSettings = List.empty,
+        authSettings = None,
         bossExecutionContext = mainEC1,
         workerExecutionContext = mainEC1,
         applicationExecutionContext = mainEC1,
@@ -127,7 +120,7 @@ object MultipleClientsTest extends UTestScalaCheck {
         // If you are running this locally, its better to explicitly set the hostname
         host = Host(0, "localhost", 9096, HostMetadata(0, quarantined = false)),
         sslServerSettings = None,
-        authSettings = List.empty,
+        authSettings = None,
         bossExecutionContext = mainEC2,
         workerExecutionContext = mainEC2,
         applicationExecutionContext = mainEC2,
@@ -147,7 +140,9 @@ object MultipleClientsTest extends UTestScalaCheck {
           offloadExecutionContext = blockingEC1,
           eventLoopGroupExecutionContextThreads = bossThreads,
           lbPolicy = RoundRobinPolicy,
-          curatorFramework = curator
+          curatorFramework = curator,
+          sslClientSettings = None,
+          clientAuthSettings = None
         )
       )
 
@@ -159,7 +154,9 @@ object MultipleClientsTest extends UTestScalaCheck {
           offloadExecutionContext = blockingEC2,
           eventLoopGroupExecutionContextThreads = bossThreads,
           lbPolicy = RoundRobinPolicy,
-          curatorFramework = curator
+          curatorFramework = curator,
+          sslClientSettings = None,
+          clientAuthSettings = None
         )
       )
 

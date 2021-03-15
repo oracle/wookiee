@@ -96,10 +96,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       val serverSettings: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinitions = NonEmptyList(ssd, Nil),
+        serverServiceDefinitions = NonEmptyList(ssd -> None, Nil),
         host = IO(host1),
         sslServerSettings = None,
-        authSettings = List.empty,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -117,10 +116,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinitions = NonEmptyList(ssd2, Nil),
+        serverServiceDefinitions = NonEmptyList(ssd2 -> None, Nil),
         host = IO(host2),
         sslServerSettings = None,
-        authSettings = List.empty,
         bossExecutionContext = blockingEC,
         workerExecutionContext = mainEC,
         applicationExecutionContext = mainEC,
@@ -144,7 +142,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
             offloadExecutionContext = blockingEC,
             eventLoopGroupExecutionContextThreads = bossThreads,
             lbPolicy = RoundRobinWeightedPolicy,
-            curatorFramework = curator
+            curatorFramework = curator,
+            sslClientSettings = None,
+            clientAuthSettings = None
           )
         )
         .unsafeRunSync()
@@ -233,7 +233,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
               serverServiceDefinition = ssd3,
               host = host3,
               sslServerSettings = None,
-              authSettings = List.empty,
+              authSettings = None,
               bossExecutionContext = blockingEC,
               workerExecutionContext = mainEC,
               applicationExecutionContext = mainEC,
