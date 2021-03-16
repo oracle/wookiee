@@ -391,8 +391,22 @@ trait SrcGen {
       classPackage: String,
       serviceName: String
   ): String = {
+    genServices(
+      List((serviceName, rpcs)),
+      records,
+      sealedTypeLookup,
+      classPackage
+    )
+  }
 
-    val rpcStr = rpcs
+  def genServices(
+      services: List[(String, List[(Type, String)])],
+      records: List[Record],
+      sealedTypeLookup: Set[String],
+      classPackage: String
+  ): String = {
+
+    def rpcStr(rpcs: List[(Type, String)]) = rpcs
       .map {
         case (t, name) =>
           t.typeArgs.map(_.typeSymbol.name.toString) match {
@@ -408,15 +422,22 @@ trait SrcGen {
       }
       .mkString("\n")
 
+    def serviceStr(serviceName: String, rpcs: List[(Type, String)]): String = {
+      s"""
+        |service $serviceName {
+        |${rpcStr(rpcs)}
+        |}
+        |""".stripMargin
+    }
+
     s"""
        |// NOTE: This code is generated. DO NOT EDIT!!
        |syntax = "proto3";
        |
        |package $classPackage;
        |
-       |service $serviceName {
-       |$rpcStr
-       |}
+       |${services.map{ case(serviceName, rpcs) => serviceStr(serviceName, rpcs)}.mkString("\n") }
+       |
        |${genProto(records, sealedTypeLookup)}
        |""".stripMargin
   }
