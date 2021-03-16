@@ -406,21 +406,22 @@ trait SrcGen {
       classPackage: String
   ): String = {
 
-    def rpcStr(rpcs: List[(Type, String)]) = rpcs
-      .map {
-        case (t, name) =>
-          t.typeArgs.map(_.typeSymbol.name.toString) match {
-            case input :: output :: Nil => RPC(name, input, output)
-            case _                      => RPC(name, "CodeGenErr", "CodeGenErr")
-          }
-      }
-      .map {
-        case RPC(name, input, output) =>
-          s"""
+    def rpcStr(rpcs: List[(Type, String)]) =
+      rpcs
+        .map {
+          case (t, name) =>
+            t.typeArgs.map(_.typeSymbol.name.toString) match {
+              case input :: output :: Nil => RPC(name, input, output)
+              case _                      => RPC(name, "CodeGenErr", "CodeGenErr")
+            }
+        }
+        .map {
+          case RPC(name, input, output) =>
+            s"""
              |  // DO NOT EDIT! (this code is generated)
              |  rpc $name($prefix$input) returns ($prefix$output) {}""".stripMargin
-      }
-      .mkString("\n")
+        }
+        .mkString("\n")
 
     def serviceStr(serviceName: String, rpcs: List[(Type, String)]): String = {
       s"""
@@ -436,7 +437,7 @@ trait SrcGen {
        |
        |package $classPackage;
        |
-       |${services.map{ case(serviceName, rpcs) => serviceStr(serviceName, rpcs)}.mkString("\n") }
+       |${services.map { case (serviceName, rpcs) => serviceStr(serviceName, rpcs) }.mkString("\n")}
        |
        |${genProto(records, sealedTypeLookup)}
        |""".stripMargin
