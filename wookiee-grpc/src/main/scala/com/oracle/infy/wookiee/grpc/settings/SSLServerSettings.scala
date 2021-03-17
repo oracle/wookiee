@@ -4,5 +4,5 @@ final case class SSLServerSettings(
     sslCertificateChainPath: String,
     sslPrivateKeyPath: String,
     sslPassphrase: Option[String],
-    sslCertificateTrustPath: String
+    sslCertificateTrustPath: Option[String]
 )

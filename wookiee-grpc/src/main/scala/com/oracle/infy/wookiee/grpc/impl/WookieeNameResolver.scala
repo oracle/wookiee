@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc.impl
 
-import java.net.InetSocketAddress
-
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
@@ -15,18 +13,19 @@ import fs2._
 import io.chrisdavenport.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
 
+import java.net.InetSocketAddress
+
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
     semaphore: Semaphore[IO],
     fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
     hostNameService: HostnameServiceContract[IO, Stream],
-    discoveryPath: String
+    discoveryPath: String,
+    serviceAuthority: String
 )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends NameResolver {
 
-  override def getServiceAuthority: String = {
-    "zk"
-  }
+  override def getServiceAuthority: String = serviceAuthority
 
   override def shutdown(): Unit = {
     val computation = for {

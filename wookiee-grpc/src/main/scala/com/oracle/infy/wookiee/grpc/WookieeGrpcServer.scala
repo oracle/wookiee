@@ -17,7 +17,6 @@ import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
 import java.io.File
-import java.nio.file.Paths
 import scala.util.Try
 
 final class WookieeGrpcServer(
@@ -186,22 +185,22 @@ object WookieeGrpcServer {
           )
       }
 
-      storeFile <- IO { Paths.get(sslServerSettings.sslCertificateTrustPath).toFile }
-      sslContextBuilder1 <- IO {
-        if (storeFile.exists()) {
+      sslContextBuilder1 <- sslServerSettings
+        .sslCertificateTrustPath
+        .map { path =>
           logger
             .info("gRPC server will require mTLS for client connections.")
             .as(
               sslClientContextBuilder0
-                .trustManager(storeFile)
+                .trustManager(new File(path))
                 .clientAuth(ClientAuth.REQUIRE)
             )
-        } else {
+        }
+        .getOrElse(
           logger
             .info("gRPC server has TLS enabled.")
             .as(sslClientContextBuilder0)
-        }
-      }.flatMap(identity)
+        )
 
       sslContext <- IO {
         GrpcSslContexts.configure(sslContextBuilder1, SslProvider.OPENSSL).build()

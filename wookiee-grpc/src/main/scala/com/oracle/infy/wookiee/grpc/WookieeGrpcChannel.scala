@@ -136,7 +136,14 @@ object WookieeGrpcChannel {
           .nameResolverFactory(
             new NameResolver.Factory {
               override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver = {
-                new WookieeNameResolver(listenerRef, semaphore, fiberRef, hostnameServiceContract, discoveryPath)
+                new WookieeNameResolver(
+                  listenerRef,
+                  semaphore,
+                  fiberRef,
+                  hostnameServiceContract,
+                  discoveryPath,
+                  maybeSSLClientSettings.map(_.serviceAuthority).getOrElse("zk")
+                )
               }
 
               override def getDefaultScheme: String = "zookeeper"
@@ -156,7 +163,7 @@ object WookieeGrpcChannel {
       builder1 <- maybeSSLClientSettings
         .map { sslClientSettings =>
           logger
-            .info("gRPC client using mTLS to establish connections for [" + path + "].")
+            .info(s"gRPC client using trust path '${sslClientSettings.sslCertificateTrustPath}'")
             .as(
               builder0
                 .negotiationType(NegotiationType.TLS)
@@ -182,27 +189,37 @@ object WookieeGrpcChannel {
   }
 
   private def buildSslContext(sslClientSettings: SSLClientSettings): SslContext = {
-    sslClientSettings
-      .sslPassphrase
-      .map { passphrase =>
-        GrpcSslContexts
-          .forClient
-          .trustManager(new File(sslClientSettings.sslCertificateTrustPath))
-          .keyManager(
-            new File(sslClientSettings.sslCertificateChainPath),
-            new File(sslClientSettings.sslPrivateKeyPath),
-            passphrase
+    val sslContextBuilder = sslClientSettings
+      .mTLSOptions
+      .map { options =>
+        options
+          .sslPassphrase
+          .map { passphrase =>
+            GrpcSslContexts
+              .forClient
+              .keyManager(
+                new File(options.sslCertificateChainPath),
+                new File(options.sslPrivateKeyPath),
+                passphrase
+              )
+          }
+          .getOrElse(
+            GrpcSslContexts
+              .forClient
+              .keyManager(
+                new File(options.sslCertificateChainPath),
+                new File(options.sslPrivateKeyPath)
+              )
           )
       }
       .getOrElse(
-        GrpcSslContexts
-          .forClient
-          .trustManager(new File(sslClientSettings.sslCertificateTrustPath))
-          .keyManager(
-            new File(sslClientSettings.sslCertificateChainPath),
-            new File(sslClientSettings.sslPrivateKeyPath)
-          )
+        GrpcSslContexts.forClient
       )
+
+    sslClientSettings
+      .sslCertificateTrustPath
+      .map(trustPath => sslContextBuilder.trustManager(new File(trustPath)))
+      .getOrElse(sslContextBuilder)
       .build()
   }
 }

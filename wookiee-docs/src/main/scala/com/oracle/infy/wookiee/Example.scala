@@ -89,8 +89,8 @@ object Example {
       // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
       // If you are running this locally, its better to explicitly set the hostname
       host = Host(0, "localhost", 9091, HostMetadata(0, quarantined = false)),
+      authSettings = None,
       sslServerSettings = None,
-      authSettings = List.empty,
       bossExecutionContext = mainEC,
       workerExecutionContext = mainEC,
       applicationExecutionContext = mainEC,
@@ -101,17 +101,21 @@ object Example {
 
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.start(serverSettingsF).unsafeToFuture()
 
-    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.of(
-      ChannelSettings(
-        serviceDiscoveryPath = zookeeperDiscoveryPath,
-        eventLoopGroupExecutionContext = blockingEC,
-        channelExecutionContext = mainEC,
-        offloadExecutionContext = blockingEC,
-        eventLoopGroupExecutionContextThreads = bossThreads,
-        lbPolicy = RoundRobinPolicy,
-        curatorFramework = curator
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel
+      .of(
+        ChannelSettings(
+          serviceDiscoveryPath = zookeeperDiscoveryPath,
+          eventLoopGroupExecutionContext = blockingEC,
+          channelExecutionContext = mainEC,
+          offloadExecutionContext = blockingEC,
+          eventLoopGroupExecutionContextThreads = bossThreads,
+          lbPolicy = RoundRobinPolicy,
+          curatorFramework = curator,
+          sslClientSettings = None,
+          clientAuthSettings = None
+        )
       )
-    ).unsafeRunSync()
+      .unsafeRunSync()
 
     val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
