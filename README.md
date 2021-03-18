@@ -7,7 +7,7 @@ wookiee
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```sbt
-libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.0.9"
+libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.0.12"
 ```
 
 ## Setup ScalaPB
@@ -203,7 +203,7 @@ Example.main(Array.empty[String])
 Wookiee-metrics is focuses on providing metrics in a purely functional manner.
 #install
 ```sbt
-   libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-metrics" % "3.0.9"
+   libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-metrics" % "3.0.12"
    ```
 ## Using wookiee-metrics
 ```scala mdoc
