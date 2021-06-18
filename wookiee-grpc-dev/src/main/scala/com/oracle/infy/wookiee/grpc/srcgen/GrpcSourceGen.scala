@@ -13,15 +13,13 @@ object GrpcSourceGen extends SrcGen {
   final case class FailureResponse(err: String) extends SomeResponse
 
   final case class RequestWithOption(
-      field: Option[FooRequest],
-      listField: Option[List[String]]
+      field: Option[Option[String]],
+      newProp: Option[String]
   )
 
   def main(args: Array[String]): Unit = {
 
     val types = List(
-      typeOf[FooRequest],
-      typeOf[SomeResponse],
       typeOf[RequestWithOption]
     ).map(_.typeSymbol)
 
@@ -29,7 +27,7 @@ object GrpcSourceGen extends SrcGen {
     val records = types.map(toRecord)
 
     val rpcs = List(
-      typeOf[IO[FooRequest, SomeResponse]] -> "someRpc"
+      typeOf[IO[String, SomeResponse]] -> "someRpc"
     )
     val protoSrc = genService(rpcs, records, sealedTypeLookup, "some.package", "SomeService")
 

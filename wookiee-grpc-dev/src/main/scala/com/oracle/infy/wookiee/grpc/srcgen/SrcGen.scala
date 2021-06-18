@@ -88,7 +88,7 @@ trait SrcGen {
 
   private def prefix = "Grpc"
 
-  private def toProto(record: Record): String = {
+  private def toProto(record: Record): List[String] = {
 
     def toProtoCaseClass(record: CaseClass): String = {
 
@@ -121,7 +121,7 @@ trait SrcGen {
     }
 
     record match {
-      case SealedTrait(name, _, records) =>
+      case SealedTrait(name, recordType, records) =>
         val sealedValues = zipWithLetter(records)
           .zipWithIndex
           .map {
@@ -132,19 +132,30 @@ trait SrcGen {
           .mkString("\n")
 
         val protos = records
-          .map(toProto)
-          .mkString("")
+          .flatMap(toProto)
 
-        s"""
-           |// DO NOT EDIT! (this code is generated)
-           |message $prefix$name {
-           |  oneof sealed_value {
-           |$sealedValues
-           |  }
-           |}
-           |$protos""".stripMargin
+        val message = if (recordType.startsWith("Option")) {
+          s"""
+             |// DO NOT EDIT! (this code is generated)
+             |message $prefix$name {
+             |  oneof $name {
+             |$sealedValues
+             |  }
+             |}
+             |""".stripMargin
+        } else {
+          s"""
+             |// DO NOT EDIT! (this code is generated)
+             |message $prefix$name {
+             |  oneof sealed_value {
+             |$sealedValues
+             |  }
+             |}
+             |""".stripMargin
+        }
+        message +: protos
       case caseClass: CaseClass =>
-        toProtoCaseClass(caseClass)
+        List(toProtoCaseClass(caseClass))
     }
   }
 
@@ -162,6 +173,8 @@ trait SrcGen {
       case SealedTrait(name, recordType, records) =>
         val body = zipWithLetter(records)
           .map {
+            case (n, v) if recordType.startsWith("Option") =>
+              s"        .orElse(lhs.$n.$v.map(_.toADR))"
             case (_, v) =>
               s"        .orElse(lhs.asMessage.sealedValue.$v.map(_.toADR))"
           }
@@ -214,7 +227,7 @@ trait SrcGen {
                   case ListType(_, _) =>
                     s"        $fieldName <- lhs.$fieldName.toList.map(_.toADR).sequence"
                   case OptionType(_, _) =>
-                    s"        $fieldName <- lhs.$fieldName.toADR"
+                    s"        $fieldName <- lhs.$fieldName.map(_.toADR).get" //TODO protect this get
                   case _ =>
                     s"        $fieldName <- Right(lhs.$fieldName)"
                 }
@@ -228,6 +241,13 @@ trait SrcGen {
 
   private def grpcEncoder(record: Record, sealedTypeLookup: Set[String]): String = {
     def implicitClass(name: String, recordType: String, body: String) = {
+      if (recordType.startsWith("Option")) {
+        s"""  implicit class ${name}To$prefix(lhs: $recordType) {
+           |    def to$prefix: Option[$prefix$name] = {
+           |$body
+           |    }
+           |  }""".stripMargin
+      } else
       s"""  implicit class ${name}To$prefix(lhs: $recordType) {
          |    def to$prefix: $prefix$name = {
          |$body
@@ -243,17 +263,15 @@ trait SrcGen {
           val body = protoT match {
             case OptionType(_: CustomType, _) =>
               s"""
-                |lhs match {
-                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
-                |}
+                |lhs.map(v => ${prefix}Some${generateScalaType(recordType)}(Some(v.to$prefix)))
                 |""".stripMargin.trim
+            case OptionType(_: OptionType, _) =>
+              s"""
+                 |lhs.map(v => ${prefix}Some${generateScalaType(recordType)}(v.to$prefix))
+                 |""".stripMargin.trim
             case _ =>
               s"""
-                |lhs match {
-                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
-                |}
+                |lhs.map(v => ${prefix}Some${generateScalaType(recordType)}(v))
                 |""".stripMargin.trim
           }
           implicitClass(name, recordType, body)
@@ -320,13 +338,23 @@ trait SrcGen {
             case (t, _) =>
               val name = stripPackageNames(generateScalaType(t))
               val typeWithoutPackage = s"Option[${stripPackageNames(betweenOuterBrackets(t))}]"
+              val optionFields = scanForOptionFields(
+                CaseClass(s"Some$name", typeWithoutPackage, List("value" -> betweenOuterBrackets(t))),
+                sealedTypeLookup
+              )
+              val optionMembers = if(optionFields.isEmpty) {
+                Set[Record](CaseClass(s"Some$name", typeWithoutPackage, List("value" -> betweenOuterBrackets(t))))
+              } else
+                optionFields
+
+              val members =
+                (Set(
+                  CaseClass(s"None$name", typeWithoutPackage, List.empty)
+                ) ++ optionMembers).toList
               SealedTrait(
                 s"Option$name",
                 typeWithoutPackage,
-                List(
-                  CaseClass(s"None$name", typeWithoutPackage, List.empty),
-                  CaseClass(s"Some$name", typeWithoutPackage, List("value" -> betweenOuterBrackets(t)))
-                )
+                members
               )
           }
           .toSet
@@ -379,9 +407,9 @@ trait SrcGen {
     val recs = records ++ optionRecords
 
     recs
-      .map(toProto)
-      .mkString("")
-
+      .flatMap(toProto)
+      .toSet
+      .mkString("\n")
   }
 
   def genService(
