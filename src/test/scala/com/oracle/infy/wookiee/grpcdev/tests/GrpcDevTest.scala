@@ -35,7 +35,8 @@ object GrpcDevTest {
         assert(genScalaIsNonEmpty)
       }
 //      test("Gen Scala returns a non empty string") {
-//        assert(genScalaIsNonEmpty)
+//        //TODO Parameterize tests
+//        assert(testCodeGen(types, expectedvalues))
 //      }
 
     }
