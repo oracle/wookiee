@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.grpcdev
 
 import cats.effect.{ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
-import com.oracle.infy.wookiee.health.tests.HealthRoutesTest
+import com.oracle.infy.wookiee.grpcdev.tests.GrpcDevTest
 
 import scala.concurrent.ExecutionContext
 
@@ -15,7 +15,7 @@ object UnitTestConstable extends ConstableCommon {
     exitNegativeOnFailure(
       runTestsAsync(
         List(
-          (GrpcDevTest.tests(), "UnitTest - health routes test")
+          (GrpcDevTest.tests(), "UnitTest - Source Gen")
         )
       )
     )
