@@ -25,15 +25,27 @@ object GrpcDevTest {
       println(scala)
       scala.trim.nonEmpty
     }
-
+    // For the following tests for : Service gen and Scala Gen
+    // Use encoder/decoder functions
+    // Option of scalar value
+    // Option of a case class / custom value
+    // Option of an option of a scalar value
+    // Option of an option of a case class / custom value
+    // Stretch testing goal property based test:
+    //  Generate an instance of scala case class, run toGRPC on that case class, call toADR on the output of that,
+    //  compare that result w/ the original instance of the case class
+    // Scalacheck library can be used for property based testing
 
     Tests {
       test("Gen Service returns a non empty string") {
         assert(genServiceIsNonEmpty)
       }
+
       test("Gen Scala returns a non empty string") {
         assert(genScalaIsNonEmpty)
       }
+      
+      //
 //      test("Gen Scala returns a non empty string") {
 //        //TODO Parameterize tests
 //        assert(testCodeGen(types, expectedvalues))
