@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.Model.IO
 
+import java.nio.file.{Files, Paths}
 import scala.reflect.runtime.universe.typeOf
 
 object GrpcSourceGen extends SrcGen {
@@ -20,14 +21,15 @@ object GrpcSourceGen extends SrcGen {
   def main(args: Array[String]): Unit = {
 
     val types = List(
-      typeOf[RequestWithOption]
+      typeOf[RequestWithOption],
+      typeOf[SomeResponse]
     ).map(_.typeSymbol)
 
     val sealedTypeLookup = sealedTypes(types)
     val records = types.map(toRecord)
 
     val rpcs = List(
-      typeOf[IO[String, SomeResponse]] -> "someRpc"
+      typeOf[IO[RequestWithOption, SomeResponse]] -> "someRpc"
     )
     val protoSrc = genService(rpcs, records, sealedTypeLookup, "some.package", "SomeService")
 
@@ -39,7 +41,6 @@ object GrpcSourceGen extends SrcGen {
         |
         |import cats.implicits._
         |import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
-        |import some.`package`.deleteMe._
         |
         |import scala.util.Try
         |
@@ -47,8 +48,31 @@ object GrpcSourceGen extends SrcGen {
     )
 
     // Write these to a file
-    println(protoSrc)
-    println(scalaSrc)
+
+//    val x: Option[String] = ???
+//    val y: Option[String] = ???
+//
+//    val z: Option[Option[String]] = ???
+//
+//
+//    (x, y) match {
+//      case (None, None) =>
+//      case (Some(_), Some(_)) =>
+//      case (None, Some(_)) =>
+//      case (Some(_), None) =>
+//    }
+//
+//    z match {
+//      case Some(None) =>
+//      case Some(Some(_)) =>
+//      case None =>
+//    }
+
+    val protoFilePath = "/Users/lachandr/Projects/wookiee/wookiee-proto/src/main/protobuf/someService.proto"
+    val scalaFilePath = "/Users/lachandr/Projects/wookiee/src/main/scala/implicits.scala"
+
+    Files.write(Paths.get(protoFilePath), protoSrc.getBytes)
+    Files.write(Paths.get(scalaFilePath), scalaSrc.getBytes)
     ()
 
   }
