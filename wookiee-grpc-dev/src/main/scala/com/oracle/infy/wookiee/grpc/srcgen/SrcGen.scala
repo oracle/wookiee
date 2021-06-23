@@ -182,13 +182,17 @@ trait SrcGen {
           .mkString(s"$rootClass\n", "\n", "")
 
       case CaseClass(name, recordType, members) =>
-        val constructorName = if (recordType.startsWith("Option")) {
+        val constructorName = if (recordType.startsWith("Option[Option[")) {
+          "Option(Option"
+        } else if (recordType.startsWith("Option[")) {
           "Option"
         } else {
           name
         }
         val applyPart = {
-          if (recordType.startsWith("Option") && members.size === 1) {
+          if (recordType.startsWith("Option[Option[")) {
+            s"$constructorName(value))"
+          } else if (recordType.startsWith("Option[")) {
             s"$constructorName(value)"
           } else {
             members
@@ -202,7 +206,11 @@ trait SrcGen {
 
         val forPart = if (members.isEmpty) {
           // Turn custom None types into scala None
-          if (recordType.startsWith("Option")) {
+          if (recordType.startsWith("Option[Option[") & name.startsWith("NoneNone")) {
+            s"val _ = lhs\nRight(None)"
+          } else if (recordType.startsWith("Option[Option[")) {
+            s"val _ = lhs\nRight(Some(None))"
+          } else if (recordType.startsWith("Option[")) {
             s"val _ = lhs\nRight(None)"
           } else {
             s"Right($applyPart)"
@@ -222,7 +230,7 @@ trait SrcGen {
                     s"        $fieldName <- Right(lhs.$fieldName.toList)"
                   case ListType(_, _) =>
                     s"        $fieldName <- lhs.$fieldName.toList.map(_.toADR).sequence"
-                  case OptionType(_, _) =>
+                  case _: OptionType | _: OptionOptionType =>
                     s"        $fieldName <- lhs.$fieldName.toADR"
                   case _ =>
                     s"        $fieldName <- Right(lhs.$fieldName)"
@@ -317,7 +325,7 @@ trait SrcGen {
                   s"        $name = lhs.$name"
                 case ListType(CustomType(_, _, _), _) =>
                   s"        $name = lhs.$name.map(_.to$prefix)"
-                case OptionType(_, _) =>
+                case _: OptionType | _: OptionOptionType =>
                   s"        $name = lhs.$name.to$prefix"
                 case _ =>
                   s"        $name = lhs.$name"

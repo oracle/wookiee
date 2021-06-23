@@ -1,29 +1,14 @@
 import com.oracle.infy.test.someService2._
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
 
-import java.time.{Instant, ZoneId, ZonedDateTime}
-import scala.util.Try
-
 // NOTE: This code is generated. DO NOT EDIT!
 object implicits {
-
-  private def toZonedDateTime(l: Long): Either[GrpcConversionError, ZonedDateTime] = {
-    Try {
-      ZonedDateTime.ofInstant(Instant.ofEpochSecond(l), ZoneId.of("UTC"))
-    }.toEither
-      .left
-      .map(t => GrpcConversionError(t.getMessage))
-  }
-
-  private def zonedDateTimeToLong(zdt: ZonedDateTime): Long = {
-    zdt.toEpochSecond
-  }
 
   implicit class ResponseToGrpc(lhs: Response) {
 
     def toGrpc: GrpcResponse = {
       GrpcResponse(
-        field = lhs.field
+        field = lhs.field.toGrpc
       )
     }
   }
@@ -32,7 +17,7 @@ object implicits {
 
     def toADR: Either[GrpcConversionError, Response] = {
       for {
-        field <- Right(lhs.field)
+        field <- lhs.field.toADR
       } yield Response(field = field)
     }
   }
@@ -127,7 +112,7 @@ object implicits {
     def toADR: Either[GrpcConversionError, Option[Option[Request]]] = {
       for {
         value <- lhs.getValue.toADR
-      } yield Option(value)
+      } yield Option(Option(value))
     }
   }
 
@@ -135,7 +120,7 @@ object implicits {
 
     def toADR: Either[GrpcConversionError, Option[Option[Request]]] = {
       val _ = lhs
-      Right(None)
+      Right(Some(None))
     }
   }
 }

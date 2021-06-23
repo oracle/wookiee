@@ -105,8 +105,8 @@ object GrpcSourceGen extends SrcGen {
 //      }
 //    }
 
-    val protoFilePath = "/Users/lachandr/Projects/wookiee/wookiee-proto/src/main/protobuf/someService2.proto"
-    val scalaFilePath = "/Users/lachandr/Projects/wookiee/src/main/scala/implicits.scala"
+    val protoFilePath = "/Users/drreynol/source/wookiee/wookiee-proto/src/main/protobuf/someService2.proto"
+    val scalaFilePath = "/Users/drreynol/source/wookiee/src/main/scala/implicits.scala"
 
     Files.write(Paths.get(protoFilePath), protoSrc.getBytes)
     Files.write(Paths.get(scalaFilePath), scalaSrc.getBytes)
