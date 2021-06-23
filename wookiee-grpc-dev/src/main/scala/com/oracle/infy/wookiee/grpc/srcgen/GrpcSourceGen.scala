@@ -7,31 +7,28 @@ import scala.reflect.runtime.universe.typeOf
 
 object GrpcSourceGen extends SrcGen {
 
-  final case class FooRequest(field: String)
+  final case class Request(field: Option[String])
 
-  sealed trait SomeResponse
-  final case class SuccessfulResponse() extends SomeResponse
-  final case class FailureResponse(err: String) extends SomeResponse
+  final case class GrpcConversionError(msg: String)
 
-  final case class RequestWithOption(
-      field: Option[Option[String]],
-      newProp: Option[String]
+  final case class Response(
+      field: Option[Option[Request]]
   )
 
   def main(args: Array[String]): Unit = {
 
     val types = List(
-      typeOf[RequestWithOption],
-      typeOf[SomeResponse]
+      typeOf[Response],
+      typeOf[Request]
     ).map(_.typeSymbol)
 
     val sealedTypeLookup = sealedTypes(types)
     val records = types.map(toRecord)
 
     val rpcs = List(
-      typeOf[IO[RequestWithOption, SomeResponse]] -> "someRpc"
+      typeOf[IO[Request, Response]] -> "method"
     )
-    val protoSrc = genService(rpcs, records, sealedTypeLookup, "some.package", "SomeService")
+    val protoSrc = genService(rpcs, records, sealedTypeLookup, "com.oracle.infy.test", "SomeService")
 
     val scalaSrc = genScala(
       records,
@@ -41,7 +38,7 @@ object GrpcSourceGen extends SrcGen {
         |
         |import cats.implicits._
         |import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
-        |
+        |import com.oracle.infy.test.someService2._
         |import scala.util.Try
         |
         |""".stripMargin
@@ -68,7 +65,47 @@ object GrpcSourceGen extends SrcGen {
 //      case None =>
 //    }
 
-    val protoFilePath = "/Users/lachandr/Projects/wookiee/wookiee-proto/src/main/protobuf/someService.proto"
+//    implicit class OptionOptionStringToGrpc(lhs: Option[Option[String]]) {
+//
+//      def toGrpc: GrpcOptionOptionString = {
+//        lhs match {
+//          case None          => GrpcNoneNoneString()
+//          case Some(Some(v)) => GrpcSomeSomeString(v) // Note: Call `v.toGrpc` for custom types
+//          case Some(None)    => GrpcSomeNoneString()
+//        }
+//      }
+//    }
+//
+//    implicit class OptionOptionStringToAdr(lhs: GrpcOptionOptionString) {
+//      def toAdr: Either[GrpcConversionError, Option[Option[String]]] = {
+//        None
+//          .orElse(lhs.asMessage.sealedValue.a.map(_.toADR))
+//          .orElse(lhs.asMessage.sealedValue.b.map(_.toADR))
+//          .getOrElse(Left(GrpcConversionError("Invalid sealed values")))
+//      }
+//    }
+//
+//    implicit class NoneNoneStringToADR(lhs: GrpcNoneNoneString) {
+//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
+//        val _ = lhs
+//        Right(None)
+//      }
+//    }
+//
+//    implicit class SomeSomeStringToADR(lhs: GrpcSomeSomeString) {
+//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
+//        Right(Some(Some(lhs.value))) // Note: Should call `lhs.toADR` if its a custom type
+//      }
+//    }
+//
+//    implicit class SomeNoneStringToADR(lhs: GrpcSomeNoneString) {
+//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
+//        val _ = lhs
+//        Right(Some(None))
+//      }
+//    }
+
+    val protoFilePath = "/Users/lachandr/Projects/wookiee/wookiee-proto/src/main/protobuf/someService2.proto"
     val scalaFilePath = "/Users/lachandr/Projects/wookiee/src/main/scala/implicits.scala"
 
     Files.write(Paths.get(protoFilePath), protoSrc.getBytes)
