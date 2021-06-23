@@ -35,6 +35,9 @@ object GrpcDevTest {
     //  Generate an instance of scala case class, run toGRPC on that case class, call toADR on the output of that,
     //  compare that result w/ the original instance of the case class
     // Scalacheck library can be used for property based testing
+    // Integration tests:
+    // Use something similar to Action Objects/case classes as input to genScala and genService, craft expected generated code to compare (figure how to bypass whitespace compare)
+
 
     Tests {
       test("Gen Service returns a non empty string") {
@@ -44,7 +47,7 @@ object GrpcDevTest {
       test("Gen Scala returns a non empty string") {
         assert(genScalaIsNonEmpty)
       }
-      
+
       //
 //      test("Gen Scala returns a non empty string") {
 //        //TODO Parameterize tests
