@@ -31,7 +31,6 @@ object GrpcDevTest {
 
     def genProtoTest(typeSymbol: Symbol, expectedProto: String) = {
       val sealedTypes = srcGenTestObject.sealedTypes(List(typeSymbol))
-
       val result = srcGenTestObject.genProto(List(srcGenTestObject.toRecord(typeSymbol)), sealedTypes)
 
       result.trim() === expectedProto.trim()
@@ -52,16 +51,13 @@ object GrpcDevTest {
     }
 
     // For the following tests for : genProto, grpcEncoder, grpcDecoder
-    // Option of scalar value
-    // Option of a case class / custom value
-    // Option of an option of a scalar value
-    // Option of an option of a case class / custom value
-    // Stretch testing goal property based test:
-    //  Generate an instance of scala case class, run toGRPC on that case class, call fromGrpc on the output of that,
-    //  compare that result w/ the original instance of the case class
-    // Scalacheck library can be used for property based testing
+    // [x] Option of scalar value
+    // [ ] Option of a case class / custom value
+    // [ ] Option of an option of a scalar value
+    // [ ] Option of an option of a case class / custom value
     // Integration tests:
-    // Use something similar to Action Objects/case classes as input to genScala and genService, craft expected generated code to compare (figure how to bypass whitespace compare)
+    // [ ] Use something _similar_ to Action Objects/case classes (but as mocks not exposing internal details on github
+    //    as input to genScala and genService, craft expected generated code to compare (figure how to bypass whitespace compare)
 
     Tests {
       test("genService returns a non empty string") {
