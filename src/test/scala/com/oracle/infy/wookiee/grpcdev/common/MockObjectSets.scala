@@ -46,7 +46,7 @@ object MockObjectSets {
       typeOf[MockMaybeResponse],
       typeOf[MockMaybeResponseCreated],
       typeOf[MockMaybeResponseFailed],
-      typeOf[MockMaybeResponseInvalid],
+      typeOf[MockMaybeResponseInvalid]
     ).map(_.typeSymbol)
 
     val mockSealedTypeLookup = sealedTypes(mockTypes)
@@ -56,6 +56,3 @@ object MockObjectSets {
     (mockRPCs, mockRecords, mockSealedTypeLookup)
   }
 }
-
-
-

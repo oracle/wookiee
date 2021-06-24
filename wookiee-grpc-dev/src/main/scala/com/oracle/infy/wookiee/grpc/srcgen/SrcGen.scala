@@ -94,7 +94,7 @@ trait SrcGen {
 
   private def prefix = "Grpc"
 
-  private def toProto(record: Record): String = {
+  protected def toProto(record: Record): String = {
 
     def toProtoCaseClass(record: CaseClass): String = {
 
@@ -157,7 +157,7 @@ trait SrcGen {
     }
   }
 
-  private def grpcDecoder(record: Record, sealedTypeLookup: Set[String]): String = {
+  protected def grpcDecoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
     def implicitClass(name: String, body: String, recordType: String) = {
       s"""  implicit class ${name}ToADR(lhs: $prefix$name) {
@@ -243,7 +243,7 @@ trait SrcGen {
     }
   }
 
-  private def grpcEncoder(record: Record, sealedTypeLookup: Set[String]): String = {
+  protected def grpcEncoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
     def implicitClass(name: String, recordType: String, body: String) = {
       s"""  implicit class ${name}To$prefix(lhs: $recordType) {
