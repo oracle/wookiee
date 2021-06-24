@@ -424,6 +424,11 @@ trait SrcGen {
        |  private def zonedDateTimeToLong(zdt: ZonedDateTime): Long = {
        |    zdt.toEpochSecond
        |  }
+       |
+       |  // Hack to "use" these private methods and cats.implicits so if generated code does not
+       |  // use them, the compiler does not complain
+       |  val _ = zonedDateTimeToLong(toZonedDateTime(1l).getOrElse(ZonedDateTime.now())).combine(1l)
+       |
        |$body
        |}""".stripMargin
   }
