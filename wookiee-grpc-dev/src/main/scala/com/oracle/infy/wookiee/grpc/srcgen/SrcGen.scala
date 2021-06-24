@@ -258,14 +258,11 @@ trait SrcGen {
       val args = if (wrapInSome) {
         s"Some(v.to$prefix)"
       } else "v"
-
-      s"""
-         lhs match {
-           case None =>  ${prefix}NoneNone${innerType(recordType)}()
-           case Some(Some(v)) => ${prefix}SomeSome${innerType(recordType)}($args)
-           case Some(None) => ${prefix}SomeNone${innerType(recordType)}()
-         }
-      """.trim
+      s"""|       lhs match {
+          |         case None =>  ${prefix}NoneNone${innerType(recordType)}()
+          |         case Some(Some(v)) => ${prefix}SomeSome${innerType(recordType)}($args)
+          |         case Some(None) => ${prefix}SomeNone${innerType(recordType)}()
+          |       }""".stripMargin
     }
 
     record match {
