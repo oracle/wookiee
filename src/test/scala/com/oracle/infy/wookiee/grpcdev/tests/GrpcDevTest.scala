@@ -44,13 +44,20 @@ object GrpcDevTest {
       result.trim() === expectedScala.trim()
     }
 
+    def grpcDecoderTest(typeSymbol: Symbol, expectedScala: String) = {
+      val sealedTypes = srcGenTestObject.sealedTypes(List(typeSymbol))
+      val result = srcGenTestObject.grpcDecoderList(List(srcGenTestObject.toRecord(typeSymbol)), sealedTypes)
+
+      result.trim() === expectedScala.trim()
+    }
+
     // For the following tests for : genProto, grpcEncoder, grpcDecoder
     // Option of scalar value
     // Option of a case class / custom value
     // Option of an option of a scalar value
     // Option of an option of a case class / custom value
     // Stretch testing goal property based test:
-    //  Generate an instance of scala case class, run toGRPC on that case class, call toADR on the output of that,
+    //  Generate an instance of scala case class, run toGRPC on that case class, call fromGrpc on the output of that,
     //  compare that result w/ the original instance of the case class
     // Scalacheck library can be used for property based testing
     // Integration tests:
@@ -119,11 +126,42 @@ object GrpcDevTest {
         assert(result)
       }
 
-//      test("Gen Scala returns a non empty string") {
-//        //TODO Parameterize tests
-//        assert(testCodeGen(types, expectedvalues))
-//      }
-
+      test("grpcDecoder decodes Option[String] properly") {
+        val result = grpcDecoderTest(
+          typeOf[TestOptionString].typeSymbol,
+          """|  implicit class TestOptionStringFromGrpc(lhs: GrpcTestOptionString) {
+             |    def fromGrpc: Either[GrpcConversionError, TestOptionString] = {
+             |      for {
+             |        maybeString <- lhs.maybeString.fromGrpc
+             |      } yield TestOptionString(maybeString = maybeString)
+             |    }
+             |  }
+             |
+             |  implicit class OptionStringFromGrpc(lhs: GrpcOptionString) {
+             |    def fromGrpc: Either[GrpcConversionError, Option[String]] = {
+             |      None
+             |        .orElse(lhs.asMessage.sealedValue.a.map(_.fromGrpc))
+             |        .orElse(lhs.asMessage.sealedValue.b.map(_.fromGrpc))
+             |        .getOrElse(Left(GrpcConversionError("Invalid sealed values")))
+             |    }
+             |  }
+             |  implicit class NoneStringFromGrpc(lhs: GrpcNoneString) {
+             |    def fromGrpc: Either[GrpcConversionError, Option[String]] = {
+             |      val _ = lhs
+             |      Right(None)
+             |    }
+             |  }
+             |  implicit class SomeStringFromGrpc(lhs: GrpcSomeString) {
+             |    def fromGrpc: Either[GrpcConversionError, Option[String]] = {
+             |      for {
+             |        value <- Right(lhs.value)
+             |      } yield Option(value)
+             |    }
+             |  }
+             |""".stripMargin
+        )
+        assert(result)
+      }
     }
   }
 
@@ -131,6 +169,12 @@ object GrpcDevTest {
     def grpcEncoderList(records: List[Record], sealedTypes: Set[String]): String = {
       addOptionRecords(records, sealedTypes)
         .map(r => grpcEncoder(r, sealedTypes))
+        .mkString("\n\n")
+    }
+
+    def grpcDecoderList(records: List[Record], sealedTypes: Set[String]): String = {
+      addOptionRecords(records, sealedTypes)
+        .map(r => grpcDecoder(r, sealedTypes))
         .mkString("\n\n")
     }
   }

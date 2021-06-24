@@ -93,6 +93,7 @@ trait SrcGen {
   }
 
   private def prefix = "Grpc"
+  private def fromGrpc = "fromGrpc"
 
   protected def toProto(record: Record): String = {
 
@@ -160,8 +161,8 @@ trait SrcGen {
   protected def grpcDecoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
     def implicitClass(name: String, body: String, recordType: String) = {
-      s"""  implicit class ${name}ToADR(lhs: $prefix$name) {
-         |    def toADR: Either[GrpcConversionError, $recordType] = {
+      s"""  implicit class ${name}${fromGrpc.capitalize}(lhs: $prefix$name) {
+         |    def $fromGrpc: Either[GrpcConversionError, $recordType] = {
          |$body
          |    }
          |  }""".stripMargin
@@ -172,9 +173,9 @@ trait SrcGen {
         val body = zipWithLetter(records)
           .map {
             case (_, v) =>
-              s"        .orElse(lhs.asMessage.sealedValue.$v.map(_.toADR))"
+              s"        .orElse(lhs.asMessage.sealedValue.$v.map(_.$fromGrpc))"
           }
-          .mkString("None", "\n", """.getOrElse(Left(GrpcConversionError("Invalid sealed values")))""")
+          .mkString("      None\n", "\n", "\n        .getOrElse(Left(GrpcConversionError(\"Invalid sealed values\")))")
 
         val rootClass = implicitClass(name, body, recordType)
         records
@@ -207,13 +208,13 @@ trait SrcGen {
         val forPart = if (members.isEmpty) {
           // Turn custom None types into scala None
           if (recordType.startsWith("Option[Option[") & name.startsWith("NoneNone")) {
-            s"val _ = lhs\nRight(None)"
+            s"      val _ = lhs\n      Right(None)"
           } else if (recordType.startsWith("Option[Option[")) {
-            s"val _ = lhs\nRight(Some(None))"
+            s"      val _ = lhs\n      Right(Some(None))"
           } else if (recordType.startsWith("Option[")) {
-            s"val _ = lhs\nRight(None)"
+            s"      val _ = lhs\n      Right(None)"
           } else {
-            s"Right($applyPart)"
+            s"      Right($applyPart)"
           }
         } else {
           members
@@ -223,20 +224,20 @@ trait SrcGen {
                   case _: DateTimeType =>
                     s"        $fieldName <- toZonedDateTime(lhs.$fieldName)"
                   case CustomType(_, true, _) =>
-                    s"        $fieldName <- lhs.$fieldName.toADR"
+                    s"        $fieldName <- lhs.$fieldName.$fromGrpc"
                   case CustomType(_, false, _) =>
-                    s"        $fieldName <- lhs.get${fieldName.take(1).toUpperCase}${fieldName.drop(1)}.toADR"
+                    s"        $fieldName <- lhs.get${fieldName.take(1).toUpperCase}${fieldName.drop(1)}.$fromGrpc"
                   case ListType(PrimitiveType(_, _), _) =>
                     s"        $fieldName <- Right(lhs.$fieldName.toList)"
                   case ListType(_, _) =>
-                    s"        $fieldName <- lhs.$fieldName.toList.map(_.toADR).sequence"
+                    s"        $fieldName <- lhs.$fieldName.toList.map(_.$fromGrpc).sequence"
                   case _: OptionType | _: OptionOptionType =>
-                    s"        $fieldName <- lhs.$fieldName.toADR"
+                    s"        $fieldName <- lhs.$fieldName.$fromGrpc"
                   case _ =>
                     s"        $fieldName <- Right(lhs.$fieldName)"
                 }
             }
-            .mkString(s"      for {\n", "\n", s"\n} yield $applyPart")
+            .mkString(s"      for {\n", "\n", s"\n      } yield $applyPart")
         }
 
         implicitClass(name, forPart, recordType)
