@@ -1,19 +1,15 @@
 package com.oracle.infy.wookiee.grpcdev.tests
 
-import com.oracle.infy.wookiee.grpc.srcgen.Model.{CaseClass, Record, SealedTrait}
+import com.oracle.infy.wookiee.grpc.srcgen.Model.Record
 import com.oracle.infy.wookiee.grpc.srcgen.SrcGen
+import com.oracle.infy.wookiee.grpcdev.common.TestModel.TestOptionString
 import com.oracle.infy.wookiee.grpcdev.common._
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
 
+import scala.reflect.runtime.universe.{Symbol, typeOf}
+
 object GrpcDevTest {
-
-  object srcGenTestObject extends SrcGen {
-
-    override def toProto(record: Record): String = {
-      super.toProto(record)
-    }
-  }
 
   def tests(): Tests = {
 
@@ -33,23 +29,22 @@ object GrpcDevTest {
       scala.trim.nonEmpty
     }
 
-    val toProtoOptionString = {
-      val optionStringRecord = SealedTrait(
-        "OptionString",
-        "Option[String]",
-        List(
-          CaseClass("NoneString", "Option[String]", List()),
-          CaseClass("SomeString", "Option[String]", List(("value", "String")))
-        )
-      )
-      println(srcGenTestObject.toProto(optionStringRecord))
-      val result = srcGenTestObject.toProto(optionStringRecord)
-      val expectedProto =
-        "// DO NOT EDIT! (this code is generated)\nmessage GrpcOptionString {\n  oneof sealed_value {\n    GrpcNoneString a = 1;\n    GrpcSomeString b = 2;\n  }\n}\n\n// DO NOT EDIT! (this code is generated)\nmessage GrpcNoneString {\n\n}\n\n// DO NOT EDIT! (this code is generated)\nmessage GrpcSomeString {\n  string value = 1;\n}"
-      result.trim() === expectedProto
+    def genProtoTest(typeSymbol: Symbol, expectedProto: String) = {
+      val sealedTypes = srcGenTestObject.sealedTypes(List(typeSymbol))
+
+      val result = srcGenTestObject.genProto(List(srcGenTestObject.toRecord(typeSymbol)), sealedTypes)
+
+      result.trim() === expectedProto.trim()
     }
 
-    // For the following tests for : toProto, grpcEncoder, grpcDecoder
+    def grpcEncoderTest(typeSymbol: Symbol, expectedScala: String) = {
+      val sealedTypes = srcGenTestObject.sealedTypes(List(typeSymbol))
+      val result = srcGenTestObject.grpcEncoderList(List(srcGenTestObject.toRecord(typeSymbol)), sealedTypes)
+
+      result.trim() === expectedScala.trim()
+    }
+
+    // For the following tests for : genProto, grpcEncoder, grpcDecoder
     // Option of scalar value
     // Option of a case class / custom value
     // Option of an option of a scalar value
@@ -70,8 +65,58 @@ object GrpcDevTest {
         assert(genScalaIsNonEmpty)
       }
 
-      test("toProto encodes Option[String] properly") {
-        assert(toProtoOptionString)
+      test("genProto encodes Option[String] properly") {
+        val result = genProtoTest(
+          typeOf[TestOptionString].typeSymbol,
+          """|// DO NOT EDIT! (this code is generated)
+             |message GrpcTestOptionString {
+             |  GrpcOptionString maybeString = 1;
+             |}
+             |
+             |// DO NOT EDIT! (this code is generated)
+             |message GrpcOptionString {
+             |  oneof sealed_value {
+             |    GrpcNoneString a = 1;
+             |    GrpcSomeString b = 2;
+             |  }
+             |}
+             |
+             |// DO NOT EDIT! (this code is generated)
+             |message GrpcNoneString {
+             |
+             |}
+             |
+             |// DO NOT EDIT! (this code is generated)
+             |message GrpcSomeString {
+             |  string value = 1;
+             |}
+             |""".stripMargin
+        )
+        assert(result)
+      }
+
+      test("grpcEncoder encodes Option[String] properly") {
+        val result = grpcEncoderTest(
+          typeOf[TestOptionString].typeSymbol,
+          """|  implicit class TestOptionStringToGrpc(lhs: TestOptionString) {
+             |    def toGrpc: GrpcTestOptionString = {
+             |      GrpcTestOptionString(
+             |        maybeString = lhs.maybeString.toGrpc
+             |      )
+             |    }
+             |  }
+             |
+             |  implicit class OptionStringToGrpc(lhs: Option[String]) {
+             |    def toGrpc: GrpcOptionString = {
+             |      lhs match {
+             |        case None =>  GrpcNoneString()
+             |        case Some(v) => GrpcSomeString(v)
+             |      }
+             |    }
+             |  }
+             |""".stripMargin
+        )
+        assert(result)
       }
 
 //      test("Gen Scala returns a non empty string") {
@@ -79,6 +124,14 @@ object GrpcDevTest {
 //        assert(testCodeGen(types, expectedvalues))
 //      }
 
+    }
+  }
+
+  object srcGenTestObject extends SrcGen {
+    def grpcEncoderList(records: List[Record], sealedTypes: Set[String]): String = {
+      addOptionRecords(records, sealedTypes)
+        .map(r => grpcEncoder(r, sealedTypes))
+        .mkString("\n\n")
     }
   }
 }

@@ -278,19 +278,15 @@ trait SrcGen {
             case OptionOptionType(_, _) =>
               optionOptionBody(recordType, wrapInSome = false)
             case OptionType(_: CustomType, _) =>
-              s"""
-                |lhs match {
-                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
-                |}
-                |""".stripMargin.trim
+              s"""|      lhs match {
+                  |        case None =>  ${prefix}None${generateScalaType(recordType)}()
+                  |        case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
+                  |      }""".stripMargin
             case _ =>
-              s"""
-                |lhs match {
-                |  case None =>  ${prefix}None${generateScalaType(recordType)}()
-                |  case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
-                |}
-                |""".stripMargin.trim
+              s"""|      lhs match {
+                  |        case None =>  ${prefix}None${generateScalaType(recordType)}()
+                  |        case Some(v) => ${prefix}Some${generateScalaType(recordType)}(v)
+                  |      }""".stripMargin
           }
           implicitClass(name, recordType, body)
         } else {
@@ -405,18 +401,7 @@ trait SrcGen {
   }
 
   def genScala(records: List[Record], sealedTypeLookup: Set[String], header: String): String = {
-    val optionRecords =
-      records
-        .flatMap(a => scanForOptionFields(a, sealedTypeLookup))
-        .toSet
-
-    val optionOptionRecords =
-      records
-        .flatMap(a => scanForOptionOptionFields(a, sealedTypeLookup))
-        .toSet
-
-    val recs =
-      records ++ optionRecords ++ optionOptionRecords
+    val recs = addOptionRecords(records, sealedTypeLookup)
 
     val body = recs
       .map(r => grpcEncoder(r, sealedTypeLookup) ++ "\n\n" ++ grpcDecoder(r, sealedTypeLookup))
@@ -445,22 +430,26 @@ trait SrcGen {
        |}""".stripMargin
   }
 
+  protected def addOptionRecords(records: List[Record], sealedTypeLookup: Set[String]): List[Record] = {
+    val optionRecords =
+      records
+        .flatMap(a => scanForOptionFields(a, sealedTypeLookup))
+        .toSet
+
+    val optionOptionRecords =
+      records
+        .flatMap(a => scanForOptionOptionFields(a, sealedTypeLookup))
+        .toSet
+
+    records ++ optionRecords ++ optionOptionRecords
+  }
+
   def genProto(records: List[Record], sealedTypeLookup: Set[String]): String = {
-
-    val optionRecords = records
-      .flatMap(a => scanForOptionFields(a, sealedTypeLookup))
-      .toSet
-
-    val optionOptionRecords = records
-      .flatMap(a => scanForOptionOptionFields(a, sealedTypeLookup))
-      .toSet
-
-    val recs = records ++ optionRecords ++ optionOptionRecords
+    val recs = addOptionRecords(records, sealedTypeLookup)
 
     recs
       .map(toProto)
       .mkString("")
-
   }
 
   def genService(
