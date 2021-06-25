@@ -20,7 +20,6 @@ object Model {
   final case class MapType(lt: ProtoType, rt: ProtoType, scalaType: String) extends ProtoType
   final case class CustomType(t: String, isMemberOfSealedTrait: Boolean, scalaType: String) extends ProtoType
   final case class DateTimeType(scalaType: String) extends ProtoType
-  final case class ErrorType(msg: String, scalaType: String) extends ProtoType
 
   final case class IO[I, O]()
   final case class RPC(name: String, input: String, output: String)

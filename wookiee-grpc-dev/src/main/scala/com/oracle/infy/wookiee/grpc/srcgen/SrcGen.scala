@@ -93,9 +93,9 @@ trait SrcGen {
   }
 
   private def prefix = "Grpc"
-  private def fromGrpc = "fromGrpc"
+  private def fromPrefix = s"from$prefix"
 
-  protected def toProto(record: Record): String = {
+  private def toProto(record: Record): String = {
 
     def toProtoCaseClass(record: CaseClass): String = {
 
@@ -109,7 +109,6 @@ trait SrcGen {
           case ListType(t, _)           => s"repeated ${protoTypeToStr(t, maybePrefix)}"
           case MapType(lt, rt, _)       => s"map<${protoTypeToStr(lt, maybePrefix)}, ${protoTypeToStr(rt, maybePrefix)}>"
           case CustomType(t, _, _)      => s"$prefix$t"
-          case ErrorType(_, _)          => s"[[error]]"
         }
       }
 
@@ -161,8 +160,8 @@ trait SrcGen {
   protected def grpcDecoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
     def implicitClass(name: String, body: String, recordType: String) = {
-      s"""  implicit class ${name}${fromGrpc.capitalize}(lhs: $prefix$name) {
-         |    def $fromGrpc: Either[GrpcConversionError, $recordType] = {
+      s"""  implicit class ${name}${fromPrefix.capitalize}(lhs: $prefix$name) {
+         |    def $fromPrefix: Either[GrpcConversionError, $recordType] = {
          |$body
          |    }
          |  }""".stripMargin
@@ -173,7 +172,7 @@ trait SrcGen {
         val body = zipWithLetter(records)
           .map {
             case (_, v) =>
-              s"        .orElse(lhs.asMessage.sealedValue.$v.map(_.$fromGrpc))"
+              s"        .orElse(lhs.asMessage.sealedValue.$v.map(_.$fromPrefix))"
           }
           .mkString("      None\n", "\n", "\n        .getOrElse(Left(GrpcConversionError(\"Invalid sealed values\")))")
 
@@ -224,15 +223,15 @@ trait SrcGen {
                   case _: DateTimeType =>
                     s"        $fieldName <- toZonedDateTime(lhs.$fieldName)"
                   case CustomType(_, true, _) =>
-                    s"        $fieldName <- lhs.$fieldName.$fromGrpc"
+                    s"        $fieldName <- lhs.$fieldName.$fromPrefix"
                   case CustomType(_, false, _) =>
-                    s"        $fieldName <- lhs.get${fieldName.take(1).toUpperCase}${fieldName.drop(1)}.$fromGrpc"
+                    s"        $fieldName <- lhs.get${fieldName.take(1).toUpperCase}${fieldName.drop(1)}.$fromPrefix"
                   case ListType(PrimitiveType(_, _), _) =>
                     s"        $fieldName <- Right(lhs.$fieldName.toList)"
                   case ListType(_, _) =>
-                    s"        $fieldName <- lhs.$fieldName.toList.map(_.$fromGrpc).sequence"
+                    s"        $fieldName <- lhs.$fieldName.toList.map(_.$fromPrefix).sequence"
                   case _: OptionType | _: OptionOptionType =>
-                    s"        $fieldName <- lhs.$fieldName.$fromGrpc"
+                    s"        $fieldName <- lhs.$fieldName.$fromPrefix"
                   case _ =>
                     s"        $fieldName <- Right(lhs.$fieldName)"
                 }
