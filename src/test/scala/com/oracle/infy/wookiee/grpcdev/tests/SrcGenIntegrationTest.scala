@@ -233,7 +233,7 @@ object SrcGenIntegrationTest {
       |
       |  // Hack to "use" these private methods and cats.implicits so if generated code does not
       |  // use them, the compiler does not complain
-      |  val _ = zonedDateTimeToLong(toZonedDateTime(1l).getOrElse(ZonedDateTime.now())).combine(1l)
+      |  locally {val _ = zonedDateTimeToLong(toZonedDateTime(1L).getOrElse(ZonedDateTime.now())).combine(1L)}
       |
       |  implicit class TestRequestToGrpc(lhs: TestRequest) {
       |    def toGrpc: GrpcTestRequest = {
