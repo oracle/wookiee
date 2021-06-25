@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpcdev.tests
 
-import com.oracle.infy.wookiee.grpc.srcgen.Model.Record
-import com.oracle.infy.wookiee.grpc.srcgen.SrcGen
 import com.oracle.infy.wookiee.grpcdev.common.TestModel._
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
@@ -42,15 +40,6 @@ object GrpcDevTest {
 
       result.trim() === expectedScala.trim()
     }
-
-    // For the following tests for : genProto, grpcEncoder, grpcDecoder
-    // [x] Option of scalar value
-    // [x] Option of a case class / custom value
-    // [x] Option of an option of a scalar value
-    // [x] Option of an option of a case class / custom value
-    // Integration tests:
-    // [ ] Use something _similar_ to Action Objects/case classes (but as mocks not exposing internal details on github
-    //    as input to genScala and genService, craft expected generated code to compare (figure how to bypass whitespace compare)
 
     Tests {
       test("genService returns a non empty string") {
@@ -459,21 +448,6 @@ object GrpcDevTest {
         )
         assert(result)
       }
-    }
-  }
-
-  object srcGenTestObject extends SrcGen {
-
-    def grpcEncoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
-      addOptionRecords(List(record), sealedTypes)
-        .map(r => grpcEncoder(r, sealedTypes))
-        .mkString("\n\n")
-    }
-
-    def grpcDecoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
-      addOptionRecords(List(record), sealedTypes)
-        .map(r => grpcDecoder(r, sealedTypes))
-        .mkString("\n\n")
     }
   }
 }

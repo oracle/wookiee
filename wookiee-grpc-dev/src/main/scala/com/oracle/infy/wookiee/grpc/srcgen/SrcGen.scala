@@ -411,6 +411,8 @@ trait SrcGen {
        |import cats.implicits._
        |import scala.util.Try
        |
+       |import java.time.{Instant, ZoneId, ZonedDateTime}
+       |
        |// NOTE: This code is generated. DO NOT EDIT!
        |object implicits {
        |
