@@ -5,7 +5,7 @@ import com.oracle.infy.wookiee.grpcdev.common.TestModel._
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
 
-import scala.reflect.runtime.universe.{typeOf, Type}
+import scala.reflect.runtime.universe.{Type, typeOf}
 
 object SrcGenIntegrationTest {
 
