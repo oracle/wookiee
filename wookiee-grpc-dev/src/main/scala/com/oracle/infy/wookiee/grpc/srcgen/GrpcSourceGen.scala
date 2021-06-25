@@ -6,32 +6,28 @@ import scala.reflect.runtime.universe.typeOf
 
 object GrpcSourceGen extends SrcGen {
 
-  final case class FooRequest(field: String)
+  final case class Request(field: Option[String])
 
-  sealed trait SomeResponse
-  final case class SuccessfulResponse() extends SomeResponse
-  final case class FailureResponse(err: String) extends SomeResponse
+  final case class GrpcConversionError(msg: String)
 
-  final case class RequestWithOption(
-      field: Option[FooRequest],
-      listField: Option[List[String]]
+  final case class Response(
+      field: Option[Option[Request]]
   )
 
   def main(args: Array[String]): Unit = {
 
     val types = List(
-      typeOf[FooRequest],
-      typeOf[SomeResponse],
-      typeOf[RequestWithOption]
+      typeOf[Response],
+      typeOf[Request]
     ).map(_.typeSymbol)
 
     val sealedTypeLookup = sealedTypes(types)
     val records = types.map(toRecord)
 
     val rpcs = List(
-      typeOf[IO[FooRequest, SomeResponse]] -> "someRpc"
+      typeOf[IO[Request, Response]] -> "method"
     )
-    val protoSrc = genService(rpcs, records, sealedTypeLookup, "some.package", "SomeService")
+    val protoSrc = genService(rpcs, records, sealedTypeLookup, "com.oracle.infy.test", "SomeService")
 
     val scalaSrc = genScala(
       records,
@@ -41,17 +37,14 @@ object GrpcSourceGen extends SrcGen {
         |
         |import cats.implicits._
         |import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
-        |import some.`package`.deleteMe._
-        |
+        |import com.oracle.infy.test.someService2._
         |import scala.util.Try
         |
         |""".stripMargin
     )
 
-    // Write these to a file
     println(protoSrc)
     println(scalaSrc)
     ()
-
   }
 }

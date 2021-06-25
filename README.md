@@ -261,3 +261,9 @@ object MetricsExample extends IOApp {
 }
 
 ```
+
+# wookiee-grpc-dev
+Utility to generate a proto file and Scala implicit code. See `GrpcSourceGen` for an example of how to use this.
+
+# wookiee-proto
+A few example proto files that are generated from the example `GrpcSourceGen` included in the wookiee-grpc-dev project
