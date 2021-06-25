@@ -43,70 +43,8 @@ object GrpcSourceGen extends SrcGen {
         |""".stripMargin
     )
 
-    // Write these to a file
-
-//    val x: Option[String] = ???
-//    val y: Option[String] = ???
-//
-//    val z: Option[Option[String]] = ???
-//
-//
-//    (x, y) match {
-//      case (None, None) =>
-//      case (Some(_), Some(_)) =>
-//      case (None, Some(_)) =>
-//      case (Some(_), None) =>
-//    }
-//
-//    z match {
-//      case Some(None) =>
-//      case Some(Some(_)) =>
-//      case None =>
-//    }
-
-//    implicit class OptionOptionStringToGrpc(lhs: Option[Option[String]]) {
-//
-//      def toGrpc: GrpcOptionOptionString = {
-//        lhs match {
-//          case None          => GrpcNoneNoneString()
-//          case Some(Some(v)) => GrpcSomeSomeString(v) // Note: Call `v.toGrpc` for custom types
-//          case Some(None)    => GrpcSomeNoneString()
-//        }
-//      }
-//    }
-//
-//    implicit class OptionOptionStringToAdr(lhs: GrpcOptionOptionString) {
-//      def toAdr: Either[GrpcConversionError, Option[Option[String]]] = {
-//        None
-//          .orElse(lhs.asMessage.sealedValue.a.map(_.toADR))
-//          .orElse(lhs.asMessage.sealedValue.b.map(_.toADR))
-//          .getOrElse(Left(GrpcConversionError("Invalid sealed values")))
-//      }
-//    }
-//
-//    implicit class NoneNoneStringToADR(lhs: GrpcNoneNoneString) {
-//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
-//        val _ = lhs
-//        Right(None)
-//      }
-//    }
-//
-//    implicit class SomeSomeStringToADR(lhs: GrpcSomeSomeString) {
-//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
-//        Right(Some(Some(lhs.value))) // Note: Should call `lhs.toADR` if its a custom type
-//      }
-//    }
-//
-//    implicit class SomeNoneStringToADR(lhs: GrpcSomeNoneString) {
-//      def toADR: Either[GrpcConversionError, Option[Option[String]]] = {
-//        val _ = lhs
-//        Right(Some(None))
-//      }
-//    }
-
     println(protoSrc)
     println(scalaSrc)
     ()
-
   }
 }
