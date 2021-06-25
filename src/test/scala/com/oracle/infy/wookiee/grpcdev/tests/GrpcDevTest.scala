@@ -2,13 +2,7 @@ package com.oracle.infy.wookiee.grpcdev.tests
 
 import com.oracle.infy.wookiee.grpc.srcgen.Model.Record
 import com.oracle.infy.wookiee.grpc.srcgen.SrcGen
-import com.oracle.infy.wookiee.grpcdev.common.TestModel.{
-  TestOptionCaseClass,
-  TestOptionOptionCaseClass,
-  TestOptionOptionString,
-  TestOptionString
-}
-import com.oracle.infy.wookiee.grpcdev.common._
+import com.oracle.infy.wookiee.grpcdev.common.TestModel._
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
 
@@ -19,18 +13,12 @@ object GrpcDevTest {
   def tests(): Tests = {
 
     val genServiceIsNonEmpty = {
-      val (mockRPCs, mockRecords, mockSealedTypeLookup) = MockObjectSets.EmptyMocks
-      val service = srcGenTestObject.genService(mockRPCs, mockRecords, mockSealedTypeLookup, "foo.bar", "mockFoo")
+      val service = srcGenTestObject.genService(List(), List(), Set(), "foo.bar", "Baz")
       service.trim.nonEmpty
     }
 
     val genScalaIsNonEmpty = {
-      val (_, mockRecords, mockSealedTypeLookup) = MockObjectSets.EmptyMocks
-      val scala = srcGenTestObject.genScala(
-        mockRecords,
-        mockSealedTypeLookup,
-        "foo"
-      )
+      val scala = srcGenTestObject.genScala(List(), Set(), "foo")
       scala.trim.nonEmpty
     }
 
@@ -135,7 +123,7 @@ object GrpcDevTest {
         assert(result)
       }
 
-      test("genProto constructs proto of Option[Option[String] properly") {
+      test("genProto constructs proto of Option[Option[String]] properly") {
         val result = genProtoTest(
           typeOf[TestOptionOptionString].typeSymbol,
           """|
