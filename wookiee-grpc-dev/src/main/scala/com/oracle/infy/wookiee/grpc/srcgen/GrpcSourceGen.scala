@@ -2,7 +2,6 @@ package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.Model.IO
 
-import java.nio.file.{Files, Paths}
 import scala.reflect.runtime.universe.typeOf
 
 object GrpcSourceGen extends SrcGen {
@@ -105,11 +104,8 @@ object GrpcSourceGen extends SrcGen {
 //      }
 //    }
 
-    val protoFilePath = "/Users/drreynol/source/wookiee/wookiee-proto/src/main/protobuf/someService2.proto"
-    val scalaFilePath = "/Users/drreynol/source/wookiee/src/main/scala/implicits.scala"
-
-    Files.write(Paths.get(protoFilePath), protoSrc.getBytes)
-    Files.write(Paths.get(scalaFilePath), scalaSrc.getBytes)
+    println(protoSrc)
+    println(scalaSrc)
     ()
 
   }
