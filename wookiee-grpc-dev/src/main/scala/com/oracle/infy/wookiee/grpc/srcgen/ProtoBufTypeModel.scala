@@ -19,6 +19,9 @@ object ProtoBufTypeModel {
   // 4. Ensure generated proto contains top level error
   /*
         message ASError {
+
+          string foo = 1;
+
           oneof OneOf {
             ValidationError validationError = 1;
             InvalidInputError invalidInputError = 2;
