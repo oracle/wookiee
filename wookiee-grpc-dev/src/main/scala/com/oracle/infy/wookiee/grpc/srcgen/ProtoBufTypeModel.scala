@@ -24,7 +24,12 @@ object ProtoBufTypeModel {
             InvalidInputError invalidInputError = 2;
           }
 
+          message Person {
+            string name = 1;
+          }
+
           message ValidationError {}
+
           message InvalidInputError {}
         }
    */
