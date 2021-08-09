@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.grpc.srcgen
+package com.oracle.infy.wookiee.grpc.srcgentwo
 
 import com.oracle.infy.wookiee.grpc.srcgen.Model.srcGenIgnore
 
