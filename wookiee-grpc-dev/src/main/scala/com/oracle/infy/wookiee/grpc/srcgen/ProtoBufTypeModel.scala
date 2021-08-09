@@ -12,6 +12,58 @@ object ProtoBufTypeModel {
 
   final case class CaseClass(className: String, params: List[Param])
 
+  final case class ProtoField(name: String, tpe: String)
+  final case class ProtoMessage(name: String, fields: List[ProtoField], oneOfs: List[ProtoField])
+
+  implicit class ProtoMessageToString(lhs: ProtoMessage) {
+
+    private def inner(fields: List[ProtoField], startingIndex: Int, nesting: Int): String =
+      fields
+        .zipWithIndex
+        .map {
+          case (field, index) =>
+            s"${field.tpe} ${field.name} = ${index + 1 + startingIndex};"
+        }
+        .mkString("", s"\n${" " * nesting * 2}", "")
+
+    def show: String = lhs match {
+      case ProtoMessage(name, fields, Nil) =>
+        s"""
+           |message $name {
+           |  ${inner(fields, 0, 1)}
+           |}
+           |""".stripMargin
+
+      case ProtoMessage(name, fields, oneOfs) =>
+        s"""
+           |message $name {
+           |  oneof OneOf {
+           |    ${inner(oneOfs, 0, 2)}
+           |  }
+           |  
+           |  ${inner(fields, fields.length, 1)}
+           |}
+           |""".stripMargin
+    }
+  }
+
+  def main(args: Array[String]): Unit = {
+
+    val result = ProtoMessage(
+      "Person",
+      List(
+        ProtoField("name", "string"),
+        ProtoField("age", "int32")
+      ),
+      List(
+        ProtoField("left", "Left"),
+        ProtoField("right", "Right")
+      )
+    ).show
+
+    println("########")
+    println(result)
+  }
   // TODO
   // 1. Implement nested sealed traits
   // 2. Use types from "wrappers.proto" for Optional scalars (https://scalapb.github.io/docs/customizations#primitive-wrappers)
