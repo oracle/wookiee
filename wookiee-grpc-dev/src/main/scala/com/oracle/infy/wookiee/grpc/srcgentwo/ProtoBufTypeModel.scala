@@ -1,7 +1,8 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.Example.ValidationError
+import org.scalafmt.interfaces.Scalafmt
 
+import java.nio.file.Paths
 import scala.meta._
 
 object ProtoBufTypeModel {
@@ -65,28 +66,98 @@ object ProtoBufTypeModel {
 //      }
 //    }
 
-    def scalaObjectToGrpc(protoMessage: ProtoMessage): String = {
-
+    def scalaObjectToGrpc(protoMessage: ProtoMessage): String =
       protoMessage.scalametaObj match {
         case Left(clazz) =>
-          val methodName = Type.Name(s"${clazz.name}ToGrpc")
-          val className = clazz.name
+          val name = clazz.name.value
+          val modelTerm = Term.Name(name)
+          val modelType = Type.Name(name)
 
-          val x =
-            q"""implicit class $methodName (lhs: $className) {
-                  def toGrpc: Grpc${className} = {
-                    Grpc$className(
-                      //todo -- fill in fields
-                    )
+          val fromGrpcImplicitClassName = Type.Name(s"${name}FromGrpc")
+          val toGrpcImplicitClassName = Type.Name(s"${name}ToGrpc")
+
+          val grpcType = Type.Name(s"Grpc$name")
+          val returnTypeTerm = Term.Name(s"Grpc$name")
+
+          val fields = clazz
+            .ctor
+            .paramss
+            .flatten
+            .map { param =>
+              val paramName = param.name.value
+
+              val nonScalarAssign = Term.Assign(
+                Term.Name(paramName),
+                q"lhs.${Term.Name(paramName)}.toGrpc"
+              )
+
+              val scalarAssign = Term.Assign(Term.Name(paramName), Term.Select(Term.Name("lhs"), Term.Name(paramName)))
+
+              param
+                .decltpe
+                .map {
+                  // TODO: Handle other scalars
+                  case Type.Name("String") | Type.Name("Int") =>
+                    scalarAssign
+                  case _ =>
+                    nonScalarAssign
+                }
+                .getOrElse(nonScalarAssign)
+            }
+
+          val toGrpc =
+            q"""
+                implicit class $toGrpcImplicitClassName (lhs: $modelType) {
+                  def toGrpc: $grpcType = {
+                    $returnTypeTerm(..$fields)
                   }
-                }"""
+                }
+            """
 
-          x.toString()
+          val typesnel = List(Type.Name("String"), modelType)
+
+          val enumeratorsnel = clazz
+            .ctor
+            .paramss
+            .flatten
+            .map { param =>
+              val paramName = param.name.value
+
+              val t = Term.Select(Term.Name("lhs"), Term.Name(paramName))
+              val app = q"Right($t)"
+              val scalarGenerator = Enumerator.Generator(Pat.Var(Term.Name(paramName)), app)
+
+              val nonScalarGenerator =
+                Enumerator.Generator(Pat.Var(Term.Name(paramName)), q"lhs.${Term.Name(paramName)}.fromGrpc")
+
+              param
+                .decltpe
+                .map {
+                  case Type.Name("String") | Type.Name("Int") =>
+                    scalarGenerator
+                  case _ =>
+                    nonScalarGenerator
+                }
+                .getOrElse(nonScalarGenerator)
+            }
+
+          val forYield = q"for(..$enumeratorsnel) yield $modelTerm(..$fields)"
+          val fromGrpc =
+            q"""
+                implicit class $fromGrpcImplicitClassName (lhs: $grpcType) {
+                  def fromGrpc: Either[..$typesnel] = {
+                    $forYield
+                  }
+                }
+            """
+
+          val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
+          val code = s"$toGrpc \n $fromGrpc"
+          scalafmt.format(Paths.get("/Users/lachandr/Projects/wookiee/.scalafmt.conf"), Paths.get("Main.scala"), code)
+
         case Right(value) =>
           value.toString()
       }
-
-    }
 
     def renderImplicits: String = scalaObjectToGrpc(lhs)
 

@@ -103,7 +103,11 @@ lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(Deps.build.scalaReflect(scalaVersion.value), "org.scalameta" %% "scalameta" % "4.4.25")
+    libraryDependencies ++= Seq(
+      Deps.build.scalaReflect(scalaVersion.value),
+      "org.scalameta" %% "scalameta" % "4.4.25",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
+    )
   )
   .settings(
     //scalaPB

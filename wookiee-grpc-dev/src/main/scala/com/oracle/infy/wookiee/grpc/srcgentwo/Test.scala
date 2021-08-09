@@ -16,8 +16,8 @@ object Test {
   def main(args: Array[String]): Unit = {
 
     val path =
-      "/Users/msiegfri/work/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
-    //"/Users/lachandr/Projects/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
+//      "/Users/msiegfri/Projects/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
+      "/Users/lachandr/Projects/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
 
     val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
 
@@ -44,7 +44,6 @@ object Test {
         }
       }
     // todo -- have a filter stage to filter out case classes that do not conform (type paramters, implicit params, etc)
-
 
     println("--------- Proto Messages ---------")
     println(protoMessages.map(_.renderProto).mkString(""))
@@ -105,9 +104,9 @@ object Test {
             value match {
               case "Int"    => Some(ProtoField(param.name.value, "int32"))
               case "String" => Some(ProtoField(param.name.value, "string"))
-              // todo -- fill these in
-              case "Option"  => None
-              case "etc etc" => None
+              // todo -- Handle other scalars like bool, float etc.
+              case _ =>
+                Some(ProtoField(param.name.value, value))
             }
           // we should not get into this case (where the type is not explicitly declared) after our filters
           case _ => None

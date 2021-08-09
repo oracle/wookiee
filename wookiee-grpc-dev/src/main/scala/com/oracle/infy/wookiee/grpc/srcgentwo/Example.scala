@@ -8,7 +8,9 @@ object Example {
 
   sealed trait DestinationError extends ASError
 
+  case class Person(name: String, age: Int)
+
   @srcGenIgnore("maxyError")
-  case class ValidationError(code: Int, maxyError: String) extends DestinationError
+  case class ValidationError(code: Int, maxyError: String, person: Person) extends DestinationError
 
 }
