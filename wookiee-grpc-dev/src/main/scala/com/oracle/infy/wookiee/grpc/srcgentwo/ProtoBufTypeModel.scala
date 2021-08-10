@@ -32,6 +32,15 @@ object ProtoBufTypeModel {
            |}
            |""".stripMargin
 
+      case ProtoMessage(name, Nil, oneOfs, _) =>
+        s"""
+           |message $name {
+           |  oneof OneOf {
+           |    ${inner(oneOfs, 0, 2)}
+           |  }
+           |}
+           |""".stripMargin
+
       case ProtoMessage(name, fields, oneOfs, _) =>
         s"""
            |message $name {
@@ -152,7 +161,7 @@ object ProtoBufTypeModel {
 //          val modelTerm = Term.Name(name)
           val modelType = Type.Name(name)
 
-//          val fromGrpcImplicitClassName = Type.Name(s"${name}FromGrpc")
+          val fromGrpcImplicitClassName = Type.Name(s"${name}FromGrpc")
           val toGrpcImplicitClassName = Type.Name(s"${name}ToGrpc")
 
           val grpcType = Type.Name(protoMessage.protobufMessageName)
@@ -177,12 +186,41 @@ object ProtoBufTypeModel {
                 body = q"$grpcTerm($grpcTerm.OneOf.Empty)"
               )
           )
-          val tree = q"""
+          val toGrpcTree = q"""
              implicit class $toGrpcImplicitClassName(lhs: $modelType) {
                def toGrpc: $grpcType = $lhsMatch
              }
            """
-          fmt(tree.toString())
+
+          val typesnel = List(Type.Name("String"), modelType)
+
+          val matchStatement =
+            Term.Match(
+              Term.Select(Term.Name("lhs"), Term.Name("oneOf")),
+              Case(
+                pat = Term.Select(Term.Select(grpcTerm, Term.Name("OneOf")), Term.Name("Empty")),
+                cond = None,
+                body = q"""Left("err")"""
+              ) ::
+                protoMessage
+                  .oneOfs
+                  .map { protoField =>
+                    val childTerm = Term.Name(protoField.scalaType)
+                    Case(
+                      pat = Pat.Extract(q"$grpcTerm.OneOf.$childTerm", List(Pat.Var(Term.Name("value")))),
+                      cond = None,
+                      body = q"value.fromGrpc"
+                    )
+                  }
+            )
+
+          val fromGrpcTree = q"""
+                implicit class $fromGrpcImplicitClassName(lhs: $grpcType) {
+                  def fromGrpc: Either[..$typesnel] = $matchStatement
+                }
+             """
+
+          fmt(s"$toGrpcTree \n $fromGrpcTree")
       }
 
     def renderImplicits(fmt: String => String): String =

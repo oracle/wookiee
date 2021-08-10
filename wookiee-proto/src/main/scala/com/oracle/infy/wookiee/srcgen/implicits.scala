@@ -16,6 +16,18 @@ object implicits {
     }
   }
 
+  implicit class ASErrorFromGrpc(lhs: GrpcASError) {
+
+    def fromGrpc: Either[String, ASError] = lhs.oneOf match {
+      case GrpcASError.OneOf.Empty =>
+        Left("err")
+      case GrpcASError.OneOf.DestinationError(value) =>
+        value.fromGrpc
+      case GrpcASError.OneOf.ConnectionError(value) =>
+        value.fromGrpc
+    }
+  }
+
   implicit class DestinationErrorToGrpc(lhs: DestinationError) {
 
     def toGrpc: GrpcDestinationError = lhs match {
@@ -28,6 +40,18 @@ object implicits {
     }
   }
 
+  implicit class DestinationErrorFromGrpc(lhs: GrpcDestinationError) {
+
+    def fromGrpc: Either[String, DestinationError] = lhs.oneOf match {
+      case GrpcDestinationError.OneOf.Empty =>
+        Left("err")
+      case GrpcDestinationError.OneOf.MaxyDestinationValidationError(value) =>
+        value.fromGrpc
+      case GrpcDestinationError.OneOf.MaxyConnectionValidationError(value) =>
+        value.fromGrpc
+    }
+  }
+
   implicit class ConnectionErrorToGrpc(lhs: ConnectionError) {
 
     def toGrpc: GrpcConnectionError = lhs match {
@@ -35,6 +59,16 @@ object implicits {
         GrpcConnectionError(GrpcConnectionError.OneOf.MaxyConnectionValidationError(value.toGrpc))
       case _ =>
         GrpcConnectionError(GrpcConnectionError.OneOf.Empty)
+    }
+  }
+
+  implicit class ConnectionErrorFromGrpc(lhs: GrpcConnectionError) {
+
+    def fromGrpc: Either[String, ConnectionError] = lhs.oneOf match {
+      case GrpcConnectionError.OneOf.Empty =>
+        Left("err")
+      case GrpcConnectionError.OneOf.MaxyConnectionValidationError(value) =>
+        value.fromGrpc
     }
   }
 
