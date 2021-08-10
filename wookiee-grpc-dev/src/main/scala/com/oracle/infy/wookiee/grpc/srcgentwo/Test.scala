@@ -1,8 +1,9 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
 import com.oracle.infy.wookiee.grpc.srcgentwo.ProtoBufTypeModel.{ProtoField, ProtoMessage}
+import org.scalafmt.interfaces.Scalafmt
 
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 import scala.meta.inputs.Input
 import scala.meta.{Defn, Init, Source, Type}
 
@@ -15,9 +16,7 @@ object Test {
 
   def main(args: Array[String]): Unit = {
 
-    val path =
-//      "/Users/msiegfri/Projects/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
-      "/Users/lachandr/Projects/wookiee/wookiee-grpc-dev/src/main/scala/com/oracle/infy/wookiee/grpc/srcgentwo/Example.scala"
+    val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
 
     val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
 
@@ -46,33 +45,68 @@ object Test {
     // todo -- have a filter stage to filter out case classes that do not conform (type paramters, implicit params, etc)
 
     println("--------- Proto Messages ---------")
-    println(protoMessages.map(_.renderProto).mkString(""))
+
+    val protoContent = List(
+      """syntax = "proto3";""",
+      "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
+      protoMessages.map(_.renderProto).mkString(""),
+      """
+        |service TestService {
+        |  rpc test(GrpcPerson) returns (GrpcPerson) {}
+        |}
+        |""".stripMargin
+    ).mkString("\n")
+
+    Files.write(Paths.get("wookiee-proto/src/main/protobuf/testService.proto"), protoContent.getBytes)
+
     println("--------- ScalaCode ---------")
-    println(protoMessages.map(_.renderImplicits).mkString("\n"))
+
+    val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
+    val fmt: String => String = str => scalafmt.format(Paths.get(".scalafmt.conf"), Paths.get("Main.scala"), str)
+
+    val scalaContent =
+      s"""
+      package com.oracle.infy.wookiee.srcgen
+      import Example._
+      import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+      
+      object implicits {
+        ${protoMessages.map(_.renderImplicits(fmt)).mkString("\n")}
+      }
+    """.stripMargin
+
+    Files.write(
+      Paths.get("wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/implicits.scala"),
+      fmt(scalaContent).getBytes
+    )
+    ()
 
   }
 
   def addParentsToSealedTraitMap(
       inits: List[Init],
-      childName: String,
+      childTypeName: String,
       sealedTraitMap: Map[String, List[ProtoField]]
-  ): Map[String, List[ProtoField]] = {
+  ): Map[String, List[ProtoField]] =
     inits.foldLeft(sealedTraitMap) { (innerMap, init) =>
       init.tpe match {
         case Type.Name(parentClass) =>
           val currentMembers = innerMap.getOrElse(parentClass, List.empty)
+          val prefixedChildTypeName = s"$Grpc$childTypeName"
           innerMap + (parentClass -> (currentMembers :+ ProtoField(
-            childName,
-            childName.take(1).toUpperCase + childName.drop(1)
+            protobufFieldName = childTypeName.take(1).toLowerCase + childTypeName.drop(1),
+            protobufType = prefixedChildTypeName,
+            scalaType = childTypeName
           )))
         // todo -- decide how to handle these
         case _ =>
           innerMap
       }
     }
-  }
 
-  def calculateSealedTraits(defns: List[Defn]): Map[String, List[ProtoField]] = {
+  private val Grpc = "Grpc"
+
+  def calculateSealedTraits(defns: List[Defn]): Map[String, List[ProtoField]] =
     defns
       .foldLeft(Map.empty[String, List[ProtoField]]) { (map, node) =>
         node match {
@@ -85,11 +119,9 @@ object Test {
             map
         }
       }
-  }
 
-  def handleSealedTrait(value: Defn.Trait, sealedTraitMap: Map[String, List[ProtoField]]): ProtoMessage = {
-    ProtoMessage(value.name.value, Nil, sealedTraitMap.getOrElse(value.name.value, List.empty), Right(value))
-  }
+  def handleSealedTrait(value: Defn.Trait, sealedTraitMap: Map[String, List[ProtoField]]): ProtoMessage =
+    ProtoMessage(s"$Grpc${value.name.value}", Nil, sealedTraitMap.getOrElse(value.name.value, List.empty), Right(value))
 
   def handleCaseClass(clazz: Defn.Class): ProtoMessage = {
     // flatten implicit params and params because we filter out implicits
@@ -102,17 +134,17 @@ object Test {
         param.decltpe.flatMap {
           case Type.Name(value) =>
             value match {
-              case "Int"    => Some(ProtoField(param.name.value, "int32"))
-              case "String" => Some(ProtoField(param.name.value, "string"))
+              case "Int"    => Some(ProtoField(param.name.value, "int32", value))
+              case "String" => Some(ProtoField(param.name.value, "string", value))
               // todo -- Handle other scalars like bool, float etc.
               case _ =>
-                Some(ProtoField(param.name.value, value))
+                Some(ProtoField(protobufFieldName = param.name.value, protobufType = s"$Grpc$value", scalaType = value))
             }
           // we should not get into this case (where the type is not explicitly declared) after our filters
           case _ => None
         }
       }
 
-    ProtoMessage(clazz.name.value, protoFields, List.empty, Left(clazz))
+    ProtoMessage(s"$Grpc${clazz.name.value}", protoFields, List.empty, Left(clazz))
   }
 }

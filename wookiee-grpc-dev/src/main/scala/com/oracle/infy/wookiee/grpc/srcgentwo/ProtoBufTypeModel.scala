@@ -1,13 +1,10 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import org.scalafmt.interfaces.Scalafmt
-
-import java.nio.file.Paths
 import scala.meta._
 
 object ProtoBufTypeModel {
 
-  final case class ProtoField(protobufFieldName: String, protobufType: String)
+  final case class ProtoField(protobufFieldName: String, protobufType: String, scalaType: String)
 
   final case class ProtoMessage(
       protobufMessageName: String,
@@ -46,27 +43,10 @@ object ProtoBufTypeModel {
            |""".stripMargin
     }
 
-//    implicit class ObjectReferenceToGrpc(lhs: ObjectReference) {
-//      def toGrpc: GrpcObjectReference = {
-//        GrpcObjectReference(
-//          includeRelated = lhs.includeRelated,
-//          principalReference = lhs.principalReference.toGrpc,
-//          guid = lhs.guid
-//        )
-//      }
-//    }
-//
-//    implicit class ObjectReferenceToADR(lhs: GrpcObjectReference) {
-//      def toADR: Either[GrpcConversionError, ObjectReference] = {
-//        for {
-//          includeRelated <- Right(lhs.includeRelated)
-//          principalReference <- lhs.principalReference.toADR
-//          guid <- Right(lhs.guid)
-//        } yield ObjectReference(includeRelated = includeRelated, principalReference = principalReference, guid = guid)
-//      }
-//    }
-
-    def scalaObjectToGrpc(protoMessage: ProtoMessage): String =
+    def scalaObjectToGrpc(
+        protoMessage: ProtoMessage,
+        fmt: String => String
+    ): String =
       protoMessage.scalametaObj match {
         case Left(clazz) =>
           val name = clazz.name.value
@@ -76,8 +56,8 @@ object ProtoBufTypeModel {
           val fromGrpcImplicitClassName = Type.Name(s"${name}FromGrpc")
           val toGrpcImplicitClassName = Type.Name(s"${name}ToGrpc")
 
-          val grpcType = Type.Name(s"Grpc$name")
-          val returnTypeTerm = Term.Name(s"Grpc$name")
+          val grpcType = Type.Name(protoMessage.protobufMessageName)
+          val returnTypeTerm = Term.Name(protoMessage.protobufMessageName)
 
           val fields = clazz
             .ctor
@@ -88,7 +68,7 @@ object ProtoBufTypeModel {
 
               val nonScalarAssign = Term.Assign(
                 Term.Name(paramName),
-                q"lhs.${Term.Name(paramName)}.toGrpc"
+                q"Some(lhs.${Term.Name(paramName)}.toGrpc)"
               )
 
               val scalarAssign = Term.Assign(Term.Name(paramName), Term.Select(Term.Name("lhs"), Term.Name(paramName)))
@@ -122,13 +102,17 @@ object ProtoBufTypeModel {
             .flatten
             .map { param =>
               val paramName = param.name.value
+              val upperCaseParamName = paramName.take(1).toUpperCase + paramName.drop(1)
 
               val t = Term.Select(Term.Name("lhs"), Term.Name(paramName))
               val app = q"Right($t)"
               val scalarGenerator = Enumerator.Generator(Pat.Var(Term.Name(paramName)), app)
 
               val nonScalarGenerator =
-                Enumerator.Generator(Pat.Var(Term.Name(paramName)), q"lhs.${Term.Name(paramName)}.fromGrpc")
+                Enumerator.Generator(
+                  Pat.Var(Term.Name(paramName)),
+                  q"lhs.${Term.Name(s"get$upperCaseParamName")}.fromGrpc"
+                )
 
               param
                 .decltpe
@@ -141,7 +125,16 @@ object ProtoBufTypeModel {
                 .getOrElse(nonScalarGenerator)
             }
 
-          val forYield = q"for(..$enumeratorsnel) yield $modelTerm(..$fields)"
+          val forAssign = clazz
+            .ctor
+            .paramss
+            .flatten
+            .map { param =>
+              val p = Term.Name(param.name.value)
+              Term.Assign(p, p)
+            }
+
+          val forYield = q"for(..$enumeratorsnel) yield $modelTerm(..$forAssign)"
           val fromGrpc =
             q"""
                 implicit class $fromGrpcImplicitClassName (lhs: $grpcType) {
@@ -151,15 +144,49 @@ object ProtoBufTypeModel {
                 }
             """
 
-          val scalafmt = Scalafmt.create(this.getClass.getClassLoader)
           val code = s"$toGrpc \n $fromGrpc"
-          scalafmt.format(Paths.get("/Users/lachandr/Projects/wookiee/.scalafmt.conf"), Paths.get("Main.scala"), code)
+          fmt(code)
 
-        case Right(value) =>
-          value.toString()
+        case Right(trt) =>
+          val name = trt.name.value
+//          val modelTerm = Term.Name(name)
+          val modelType = Type.Name(name)
+
+//          val fromGrpcImplicitClassName = Type.Name(s"${name}FromGrpc")
+          val toGrpcImplicitClassName = Type.Name(s"${name}ToGrpc")
+
+          val grpcType = Type.Name(protoMessage.protobufMessageName)
+          val grpcTerm = Term.Name(protoMessage.protobufMessageName)
+//          val returnTypeTerm = Term.Name(protoMessage.protobufMessageName)
+
+          val lhsMatch = Term.Match(
+            Term.Name("lhs"),
+            protoMessage
+              .oneOfs
+              .map { protoField =>
+                val childTerm = Term.Name(protoField.protobufType)
+                Case(
+                  pat = Pat.Typed(Pat.Var(Term.Name("value")), Type.Name(protoField.scalaType)),
+                  cond = None,
+                  body = q"$grpcTerm($grpcTerm.OneOf.$childTerm(value.toGrpc))"
+                )
+              } :+
+              Case(
+                pat = Pat.Wildcard(),
+                cond = None,
+                body = q"$grpcTerm($grpcTerm.OneOf.Empty)"
+              )
+          )
+          val tree = q"""
+             implicit class $toGrpcImplicitClassName(lhs: $modelType) {
+               def toGrpc: $grpcType = $lhsMatch
+             }
+           """
+          fmt(tree.toString())
       }
 
-    def renderImplicits: String = scalaObjectToGrpc(lhs)
+    def renderImplicits(fmt: String => String): String =
+      scalaObjectToGrpc(lhs, fmt)
 
   }
   // TODO
