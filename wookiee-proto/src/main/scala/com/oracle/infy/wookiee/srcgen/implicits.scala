@@ -8,9 +8,9 @@ object implicits {
 
     def toGrpc: GrpcASError = lhs match {
       case value: DestinationError =>
-        GrpcASError(GrpcASError.OneOf.GrpcDestinationError(value.toGrpc))
+        GrpcASError(GrpcASError.OneOf.DestinationError(value.toGrpc))
       case value: ConnectionError =>
-        GrpcASError(GrpcASError.OneOf.GrpcConnectionError(value.toGrpc))
+        GrpcASError(GrpcASError.OneOf.ConnectionError(value.toGrpc))
       case _ =>
         GrpcASError(GrpcASError.OneOf.Empty)
     }
@@ -20,9 +20,9 @@ object implicits {
 
     def toGrpc: GrpcDestinationError = lhs match {
       case value: MaxyDestinationValidationError =>
-        GrpcDestinationError(GrpcDestinationError.OneOf.GrpcMaxyDestinationValidationError(value.toGrpc))
+        GrpcDestinationError(GrpcDestinationError.OneOf.MaxyDestinationValidationError(value.toGrpc))
       case value: MaxyConnectionValidationError =>
-        GrpcDestinationError(GrpcDestinationError.OneOf.GrpcMaxyConnectionValidationError(value.toGrpc))
+        GrpcDestinationError(GrpcDestinationError.OneOf.MaxyConnectionValidationError(value.toGrpc))
       case _ =>
         GrpcDestinationError(GrpcDestinationError.OneOf.Empty)
     }
@@ -32,7 +32,7 @@ object implicits {
 
     def toGrpc: GrpcConnectionError = lhs match {
       case value: MaxyConnectionValidationError =>
-        GrpcConnectionError(GrpcConnectionError.OneOf.GrpcMaxyConnectionValidationError(value.toGrpc))
+        GrpcConnectionError(GrpcConnectionError.OneOf.MaxyConnectionValidationError(value.toGrpc))
       case _ =>
         GrpcConnectionError(GrpcConnectionError.OneOf.Empty)
     }

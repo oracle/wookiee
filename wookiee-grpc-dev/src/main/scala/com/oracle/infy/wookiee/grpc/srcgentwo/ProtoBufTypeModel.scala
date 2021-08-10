@@ -164,7 +164,7 @@ object ProtoBufTypeModel {
             protoMessage
               .oneOfs
               .map { protoField =>
-                val childTerm = Term.Name(protoField.protobufType)
+                val childTerm = Term.Name(protoField.scalaType)
                 Case(
                   pat = Pat.Typed(Pat.Var(Term.Name("value")), Type.Name(protoField.scalaType)),
                   cond = None,
