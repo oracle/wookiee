@@ -9,7 +9,8 @@ object Example {
 
   case class Person(name: String, age: Int)
 
-  case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person) extends DestinationError
+  case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person, details: Option[String])
+      extends DestinationError
 
   case class MaxyConnectionValidationError(code: Int, maxyError: String, person: Person)
       extends ConnectionError
