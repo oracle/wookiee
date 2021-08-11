@@ -5,7 +5,7 @@ import org.scalafmt.interfaces.Scalafmt
 
 import java.nio.file.{Files, Paths}
 import scala.meta.inputs.Input
-import scala.meta.{Defn, Init, Source, Type}
+import scala.meta._
 
 object Test {
 
@@ -19,6 +19,29 @@ object Test {
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
 
     val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
+
+    def optionTypeToProtoMessage(tpe: Type): Option[(Term.Name, Tree)] = {
+
+      def expandOption(t: String, level: Int): (Term.Name, Tree) = {
+        val maybeCount = "Maybe" * level
+        val sealedTraitTerm = Term.Name(s"$maybeCount$t")
+        val someTerm = Term.Name(s"Some$t")
+
+        val tree = q"""
+             sealed trait $sealedTraitTerm
+             final case class $someTerm(value: $t) extends $sealedTraitTerm
+             final case class None() extends $sealedTraitTerm
+         """
+
+        //
+        sealedTraitTerm -> tree
+      }
+
+      tpe match {
+        case Type.Apply(Type.Name("Option"), List(Type.Name("String"))) => Some(expandOption("String", 1))
+        case _                                                          => None
+      }
+    }
 
     val protoMessages = List(
       Input.VirtualFile("Example.scala", src)
@@ -82,6 +105,14 @@ object Test {
     ()
 
   }
+
+  // map<key_type, value_type>
+  // key_type = Only scalars except float, double, or bytes
+  // value_type = any type except another map
+  // map field cannot be repeated
+  // value_type cannot be repeated
+
+  // cannot nest
 
   def addParentsToSealedTraitMap(
       inits: List[Init],

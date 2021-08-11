@@ -6,16 +6,59 @@ object ProtoBufTypeModel {
 
   final case class ProtoField(protobufFieldName: String, protobufType: String, scalaType: String)
 
+  final case class OptionalProtoField(
+      protobufFieldName: String,
+      protobufType: String,
+      scalaType: String,
+      scalar: Boolean
+  )
+
   final case class ProtoMessage(
       protobufMessageName: String,
       fields: List[ProtoField],
       oneOfs: List[ProtoField],
+      optionalProtoField: List[ProtoField],
       scalametaObj: Either[Defn.Class, Defn.Trait]
   )
 
+//  ProtoMessage(
+//    protobufMessageName = "MaybeString",
+//    fields = Nil,
+//    oneOfs = List(
+//      ProtoField("some", "SomeString", ""),
+//      ProtoField("none", "None", "")
+//    ),
+//    scalametaObj = None.orNull
+//  )
+//
+//  ProtoMessage(
+//    protobufMessageName = "SomeString",
+//    fields = List(
+//      ProtoField("value", "string", "")
+//    ),
+//    oneOfs = Nil,
+//    scalametaObj = None.orNull
+//  )
+//
+//  ProtoMessage(protobufMessageName = "None", fields = Nil, oneOfs = Nil, scalametaObj = None.orNull)
+
   implicit class ProtoMessageToString(lhs: ProtoMessage) {
 
-    private def inner(fields: List[ProtoField], startingIndex: Int, nesting: Int): String =
+    private def inner(
+        fields: List[ProtoField],
+        optionalFields: List[ProtoField],
+        startingIndex: Int,
+        nesting: Int
+    ): String = {
+
+      optionalFields
+        .zipWithIndex
+        .map {
+          case (optionalField, index) =>
+            s"${}"
+            ""
+        }
+
       fields
         .zipWithIndex
         .map {
@@ -23,31 +66,32 @@ object ProtoBufTypeModel {
             s"${field.protobufType} ${field.protobufFieldName} = ${index + 1 + startingIndex};"
         }
         .mkString("", s"\n${" " * nesting * 2}", "")
+    }
 
     def renderProto: String = lhs match {
-      case ProtoMessage(name, fields, Nil, _) =>
+      case ProtoMessage(name, fields, Nil, _, optional) =>
         s"""
            |message $name {
-           |  ${inner(fields, 0, 1)}
+           |  ${inner(fields, optional, 0, 1)}
            |}
            |""".stripMargin
 
-      case ProtoMessage(name, Nil, oneOfs, _) =>
+      case ProtoMessage(name, Nil, oneOfs, _, optional) =>
         s"""
            |message $name {
            |  oneof OneOf {
-           |    ${inner(oneOfs, 0, 2)}
+           |    ${inner(oneOfs, optional, 0, 2)}
            |  }
            |}
            |""".stripMargin
 
-      case ProtoMessage(name, fields, oneOfs, _) =>
+      case ProtoMessage(name, fields, oneOfs, _, optional) =>
         s"""
            |message $name {
            |  oneof OneOf {
-           |    ${inner(oneOfs, 0, 2)}
+           |    ${inner(oneOfs, optional, 0, 2)}
            |  }
-           |  ${inner(fields, fields.length, 1)}
+           |  ${inner(fields, optional, fields.length, 1)}
            |}
            |""".stripMargin
     }
