@@ -1,10 +1,39 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.Model
+import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType}
 
 import scala.meta._
 
 object TestTwoRenderScala {
+
+  def renderScalaOptional(t: Type, fmt: String => String): String = {
+    def getOptionalClassName(tpe: Type): String =
+      tpe match {
+        case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
+          s"Option$innerType"
+        case Type.Apply(Type.Name("Option"), innerType :: Nil) =>
+          s"Option${getOptionalClassName(innerType)}"
+        case _ => ""
+      }
+
+    val toGrpcImplicitClassName = Type.Name(s"${getOptionalClassName(t)}ToGrpc")
+    val grpcType = Type.Name(getGrpcType(Some(t)))
+    val grpcTerm = Term.Name(getGrpcType(Some(t)))
+
+    val tree =
+      q"""
+            implicit class $toGrpcImplicitClassName(lhs: $t) {
+              def toGrpc: $grpcType = {
+                lhs match {
+                  case None => $grpcTerm($grpcTerm.OneOf.None(GrpcNone()))
+                  case Some(value) => $grpcTerm($grpcTerm.OneOf.Some(value.toGrpc))
+                }
+              }
+            }
+         """
+    fmt(tree.toString())
+
+  }
 
   def renderScala(model: Model, fmt: String => String): String =
     model match {
@@ -20,8 +49,8 @@ object TestTwoRenderScala {
         val returnTypeTerm = Term.Name(s"Grpc$name")
 
         val newFields = fields
-          .map { param =>
-            val paramName = param.name.value
+          .map { paramModel =>
+            val paramName = paramModel.param.name.value
 
             val nonScalarAssign = Term.Assign(
               Term.Name(paramName),
@@ -30,7 +59,8 @@ object TestTwoRenderScala {
 
             val scalarAssign = Term.Assign(Term.Name(paramName), Term.Select(Term.Name("lhs"), Term.Name(paramName)))
 
-            param
+            paramModel
+              .param
               .decltpe
               .map {
                 // TODO: Handle other scalars
@@ -54,8 +84,8 @@ object TestTwoRenderScala {
         val typesnel = List(Type.Name("String"), modelType)
 
         val enumeratorsnel = fields
-          .map { param =>
-            val paramName = param.name.value
+          .map { paramModel =>
+            val paramName = paramModel.param.name.value
             val upperCaseParamName = paramName.take(1).toUpperCase + paramName.drop(1)
 
             val t = Term.Select(Term.Name("lhs"), Term.Name(paramName))
@@ -68,7 +98,8 @@ object TestTwoRenderScala {
                 q"lhs.${Term.Name(s"get$upperCaseParamName")}.fromGrpc"
               )
 
-            param
+            paramModel
+              .param
               .decltpe
               .map {
                 case Type.Name("String") | Type.Name("Int") =>
@@ -80,12 +111,17 @@ object TestTwoRenderScala {
           }
 
         val forAssign = fields
-          .map { param =>
-            val p = Term.Name(param.name.value)
+          .map { paramModel =>
+            val p = Term.Name(paramModel.param.name.value)
             Term.Assign(p, p)
           }
 
-        val forYield = q"for(..$enumeratorsnel) yield $modelTerm(..$forAssign)"
+        val forYield = if (enumeratorsnel.nonEmpty) {
+          q"for(..$enumeratorsnel) yield $modelTerm(..$forAssign)"
+        } else {
+          q"Right($modelTerm())"
+        }
+
         val fromGrpc =
           q"""
                 implicit class $fromGrpcImplicitClassName (lhs: $grpcType) {
@@ -111,8 +147,8 @@ object TestTwoRenderScala {
         val toGrpcMatchStatement = Term.Match(
           Term.Name("lhs"),
           oneOfs
-            .map { param =>
-              val paramTypeStr = param.decltpe match {
+            .map { paramModel =>
+              val paramTypeStr = paramModel.param.decltpe match {
                 case Some(Type.Name(value)) => value
                 case None                   => "Unknown"
               }
@@ -148,8 +184,8 @@ object TestTwoRenderScala {
               cond = None,
               body = q"""Left("err")"""
             ) :: oneOfs
-              .map { param =>
-                val paramTypeStr = param.decltpe match {
+              .map { paramModel =>
+                val paramTypeStr = paramModel.param.decltpe match {
                   case Some(Type.Name(value)) => value
                   case None                   => "Unknown"
                 }

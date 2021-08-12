@@ -8,47 +8,39 @@ import scala.meta.{Term, _}
 
 object TestTwo {
 
-  final case class Model(scalaTypeName: String, grpcTypeName: String, oneOfs: List[Term.Param], fields: List[Term.Param])
+  final case class ParamModel(param: Term.Param, grpcType: String)
+
+  final case class Model(
+      scalaTypeName: String,
+      grpcTypeName: String,
+      oneOfs: List[ParamModel],
+      fields: List[ParamModel]
+  )
 
   implicit class Transpiler(lhs: Model) {
 
-    private def renderOneOfs(oneOfs: List[Term.Param]): String =
+    private def renderOneOfs(oneOfs: List[ParamModel]): String =
       oneOfs
         .zipWithIndex
         .map {
-          case (param, index) =>
-            val paramStr = param.name.value
-            val paramType = param.decltpe.getOrElse(Type.Name("Unknown")) match {
-              case Type.Name(str) => str
-              case _              => "Unknown"
-            }
-            s"    Grpc$paramType $paramStr = ${index + 1};"
+          case (paramModel, index) =>
+            val paramName = paramModel.param.name.value
+            val paramGrpcType = paramModel.grpcType
+            s"    $paramGrpcType $paramName = ${index + 1};"
         }
         .mkString("  oneof OneOf {\n", "\n", "\n  }")
 
-    private def renderFields(fields: List[Term.Param], offset: Int): String = {
-
-      def renderType(t: Type): String = t match {
-        case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
-          s"GrpcMaybe$innerType"
-        case Type.Apply(Type.Name("Option"), head :: Nil) =>
-          s"Maybe${renderType(head)}"
-        case Type.Name("String")  => "string"
-        case Type.Name("Int")     => "int32"
-        case Type.Name(nonScalar) => s"Grpc$nonScalar"
-        case _                    => "Unknown"
-      }
-
+    private def renderFields(fields: List[ParamModel], offset: Int): String =
       fields
         .zipWithIndex
         .map {
-          case (param, index) =>
-            val paramStr = param.name.value
-            val paramType = renderType(param.decltpe.getOrElse(Type.Name("GrpcUnknown")))
-            s"  $paramType $paramStr = ${index + offset};"
+          case (paramModel, index) =>
+            val paramName = paramModel.param.name.value
+            val paramGrpcType = paramModel.grpcType
+
+            s"  $paramGrpcType $paramName = ${index + offset};"
         }
         .mkString("\n")
-    }
 
     def renderProto: String =
       lhs match {
@@ -83,98 +75,149 @@ object TestTwo {
       }
   }
 
+  def getOptionalTypes(input: List[Model]): Set[Type] =
+    input
+      .flatMap(_.fields)
+      .flatMap(_.param.decltpe)
+      .collect {
+        case t @ Type.Apply(Type.Name("Option"), _) => t
+      }
+      .toSet
+
   def synthesizeOptionModel(input: List[Model]): Set[Model] = {
 
-    def handleScalarGrpcTypes(scalaType: String) =
-      scalaType match {
-        case "String" => "string"
-        case "Int"    => "int32"
-        case value    => value
-      }
+    final case class HandleTypeReturn(models: Set[Model], grpcType: String)
 
-    def handleType(t: Type, acc: Set[Model]): (Set[Model], String) = t match {
-      case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
-        val newTypeName = "Maybe" + innerType
+    def handleType(t: Type, acc: Set[Model]): HandleTypeReturn = {
+      val noneType = Type.Name("None")
 
-        (
-          acc ++ Set(
-            Model(
-              newTypeName,
-              s"Grpc$newTypeName",
-              oneOfs = List(
-                Term.Param(
-                  mods = Nil,
-                  name = Term.Name("some"),
-                  decltpe = Some(Type.Name(handleScalarGrpcTypes(innerType))),
-                  default = None
+      t match {
+        case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
+          val newTypeName = "Maybe" + innerType
+
+          HandleTypeReturn(
+            acc ++ Set(
+              Model(
+                // Using scala type for both because at the end scala type is converted to grpc type
+                // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
+                newTypeName,
+                newTypeName,
+                oneOfs = List(
+                  ParamModel(
+                    Term.Param(
+                      mods = Nil,
+                      name = Term.Name("some"),
+                      decltpe = Some(Type.Name(innerType)),
+                      default = None
+                    ),
+                    innerType
+                  ),
+                  ParamModel(
+                    Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(noneType), default = None),
+                    "None"
+                  )
                 ),
-                Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(Type.Name("None")), default = None)
-              ),
-              fields = Nil
+                fields = Nil
+              )
             ),
-            Model(
-              "None",
-              "GrpcNone",
-              oneOfs = Nil,
-              fields = Nil
-            )
-          ),
-          newTypeName
-        )
-      case Type.Apply(Type.Name("Option"), head :: Nil) =>
-        val (innerModel, innerTypeName): (Set[Model], String) = handleType(head, acc)
-        val newTypeName = "Maybe" + innerTypeName
+            newTypeName
+          )
+        case Type.Apply(Type.Name("Option"), head :: Nil) =>
+          val HandleTypeReturn(innerModel, innerTypeName) = handleType(head, acc)
+          val newTypeName = "Maybe" + innerTypeName
 
-        (
-          acc ++ Set(
-            Model(
-              newTypeName,
-              s"Grpc$newTypeName",
-              oneOfs = List(
-                Term.Param(
-                  mods = Nil,
-                  name = Term.Name("some"),
-                  decltpe = Some(Type.Name(innerTypeName)),
-                  default = None
+          HandleTypeReturn(
+            acc ++ Set(
+              Model(
+                // Using scala type for both because at the end scala type is converted to grpc type
+                // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
+                newTypeName,
+                newTypeName,
+                oneOfs = List(
+                  ParamModel(
+                    Term.Param(
+                      mods = Nil,
+                      name = Term.Name("some"),
+                      decltpe = Some(Type.Name(innerTypeName)),
+                      default = None
+                    ),
+                    innerTypeName
+                  ),
+                  ParamModel(
+                    Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(noneType), default = None),
+                    "None"
+                  )
                 ),
-                Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(Type.Name("None")), default = None)
-              ),
-              fields = Nil
-            )
-          ) ++ innerModel,
-          newTypeName
-        )
+                fields = Nil
+              )
+            ) ++ innerModel,
+            newTypeName
+          )
 
-      case _ => (acc, "")
+        case _ => HandleTypeReturn(acc, "")
+      }
     }
 
-    input
+    val expandedOptions = input
       .foldLeft(Set.empty[Model]) {
         case (acc, model) =>
           model
             .fields
-            .flatMap(_.decltpe)
-            .flatMap(t => handleType(t, acc)._1)
+            .flatMap(_.param.decltpe)
+            .flatMap(t => handleType(t, acc).models)
             .toSet
       }
+
+    if (expandedOptions.nonEmpty) {
+      // Having it as a set didn't auto dedupe
+      val dedupedExpandedOptions = expandedOptions
+        .groupBy(_.grpcTypeName)
+        .view
+        .mapValues(_.headOption)
+        .values
+        .flatten
+        .toSet
+        .map { model: Model =>
+          model.copy(
+            grpcTypeName = getGrpcType(Some(Type.Name(model.scalaTypeName))),
+            oneOfs = model.oneOfs.map { paramModel =>
+              paramModel.copy(grpcType = getGrpcType(Some(Type.Name(paramModel.grpcType))))
+            }
+          )
+        }
+
+      (dedupedExpandedOptions + Model(
+        scalaTypeName = "None",
+        grpcTypeName = getGrpcType(Some(Type.Name("None"))),
+        oneOfs = Nil,
+        fields = Nil
+      ))
+
+    } else {
+      expandedOptions
+    }
+
   }
 
   def addParentsToSealedTraitMap(
       inits: List[Init],
       childTypeName: String,
-      sealedTraitMap: Map[String, List[Term.Param]]
-  ): Map[String, List[Term.Param]] =
+      sealedTraitMap: Map[String, List[ParamModel]]
+  ): Map[String, List[ParamModel]] =
     inits.foldLeft(sealedTraitMap) { (innerMap, init) =>
       init.tpe match {
         case Type.Name(parentClass) =>
           val currentMembers = innerMap.getOrElse(parentClass, List.empty)
-          //val prefixedChildTypeName = s"$Grpc$childTypeName"
+          val childType = Type.Name(childTypeName)
           innerMap + (parentClass -> (currentMembers :+
-            Term.Param(
-              Nil,
-              Term.Name(childTypeName.take(1).toLowerCase + childTypeName.drop(1)),
-              Some(Type.Name(childTypeName)),
-              None
+            ParamModel(
+              Term.Param(
+                Nil,
+                Term.Name(childTypeName.take(1).toLowerCase + childTypeName.drop(1)),
+                Some(childType),
+                None
+              ),
+              getGrpcType(Some(childType))
             )))
         // todo -- decide how to handle these
         case _ =>
@@ -182,9 +225,9 @@ object TestTwo {
       }
     }
 
-  def calculateSealedTraits(defns: List[Defn]): Map[String, List[Term.Param]] =
+  def calculateSealedTraits(defns: List[Defn]): Map[String, List[ParamModel]] =
     defns
-      .foldLeft(Map.empty[String, List[Term.Param]]) { (map, node) =>
+      .foldLeft(Map.empty[String, List[ParamModel]]) { (map, node) =>
         node match {
           case clazz: Defn.Class =>
             addParentsToSealedTraitMap(clazz.templ.inits, clazz.name.value, map)
@@ -196,8 +239,13 @@ object TestTwo {
         }
       }
 
-  def handleSealedTrait(value: Defn.Trait, sealedTraitMap: Map[String, List[Term.Param]]): Model =
-    Model(value.name.value, s"Grpc${value.name.value}", sealedTraitMap.getOrElse(value.name.value, List.empty), Nil)
+  def handleSealedTrait(value: Defn.Trait, sealedTraitMap: Map[String, List[ParamModel]]): Model =
+    Model(
+      value.name.value,
+      getGrpcType(Some(Type.Name(value.name.value))),
+      sealedTraitMap.getOrElse(value.name.value, List.empty),
+      Nil
+    )
 
   def handleCaseClass(clazz: Defn.Class): Model = {
     // flatten implicit params and params because we filter out implicits
@@ -205,46 +253,46 @@ object TestTwo {
       .ctor
       .paramss
       .flatten
+      .map { param =>
+        ParamModel(param, getGrpcType(param.decltpe))
+      }
 
-    Model(clazz.name.value, s"Grpc${clazz.name.value}", Nil, protoFields)
+    Model(clazz.name.value, getGrpcType(Some(Type.Name(clazz.name.value))), Nil, protoFields)
+  }
+
+  def getGrpcType(t: Option[Type]): String = {
+
+    val Grpc = "Grpc"
+
+    def getGrpcMessageType: PartialFunction[Type, String] = {
+      case Type.Name(nonScalar) => s"$Grpc$nonScalar"
+    }
+
+    def getGrpcScalarType: PartialFunction[Type, String] = {
+      case Type.Name("String")  => "string"
+      case Type.Name("Int")     => "int32"
+      case Type.Name("Boolean") => "bool"
+    }
+
+    def getGrpcOptionType: PartialFunction[Type, String] = {
+      case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
+        s"Maybe$innerType"
+
+      case Type.Apply(Type.Name("Option"), head :: Nil) =>
+        s"Maybe${getGrpcOptionType(head)}"
+
+    }
+
+    getGrpcOptionType
+      .andThen(ot => s"$Grpc$ot")
+      .orElse(getGrpcScalarType)
+      .orElse(getGrpcMessageType)
+      .orElse[Type, String] {
+        case _ => "Unknown"
+      }(t.getOrElse(Type.Name("Unknown")))
   }
 
   def main(args: Array[String]): Unit = {
-
-//    val caseClassModel = Model(
-//      name = "Person",
-//      oneOfs = Nil,
-//      fields = List(
-//        Term.Param(
-//          Nil,
-//          Term.Name("name"),
-//          //Some(Type.Apply(Type.Name("Option"), List(Type.Name("String")))),
-//          Some(Type.Apply(Type.Name("Option"), List(Type.Apply(Type.Name("Option"), List(Type.Name("Int")))))),
-////          Some(
-////            Type.Apply(
-////              Type.Name("Option"),
-////              List(
-////                Type.Apply(
-////                  Type.Name("Option"),
-////                  List(
-////                    Type.Apply(Type.Name("Option"), List(Type.Name("String")))
-////                  )
-////                )
-////              )
-////            )
-////          ),
-//          None
-//        )
-//      )
-//    )
-//
-//    val traitModel = Model(
-//      name = "ParentTrait",
-//      oneOfs = List(Term.Param(Nil, Term.Name("fieldName"), Some(Type.Name("FieldType")), None)),
-//      fields = Nil
-//    )
-
-//    val models = List(caseClassModel, traitModel)
 
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
 
@@ -295,7 +343,12 @@ object TestTwo {
     val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
     val fmt: String => String = str => scalafmt.format(Paths.get(".scalafmt.conf"), Paths.get("Main.scala"), str)
 
-    val generatedScala = models.map(model => TestTwoRenderScala.renderScala(model, fmt)).mkString("\n")
+    val generatedScala = {
+      (models
+        .map(model => TestTwoRenderScala.renderScala(model, fmt)) :+ (
+        getOptionalTypes(models).map(a => TestTwoRenderScala.renderScalaOptional(a, fmt)).mkString("\n")
+      )).mkString("\n")
+    }
 
     val scalaContent =
       s"""
@@ -307,7 +360,6 @@ object TestTwo {
         ${fmt(generatedScala)}
       }
     """.stripMargin
-
 
     println(scalaContent)
 

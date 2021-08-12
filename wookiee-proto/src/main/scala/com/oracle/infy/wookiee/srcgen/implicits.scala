@@ -75,7 +75,7 @@ object implicits {
   implicit class PersonToGrpc(lhs: Person) {
 
     def toGrpc: GrpcPerson =
-      GrpcPerson(name = lhs.name, age = lhs.age)
+      GrpcPerson(name = lhs.name, age = lhs.age, optOpt = Some(lhs.optOpt.toGrpc), opt3 = Some(lhs.opt3.toGrpc))
   }
 
   implicit class PersonFromGrpc(lhs: GrpcPerson) {
@@ -84,7 +84,9 @@ object implicits {
       for {
         name <- Right(lhs.name)
         age <- Right(lhs.age)
-      } yield Person(name = name, age = age)
+        optOpt <- lhs.getOptOpt.fromGrpc
+        opt3 <- lhs.getOpt3.fromGrpc
+      } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3)
   }
 
   implicit class MaxyDestinationValidationErrorToGrpc(lhs: MaxyDestinationValidationError) {
@@ -123,6 +125,39 @@ object implicits {
         maxyError <- Right(lhs.maxyError)
         person <- lhs.getPerson.fromGrpc
       } yield MaxyConnectionValidationError(code = code, maxyError = maxyError, person = person)
+  }
+
+  implicit class OptionOptionStringToGrpc(lhs: Option[Option[String]]) {
+
+    def toGrpc: GrpcMaybeMaybeString =
+      lhs match {
+        case None =>
+          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.None(GrpcNone()))
+        case Some(value) =>
+          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Some(value.toGrpc))
+      }
+  }
+
+  implicit class OptionOptionOptionBooleanToGrpc(lhs: Option[Option[Option[Boolean]]]) {
+
+    def toGrpc: GrpcMaybeMaybeMaybeBoolean =
+      lhs match {
+        case None =>
+          GrpcMaybeMaybeMaybeBoolean(GrpcMaybeMaybeMaybeBoolean.OneOf.None(GrpcNone()))
+        case Some(value) =>
+          GrpcMaybeMaybeMaybeBoolean(GrpcMaybeMaybeMaybeBoolean.OneOf.Some(value.toGrpc))
+      }
+  }
+
+  implicit class OptionStringToGrpc(lhs: Option[String]) {
+
+    def toGrpc: GrpcMaybeString =
+      lhs match {
+        case None =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.None(GrpcNone()))
+        case Some(value) =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.Some(value.toGrpc))
+      }
   }
 
 }

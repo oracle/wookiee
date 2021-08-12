@@ -7,7 +7,7 @@ object Example {
   trait DestinationError extends ASError
   trait ConnectionError extends ASError
 
-  case class Person(name: String, age: Int)
+  case class Person(name: String, age: Int, optOpt: Option[Option[String]], opt3: Option[Option[Option[Boolean]]])
 
   case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person, details: Option[String])
       extends DestinationError
