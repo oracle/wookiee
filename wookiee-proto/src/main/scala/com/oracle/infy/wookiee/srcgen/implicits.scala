@@ -90,7 +90,12 @@ object implicits {
   implicit class MaxyDestinationValidationErrorToGrpc(lhs: MaxyDestinationValidationError) {
 
     def toGrpc: GrpcMaxyDestinationValidationError =
-      GrpcMaxyDestinationValidationError(code = lhs.code, maxyError = lhs.maxyError, person = Some(lhs.person.toGrpc))
+      GrpcMaxyDestinationValidationError(
+        code = lhs.code,
+        maxyError = lhs.maxyError,
+        person = Some(lhs.person.toGrpc),
+        details = Some(lhs.details.toGrpc)
+      )
   }
 
   implicit class MaxyDestinationValidationErrorFromGrpc(lhs: GrpcMaxyDestinationValidationError) {
@@ -100,7 +105,8 @@ object implicits {
         code <- Right(lhs.code)
         maxyError <- Right(lhs.maxyError)
         person <- lhs.getPerson.fromGrpc
-      } yield MaxyDestinationValidationError(code = code, maxyError = maxyError, person = person)
+        details <- lhs.getDetails.fromGrpc
+      } yield MaxyDestinationValidationError(code = code, maxyError = maxyError, person = person, details = details)
   }
 
   implicit class MaxyConnectionValidationErrorToGrpc(lhs: MaxyConnectionValidationError) {
