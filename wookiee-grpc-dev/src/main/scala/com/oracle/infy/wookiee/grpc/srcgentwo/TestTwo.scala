@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import scala.meta._
+import scala.meta.{Term, _}
 
 object TestTwo {
 
@@ -18,11 +18,11 @@ object TestTwo {
               case Type.Name(str) => str
               case _              => "Unknown"
             }
-            s"    $paramType $paramStr = ${index + 1}"
+            s"    $paramType $paramStr = ${index + 1};"
         }
         .mkString("  oneof OneOf {\n", "\n", "\n  }")
 
-    private def renderFields(fields: List[Term.Param]): String = {
+    private def renderFields(fields: List[Term.Param], offset: Int): String = {
 
       def renderType(t: Type): String = t match {
         case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
@@ -41,7 +41,7 @@ object TestTwo {
           case (param, index) =>
             val paramStr = param.name.value
             val paramType = renderType(param.decltpe.getOrElse(Type.Name("GrpcUnknown")))
-            s"  $paramType $paramStr = ${index + 1}"
+            s"  $paramType $paramStr = ${index + offset};"
         }
         .mkString("\n")
     }
@@ -64,7 +64,7 @@ object TestTwo {
         case Model(name, Nil, fields) =>
           s"""
              |message $name {
-             |${renderFields(fields)}
+             |${renderFields(fields, offset = 1)}
              |}
              |""".stripMargin
 
@@ -72,10 +72,43 @@ object TestTwo {
           s"""
              |message $name {
              |${renderOneOfs(oneOfs)}
-             |${renderFields(fields)}
+             |${renderFields(fields, offset = oneOfs.length)}
              |}
              |""".stripMargin
 
+      }
+  }
+
+  def synthesizeOptionModel(input: List[Model]): Set[Model] = {
+
+    def handleType(t: Type, acc: Set[Model]): Set[Model] = t match {
+      case Type.Apply(Type.Name("Option"), Type.Name("String") :: Nil) =>
+        acc ++ Set(
+          Model(
+            "MaybeString",
+            oneOfs = List(
+              Term.Param(mods = Nil, name = Term.Name("some"), decltpe = Some(Type.Name("string")), default = None),
+              Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(Type.Name("None")), default = None)
+            ),
+            fields = Nil
+          ),
+          Model(
+            "None",
+            oneOfs = Nil,
+            fields = Nil
+          )
+        )
+      case _ => acc
+    }
+
+    input
+      .foldLeft(Set.empty[Model]) {
+        case (acc, model) =>
+          model
+            .fields
+            .flatMap(_.decltpe)
+            .flatMap(t => handleType(t, acc))
+            .toSet
       }
   }
 
@@ -87,27 +120,29 @@ object TestTwo {
         Term.Param(
           Nil,
           Term.Name("name"),
-//          Some(Type.Apply(Type.Name("Option"), List(Type.Name("String")))),
+          Some(Type.Apply(Type.Name("Option"), List(Type.Name("String")))),
 //          Some(Type.Apply(Type.Name("Option"), List(Type.Apply(Type.Name("Option"), List(Type.Name("String")))))),
-          Some(
-            Type.Apply(
-              Type.Name("Option"),
-              List(
-                Type.Apply(
-                  Type.Name("Option"),
-                  List(
-                    Type.Apply(Type.Name("Option"), List(Type.Name("String")))
-                  )
-                )
-              )
-            )
-          ),
+//          Some(
+//            Type.Apply(
+//              Type.Name("Option"),
+//              List(
+//                Type.Apply(
+//                  Type.Name("Option"),
+//                  List(
+//                    Type.Apply(Type.Name("Option"), List(Type.Name("String")))
+//                  )
+//                )
+//              )
+//            )
+//          ),
           None
         )
       )
     )
 
-    println(model.renderProto)
+    val models = List(model)
+    val protoContent = (models ++ synthesizeOptionModel(models)).map(_.renderProto).mkString("\n")
+    println(protoContent)
   }
 
 }
