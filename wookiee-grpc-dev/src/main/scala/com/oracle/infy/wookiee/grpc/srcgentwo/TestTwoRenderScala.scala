@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType}
+import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType, isScalarType}
 
 import scala.meta._
 
@@ -17,21 +17,52 @@ object TestTwoRenderScala {
       }
 
     val toGrpcImplicitClassName = Type.Name(s"${getOptionalClassName(t)}ToGrpc")
+    val fromGrpcImplicitClassName = Type.Name(s"${getOptionalClassName(t)}FromGrpc")
     val grpcType = Type.Name(getGrpcType(Some(t)))
     val grpcTerm = Term.Name(getGrpcType(Some(t)))
 
-    val tree =
+    val toApply = t match {
+      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
+        q"value"
+      case _ =>
+        q"value.toGrpc"
+    }
+
+    val fromApply = t match {
+      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
+        q"Right(Some(value))"
+      case _ =>
+        q"value.fromGrpc.map(Some(_))"
+    }
+
+    val toGrpcTree =
       q"""
             implicit class $toGrpcImplicitClassName(lhs: $t) {
               def toGrpc: $grpcType = {
                 lhs match {
                   case None => $grpcTerm($grpcTerm.OneOf.None(GrpcNone()))
-                  case Some(value) => $grpcTerm($grpcTerm.OneOf.Some(value.toGrpc))
+                  case Some(value) => $grpcTerm($grpcTerm.OneOf.Some($toApply))
                 }
               }
             }
          """
-    fmt(tree.toString())
+
+    val matchStatement = Term.Match(
+      q"lhs.oneOf",
+      List(
+        Case(Pat.Extract(q"$grpcTerm.OneOf.Some", List(Pat.Var(q"value"))), None, fromApply),
+        Case(Pat.Wildcard(), None, q"Right(None)")
+      )
+    )
+
+    val fromGrpcTree =
+      q"""
+          implicit class $fromGrpcImplicitClassName(lhs: $grpcType) {
+            def fromGrpc: Either[String, $t] = $matchStatement
+          }
+        """
+
+    fmt(toGrpcTree.toString() + "\n" + fromGrpcTree.toString())
 
   }
 
@@ -72,11 +103,20 @@ object TestTwoRenderScala {
               .getOrElse(nonScalarAssign)
           }
 
+        val toBody = if (newFields.isEmpty) {
+          q"""
+              val _ = lhs
+              $returnTypeTerm(..$newFields)
+             """
+        } else {
+          q"""$returnTypeTerm(..$newFields)"""
+        }
+
         val toGrpc =
           q"""
                 implicit class $toGrpcImplicitClassName (lhs: $modelType) {
                   def toGrpc: $grpcType = {
-                    $returnTypeTerm(..$newFields)
+                    $toBody
                   }
                 }
             """
@@ -119,7 +159,10 @@ object TestTwoRenderScala {
         val forYield = if (enumeratorsnel.nonEmpty) {
           q"for(..$enumeratorsnel) yield $modelTerm(..$forAssign)"
         } else {
-          q"Right($modelTerm())"
+          q"""
+             val _ = lhs
+             Right($modelTerm())
+             """
         }
 
         val fromGrpc =

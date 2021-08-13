@@ -75,14 +75,30 @@ object TestTwo {
       }
   }
 
-  def getOptionalTypes(input: List[Model]): Set[Type] =
+  def getOptionalTypes(input: List[Model]): Set[Type] = {
+
+    def expand(t: Type.Apply): List[Type] =
+      t match {
+        case Type.Apply(Type.Name("Option"), Type.Name(_) :: Nil) => List(t)
+        case Type.Apply(Type.Name("Option"), (app @ Type.Apply(_, _)) :: Nil) =>
+          t :: expand(app)
+        case _ => Nil
+      }
+
     input
       .flatMap(_.fields)
       .flatMap(_.param.decltpe)
       .collect {
         case t @ Type.Apply(Type.Name("Option"), _) => t
       }
+      .flatMap(expand)
+      .groupBy(_.toString())
+      .view
+      .mapValues(_.headOption)
+      .values
+      .flatten
       .toSet
+  }
 
   def synthesizeOptionModel(input: List[Model]): Set[Model] = {
 
@@ -259,6 +275,19 @@ object TestTwo {
 
     Model(clazz.name.value, getGrpcType(Some(Type.Name(clazz.name.value))), Nil, protoFields)
   }
+
+  def getGrpcScalarType: PartialFunction[Type, String] = {
+    case Type.Name("String")  => "string"
+    case Type.Name("Int")     => "int32"
+    case Type.Name("Boolean") => "bool"
+  }
+
+  def isScalarType(t: Type): Boolean =
+    getGrpcScalarType
+      .andThen(_ => true)
+      .orElse[Type, Boolean] { _ =>
+        false
+      }(t)
 
   def getGrpcType(t: Option[Type]): String = {
 

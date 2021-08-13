@@ -72,6 +72,22 @@ object implicits {
     }
   }
 
+  implicit class TestToGrpc(lhs: Test) {
+
+    def toGrpc: GrpcTest = {
+      val _ = lhs
+      GrpcTest()
+    }
+  }
+
+  implicit class TestFromGrpc(lhs: GrpcTest) {
+
+    def fromGrpc: Either[String, Test] = {
+      val _ = lhs
+      Right(Test())
+    }
+  }
+
   implicit class PersonToGrpc(lhs: Person) {
 
     def toGrpc: GrpcPerson =
@@ -127,6 +143,48 @@ object implicits {
       } yield MaxyConnectionValidationError(code = code, maxyError = maxyError, person = person)
   }
 
+  implicit class OptionStringToGrpc(lhs: Option[String]) {
+
+    def toGrpc: GrpcMaybeString =
+      lhs match {
+        case None =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.None(GrpcNone()))
+        case Some(value) =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.Some(value))
+      }
+  }
+
+  implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
+
+    def fromGrpc: Either[String, Option[String]] = lhs.oneOf match {
+      case GrpcMaybeString.OneOf.Some(value) =>
+        Right(Some(value))
+      case _ =>
+        Right(None)
+    }
+  }
+
+  implicit class OptionTestToGrpc(lhs: Option[Test]) {
+
+    def toGrpc: GrpcMaybeTest =
+      lhs match {
+        case None =>
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.None(GrpcNone()))
+        case Some(value) =>
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Some(value.toGrpc))
+      }
+  }
+
+  implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
+
+    def fromGrpc: Either[String, Option[Test]] = lhs.oneOf match {
+      case GrpcMaybeTest.OneOf.Some(value) =>
+        value.fromGrpc.map(Some(_))
+      case _ =>
+        Right(None)
+    }
+  }
+
   implicit class OptionOptionStringToGrpc(lhs: Option[Option[String]]) {
 
     def toGrpc: GrpcMaybeMaybeString =
@@ -138,26 +196,14 @@ object implicits {
       }
   }
 
-  implicit class OptionOptionOptionBooleanToGrpc(lhs: Option[Option[Option[Boolean]]]) {
+  implicit class OptionOptionStringFromGrpc(lhs: GrpcMaybeMaybeString) {
 
-    def toGrpc: GrpcMaybeMaybeMaybeBoolean =
-      lhs match {
-        case None =>
-          GrpcMaybeMaybeMaybeBoolean(GrpcMaybeMaybeMaybeBoolean.OneOf.None(GrpcNone()))
-        case Some(value) =>
-          GrpcMaybeMaybeMaybeBoolean(GrpcMaybeMaybeMaybeBoolean.OneOf.Some(value.toGrpc))
-      }
-  }
-
-  implicit class OptionStringToGrpc(lhs: Option[String]) {
-
-    def toGrpc: GrpcMaybeString =
-      lhs match {
-        case None =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.None(GrpcNone()))
-        case Some(value) =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.Some(value.toGrpc))
-      }
+    def fromGrpc: Either[String, Option[Option[String]]] = lhs.oneOf match {
+      case GrpcMaybeMaybeString.OneOf.Some(value) =>
+        value.fromGrpc.map(Some(_))
+      case _ =>
+        Right(None)
+    }
   }
 
 }
