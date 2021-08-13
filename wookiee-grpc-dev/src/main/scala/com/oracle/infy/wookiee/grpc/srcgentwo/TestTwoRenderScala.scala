@@ -1,23 +1,30 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType, isScalarType}
+import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{
+  Model,
+  getGrpcType,
+  isListNonScalarType,
+  isListScalarType,
+  isScalarType
+}
 
 import scala.meta._
 
 object TestTwoRenderScala {
 
-  def renderScalaOptional(t: Type, fmt: String => String): String = {
-    def getOptionalClassName(tpe: Type): String =
-      tpe match {
-        case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
-          s"Option$innerType"
-        case Type.Apply(Type.Name("Option"), innerType :: Nil) =>
-          s"Option${getOptionalClassName(innerType)}"
-        case _ => ""
-      }
+  private def getClassName(tpe: Type, outerType: String): String =
+    tpe match {
+      case Type.Apply(Type.Name(`outerType`), Type.Name(innerType) :: Nil) =>
+        s"$outerType$innerType"
+      case Type.Apply(Type.Name(`outerType`), innerType :: Nil) =>
+        s"$outerType${getClassName(innerType, outerType)}"
+      case _ => ""
+    }
 
-    val toGrpcImplicitClassName = Type.Name(s"${getOptionalClassName(t)}ToGrpc")
-    val fromGrpcImplicitClassName = Type.Name(s"${getOptionalClassName(t)}FromGrpc")
+  def renderScalaOptional(t: Type, fmt: String => String): String = {
+
+    val toGrpcImplicitClassName = Type.Name(s"${getClassName(t, "Option")}ToGrpc")
+    val fromGrpcImplicitClassName = Type.Name(s"${getClassName(t, "Option")}FromGrpc")
     val grpcType = Type.Name(getGrpcType(Some(t)))
     val grpcTerm = Term.Name(getGrpcType(Some(t)))
 
@@ -82,23 +89,28 @@ object TestTwoRenderScala {
         val newFields = fields
           .map { paramModel =>
             val paramName = paramModel.param.name.value
+            val paramNameTerm = Term.Name(paramName)
 
             val nonScalarAssign = Term.Assign(
-              Term.Name(paramName),
-              q"Some(lhs.${Term.Name(paramName)}.toGrpc)"
+              paramNameTerm,
+              q"Some(lhs.$paramNameTerm.toGrpc)"
             )
 
-            val scalarAssign = Term.Assign(Term.Name(paramName), Term.Select(Term.Name("lhs"), Term.Name(paramName)))
+            val scalarAssign = Term.Assign(paramNameTerm, Term.Select(Term.Name("lhs"), paramNameTerm))
 
             paramModel
               .param
               .decltpe
-              .map {
-                // TODO: Handle other scalars
-                case Type.Name("String") | Type.Name("Int") =>
+              .map { t =>
+                if (isScalarType(t)) {
                   scalarAssign
-                case _ =>
+                } else if (isListScalarType(t)) {
+                  scalarAssign
+                } else if (isListNonScalarType(t)) {
+                  Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(_.toGrpc)")
+                } else {
                   nonScalarAssign
+                }
               }
               .getOrElse(nonScalarAssign)
           }
@@ -128,24 +140,38 @@ object TestTwoRenderScala {
             val paramName = paramModel.param.name.value
             val upperCaseParamName = paramName.take(1).toUpperCase + paramName.drop(1)
 
-            val t = Term.Select(Term.Name("lhs"), Term.Name(paramName))
+            val paramNameTerm = Term.Name(paramName)
+            val t = Term.Select(Term.Name("lhs"), paramNameTerm)
             val app = q"Right($t)"
-            val scalarGenerator = Enumerator.Generator(Pat.Var(Term.Name(paramName)), app)
+            val scalarGenerator = Enumerator.Generator(Pat.Var(paramNameTerm), app)
 
             val nonScalarGenerator =
               Enumerator.Generator(
-                Pat.Var(Term.Name(paramName)),
+                Pat.Var(paramNameTerm),
                 q"lhs.${Term.Name(s"get$upperCaseParamName")}.fromGrpc"
               )
 
             paramModel
               .param
               .decltpe
-              .map {
-                case Type.Name("String") | Type.Name("Int") =>
+              .map { t =>
+                if (isScalarType(t)) {
                   scalarGenerator
-                case _ =>
+                } else if (isListScalarType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"Right(lhs.$paramNameTerm.toList)"
+                    )
+                } else if (isListNonScalarType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
+                    )
+                } else {
                   nonScalarGenerator
+                }
               }
               .getOrElse(nonScalarGenerator)
           }

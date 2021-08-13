@@ -75,12 +75,11 @@ object TestTwo {
       }
   }
 
-  def getOptionalTypes(input: List[Model]): Set[Type] = {
-
+  def expandNestedType(input: List[Model], outerType: String): Set[Type] = {
     def expand(t: Type.Apply): List[Type] =
       t match {
-        case Type.Apply(Type.Name("Option"), Type.Name(_) :: Nil) => List(t)
-        case Type.Apply(Type.Name("Option"), (app @ Type.Apply(_, _)) :: Nil) =>
+        case Type.Apply(Type.Name(`outerType`), Type.Name(_) :: Nil) => List(t)
+        case Type.Apply(Type.Name(`outerType`), (app @ Type.Apply(_, _)) :: Nil) =>
           t :: expand(app)
         case _ => Nil
       }
@@ -89,7 +88,7 @@ object TestTwo {
       .flatMap(_.fields)
       .flatMap(_.param.decltpe)
       .collect {
-        case t @ Type.Apply(Type.Name("Option"), _) => t
+        case t @ Type.Apply(Type.Name(`outerType`), _) => t
       }
       .flatMap(expand)
       .groupBy(_.toString())
@@ -99,6 +98,9 @@ object TestTwo {
       .flatten
       .toSet
   }
+
+  def getOptionalTypes(input: List[Model]): Set[Type] =
+    expandNestedType(input, "Option")
 
   def synthesizeOptionModel(input: List[Model]): Set[Model] = {
 
@@ -279,7 +281,40 @@ object TestTwo {
   def getGrpcScalarType: PartialFunction[Type, String] = {
     case Type.Name("String")  => "string"
     case Type.Name("Int")     => "int32"
+    case Type.Name("Long")    => "int64"
+    case Type.Name("Float")   => "float32"
+    case Type.Name("Double")  => "float64"
     case Type.Name("Boolean") => "bool"
+  }
+
+  def isValidMapKeyType(t: Type): Boolean =
+    t match {
+      case Type.Name("String" | "Int" | "Long" | "Boolean") => true
+      case _                                                => false
+    }
+
+  def isValidMapValueType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("List" | "Map"), _) => false
+    case _                                        => true
+  }
+
+  def getGrpcMapType: PartialFunction[Type, String] = {
+    case Type.Apply(Type.Name("Map"), k :: v :: Nil) if isValidMapKeyType(k) && isValidMapValueType(v) =>
+      s"map<${getGrpcType(Some(k))}, ${getGrpcType(Some(v))}>"
+  }
+
+  def getGrpcListType: PartialFunction[Type, String] = {
+    case Type.Apply(Type.Name("List"), inner :: Nil) => s"repeated ${getGrpcType(Some(inner))}"
+  }
+
+  def isListScalarType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("List"), inner :: Nil) => isScalarType(inner)
+    case _                                           => false
+  }
+
+  def isListNonScalarType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("List"), inner :: Nil) => !isScalarType(inner)
+    case _                                           => false
   }
 
   def isScalarType(t: Type): Boolean =
@@ -297,12 +332,6 @@ object TestTwo {
       case Type.Name(nonScalar) => s"$Grpc$nonScalar"
     }
 
-    def getGrpcScalarType: PartialFunction[Type, String] = {
-      case Type.Name("String")  => "string"
-      case Type.Name("Int")     => "int32"
-      case Type.Name("Boolean") => "bool"
-    }
-
     def getGrpcOptionType: PartialFunction[Type, String] = {
       case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
         s"Maybe$innerType"
@@ -315,6 +344,8 @@ object TestTwo {
     getGrpcOptionType
       .andThen(ot => s"$Grpc$ot")
       .orElse(getGrpcScalarType)
+      .orElse(getGrpcListType)
+      .orElse(getGrpcMapType)
       .orElse(getGrpcMessageType)
       .orElse[Type, String] {
         case _ => "Unknown"
@@ -374,7 +405,7 @@ object TestTwo {
 
     val generatedScala = {
       (models
-        .map(model => TestTwoRenderScala.renderScala(model, fmt)) :+ (
+        .map(model => TestTwoRenderScala.renderScala(model, fmt)) ++ List(
         getOptionalTypes(models).map(a => TestTwoRenderScala.renderScalaOptional(a, fmt)).mkString("\n")
       )).mkString("\n")
     }

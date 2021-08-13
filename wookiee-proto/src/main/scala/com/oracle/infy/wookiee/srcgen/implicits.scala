@@ -72,20 +72,43 @@ object implicits {
     }
   }
 
+  implicit class FooToGrpc(lhs: Foo) {
+
+    def toGrpc: GrpcFoo = {
+      val _ = lhs
+      GrpcFoo()
+    }
+  }
+
+  implicit class FooFromGrpc(lhs: GrpcFoo) {
+
+    def fromGrpc: Either[String, Foo] = {
+      val _ = lhs
+      Right(Foo())
+    }
+  }
+
   implicit class TestToGrpc(lhs: Test) {
 
-    def toGrpc: GrpcTest = {
-      val _ = lhs
-      GrpcTest()
-    }
+    def toGrpc: GrpcTest =
+      GrpcTest(name = lhs.name, foo = lhs.foo.map(_.toGrpc), bar = Some(lhs.bar.toGrpc), baz = Some(lhs.baz.toGrpc))
   }
 
   implicit class TestFromGrpc(lhs: GrpcTest) {
 
-    def fromGrpc: Either[String, Test] = {
-      val _ = lhs
-      Right(Test())
-    }
+    def fromGrpc: Either[String, Test] =
+      for {
+        name <- Right(lhs.name.toList)
+        foo <- lhs
+          .foo
+          .map(_.fromGrpc)
+          .foldLeft(Right(Nil): Either[String, List[Foo]])({
+            case (acc, i) =>
+              i.flatMap(a => acc.map(b => a :: b))
+          })
+        bar <- lhs.getBar.fromGrpc
+        baz <- lhs.getBaz.fromGrpc
+      } yield Test(name = name, foo = foo, bar = bar, baz = baz)
   }
 
   implicit class PersonToGrpc(lhs: Person) {
