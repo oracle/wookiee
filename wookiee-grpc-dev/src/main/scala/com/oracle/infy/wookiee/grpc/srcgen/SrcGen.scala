@@ -7,7 +7,7 @@ import scala.reflect.runtime.universe._
 
 trait SrcGen {
 
-  def sealedTypes(types: List[Symbol]): Set[String] = {
+  def sealedTypes(types: List[Symbol]): Set[String] =
     types
       .foldLeft(Set.empty[String])((acc, a) => {
         if (a.asClass.knownDirectSubclasses.isEmpty) {
@@ -16,13 +16,11 @@ trait SrcGen {
           acc + a.name.toString
         }
       })
-  }
 
-  private def betweenOuterBrackets(str: String) = {
+  private def betweenOuterBrackets(str: String) =
     str.dropWhile(_ /== '[').drop(1).dropRight(1)
-  }
 
-  private def toProtoType(t: String, sealedTypeLookup: Set[String]): ProtoType = {
+  private def toProtoType(t: String, sealedTypeLookup: Set[String]): ProtoType =
     t match {
       case "String"        => PrimitiveType("string", "String")
       case "Int"           => PrimitiveType("int32", "Int")
@@ -64,15 +62,13 @@ trait SrcGen {
           }
         }
     }
-  }
 
-  def stripPackageNames(innerType: String): String = {
+  def stripPackageNames(innerType: String): String =
     if (innerType.contains(".")) {
       innerType.split("\\.").lastOption.getOrElse("unknown")
     } else {
       innerType
     }
-  }
 
   def toRecord(s: Symbol): Record = {
     val subClasses = s.asClass.knownDirectSubclasses
@@ -112,7 +108,7 @@ trait SrcGen {
         }
       }
 
-      def fields(tuples: List[(String, String)]): String = {
+      def fields(tuples: List[(String, String)]): String =
         tuples
           .zipWithIndex
           .map {
@@ -120,7 +116,6 @@ trait SrcGen {
               s"  ${protoTypeToStr(toProtoType(t, Set.empty), Some(prefix))} $name = ${i + 1};"
           }
           .mkString("\n")
-      }
       s"""
          |// DO NOT EDIT! (this code is generated)
          |message $prefix${record.name} {
@@ -159,13 +154,12 @@ trait SrcGen {
 
   protected def grpcDecoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
-    def implicitClass(name: String, body: String, recordType: String) = {
-      s"""  implicit class ${name}${fromPrefix.capitalize}(lhs: $prefix$name) {
+    def implicitClass(name: String, body: String, recordType: String) =
+      s"""  implicit class $name${fromPrefix.capitalize}(lhs: $prefix$name) {
          |    def $fromPrefix: Either[GrpcConversionError, $recordType] = {
          |$body
          |    }
          |  }""".stripMargin
-    }
 
     record match {
       case SealedTrait(name, recordType, records) =>
@@ -245,13 +239,12 @@ trait SrcGen {
 
   protected def grpcEncoder(record: Record, sealedTypeLookup: Set[String]): String = {
 
-    def implicitClass(name: String, recordType: String, body: String) = {
+    def implicitClass(name: String, recordType: String, body: String) =
       s"""  implicit class ${name}To$prefix(lhs: $recordType) {
          |    def to$prefix: $prefix$name = {
          |$body
          |    }
          |  }""".stripMargin
-    }
 
     def optionOptionBody(recordType: String, wrapInSome: Boolean) = {
       val args = if (wrapInSome) {
@@ -277,7 +270,7 @@ trait SrcGen {
             case OptionType(_: CustomType, _) =>
               s"""|      lhs match {
                   |        case None =>  ${prefix}None${generateScalaType(recordType)}()
-                  |        case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to${prefix}))
+                  |        case Some(v) => ${prefix}Some${generateScalaType(recordType)}(Some(v.to$prefix))
                   |      }""".stripMargin
             case _ =>
               s"""|      lhs match {
@@ -330,7 +323,7 @@ trait SrcGen {
     }
   }
 
-  private def scanForOptionFields(record: Record, sealedTypeLookup: Set[String]): Set[Record] = {
+  private def scanForOptionFields(record: Record, sealedTypeLookup: Set[String]): Set[Record] =
     record match {
       case SealedTrait(_, _, records) =>
         records
@@ -361,9 +354,8 @@ trait SrcGen {
           .toSet
 
     }
-  }
 
-  private def scanForOptionOptionFields(record: Record, sealedTypeLookup: Set[String]): Set[Record] = {
+  private def scanForOptionOptionFields(record: Record, sealedTypeLookup: Set[String]): Set[Record] =
     record match {
       case SealedTrait(_, _, records) =>
         records
@@ -395,7 +387,6 @@ trait SrcGen {
           .toSet
 
     }
-  }
 
   def genScala(records: List[Record], sealedTypeLookup: Set[String], header: String): String = {
     val recs = addOptionRecords(records, sealedTypeLookup)
@@ -462,14 +453,13 @@ trait SrcGen {
       sealedTypeLookup: Set[String],
       classPackage: String,
       serviceName: String
-  ): String = {
+  ): String =
     genServices(
       List((serviceName, rpcs)),
       records,
       sealedTypeLookup,
       classPackage
     )
-  }
 
   def genServices(
       services: List[(String, List[(Type, String)])],
@@ -495,13 +485,12 @@ trait SrcGen {
         }
         .mkString("\n")
 
-    def serviceStr(serviceName: String, rpcs: List[(Type, String)]): String = {
+    def serviceStr(serviceName: String, rpcs: List[(Type, String)]): String =
       s"""
         |service $serviceName {
         |${rpcStr(rpcs)}
         |}
         |""".stripMargin
-    }
 
     s"""
        |// NOTE: This code is generated. DO NOT EDIT!!
@@ -515,12 +504,11 @@ trait SrcGen {
        |""".stripMargin
   }
 
-  private def zipWithLetter(records: List[Record]): List[(String, String)] = {
+  private def zipWithLetter(records: List[Record]): List[(String, String)] =
     records
       .map(_.name)
       .zipWithIndex
       .map(a => a._1 -> (97 + a._2).toChar.toString)
-  }
 
   //  private def upCaseFirst(in: String): String = in.take(1).toUpperCase ++ in.drop(1)
 
@@ -528,15 +516,13 @@ trait SrcGen {
   // ...[aa[bb]] --> aabb
   // ...[aa[bb[cc]]] -> aabbcc
   // Option[Option[String]] -> OptionString
-  private def generateScalaType(str: String): String = {
+  private def generateScalaType(str: String): String =
     str.split(s"\\[").drop(1).map(_.filterNot(_ === ']')).map(stripPackageNames).mkString
-  }
 
   // ...[aa] -> aa
   // ...[aa[bb]] --> bb
   // ...[aa[bb[cc]]] -> cc
-  private def innerType(str: String): String = {
+  private def innerType(str: String): String =
     str.split(s"\\[").lastOption.map(_.takeWhile(_ /== ']')).getOrElse("")
-  }
 
 }

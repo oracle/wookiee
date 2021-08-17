@@ -31,35 +31,32 @@ object implicits {
 
   implicit class ToEitherT[A, F[_]: Monad: Sync](lhs: F[A]) {
 
-    def toEitherT[B](handler: Throwable => B): EitherT[F, B, A] = {
+    def toEitherT[B](handler: Throwable => B): EitherT[F, B, A] =
       EitherT(
         lhs
           .map(_.asRight[B])
           .handleErrorWith(t => handler(t).asLeft[A].pure[F])
       )
-    }
   }
 
   private def toBuf[T](itr: util.Iterator[T]): scala.collection.mutable.Buffer[T] = {
     val buf = scala.collection.mutable.Buffer[T]()
     @tailrec
-    def add(): Unit = {
+    def add(): Unit =
       if (itr.hasNext) {
         buf += itr.next()
         add()
       } else {
         ()
       }
-    }
     add()
     buf
   }
 
   implicit class Java2ScalaConverterList[T](lhs: java.util.List[T]) {
 
-    def asScala: List[T] = {
+    def asScala: List[T] =
       toBuf(lhs.iterator()).toList
-    }
   }
 
   implicit class Scala2JavaConverterList[T](lhs: Seq[T]) {
@@ -73,8 +70,7 @@ object implicits {
 
   implicit class Scala2JavaConverterConcurrentHashMap[V](lhs: ConcurrentHashMap[_, V]) {
 
-    def valueSet: Set[V] = {
+    def valueSet: Set[V] =
       toBuf(lhs.values().iterator()).toSet
-    }
   }
 }

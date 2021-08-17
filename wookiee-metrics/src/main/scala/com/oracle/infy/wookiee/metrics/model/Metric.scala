@@ -30,11 +30,10 @@ case class Timer(timer: IO[DWTimer]) extends Metric {
 
 object Timer {
 
-  def apply(name: String, registry: MetricRegistry): IO[Timer] = {
+  def apply(name: String, registry: MetricRegistry): IO[Timer] =
     IO(
       Timer(IO(registry.timer(name)))
     )
-  }
 }
 
 case class Counter(counter: IO[DWCounter]) extends Metric {
@@ -46,9 +45,8 @@ case class Counter(counter: IO[DWCounter]) extends Metric {
 
 object Counter {
 
-  def apply(name: String, registry: MetricRegistry): IO[Counter] = {
+  def apply(name: String, registry: MetricRegistry): IO[Counter] =
     IO(Counter(IO(registry.counter(name))))
-  }
 }
 
 case class Meter(meter: IO[DWMeter]) extends Metric {
@@ -57,19 +55,17 @@ case class Meter(meter: IO[DWMeter]) extends Metric {
 
   def mark(amount: Long): IO[Unit] = meter.map(_.mark(amount))
 
-  def markFunc[A]()(f: IO[A]): IO[A] = {
+  def markFunc[A]()(f: IO[A]): IO[A] =
     for {
       result <- f
       _ <- meter.map(_.mark())
     } yield result
-  }
 }
 
 object Meter {
 
-  def apply(name: String, registry: MetricRegistry): IO[Meter] = {
+  def apply(name: String, registry: MetricRegistry): IO[Meter] =
     IO(Meter(IO(registry.meter(name))))
-  }
 }
 
 case class Histogram(histogram: IO[DWHistogram]) extends Metric {

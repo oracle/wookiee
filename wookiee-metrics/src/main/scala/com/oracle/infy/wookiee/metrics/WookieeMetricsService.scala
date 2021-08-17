@@ -16,7 +16,7 @@ object WookieeMetricsService {
   def register(
       metricRegistry: MetricRegistry,
       reporter: WookieeRegistry => IO[WookieeMetricsReporter[IO]]
-  ): Resource[IO, WookieeMetrics[IO]] = {
+  ): Resource[IO, WookieeMetrics[IO]] =
     Resource
       .make {
         for {
@@ -27,16 +27,14 @@ object WookieeMetricsService {
         } yield (new WookieeMetricsImpl(WookieeRegistry(metricRegistry, jvmRegistry)), r)
       } { case (_, reporter) => reporter.stop() }
       .map(_._1)
-  }
 
   def register(metricRegistry: MetricRegistry): Resource[IO, WookieeMetrics[IO]] = {
     val noOp = IO(new WookieeMetricsReporterNoOpImpl)
     register(metricRegistry, _ => noOp)
   }
 
-  def register(reporter: WookieeRegistry => IO[WookieeMetricsReporter[IO]]): Resource[IO, WookieeMetrics[IO]] = {
+  def register(reporter: WookieeRegistry => IO[WookieeMetricsReporter[IO]]): Resource[IO, WookieeMetrics[IO]] =
     register(new MetricRegistry(), reporter)
-  }
 
   def noOpRegister(): Resource[IO, WookieeMetrics[IO]] = Resource.liftF(IO(new WookieeMetricsNoOpImpl()))
 

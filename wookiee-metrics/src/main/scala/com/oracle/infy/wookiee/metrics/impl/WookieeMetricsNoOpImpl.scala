@@ -20,11 +20,10 @@ class WookieeMetricsNoOpImpl() extends WookieeMetrics[IO] {
   override def timer(name: String): IO[Timer] =
     IO(new Timer(IO(new DWTimer())) {
 
-      override def time[A]()(f: IO[A]): IO[A] = {
+      override def time[A]()(f: IO[A]): IO[A] =
         for {
           result <- f
         } yield result
-      }
       override def update(time: Long, unit: TimeUnit): IO[Unit] = IO.unit
     })
 
@@ -42,11 +41,10 @@ class WookieeMetricsNoOpImpl() extends WookieeMetrics[IO] {
 
       override def mark(amount: Long): IO[Unit] = IO.unit
 
-      override def markFunc[A]()(f: IO[A]): IO[A] = {
+      override def markFunc[A]()(f: IO[A]): IO[A] =
         for {
           result <- f
         } yield result
-      }
     })
 
   override def histogram(name: String, biased: Boolean): IO[Histogram] =

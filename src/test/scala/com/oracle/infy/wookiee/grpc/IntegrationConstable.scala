@@ -48,7 +48,7 @@ object IntegrationConstable extends ConstableCommon {
 
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
-    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
+    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] =
       for {
         queue <- Queue.unbounded[IO, Set[Host]]
         killSwitch <- Deferred[IO, Either[Throwable, Unit]]
@@ -97,7 +97,6 @@ object IntegrationConstable extends ConstableCommon {
         }
         (pushMessagesFunc, cleanup, listener)
       }
-    }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
     val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)

@@ -287,9 +287,16 @@ object TestTwo {
     case Type.Name("Boolean") => "bool"
   }
 
-  def isValidMapType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("Map"), k :: v :: Nil) => isValidMapKeyType(k) && isValidMapValueType(v)
-    case _                                           => false
+  def isValidScalarMapType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
+      isValidMapKeyType(k) && isValidMapValueType(v) && isScalarType(v)
+    case _ => false
+  }
+
+  def isValidNonScalarMapType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
+      isValidMapKeyType(k) && isValidMapValueType(v) && !isScalarType(v)
+    case _ => false
   }
 
   def isValidMapKeyType(t: Type): Boolean =
@@ -321,7 +328,6 @@ object TestTwo {
     case Type.Apply(Type.Name("List"), inner :: Nil) => !isScalarType(inner)
     case _                                           => false
   }
-
 
   def isScalarType(t: Type): Boolean =
     getGrpcScalarType

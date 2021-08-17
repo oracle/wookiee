@@ -12,7 +12,7 @@ class BearerTokenClientProvider(clientAuthSettings: ClientAuthSettings) extends 
       methodDescriptor: MethodDescriptor[ReqT, RespT],
       callOptions: CallOptions,
       channel: Channel
-  ): ClientCall[ReqT, RespT] = {
+  ): ClientCall[ReqT, RespT] =
     new ForwardingClientCall.SimpleForwardingClientCall[ReqT, RespT](channel.newCall(methodDescriptor, callOptions)) {
 
       override def start(responseListener: ClientCall.Listener[RespT], headers: Metadata): Unit = {
@@ -23,12 +23,10 @@ class BearerTokenClientProvider(clientAuthSettings: ClientAuthSettings) extends 
         super.start(responseListener, headers)
       }
     }
-  }
 }
 
 object BearerTokenClientProvider {
 
-  def apply(clientAuthSettings: ClientAuthSettings): BearerTokenClientProvider = {
+  def apply(clientAuthSettings: ClientAuthSettings): BearerTokenClientProvider =
     new BearerTokenClientProvider(clientAuthSettings)
-  }
 }

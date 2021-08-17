@@ -25,7 +25,7 @@ object UnitTestConstable extends ConstableCommon {
 
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
-    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
+    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] =
       for {
         logger <- NoOpLogger.impl[IO].pure[IO]
         queue <- Queue.unbounded[IO, Set[Host]]
@@ -48,7 +48,6 @@ object UnitTestConstable extends ConstableCommon {
 
         (pushMessagesFunc, cleanup, listener)
       }
-    }
 
     val grpcTests = GrpcListenerTest.tests(100, pushMessagesFuncAndListenerFactory)
 

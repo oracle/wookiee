@@ -565,7 +565,7 @@ object SrcGenIntegrationTest {
     scala.trim() === expectedScala.trim()
   }
 
-  def tests(): Tests = {
+  def tests(): Tests =
     Tests {
       test("genService (proto file) integration test") {
         assert(genServiceTest)
@@ -574,5 +574,4 @@ object SrcGenIntegrationTest {
         assert(genScalaTest)
       }
     }
-  }
 }

@@ -48,7 +48,7 @@ trait Serde {
       case g: Gauge[_]  => g.asJson
     }
 
-  def meteredFields(metric: Metered): Json = {
+  def meteredFields(metric: Metered): Json =
     Json.obj(
       ("unit", Json.fromString("events/second")),
       ("count", Json.fromLong(metric.getCount)),
@@ -57,7 +57,6 @@ trait Serde {
       ("m5", Json.fromDoubleOrNull(metric.getFiveMinuteRate)),
       ("m15", Json.fromDoubleOrNull(metric.getFifteenMinuteRate))
     )
-  }
 
   def sampling(metric: Sampling): Json = {
     val snapshot = metric.getSnapshot

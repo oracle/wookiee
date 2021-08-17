@@ -105,7 +105,7 @@ protected[grpc] class ZookeeperHostnameService(
       state: ConcurrentHashMap[String, CachedNodeReference],
       pushHosts: Set[Host] => IO[Unit],
       rootPath: String
-  ): CuratorCacheListener = {
+  ): CuratorCacheListener =
     CuratorCacheListener
       .builder
       .forCreates((node: ChildData) => {
@@ -146,7 +146,6 @@ protected[grpc] class ZookeeperHostnameService(
         }
       })
       .build
-  }
 
   private def sendHosts(
       pushHosts: Set[Host] => IO[Unit],
@@ -156,13 +155,12 @@ protected[grpc] class ZookeeperHostnameService(
     pushHosts(toHostList(state)).unsafeRunSync()
   }
 
-  private def toHostList(state: ConcurrentHashMap[String, CachedNodeReference]): Set[Host] = {
+  private def toHostList(state: ConcurrentHashMap[String, CachedNodeReference]): Set[Host] =
     state
       .valueSet
       .collect {
         case NodeData(data, _) => data
       }
-  }
 
   private def addOrUpdateNodeState(
       zkData: ChildData,

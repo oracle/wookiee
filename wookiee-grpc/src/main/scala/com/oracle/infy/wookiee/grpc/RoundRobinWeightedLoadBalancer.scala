@@ -91,12 +91,11 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
     removedSubchannels.forEach((removedSubchannel: Subchannel) => shutdownSubchannel(removedSubchannel))
   }
 
-  override def handleNameResolutionError(error: Status): Unit = {
+  override def handleNameResolutionError(error: Status): Unit =
     eitherPicker.get() match {
       case Left(readyPicker) => helper.updateBalancingState(TRANSIENT_FAILURE, readyPicker)
       case Right(_)          => helper.updateBalancingState(TRANSIENT_FAILURE, EmptyPicker(error))
     }
-  }
 
   private def processSubchannelState(subchannel: Subchannel, connectivityStateInfo: ConnectivityStateInfo): Unit = {
     if (subChannels.get(stripAttrs(subchannel.getAddresses)) === subchannel) {
@@ -129,9 +128,8 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
     ()
   }
 
-  override def shutdown(): Unit = {
+  override def shutdown(): Unit =
     getSubchannels.forEach(subchannel => shutdownSubchannel(subchannel))
-  }
 
   private def updateBalancingState(): Unit = {
     val activeList: List[LoadBalancer.Subchannel] = filterNonFailingSubchannels(getSubchannels).asScala.toList
@@ -238,29 +236,26 @@ object RoundRobinWeightedLoadBalancer {
 
     def apply(
         list: List[Subchannel]
-    ): ReadyPicker = {
+    ): ReadyPicker =
       ReadyPicker(
         list: List[Subchannel]
       )
-    }
 
-    def apply(status: Option[Status]): EmptyPicker = {
+    def apply(status: Option[Status]): EmptyPicker =
       status match {
         case Some(someStatus) => EmptyPicker(someStatus)
         case None             => throw new NullPointerException("status") //scalafix:ok
       }
-    }
 
-    def sortByLoad(attrs: Attributes): Int = {
+    def sortByLoad(attrs: Attributes): Int =
       attrs
         .get(WookieeNameResolver.METADATA)
         .load
-    }
 
     def isEquivalentTo(
         currentPicker: Either[ReadyPicker, EmptyPicker],
         picker: Either[ReadyPicker, EmptyPicker]
-    ): Boolean = {
+    ): Boolean =
       currentPicker match {
         case Left(currentReadyPicker) =>
           picker match {
@@ -282,7 +277,6 @@ object RoundRobinWeightedLoadBalancer {
                 .isOk)
           }
       }
-    }
   }
 
   // There are two cases for a subchannel: either it is in a READY state, or it is in some other state. If it isn't READY, depending
@@ -291,14 +285,13 @@ object RoundRobinWeightedLoadBalancer {
   // the subchannel is in a non-error state, and if so it will continue normally, otherwise it will throw an exception.
   case class ReadyPicker(list: List[Subchannel]) extends SubchannelPicker {
 
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
+    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult =
       nextSubchannel match {
         case Some(subchannel) =>
           PickResult.withSubchannel(subchannel)
 
         case None => PickResult.withError(Status.UNKNOWN)
       }
-    }
 
     override def toString: String =
       MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
@@ -317,10 +310,9 @@ object RoundRobinWeightedLoadBalancer {
 
   case class EmptyPicker(status: Status) extends SubchannelPicker {
 
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult = {
+    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult =
       if (status.isOk) PickResult.withNoResult
       else PickResult.withError(status)
-    }
 
     override def toString: String =
       MoreObjects.toStringHelper(classOf[EmptyPicker]).add("status", status).toString

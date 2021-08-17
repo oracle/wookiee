@@ -31,16 +31,14 @@ object TestModel {
 
   object srcGenTestObject extends SrcGen {
 
-    def grpcEncoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
+    def grpcEncoderWithOptions(record: Record, sealedTypes: Set[String]): String =
       addOptionRecords(List(record), sealedTypes)
         .map(r => grpcEncoder(r, sealedTypes))
         .mkString("\n\n")
-    }
 
-    def grpcDecoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
+    def grpcDecoderWithOptions(record: Record, sealedTypes: Set[String]): String =
       addOptionRecords(List(record), sealedTypes)
         .map(r => grpcDecoder(r, sealedTypes))
         .mkString("\n\n")
-    }
   }
 }

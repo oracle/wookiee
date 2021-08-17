@@ -91,7 +91,12 @@ object implicits {
   implicit class TestToGrpc(lhs: Test) {
 
     def toGrpc: GrpcTest =
-      GrpcTest(name = lhs.name, foo = lhs.foo.map(_.toGrpc), bar = Some(lhs.bar.toGrpc), baz = Some(lhs.baz.toGrpc))
+      GrpcTest(
+        name = lhs.name,
+        foo = lhs.foo.map(_.toGrpc),
+        bar = lhs.bar,
+        baz = lhs.baz.view.mapValues(_.toGrpc).toMap
+      )
   }
 
   implicit class TestFromGrpc(lhs: GrpcTest) {
@@ -106,19 +111,18 @@ object implicits {
             case (acc, i) =>
               i.flatMap(a => acc.map(b => a :: b))
           })
-        //todo -- make bar and baz into code
         bar <- Right(lhs.bar)
         baz <- Right(
           lhs
             .baz
-            .view.mapValues(_.fromGrpc)
-            .collect {
+            .view
+            .mapValues(_.fromGrpc)
+            .collect({
               case (a, Right(b)) =>
                 (a, b)
-            }
+            })
             .toMap
         )
-
       } yield Test(name = name, foo = foo, bar = bar, baz = baz)
   }
 

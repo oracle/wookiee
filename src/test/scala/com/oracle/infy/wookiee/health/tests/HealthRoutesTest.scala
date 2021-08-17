@@ -16,7 +16,7 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
 
   def checkResponse[A](actual: IO[Response[IO]], expectedStatus: Status, expectedBody: Option[A])(
       implicit ev: EntityDecoder[IO, A]
-  ): Future[Boolean] = {
+  ): Future[Boolean] =
     (for {
       actualResp <- actual
       actualBody <- actualResp.body.compile.toVector
@@ -27,7 +27,6 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
     } yield {
       statusCheck && bodyCheck
     }).unsafeToFuture()
-  }
 
   def tests()(implicit cs: ContextShift[IO], executionContext: ExecutionContext): Tests = {
 

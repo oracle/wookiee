@@ -1,6 +1,14 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType, isListNonScalarType, isListScalarType, isScalarType, isValidMapType, isValidMapValueType}
+import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{
+  Model,
+  getGrpcType,
+  isListNonScalarType,
+  isListScalarType,
+  isScalarType,
+  isValidNonScalarMapType,
+  isValidScalarMapType
+}
 
 import scala.meta._
 
@@ -102,6 +110,21 @@ object TestTwoRenderScala {
                   scalarAssign
                 } else if (isListNonScalarType(t)) {
                   Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(_.toGrpc)")
+                }
+                //todo -- these
+
+//                def toGrpc: GrpcTest =
+//                  GrpcTest(
+//                    name = lhs.name,
+//                    foo = lhs.foo.map(_.toGrpc),
+//                    bar = lhs.bar,
+//                    baz = lhs.baz.view.mapValues(_.toGrpc).toMap
+//                  )
+//              }
+                else if (isValidScalarMapType(t)) {
+                  scalarAssign
+                } else if (isValidNonScalarMapType(t)) {
+                  Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.view.mapValues(_.toGrpc).toMap")
                 } else {
                   nonScalarAssign
                 }
@@ -163,16 +186,19 @@ object TestTwoRenderScala {
                       Pat.Var(paramNameTerm),
                       q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
                     )
-                }
-                else if (isValidMapType(t)) {
+                } else if (isValidScalarMapType(t)) {
                   Enumerator
                     .Generator(
                       Pat.Var(paramNameTerm),
-                      q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
+                      q"Right(lhs.$paramNameTerm)"
                     )
-                }
-
-                else {
+                } else if (isValidNonScalarMapType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"Right(lhs.$paramNameTerm.view.mapValues(_.fromGrpc).collect { case (a, Right(b)) => (a, b) }.toMap)"
+                    )
+                } else {
                   nonScalarGenerator
                 }
               }

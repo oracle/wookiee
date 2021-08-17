@@ -14,7 +14,7 @@ object WookieeGrpcUtils {
       zkQuorumString: String,
       retryInterval: FiniteDuration,
       zookeeperBlockingExecutionContext: ExecutionContext
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[CuratorFramework] = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[CuratorFramework] =
     cs.blockOn(blocker) {
       IO {
         curatorFramework(
@@ -24,5 +24,4 @@ object WookieeGrpcUtils {
         )
       }
     }
-  }
 }
