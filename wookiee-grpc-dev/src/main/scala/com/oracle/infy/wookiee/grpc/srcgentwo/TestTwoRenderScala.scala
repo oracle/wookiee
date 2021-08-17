@@ -1,12 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{
-  Model,
-  getGrpcType,
-  isListNonScalarType,
-  isListScalarType,
-  isScalarType
-}
+import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{Model, getGrpcType, isListNonScalarType, isListScalarType, isScalarType, isValidMapType, isValidMapValueType}
 
 import scala.meta._
 
@@ -169,7 +163,16 @@ object TestTwoRenderScala {
                       Pat.Var(paramNameTerm),
                       q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
                     )
-                } else {
+                }
+                else if (isValidMapType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
+                    )
+                }
+
+                else {
                   nonScalarGenerator
                 }
               }

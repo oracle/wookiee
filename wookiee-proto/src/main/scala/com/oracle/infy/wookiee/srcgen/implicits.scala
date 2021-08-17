@@ -106,8 +106,19 @@ object implicits {
             case (acc, i) =>
               i.flatMap(a => acc.map(b => a :: b))
           })
-        bar <- lhs.getBar.fromGrpc
-        baz <- lhs.getBaz.fromGrpc
+        //todo -- make bar and baz into code
+        bar <- Right(lhs.bar)
+        baz <- Right(
+          lhs
+            .baz
+            .view.mapValues(_.fromGrpc)
+            .collect {
+              case (a, Right(b)) =>
+                (a, b)
+            }
+            .toMap
+        )
+
       } yield Test(name = name, foo = foo, bar = bar, baz = baz)
   }
 
