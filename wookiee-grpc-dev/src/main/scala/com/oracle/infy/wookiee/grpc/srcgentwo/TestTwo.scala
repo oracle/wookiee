@@ -179,11 +179,17 @@ object TestTwo {
     val expandedOptions = input
       .foldLeft(Set.empty[Model]) {
         case (acc, model) =>
-          model
-            .fields
-            .flatMap(_.param.decltpe)
-            .flatMap(t => handleType(t, acc).models)
-            .toSet
+          model.fields match {
+            case ::(_, _) =>
+              model
+                .fields
+                .flatMap(_.param.decltpe)
+                .flatMap(t => handleType(t, acc).models)
+                .toSet
+            case Nil =>
+              acc
+          }
+
       }
 
     if (expandedOptions.nonEmpty) {
@@ -367,10 +373,15 @@ object TestTwo {
   def main(args: Array[String]): Unit = {
 
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
+    val path2 = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example2.scala"
 
+    //todo -- try reading in two files, replicating the example scala?
     val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
+    val src2 = new String(java.nio.file.Files.readAllBytes(Paths.get(path2)))
+
     val models = List(
-      Input.VirtualFile("Example.scala", src)
+      Input.VirtualFile("Example.scala", src),
+      Input.VirtualFile("Example2.scala", src2)
     ).map(_.parse[Source])
       .map(_.get)
       .flatMap { source =>
@@ -394,7 +405,8 @@ object TestTwo {
 
     println("--------- Proto Messages ---------")
 
-    val generatedProto = (models ++ synthesizeOptionModel(models)).map(_.renderProto).mkString("\n")
+    val synthesizeOptionModels = synthesizeOptionModel(models)
+    val generatedProto = (models ++ synthesizeOptionModels).map(_.renderProto).mkString("\n")
 
     val protoContent = List(
       """syntax = "proto3";""",

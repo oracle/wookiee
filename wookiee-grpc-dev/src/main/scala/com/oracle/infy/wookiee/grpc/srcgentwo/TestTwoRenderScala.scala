@@ -111,16 +111,6 @@ object TestTwoRenderScala {
                 } else if (isListNonScalarType(t)) {
                   Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(_.toGrpc)")
                 }
-                //todo -- these
-
-//                def toGrpc: GrpcTest =
-//                  GrpcTest(
-//                    name = lhs.name,
-//                    foo = lhs.foo.map(_.toGrpc),
-//                    bar = lhs.bar,
-//                    baz = lhs.baz.view.mapValues(_.toGrpc).toMap
-//                  )
-//              }
                 else if (isValidScalarMapType(t)) {
                   scalarAssign
                 } else if (isValidNonScalarMapType(t)) {

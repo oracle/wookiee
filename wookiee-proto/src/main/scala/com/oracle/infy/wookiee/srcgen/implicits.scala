@@ -181,6 +181,42 @@ object implicits {
       } yield MaxyConnectionValidationError(code = code, maxyError = maxyError, person = person)
   }
 
+  implicit class MyTraitToGrpc(lhs: MyTrait) {
+
+    def toGrpc: GrpcMyTrait = lhs match {
+      case value: MyClass =>
+        GrpcMyTrait(GrpcMyTrait.OneOf.MyClass(value.toGrpc))
+      case _ =>
+        GrpcMyTrait(GrpcMyTrait.OneOf.Empty)
+    }
+  }
+
+  implicit class MyTraitFromGrpc(lhs: GrpcMyTrait) {
+
+    def fromGrpc: Either[String, MyTrait] = lhs.oneOf match {
+      case GrpcMyTrait.OneOf.Empty =>
+        Left("err")
+      case GrpcMyTrait.OneOf.MyClass(value) =>
+        value.fromGrpc
+    }
+  }
+
+  implicit class MyClassToGrpc(lhs: MyClass) {
+
+    def toGrpc: GrpcMyClass = {
+      val _ = lhs
+      GrpcMyClass()
+    }
+  }
+
+  implicit class MyClassFromGrpc(lhs: GrpcMyClass) {
+
+    def fromGrpc: Either[String, MyClass] = {
+      val _ = lhs
+      Right(MyClass())
+    }
+  }
+
   implicit class OptionStringToGrpc(lhs: Option[String]) {
 
     def toGrpc: GrpcMaybeString =
