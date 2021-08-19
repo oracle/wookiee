@@ -67,9 +67,9 @@ val commonSettings: Seq[Setting[_]] = Seq(
         "-Ywarn-adapted-args"
       )
   }.value,
-  compile := ((compile in Compile) dependsOn (compile in Test)).value,
+  compile := (compile in Compile).dependsOn(compile in Test).value,
   ciBuild := {
-    ((Keys.`packageSrc` in Compile) dependsOn (test in Test)).value
+    (Keys.`packageSrc` in Compile).dependsOn(test in Test).value
     makePom.value
     ()
   },
@@ -176,7 +176,7 @@ lazy val root = project
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
-      ((Keys.`package` in Compile) dependsOn (test in Compile)).value
+      (Keys.`package` in Compile).dependsOn(test in Compile).value
       makePom.value
       ()
     }
@@ -244,6 +244,7 @@ lazy val `wookiee-docs` = project
 
 lazy val `wookiee-proto` = project
   .in(file("wookiee-proto"))
+  .dependsOn(`wookiee-grpc-dev`)
   .settings(commonSettings)
   .settings(
     //scalaPB

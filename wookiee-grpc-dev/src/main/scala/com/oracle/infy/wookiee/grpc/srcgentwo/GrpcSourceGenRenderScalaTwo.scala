@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{
+import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo.{
   Model,
   getGrpcType,
   isListNonScalarType,
@@ -12,7 +12,7 @@ import com.oracle.infy.wookiee.grpc.srcgentwo.TestTwo.{
 
 import scala.meta._
 
-object TestTwoRenderScala {
+object GrpcSourceGenRenderScalaTwo {
 
   private def getClassName(tpe: Type, outerType: String): String =
     tpe match {
@@ -22,6 +22,8 @@ object TestTwoRenderScala {
         s"$outerType${getClassName(innerType, outerType)}"
       case _ => ""
     }
+
+  private val grpcConversionErrorTypeName = Type.Name("GrpcConversionError")
 
   def renderScalaOptional(t: Type, fmt: String => String): String = {
 
@@ -67,7 +69,7 @@ object TestTwoRenderScala {
     val fromGrpcTree =
       q"""
           implicit class $fromGrpcImplicitClassName(lhs: $grpcType) {
-            def fromGrpc: Either[String, $t] = $matchStatement
+            def fromGrpc: Either[$grpcConversionErrorTypeName, $t] = $matchStatement
           }
         """
 
@@ -110,8 +112,7 @@ object TestTwoRenderScala {
                   scalarAssign
                 } else if (isListNonScalarType(t)) {
                   Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(_.toGrpc)")
-                }
-                else if (isValidScalarMapType(t)) {
+                } else if (isValidScalarMapType(t)) {
                   scalarAssign
                 } else if (isValidNonScalarMapType(t)) {
                   Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.view.mapValues(_.toGrpc).toMap")
@@ -140,7 +141,7 @@ object TestTwoRenderScala {
                 }
             """
 
-        val typesnel = List(Type.Name("String"), modelType)
+        val typesnel = List(grpcConversionErrorTypeName, modelType)
 
         val enumeratorsnel = fields
           .map { paramModel =>
@@ -174,7 +175,7 @@ object TestTwoRenderScala {
                   Enumerator
                     .Generator(
                       Pat.Var(paramNameTerm),
-                      q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[String, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
+                      q"lhs.$paramNameTerm.map(_.fromGrpc).foldLeft(Right(Nil): Either[$grpcConversionErrorTypeName, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
                     )
                 } else if (isValidScalarMapType(t)) {
                   Enumerator
@@ -262,7 +263,9 @@ object TestTwoRenderScala {
              }
            """
 
-        val typesnel = List(Type.Name("String"), modelType)
+        val typesnel = List(grpcConversionErrorTypeName, modelType)
+
+        val errorString = s"Unable to convert object from grpc type: ${model.grpcTypeName}"
 
         val fromGrpcMatchStatement =
           Term.Match(
@@ -270,7 +273,8 @@ object TestTwoRenderScala {
             Case(
               pat = Term.Select(Term.Select(grpcTerm, Term.Name("OneOf")), Term.Name("Empty")),
               cond = None,
-              body = q"""Left("err")"""
+              //todo -- can't seem to use grpcConversionErrorTypeName value here
+              body = q"""Left(GrpcConversionError($errorString))"""
             ) :: oneOfs
               .map { paramModel =>
                 val paramTypeStr = paramModel.param.decltpe match {

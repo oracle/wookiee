@@ -192,7 +192,7 @@ object ProtoBufTypeModel {
              }
            """
 
-          val typesnel = List(Type.Name("String"), modelType)
+          val typesnel = List(Type.Name("GrpcConversionError"), modelType)
 
           val matchStatement =
             Term.Match(

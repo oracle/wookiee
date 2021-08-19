@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.srcgen
 
 object Example {
-
   trait ASError
 
   trait DestinationError extends ASError

@@ -6,7 +6,9 @@ import java.nio.file.{Files, Paths}
 import scala.meta.inputs.Input
 import scala.meta.{Term, _}
 
-object TestTwo {
+object GrpcSourceGenTwo {
+
+  final case class GrpcConversionError(msg: String)
 
   final case class ParamModel(param: Term.Param, grpcType: String)
 
@@ -408,6 +410,9 @@ object TestTwo {
     val synthesizeOptionModels = synthesizeOptionModel(models)
     val generatedProto = (models ++ synthesizeOptionModels).map(_.renderProto).mkString("\n")
 
+    //todo -- generate rpcs?
+    //todo -- real error types
+    //todo -- imports?
     val protoContent = List(
       """syntax = "proto3";""",
       "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
@@ -429,8 +434,8 @@ object TestTwo {
 
     val generatedScala = {
       (models
-        .map(model => TestTwoRenderScala.renderScala(model, fmt)) ++ List(
-        getOptionalTypes(models).map(a => TestTwoRenderScala.renderScalaOptional(a, fmt)).mkString("\n")
+        .map(model => GrpcSourceGenRenderScalaTwo.renderScala(model, fmt)) ++ List(
+        getOptionalTypes(models).map(a => GrpcSourceGenRenderScalaTwo.renderScalaOptional(a, fmt)).mkString("\n")
       )).mkString("\n")
     }
 
@@ -438,7 +443,9 @@ object TestTwo {
       s"""
       package com.oracle.infy.wookiee.srcgen
       import Example._
+      import Example2._
       import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+      import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo._
 
       object implicits {
         ${fmt(generatedScala)}

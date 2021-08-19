@@ -1,6 +1,8 @@
 package com.oracle.infy.wookiee.srcgen
 import Example._
+import Example2._
 import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo._
 
 object implicits {
 
@@ -18,9 +20,9 @@ object implicits {
 
   implicit class ASErrorFromGrpc(lhs: GrpcASError) {
 
-    def fromGrpc: Either[String, ASError] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, ASError] = lhs.oneOf match {
       case GrpcASError.OneOf.Empty =>
-        Left("err")
+        Left(GrpcConversionError("Unable to convert object from grpc GrpcASError"))
       case GrpcASError.OneOf.DestinationError(value) =>
         value.fromGrpc
       case GrpcASError.OneOf.ConnectionError(value) =>
@@ -42,9 +44,9 @@ object implicits {
 
   implicit class DestinationErrorFromGrpc(lhs: GrpcDestinationError) {
 
-    def fromGrpc: Either[String, DestinationError] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, DestinationError] = lhs.oneOf match {
       case GrpcDestinationError.OneOf.Empty =>
-        Left("err")
+        Left(GrpcConversionError("Unable to convert object from grpc GrpcDestinationError"))
       case GrpcDestinationError.OneOf.MaxyDestinationValidationError(value) =>
         value.fromGrpc
       case GrpcDestinationError.OneOf.MaxyConnectionValidationError(value) =>
@@ -64,9 +66,9 @@ object implicits {
 
   implicit class ConnectionErrorFromGrpc(lhs: GrpcConnectionError) {
 
-    def fromGrpc: Either[String, ConnectionError] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, ConnectionError] = lhs.oneOf match {
       case GrpcConnectionError.OneOf.Empty =>
-        Left("err")
+        Left(GrpcConversionError("Unable to convert object from grpc GrpcConnectionError"))
       case GrpcConnectionError.OneOf.MaxyConnectionValidationError(value) =>
         value.fromGrpc
     }
@@ -82,7 +84,7 @@ object implicits {
 
   implicit class FooFromGrpc(lhs: GrpcFoo) {
 
-    def fromGrpc: Either[String, Foo] = {
+    def fromGrpc: Either[GrpcConversionError, Foo] = {
       val _ = lhs
       Right(Foo())
     }
@@ -101,13 +103,13 @@ object implicits {
 
   implicit class TestFromGrpc(lhs: GrpcTest) {
 
-    def fromGrpc: Either[String, Test] =
+    def fromGrpc: Either[GrpcConversionError, Test] =
       for {
         name <- Right(lhs.name.toList)
         foo <- lhs
           .foo
           .map(_.fromGrpc)
-          .foldLeft(Right(Nil): Either[String, List[Foo]])({
+          .foldLeft(Right(Nil): Either[GrpcConversionError, List[Foo]])({
             case (acc, i) =>
               i.flatMap(a => acc.map(b => a :: b))
           })
@@ -134,7 +136,7 @@ object implicits {
 
   implicit class PersonFromGrpc(lhs: GrpcPerson) {
 
-    def fromGrpc: Either[String, Person] =
+    def fromGrpc: Either[GrpcConversionError, Person] =
       for {
         name <- Right(lhs.name)
         age <- Right(lhs.age)
@@ -156,7 +158,7 @@ object implicits {
 
   implicit class MaxyDestinationValidationErrorFromGrpc(lhs: GrpcMaxyDestinationValidationError) {
 
-    def fromGrpc: Either[String, MaxyDestinationValidationError] =
+    def fromGrpc: Either[GrpcConversionError, MaxyDestinationValidationError] =
       for {
         code <- Right(lhs.code)
         maxyError <- Right(lhs.maxyError)
@@ -173,7 +175,7 @@ object implicits {
 
   implicit class MaxyConnectionValidationErrorFromGrpc(lhs: GrpcMaxyConnectionValidationError) {
 
-    def fromGrpc: Either[String, MaxyConnectionValidationError] =
+    def fromGrpc: Either[GrpcConversionError, MaxyConnectionValidationError] =
       for {
         code <- Right(lhs.code)
         maxyError <- Right(lhs.maxyError)
@@ -193,9 +195,9 @@ object implicits {
 
   implicit class MyTraitFromGrpc(lhs: GrpcMyTrait) {
 
-    def fromGrpc: Either[String, MyTrait] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, MyTrait] = lhs.oneOf match {
       case GrpcMyTrait.OneOf.Empty =>
-        Left("err")
+        Left(GrpcConversionError("Unable to convert object from grpc GrpcMyTrait"))
       case GrpcMyTrait.OneOf.MyClass(value) =>
         value.fromGrpc
     }
@@ -211,7 +213,7 @@ object implicits {
 
   implicit class MyClassFromGrpc(lhs: GrpcMyClass) {
 
-    def fromGrpc: Either[String, MyClass] = {
+    def fromGrpc: Either[GrpcConversionError, MyClass] = {
       val _ = lhs
       Right(MyClass())
     }
@@ -230,7 +232,7 @@ object implicits {
 
   implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
 
-    def fromGrpc: Either[String, Option[String]] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
       case GrpcMaybeString.OneOf.Some(value) =>
         Right(Some(value))
       case _ =>
@@ -251,7 +253,7 @@ object implicits {
 
   implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
 
-    def fromGrpc: Either[String, Option[Test]] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
       case GrpcMaybeTest.OneOf.Some(value) =>
         value.fromGrpc.map(Some(_))
       case _ =>
@@ -272,7 +274,7 @@ object implicits {
 
   implicit class OptionOptionStringFromGrpc(lhs: GrpcMaybeMaybeString) {
 
-    def fromGrpc: Either[String, Option[Option[String]]] = lhs.oneOf match {
+    def fromGrpc: Either[GrpcConversionError, Option[Option[String]]] = lhs.oneOf match {
       case GrpcMaybeMaybeString.OneOf.Some(value) =>
         value.fromGrpc.map(Some(_))
       case _ =>
