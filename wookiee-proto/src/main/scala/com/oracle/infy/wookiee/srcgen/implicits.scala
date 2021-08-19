@@ -2,9 +2,20 @@ package com.oracle.infy.wookiee.srcgen
 import Example._
 import Example2._
 import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
-import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo._
 
 object implicits {
+
+  implicit class GrpcConversionErrorToGrpc(lhs: GrpcConversionError) {
+
+    def toGrpc: GrpcGrpcConversionError =
+      GrpcGrpcConversionError(msg = lhs.msg)
+  }
+
+  implicit class GrpcConversionErrorFromGrpc(lhs: GrpcGrpcConversionError) {
+
+    def fromGrpc: Either[GrpcConversionError, GrpcConversionError] =
+      for (msg <- Right(lhs.msg)) yield GrpcConversionError(msg = msg)
+  }
 
   implicit class ASErrorToGrpc(lhs: ASError) {
 
@@ -224,16 +235,16 @@ object implicits {
     def toGrpc: GrpcMaybeString =
       lhs match {
         case None =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.None(GrpcNone()))
+          GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.Some(value))
+          GrpcMaybeString(GrpcMaybeString.OneOf.Somme(value))
       }
   }
 
   implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
 
     def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
-      case GrpcMaybeString.OneOf.Some(value) =>
+      case GrpcMaybeString.OneOf.Somme(value) =>
         Right(Some(value))
       case _ =>
         Right(None)
@@ -245,16 +256,16 @@ object implicits {
     def toGrpc: GrpcMaybeTest =
       lhs match {
         case None =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.None(GrpcNone()))
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.Some(value.toGrpc))
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Somme(value.toGrpc))
       }
   }
 
   implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
 
     def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
-      case GrpcMaybeTest.OneOf.Some(value) =>
+      case GrpcMaybeTest.OneOf.Somme(value) =>
         value.fromGrpc.map(Some(_))
       case _ =>
         Right(None)
@@ -266,16 +277,16 @@ object implicits {
     def toGrpc: GrpcMaybeMaybeString =
       lhs match {
         case None =>
-          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.None(GrpcNone()))
+          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Some(value.toGrpc))
+          GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Somme(value.toGrpc))
       }
   }
 
   implicit class OptionOptionStringFromGrpc(lhs: GrpcMaybeMaybeString) {
 
     def fromGrpc: Either[GrpcConversionError, Option[Option[String]]] = lhs.oneOf match {
-      case GrpcMaybeMaybeString.OneOf.Some(value) =>
+      case GrpcMaybeMaybeString.OneOf.Somme(value) =>
         value.fromGrpc.map(Some(_))
       case _ =>
         Right(None)

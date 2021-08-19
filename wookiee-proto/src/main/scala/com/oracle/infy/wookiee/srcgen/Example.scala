@@ -1,6 +1,11 @@
 package com.oracle.infy.wookiee.srcgen
 
 object Example {
+
+  //todo -- this generates unnecessary methods in implicits, should be moved somewhere in the sourceGen package
+  // but that is causing issues in other parts of the project
+  final case class GrpcConversionError(msg: String)
+
   trait ASError
 
   trait DestinationError extends ASError

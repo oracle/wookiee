@@ -109,7 +109,7 @@ object GrpcSourceGenTwo {
     final case class HandleTypeReturn(models: Set[Model], grpcType: String)
 
     def handleType(t: Type, acc: Set[Model]): HandleTypeReturn = {
-      val noneType = Type.Name("None")
+      val noneType = Type.Name("Nonne")
 
       t match {
         case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
@@ -126,15 +126,15 @@ object GrpcSourceGenTwo {
                   ParamModel(
                     Term.Param(
                       mods = Nil,
-                      name = Term.Name("some"),
+                      name = Term.Name("somme"),
                       decltpe = Some(Type.Name(innerType)),
                       default = None
                     ),
                     innerType
                   ),
                   ParamModel(
-                    Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(noneType), default = None),
-                    "None"
+                    Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
+                    "Nonne"
                   )
                 ),
                 fields = Nil
@@ -157,15 +157,15 @@ object GrpcSourceGenTwo {
                   ParamModel(
                     Term.Param(
                       mods = Nil,
-                      name = Term.Name("some"),
+                      name = Term.Name("somme"),
                       decltpe = Some(Type.Name(innerTypeName)),
                       default = None
                     ),
                     innerTypeName
                   ),
                   ParamModel(
-                    Term.Param(mods = Nil, name = Term.Name("none"), decltpe = Some(noneType), default = None),
-                    "None"
+                    Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
+                    "Nonne"
                   )
                 ),
                 fields = Nil
@@ -214,7 +214,7 @@ object GrpcSourceGenTwo {
 
       (dedupedExpandedOptions + Model(
         scalaTypeName = "None",
-        grpcTypeName = getGrpcType(Some(Type.Name("None"))),
+        grpcTypeName = getGrpcType(Some(Type.Name("Nonne"))),
         oneOfs = Nil,
         fields = Nil
       ))

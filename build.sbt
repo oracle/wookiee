@@ -244,7 +244,7 @@ lazy val `wookiee-docs` = project
 
 lazy val `wookiee-proto` = project
   .in(file("wookiee-proto"))
-  .dependsOn(`wookiee-grpc-dev`)
+  //.dependsOn(`wookiee-grpc-dev`)
   .settings(commonSettings)
   .settings(
     //scalaPB

@@ -51,8 +51,8 @@ object GrpcSourceGenRenderScalaTwo {
             implicit class $toGrpcImplicitClassName(lhs: $t) {
               def toGrpc: $grpcType = {
                 lhs match {
-                  case None => $grpcTerm($grpcTerm.OneOf.None(GrpcNone()))
-                  case Some(value) => $grpcTerm($grpcTerm.OneOf.Some($toApply))
+                  case None => $grpcTerm($grpcTerm.OneOf.Nonne(GrpcNonne()))
+                  case Some(value) => $grpcTerm($grpcTerm.OneOf.Somme($toApply))
                 }
               }
             }
@@ -61,7 +61,7 @@ object GrpcSourceGenRenderScalaTwo {
     val matchStatement = Term.Match(
       q"lhs.oneOf",
       List(
-        Case(Pat.Extract(q"$grpcTerm.OneOf.Some", List(Pat.Var(q"value"))), None, fromApply),
+        Case(Pat.Extract(q"$grpcTerm.OneOf.Somme", List(Pat.Var(q"value"))), None, fromApply),
         Case(Pat.Wildcard(), None, q"Right(None)")
       )
     )
