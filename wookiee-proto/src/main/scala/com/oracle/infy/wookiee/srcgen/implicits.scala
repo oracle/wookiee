@@ -22,7 +22,7 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, ASError] = lhs.oneOf match {
       case GrpcASError.OneOf.Empty =>
-        Left(GrpcConversionError("Unable to convert object from grpc GrpcASError"))
+        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcASError"))
       case GrpcASError.OneOf.DestinationError(value) =>
         value.fromGrpc
       case GrpcASError.OneOf.ConnectionError(value) =>
@@ -46,7 +46,7 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, DestinationError] = lhs.oneOf match {
       case GrpcDestinationError.OneOf.Empty =>
-        Left(GrpcConversionError("Unable to convert object from grpc GrpcDestinationError"))
+        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcDestinationError"))
       case GrpcDestinationError.OneOf.MaxyDestinationValidationError(value) =>
         value.fromGrpc
       case GrpcDestinationError.OneOf.MaxyConnectionValidationError(value) =>
@@ -68,7 +68,7 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, ConnectionError] = lhs.oneOf match {
       case GrpcConnectionError.OneOf.Empty =>
-        Left(GrpcConversionError("Unable to convert object from grpc GrpcConnectionError"))
+        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcConnectionError"))
       case GrpcConnectionError.OneOf.MaxyConnectionValidationError(value) =>
         value.fromGrpc
     }
@@ -197,7 +197,7 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, MyTrait] = lhs.oneOf match {
       case GrpcMyTrait.OneOf.Empty =>
-        Left(GrpcConversionError("Unable to convert object from grpc GrpcMyTrait"))
+        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcMyTrait"))
       case GrpcMyTrait.OneOf.MyClass(value) =>
         value.fromGrpc
     }

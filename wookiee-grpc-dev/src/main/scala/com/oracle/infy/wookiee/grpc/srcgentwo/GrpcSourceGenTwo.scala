@@ -245,8 +245,8 @@ object GrpcSourceGenTwo {
               ),
               getGrpcType(Some(childType))
             )))
-        // todo -- decide how to handle these
-        case _ =>
+        case t =>
+          println(s"Found incorrect type $t in model when building trait hierarchy, ignoring")
           innerMap
       }
     }
@@ -259,8 +259,8 @@ object GrpcSourceGenTwo {
             addParentsToSealedTraitMap(clazz.templ.inits, clazz.name.value, map)
           case value: Defn.Trait =>
             addParentsToSealedTraitMap(value.templ.inits, value.name.value, map)
-          case _ =>
-            // todo -- is this an error?
+          case defn =>
+            println(s"Found incorrect defn type $defn when building trait hierarchy, ignoring")
             map
         }
       }
@@ -377,7 +377,6 @@ object GrpcSourceGenTwo {
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
     val path2 = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example2.scala"
 
-    //todo -- try reading in two files, replicating the example scala?
     val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
     val src2 = new String(java.nio.file.Files.readAllBytes(Paths.get(path2)))
 
@@ -411,7 +410,6 @@ object GrpcSourceGenTwo {
     val generatedProto = (models ++ synthesizeOptionModels).map(_.renderProto).mkString("\n")
 
     //todo -- generate rpcs?
-    //todo -- real error types
     //todo -- imports?
     val protoContent = List(
       """syntax = "proto3";""",
