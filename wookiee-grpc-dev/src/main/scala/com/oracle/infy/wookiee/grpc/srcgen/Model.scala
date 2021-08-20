@@ -2,8 +2,6 @@ package com.oracle.infy.wookiee.grpc.srcgen
 
 object Model {
 
-  final case class srcGenIgnore(field: String) extends scala.annotation.StaticAnnotation
-
   sealed trait Record {
     def name: String
     def recordType: String

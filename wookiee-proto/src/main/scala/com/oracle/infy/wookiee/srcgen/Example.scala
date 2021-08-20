@@ -2,9 +2,17 @@ package com.oracle.infy.wookiee.srcgen
 
 object Example {
 
-  //todo -- this generates unnecessary methods in implicits, should be moved somewhere in the sourceGen package
-  // but that is causing issues in other parts of the project
+  @srcGenIgnoreClass
+  final case class srcGenIgnoreClass() extends scala.annotation.StaticAnnotation
+
+  @srcGenIgnoreClass
+  final case class srcGenIgnoreField(field: String) extends scala.annotation.StaticAnnotation
+
+  @srcGenIgnoreClass
   final case class GrpcConversionError(msg: String)
+
+  @srcGenIgnoreClass
+  final case class IgnoreThisClass(msg: String)
 
   trait ASError
 
@@ -13,7 +21,15 @@ object Example {
 
   case class Foo()
 
-  case class Test(name: List[String], foo: List[Foo], bar: Map[String, String], baz: Map[String, Foo])
+  @srcGenIgnoreField("ignoreMe")
+  case class Test(
+      name: List[String],
+      foo: List[Foo],
+      bar: Map[String, String],
+      baz: Map[String, Foo],
+      ignoreMe: IgnoreThisClass
+  )
+
   case class Person(name: String, age: Int, optOpt: Option[Option[String]], opt3: Option[Test])
 
   case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person, details: Option[String])

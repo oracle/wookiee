@@ -5,18 +5,6 @@ import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
 
 object implicits {
 
-  implicit class GrpcConversionErrorToGrpc(lhs: GrpcConversionError) {
-
-    def toGrpc: GrpcGrpcConversionError =
-      GrpcGrpcConversionError(msg = lhs.msg)
-  }
-
-  implicit class GrpcConversionErrorFromGrpc(lhs: GrpcGrpcConversionError) {
-
-    def fromGrpc: Either[GrpcConversionError, GrpcConversionError] =
-      for (msg <- Right(lhs.msg)) yield GrpcConversionError(msg = msg)
-  }
-
   implicit class ASErrorToGrpc(lhs: ASError) {
 
     def toGrpc: GrpcASError = lhs match {

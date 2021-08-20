@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
+import com.oracle.infy.wookiee.grpc.srcgen.implicits.MultiversalEquality
 import org.scalafmt.interfaces.Scalafmt
 
 import java.nio.file.{Files, Paths}
@@ -7,6 +8,9 @@ import scala.meta.inputs.Input
 import scala.meta.{Term, _}
 
 object GrpcSourceGenTwo {
+
+  final case class srcGenIgnoreClass() extends scala.annotation.StaticAnnotation
+  final case class srcGenIgnoreField(field: String) extends scala.annotation.StaticAnnotation
 
   final case class GrpcConversionError(msg: String)
 
@@ -279,6 +283,18 @@ object GrpcSourceGenTwo {
       .ctor
       .paramss
       .flatten
+      // filtering out ignored fields
+      .filter { param =>
+        !clazz.mods.exists {
+          case Mod.Annot(Init(Type.Name(t), _, args)) =>
+            t === "srcGenIgnoreField" && args.flatten.exists {
+              case Lit.String(ignoredField) => param.name.value === ignoredField
+              case _                        => false
+            }
+          case _ =>
+            false
+        }
+      }
       .map { param =>
         ParamModel(param, getGrpcType(param.decltpe))
       }
@@ -387,9 +403,15 @@ object GrpcSourceGenTwo {
       .map(_.get)
       .flatMap { source =>
         val defns = source.collect {
-          case node: Defn.Trait =>
+          case node: Defn.Trait if !node.mods.exists {
+                case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                case _                                   => false
+              } =>
             node
-          case node: Defn.Class =>
+          case node: Defn.Class if !node.mods.exists {
+                case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                case _                                   => false
+              } =>
             node
         }
 
@@ -414,6 +436,7 @@ object GrpcSourceGenTwo {
     val protoContent = List(
       """syntax = "proto3";""",
       "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
+      """import "importedTestService.proto";""",
       generatedProto,
       """
         |service TestService {
@@ -443,7 +466,6 @@ object GrpcSourceGenTwo {
       import Example._
       import Example2._
       import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
-      import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo._
 
       object implicits {
         ${fmt(generatedScala)}
