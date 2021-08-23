@@ -10,23 +10,39 @@ object SrcGenTwoTest {
 
   def tests(): Tests = {
 
-    def symmetryTest: Boolean = {
+    def symmetryTestOptions: Boolean = {
       val destError: MaxyDestinationValidationError =
-        MaxyDestinationValidationError(4, "err", Person("Ladinu", 100, Some(None), None), None)
+        MaxyDestinationValidationError(4, "err", Person("Ladinu", 100, Some(Some("something")), None), None)
       val asError: ASError = destError
       val grpcDestError = asError.toGrpc
 
       grpcDestError.fromGrpc.map(err => err === destError).leftMap(_ => false).merge
     }
 
+    def symmetryTestMaps: Boolean = {
+      val testObj = Test(
+        List("Max", "Ladinu"),
+        List(Foo()),
+        Map("foo" -> "bar"),
+        Map("baz" -> Foo(), "bar" -> Foo()),
+        IgnoreThisClass()
+      )
+
+      val grpcTestObj = testObj.toGrpc
+
+      grpcTestObj.fromGrpc.map(err => err === testObj).leftMap(_ => false).merge
+    }
+
     Tests {
-      test("toGrpc and fromGrpc are symmetric") {
-        assert(symmetryTest)
+      test("toGrpc and fromGrpc are symmetric with options") {
+        assert(symmetryTestOptions)
+      }
+
+      test("toGrpc and fromGrpc are symmetric with maps") {
+        assert(symmetryTestMaps)
       }
     }
 
   }
-
-  def main(args: Array[String]): Unit = {}
 
 }

@@ -12,7 +12,7 @@ object Example {
   final case class GrpcConversionError(msg: String)
 
   @srcGenIgnoreClass
-  final case class IgnoreThisClass(msg: String)
+  final case class IgnoreThisClass()
 
   trait ASError
 
