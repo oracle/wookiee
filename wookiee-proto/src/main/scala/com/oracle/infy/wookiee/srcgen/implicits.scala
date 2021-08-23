@@ -124,7 +124,7 @@ object implicits {
             })
             .toMap
         )
-      } yield Test(name = name, foo = foo, bar = bar, baz = baz)
+      } yield Test(name = name, foo = foo, bar = bar, baz = baz, null)
   }
 
   implicit class PersonToGrpc(lhs: Person) {
