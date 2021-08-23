@@ -355,8 +355,9 @@ object GrpcSourceGenTwo {
   def isScalarType(t: Type): Boolean =
     getGrpcScalarType
       .andThen(_ => true)
-      .orElse[Type, Boolean] { _ =>
-        false
+      .orElse[Type, Boolean] {
+        case _ =>
+          false
       }(t)
 
   def getGrpcType(t: Option[Type]): String = {
