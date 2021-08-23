@@ -147,7 +147,8 @@ object GrpcSourceGenTwo {
             newTypeName
           )
         case Type.Apply(Type.Name("Option"), head :: Nil) =>
-          val HandleTypeReturn(innerModel, innerTypeName) = handleType(head, acc)
+          val handletypeReturn = handleType(head, acc)
+          val (innerModel, innerTypeName) = (handletypeReturn.models, handletypeReturn.grpcType)
           val newTypeName = "Maybe" + innerTypeName
 
           HandleTypeReturn(
