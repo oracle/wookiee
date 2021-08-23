@@ -98,8 +98,7 @@ object GrpcSourceGenTwo {
       }
       .flatMap(expand)
       .groupBy(_.toString())
-      .view
-      .mapValues(_.headOption)
+      .map(entry => (entry._1, entry._2.headOption))
       .values
       .flatten
       .toSet
@@ -203,8 +202,7 @@ object GrpcSourceGenTwo {
       // Having it as a set didn't auto dedupe
       val dedupedExpandedOptions = expandedOptions
         .groupBy(_.grpcTypeName)
-        .view
-        .mapValues(_.headOption)
+        .map(entry => (entry._1, entry._2.headOption))
         .values
         .flatten
         .toSet

@@ -115,7 +115,7 @@ object GrpcSourceGenRenderScalaTwo {
                 } else if (isValidScalarMapType(t)) {
                   scalarAssign
                 } else if (isValidNonScalarMapType(t)) {
-                  Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.view.mapValues(_.toGrpc).toMap")
+                  Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(entry => (entry._1, entry._2.toGrpc))")
                 } else {
                   nonScalarAssign
                 }
@@ -187,7 +187,7 @@ object GrpcSourceGenRenderScalaTwo {
                   Enumerator
                     .Generator(
                       Pat.Var(paramNameTerm),
-                      q"Right(lhs.$paramNameTerm.view.mapValues(_.fromGrpc).collect { case (a, Right(b)) => (a, b) }.toMap)"
+                      q"Right(lhs.$paramNameTerm.map(entry => (entry._1, entry._2.fromGrpc)).collect { case (a, Right(b)) => (a, b) }.toMap)"
                     )
                 } else {
                   nonScalarGenerator
