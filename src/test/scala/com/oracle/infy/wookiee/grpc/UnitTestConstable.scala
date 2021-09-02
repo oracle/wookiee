@@ -10,7 +10,7 @@ import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, SerdeTest}
 import com.oracle.infy.wookiee.model.Host
 import fs2.Stream
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.noop.NoOpLogger
+import org.typelevel.log4cats.noop.NoOpLogger
 
 import scala.concurrent.ExecutionContext
 

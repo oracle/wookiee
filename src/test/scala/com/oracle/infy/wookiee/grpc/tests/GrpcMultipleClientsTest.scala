@@ -11,7 +11,7 @@ import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyService
 import com.oracle.infy.wookiee.myService2.MyService2Grpc.MyService2
 import com.oracle.infy.wookiee.myService2.{HelloRequest2, HelloResponse2, MyService2Grpc}
 import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer

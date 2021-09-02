@@ -8,7 +8,7 @@ import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer

@@ -17,7 +17,7 @@ import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
 

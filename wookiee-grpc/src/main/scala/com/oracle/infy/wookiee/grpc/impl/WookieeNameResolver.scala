@@ -10,7 +10,7 @@ import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
 
 import java.net.InetSocketAddress

@@ -17,7 +17,7 @@ import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalanc
 import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
