@@ -389,17 +389,53 @@ object GrpcSourceGenTwo {
   }
 
   def main(args: Array[String]): Unit = {
-
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
     val path2 = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example2.scala"
 
-    val src = new String(java.nio.file.Files.readAllBytes(Paths.get(path)))
-    val src2 = new String(java.nio.file.Files.readAllBytes(Paths.get(path2)))
+    val paths = List(path, path2)
 
-    val models = List(
-      Input.VirtualFile("Example.scala", src),
-      Input.VirtualFile("Example2.scala", src2)
-    ).map(_.parse[Source])
+    val protoHeaders = List(
+      """syntax = "proto3";""",
+      "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
+      """import "importedTestService.proto";"""
+    ).mkString("\n")
+
+    val rpcs = """
+                 |service TestService {
+                 |  rpc test(GrpcPerson) returns (GrpcPerson) {}
+                 |}
+                 |""".stripMargin
+
+    val protoOutputPath = "wookiee-proto/src/main/protobuf/testService.proto"
+    val scalaHeaders =
+      """
+        |package com.oracle.infy.wookiee.srcgen
+        |      import Example._
+        |      import Example2._
+        |      import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+        |""".stripMargin
+
+    val scalaOutputPath = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/implicits.scala"
+
+    runSrcGen(paths, protoHeaders, rpcs, protoOutputPath, scalaHeaders, scalaOutputPath)
+  }
+
+  def runSrcGen(
+      paths: List[String],
+      protoHeaders: String,
+      rpcs: String,
+      protoOutputPath: String,
+      scalaHeaders: String,
+      scalaOutputPath: String
+  ): Unit = {
+    val vfiles = paths.map { path =>
+      val p = Paths.get(path)
+      val src = new String(java.nio.file.Files.readAllBytes(p))
+      Input.VirtualFile(p.toFile.getName, src)
+    }
+
+    val models = vfiles
+      .map(_.parse[Source])
       .map(_.get)
       .flatMap { source =>
         val defns = source.collect {
@@ -431,22 +467,14 @@ object GrpcSourceGenTwo {
     val synthesizeOptionModels = synthesizeOptionModel(models)
     val generatedProto = (models ++ synthesizeOptionModels).map(_.renderProto).mkString("\n")
 
-    //todo -- generate rpcs?
-    //todo -- imports?
     val protoContent = List(
-      """syntax = "proto3";""",
-      "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
-      """import "importedTestService.proto";""",
+      protoHeaders,
       generatedProto,
-      """
-        |service TestService {
-        |  rpc test(GrpcPerson) returns (GrpcPerson) {}
-        |}
-        |""".stripMargin
+      rpcs
     ).mkString("\n")
     println(protoContent)
 
-    Files.write(Paths.get("wookiee-proto/src/main/protobuf/testService.proto"), protoContent.getBytes)
+    Files.write(Paths.get(protoOutputPath), protoContent.getBytes)
 
     println("--------- ScalaCode ---------")
 
@@ -462,10 +490,7 @@ object GrpcSourceGenTwo {
 
     val scalaContent =
       s"""
-      package com.oracle.infy.wookiee.srcgen
-      import Example._
-      import Example2._
-      import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+      $scalaHeaders 
 
       object implicits {
         ${fmt(generatedScala)}
@@ -475,11 +500,10 @@ object GrpcSourceGenTwo {
     println(scalaContent)
 
     Files.write(
-      Paths.get("wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/implicits.scala"),
+      Paths.get(scalaOutputPath),
       fmt(scalaContent).getBytes
     )
 
     ()
   }
-
 }
