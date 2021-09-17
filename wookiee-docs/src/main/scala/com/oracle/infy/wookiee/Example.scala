@@ -8,11 +8,11 @@ import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.test.TestingServer
 

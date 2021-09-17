@@ -1,8 +1,7 @@
-import java.io.File
-
 import sbt.Keys.{libraryDependencies, _}
 import sbt._
 
+import java.io.File
 import scala.language.postfixOps
 import scala.util.Try
 
@@ -14,7 +13,7 @@ val buildVersion = Try {
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
 val LatestScalaVersion = "2.13.3"
-val Scala212 = "2.12.12"
+val Scala212 = "2.12.13"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
 lazy val ciBuild = taskKey[Unit]("prepare final builds")
@@ -107,16 +106,6 @@ lazy val `wookiee-grpc-dev` = project
       Deps.build.scalaReflect(scalaVersion.value),
       "org.scalameta" %% "scalameta" % "4.4.25",
       "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
-    )
-  )
-  .settings(
-    //scalaPB
-    libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
-      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )
 
@@ -248,11 +237,11 @@ lazy val `wookiee-proto` = project
   .settings(commonSettings)
   .settings(
     //scalaPB
+    Compile / PB.targets := Seq(
+      scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
+    ),
     libraryDependencies ++= Seq(
       "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )

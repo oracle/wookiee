@@ -7,7 +7,7 @@ import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerC
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
 import com.oracle.infy.wookiee.model.Host
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 
 protected[grpc] class WookieeGrpcHostListener(
     listenerCallback: Set[Host] => IO[Unit],

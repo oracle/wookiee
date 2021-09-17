@@ -13,7 +13,7 @@ import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}

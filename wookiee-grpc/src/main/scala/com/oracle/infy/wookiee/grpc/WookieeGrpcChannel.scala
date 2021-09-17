@@ -17,13 +17,14 @@ import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalanc
 import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
+import scala.annotation.nowarn
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
@@ -106,6 +107,8 @@ object WookieeGrpcChannel {
     }
   }
 
+  // Please see https://github.com/grpc/grpc-java/issues/7133
+  @nowarn
   private def buildChannel(
       path: String,
       eventLoopGroupExecutionContext: ExecutionContext,

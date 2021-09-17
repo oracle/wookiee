@@ -8,7 +8,7 @@ import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslContextBuilder, SslProvider}

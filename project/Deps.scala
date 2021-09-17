@@ -6,7 +6,7 @@ object Deps {
     val shapelessVersion = "1.2.3"
     val curatorVersion = "5.1.0"
     val catsVersion = "2.3.0"
-    val log4CatsVersion = "1.1.1"
+    val log4CatsVersion = "1.3.1"
     val circeVersion = "0.13.0"
     val µTestVersion = "0.7.2"
     val scalacheckVersion = "1.14.1"
@@ -29,8 +29,8 @@ object Deps {
     val cats: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
     val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsVersion
 
-    val log4CatsCore: ModuleID = "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion
-    val log4CatsSlf4J: ModuleID = "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion
+    val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
+    val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
 
     val circeCore: ModuleID = "io.circe" %% "circe-core" % circeVersion
     val circeParser: ModuleID = "io.circe" %% "circe-parser" % circeVersion
@@ -84,7 +84,7 @@ object Deps {
 //    val slf4jAPI: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
 //    val slf4jLog4j: ModuleID = "org.slf4j" % "slf4j-log4j12" % slf4jVersion
     val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion
-    val log4CatsNoop: ModuleID = "io.chrisdavenport" %% "log4cats-noop" % log4CatsVersion
+    val log4CatsNoop: ModuleID = "org.typelevel" %% "log4cats-noop" % log4CatsVersion
 
     //val slf4jSimple: ModuleID = "org.slf4j" % "slf4j-simple" % slf4jVersion
 
