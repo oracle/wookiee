@@ -24,6 +24,7 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
+import scala.annotation.nowarn
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
@@ -109,6 +110,7 @@ object WookieeGrpcChannel {
     }
   }
 
+  @nowarn
   private def buildChannel(
       path: String,
       eventLoopGroupExecutionContext: ExecutionContext,

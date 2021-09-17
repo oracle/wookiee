@@ -1,8 +1,7 @@
-import java.io.File
-
 import sbt.Keys.{libraryDependencies, _}
 import sbt._
 
+import java.io.File
 import scala.language.postfixOps
 import scala.util.Try
 
@@ -103,7 +102,11 @@ lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(Deps.build.scalaReflect(scalaVersion.value))
+    libraryDependencies ++= Seq(
+      Deps.build.scalaReflect(scalaVersion.value),
+      "org.scalameta" %% "scalameta" % "4.4.25",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
+    )
   )
 
 lazy val `wookiee-http` = project
@@ -142,7 +145,6 @@ lazy val `wookiee-metrics` = project
       Deps.build.circeCore,
       Deps.build.circeGeneric,
       Deps.build.circeParser
-
     )
   )
   .dependsOn(`wookiee-core`)
@@ -210,11 +212,14 @@ lazy val `wookiee-docs` = project
     mdocVariables := Map(
       "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
       "PROTO_FILE" -> protoFile,
-      "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
+      "PROTO_DEF" -> readF(s"wookiee-proto/" ++ protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
       "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString),
-      "METRICSEXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/MetricsExample.scala", _.drop(2).mkString)
+      "METRICSEXAMPLE" -> readF(
+        "wookiee-docs/src/main/scala/com/oracle/infy/wookiee/MetricsExample.scala",
+        _.drop(2).mkString
+      )
     )
   )
   .settings(
@@ -231,11 +236,11 @@ lazy val `wookiee-proto` = project
   .settings(commonSettings)
   .settings(
     //scalaPB
+    Compile / PB.targets := Seq(
+      scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
+    ),
     libraryDependencies ++= Seq(
       "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )
