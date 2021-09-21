@@ -123,13 +123,19 @@ object implicits {
             })
             .toMap
         )
-      } yield Test(name = name, foo = foo, bar = bar, baz = baz, ignoreMe = IgnoreThisClass())
+      } yield Test(name = name, foo = foo, bar = bar, baz = baz)
   }
 
   implicit class PersonToGrpc(lhs: Person) {
 
     def toGrpc: GrpcPerson =
-      GrpcPerson(name = lhs.name, age = lhs.age, optOpt = Some(lhs.optOpt.toGrpc), opt3 = Some(lhs.opt3.toGrpc))
+      GrpcPerson(
+        name = lhs.name,
+        age = lhs.age,
+        optOpt = Some(lhs.optOpt.toGrpc),
+        opt3 = Some(lhs.opt3.toGrpc),
+        opt4 = Some(lhs.opt4.toGrpc)
+      )
   }
 
   implicit class PersonFromGrpc(lhs: GrpcPerson) {
@@ -140,7 +146,8 @@ object implicits {
         age <- Right(lhs.age)
         optOpt <- lhs.getOptOpt.fromGrpc
         opt3 <- lhs.getOpt3.fromGrpc
-      } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3)
+        opt4 <- lhs.getOpt4.fromGrpc
+      } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3, opt4 = opt4)
   }
 
   implicit class MaxyDestinationValidationErrorToGrpc(lhs: MaxyDestinationValidationError) {
@@ -233,6 +240,27 @@ object implicits {
     def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
       case GrpcMaybeString.OneOf.Somme(value) =>
         Right(Some(value))
+      case _ =>
+        Right(None)
+    }
+  }
+
+  implicit class OptionToGrpc(lhs: Option[List[String]]) {
+
+    def toGrpc: GrpcMaybeListString =
+      lhs match {
+        case None =>
+          GrpcMaybeListString(GrpcMaybeListString.OneOf.Nonne(GrpcNonne()))
+        case Some(value) =>
+          GrpcMaybeListString(GrpcMaybeListString.OneOf.Somme(value.toGrpc))
+      }
+  }
+
+  implicit class OptionFromGrpc(lhs: GrpcMaybeListString) {
+
+    def fromGrpc: Either[GrpcConversionError, Option[List[String]]] = lhs.oneOf match {
+      case GrpcMaybeListString.OneOf.Somme(value) =>
+        value.fromGrpc.map(Some(_))
       case _ =>
         Right(None)
     }

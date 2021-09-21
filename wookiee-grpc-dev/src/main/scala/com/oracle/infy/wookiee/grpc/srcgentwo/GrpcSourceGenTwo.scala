@@ -107,80 +107,69 @@ object GrpcSourceGenTwo {
   def getOptionalTypes(input: List[Model]): Set[Type] =
     expandNestedType(input, "Option")
 
+  final case class HandleTypeReturn(models: Set[Model], grpcType: String)
+
+  private def handleTypeReturnOption(
+      acc: Set[Model],
+      noneType: Type.Name,
+      innerModel: Set[Model],
+      innerTypeName: String,
+      newTypeName: String
+  ) =
+    HandleTypeReturn(
+      acc ++ Set(
+        Model(
+          // Using scala type for both because at the end scala type is converted to grpc type
+          // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
+          newTypeName,
+          newTypeName,
+          oneOfs = List(
+            ParamModel(
+              Term.Param(
+                mods = Nil,
+                name = Term.Name("somme"),
+                decltpe = Some(Type.Name(innerTypeName)),
+                default = None
+              ),
+              innerTypeName
+            ),
+            ParamModel(
+              Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
+              "Nonne"
+            )
+          ),
+          fields = Nil
+        )
+      ) ++ innerModel,
+      newTypeName
+    )
+
   def synthesizeOptionModel(input: List[Model]): Set[Model] = {
-
-    final case class HandleTypeReturn(models: Set[Model], grpcType: String)
-
     def handleType(t: Type, acc: Set[Model]): HandleTypeReturn = {
       val noneType = Type.Name("Nonne")
 
       t match {
-        case Type.Apply(Type.Name("List"), head :: Nil) =>
-        // TODO  write a base case for lists and maps
-        case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
-        // TODO  write a base case for lists and maps
         case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
           val newTypeName = "Maybe" + innerType
+          handleTypeReturnOption(acc, noneType, Set.empty, innerType, newTypeName)
 
-          HandleTypeReturn(
-            acc ++ Set(
-              Model(
-                // Using scala type for both because at the end scala type is converted to grpc type
-                // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
-                newTypeName,
-                newTypeName,
-                oneOfs = List(
-                  ParamModel(
-                    Term.Param(
-                      mods = Nil,
-                      name = Term.Name("somme"),
-                      decltpe = Some(Type.Name(innerType)),
-                      default = None
-                    ),
-                    innerType
-                  ),
-                  ParamModel(
-                    Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
-                    "Nonne"
-                  )
-                ),
-                fields = Nil
-              )
-            ),
-            newTypeName
-          )
+        //TODO -- handle lists and maps
+        case Type.Apply(
+            Type.Name("Option"),
+            (listType @ Type.Apply(Type.Name("List"), Type.Name(innerTypeName) :: Nil)) :: Nil
+            ) =>
+          //val listType = s"List$innerType"
+          val listTypeName = getGrpcListType(listType)
+          val newTypeName = "MaybeList" + innerTypeName
+
+          handleTypeReturnOption(acc, noneType, Set.empty, listTypeName, newTypeName)
+
         case Type.Apply(Type.Name("Option"), head :: Nil) =>
           val handletypeReturn = handleType(head, acc)
           val (innerModel, innerTypeName) = (handletypeReturn.models, handletypeReturn.grpcType)
           val newTypeName = "Maybe" + innerTypeName
 
-          HandleTypeReturn(
-            acc ++ Set(
-              Model(
-                // Using scala type for both because at the end scala type is converted to grpc type
-                // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
-                newTypeName,
-                newTypeName,
-                oneOfs = List(
-                  ParamModel(
-                    Term.Param(
-                      mods = Nil,
-                      name = Term.Name("somme"),
-                      decltpe = Some(Type.Name(innerTypeName)),
-                      default = None
-                    ),
-                    innerTypeName
-                  ),
-                  ParamModel(
-                    Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
-                    "Nonne"
-                  )
-                ),
-                fields = Nil
-              )
-            ) ++ innerModel,
-            newTypeName
-          )
+          handleTypeReturnOption(acc, noneType, innerModel, innerTypeName, newTypeName)
 
         case _ => HandleTypeReturn(acc, "")
       }
@@ -213,9 +202,10 @@ object GrpcSourceGenTwo {
         .map { model: Model =>
           model.copy(
             grpcTypeName = getGrpcType(Some(Type.Name(model.scalaTypeName))),
-            oneOfs = model.oneOfs.map { paramModel =>
-              paramModel.copy(grpcType = getGrpcType(Some(Type.Name(paramModel.grpcType))))
-            }
+            oneOfs =
+              model.oneOfs.filter(paramMod => paramMod.param.decltpe.exists(p => !isScalaLibraryType(p))).map { paramModel =>
+                paramModel.copy(grpcType = getGrpcType(Some(Type.Name(paramModel.grpcType))))
+              }
           )
         }
 
@@ -314,6 +304,13 @@ object GrpcSourceGenTwo {
     case Type.Name("Boolean") => "bool"
   }
 
+  def isScalaLibraryType: PartialFunction[Type, Boolean] = {
+    case Type.Name("String") | Type.Name("Int") | Type.Name("Long") | Type.Name("Float") | Type.Name("Double") |
+        Type.Name("Boolean") | Type.Name("Boolean") | Type.Apply(Type.Name("List"), _) | Type.Apply(Type.Name("Map"), _) =>
+      true
+    case _ => false
+  }
+
   def isValidScalarMapType(t: Type): Boolean = t match {
     case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
       isValidMapKeyType(k) && isValidMapValueType(v) && isScalarType(v)
@@ -376,12 +373,11 @@ object GrpcSourceGenTwo {
       case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
         s"Maybe$innerType"
 
-        // TODO -- verify this is the right object structure that will be generated by synthesize option models
-      case Type.Apply(Type.Name("Map"), Type.Name(innerType) :: Nil) =>
-        s"Map$innerType"
+      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name(innerType) :: Nil) :: Nil) =>
+        s"MaybeList$innerType"
 
-      case Type.Apply(Type.Name("List"), Type.Name(innerType) :: Nil) =>
-        s"List$innerType"
+      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("Map"), Type.Name(k) :: Type.Name(v) :: Nil) :: Nil) =>
+        s"MaybeMap$k$v"
 
       case Type.Apply(Type.Name("Option"), head :: Nil) =>
         s"Maybe${getGrpcOptionType(head)}"
