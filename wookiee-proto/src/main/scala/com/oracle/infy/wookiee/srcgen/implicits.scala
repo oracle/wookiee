@@ -145,6 +145,39 @@ object implicits {
       } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3)
   }
 
+  implicit class WatchToGrpc(lhs: Watch) {
+
+    def toGrpc: GrpcWatch =
+      GrpcWatch(
+        time = lhs.time.toEpochSecond,
+        alarms = lhs.alarms.map(_.toGrpc),
+        optionTime = Some(lhs.optionTime.toGrpc)
+      )
+  }
+
+  implicit class WatchFromGrpc(lhs: GrpcWatch) {
+
+    def fromGrpc: Either[GrpcConversionError, Watch] =
+      for {
+        time <- scala
+          .util
+          .Try {
+            java.time.ZonedDateTime.ofInstant(java.time.Instant.ofEpochSecond(lhs.time), java.time.ZoneId.of("UTC"))
+          }
+          .toEither
+          .left
+          .map(t => GrpcConversionError(t.getMessage))
+        alarms <- lhs
+          .alarms
+          .map(_.fromGrpc)
+          .foldLeft(Right(Nil): Either[GrpcConversionError, List[ZonedDateTime]])({
+            case (acc, i) =>
+              i.flatMap(a => acc.map(b => a :: b))
+          })
+        optionTime <- lhs.getOptionTime.fromGrpc
+      } yield Watch(time = time, alarms = alarms, optionTime = optionTime)
+  }
+
   implicit class MaxyDestinationValidationErrorToGrpc(lhs: MaxyDestinationValidationError) {
 
     def toGrpc: GrpcMaxyDestinationValidationError =
@@ -219,22 +252,22 @@ object implicits {
     }
   }
 
-  implicit class OptionStringToGrpc(lhs: Option[String]) {
+  implicit class OptionTestToGrpc(lhs: Option[Test]) {
 
-    def toGrpc: GrpcMaybeString =
+    def toGrpc: GrpcMaybeTest =
       lhs match {
         case None =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(GrpcNonne()))
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeString(GrpcMaybeString.OneOf.Somme(value))
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Somme(value.toGrpc))
       }
   }
 
-  implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
+  implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
 
-    def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
-      case GrpcMaybeString.OneOf.Somme(value) =>
-        Right(Some(value))
+    def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
+      case GrpcMaybeTest.OneOf.Somme(value) =>
+        value.fromGrpc.map(Some(_))
       case _ =>
         Right(None)
     }
@@ -261,22 +294,43 @@ object implicits {
     }
   }
 
-  implicit class OptionTestToGrpc(lhs: Option[Test]) {
+  implicit class OptionZonedDateTimeToGrpc(lhs: Option[ZonedDateTime]) {
 
-    def toGrpc: GrpcMaybeTest =
+    def toGrpc: GrpcMaybeZonedDateTime =
       lhs match {
         case None =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.Nonne(GrpcNonne()))
+          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.Somme(value.toGrpc))
+          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Somme(value.toGrpc))
       }
   }
 
-  implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
+  implicit class OptionZonedDateTimeFromGrpc(lhs: GrpcMaybeZonedDateTime) {
 
-    def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
-      case GrpcMaybeTest.OneOf.Somme(value) =>
+    def fromGrpc: Either[GrpcConversionError, Option[ZonedDateTime]] = lhs.oneOf match {
+      case GrpcMaybeZonedDateTime.OneOf.Somme(value) =>
         value.fromGrpc.map(Some(_))
+      case _ =>
+        Right(None)
+    }
+  }
+
+  implicit class OptionStringToGrpc(lhs: Option[String]) {
+
+    def toGrpc: GrpcMaybeString =
+      lhs match {
+        case None =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(GrpcNonne()))
+        case Some(value) =>
+          GrpcMaybeString(GrpcMaybeString.OneOf.Somme(value))
+      }
+  }
+
+  implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
+
+    def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
+      case GrpcMaybeString.OneOf.Somme(value) =>
+        Right(Some(value))
       case _ =>
         Right(None)
     }

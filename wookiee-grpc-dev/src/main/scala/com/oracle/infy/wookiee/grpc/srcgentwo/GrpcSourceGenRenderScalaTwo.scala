@@ -7,7 +7,8 @@ import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo.{
   isListScalarType,
   isScalarType,
   isValidNonScalarMapType,
-  isValidScalarMapType
+  isValidScalarMapType,
+  isZonedDateTimeType
 }
 
 import scala.meta._
@@ -105,6 +106,8 @@ object GrpcSourceGenRenderScalaTwo {
             )
 
             val scalarAssign = Term.Assign(paramNameTerm, Term.Select(Term.Name("lhs"), paramNameTerm))
+            val zonedDateTimeAssign =
+              Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.toEpochSecond")
 
             paramModel
               .param
@@ -112,6 +115,8 @@ object GrpcSourceGenRenderScalaTwo {
               .map { t =>
                 if (isScalarType(t)) {
                   scalarAssign
+                } else if (isZonedDateTimeType(t)) {
+                  zonedDateTimeAssign
                 } else if (isListScalarType(t)) {
                   scalarAssign
                 } else if (isListNonScalarType(t)) {
@@ -163,12 +168,20 @@ object GrpcSourceGenRenderScalaTwo {
                 q"lhs.${Term.Name(s"get$upperCaseParamName")}.fromGrpc"
               )
 
+            val utc = Lit.String("UTC")
+
             paramModel
               .param
               .decltpe
               .map { t =>
                 if (isScalarType(t)) {
                   scalarGenerator
+                } else if (isZonedDateTimeType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"scala.util.Try { java.time.ZonedDateTime.ofInstant(java.time.Instant.ofEpochSecond(lhs.$paramNameTerm), java.time.ZoneId.of($utc)) }.toEither.left.map(t => GrpcConversionError(t.getMessage))"
+                    )
                 } else if (isListScalarType(t)) {
                   Enumerator
                     .Generator(

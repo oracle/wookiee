@@ -1,5 +1,7 @@
 package com.oracle.infy.wookiee.srcgen
 
+import java.time.ZonedDateTime
+
 object Example {
 
   @srcGenIgnoreClass
@@ -34,6 +36,12 @@ object Example {
       age: Int,
       optOpt: Option[Option[String]],
       opt3: Option[Test]
+  )
+
+  case class Watch(
+      time: ZonedDateTime,
+      alarms: List[ZonedDateTime],
+      optionTime: Option[ZonedDateTime]
   )
 
   case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person, details: Option[String])

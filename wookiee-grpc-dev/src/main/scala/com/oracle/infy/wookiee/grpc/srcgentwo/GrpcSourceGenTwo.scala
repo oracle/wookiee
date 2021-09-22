@@ -341,6 +341,10 @@ object GrpcSourceGenTwo {
     case Type.Name("Boolean") => "bool"
   }
 
+  def getGrpcZonedDateTimeType: PartialFunction[Type, String] = {
+    case Type.Name("ZonedDateTime") => "int64"
+  }
+
   def isValidScalarMapType(t: Type): Boolean = t match {
     case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
       isValidMapKeyType(k) && isValidMapValueType(v) && isScalarType(v)
@@ -391,6 +395,14 @@ object GrpcSourceGenTwo {
           false
       }(t)
 
+  def isZonedDateTimeType(t: Type): Boolean =
+    getGrpcZonedDateTimeType
+      .andThen(_ => true)
+      .orElse[Type, Boolean] {
+        case _ =>
+          false
+      }(t)
+
   def getGrpcType(t: Option[Type]): String = {
 
     val Grpc = "Grpc"
@@ -417,6 +429,7 @@ object GrpcSourceGenTwo {
     getGrpcOptionType
       .andThen(ot => s"$Grpc$ot")
       .orElse(getGrpcScalarType)
+      .orElse(getGrpcZonedDateTimeType)
       .orElse(getGrpcListType)
       .orElse(getGrpcMapType)
       .orElse(getGrpcMessageType)
