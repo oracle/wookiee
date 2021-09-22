@@ -35,6 +35,8 @@ object GrpcSourceGenRenderScalaTwo {
     val toApply = t match {
       case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
         q"value"
+      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
+        q"GrpcListString(value)"
       case _ =>
         q"value.toGrpc"
     }
@@ -42,6 +44,8 @@ object GrpcSourceGenRenderScalaTwo {
     val fromApply = t match {
       case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
         q"Right(Some(value))"
+      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
+        q"Right(Some(value.list.toList))"
       case _ =>
         q"value.fromGrpc.map(Some(_))"
     }

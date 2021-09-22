@@ -21,16 +21,20 @@ object Example {
 
   case class Foo()
 
-  @srcGenIgnoreField("ignoreMe")
   case class Test(
       name: List[String],
       foo: List[Foo],
       bar: Map[String, String],
       baz: Map[String, Foo],
-      ignoreMe: IgnoreThisClass
+      opt0: Option[List[String]]
   )
 
-  case class Person(name: String, age: Int, optOpt: Option[Option[String]], opt3: Option[Test], opt4: Option[List[String]])
+  case class Person(
+      name: String,
+      age: Int,
+      optOpt: Option[Option[String]],
+      opt3: Option[Test]
+  )
 
   case class MaxyDestinationValidationError(code: Int, maxyError: String, person: Person, details: Option[String])
       extends DestinationError

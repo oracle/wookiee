@@ -96,7 +96,9 @@ object implicits {
         name = lhs.name,
         foo = lhs.foo.map(_.toGrpc),
         bar = lhs.bar,
-        baz = lhs.baz.map(entry => (entry._1, entry._2.toGrpc))
+        baz = lhs.baz.map(entry => (entry._1, entry._2.toGrpc)),
+        opt0 = Some(lhs.opt0.toGrpc),
+        ignoreMe = Some(lhs.ignoreMe.toGrpc)
       )
   }
 
@@ -123,19 +125,15 @@ object implicits {
             })
             .toMap
         )
-      } yield Test(name = name, foo = foo, bar = bar, baz = baz)
+        opt0 <- lhs.getOpt0.fromGrpc
+        ignoreMe <- lhs.getIgnoreMe.fromGrpc
+      } yield Test(name = name, foo = foo, bar = bar, baz = baz, opt0 = opt0, ignoreMe = ignoreMe)
   }
 
   implicit class PersonToGrpc(lhs: Person) {
 
     def toGrpc: GrpcPerson =
-      GrpcPerson(
-        name = lhs.name,
-        age = lhs.age,
-        optOpt = Some(lhs.optOpt.toGrpc),
-        opt3 = Some(lhs.opt3.toGrpc),
-        opt4 = Some(lhs.opt4.toGrpc)
-      )
+      GrpcPerson(name = lhs.name, age = lhs.age, optOpt = Some(lhs.optOpt.toGrpc), opt3 = Some(lhs.opt3.toGrpc))
   }
 
   implicit class PersonFromGrpc(lhs: GrpcPerson) {
@@ -146,8 +144,7 @@ object implicits {
         age <- Right(lhs.age)
         optOpt <- lhs.getOptOpt.fromGrpc
         opt3 <- lhs.getOpt3.fromGrpc
-        opt4 <- lhs.getOpt4.fromGrpc
-      } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3, opt4 = opt4)
+      } yield Person(name = name, age = age, optOpt = optOpt, opt3 = opt3)
   }
 
   implicit class MaxyDestinationValidationErrorToGrpc(lhs: MaxyDestinationValidationError) {
@@ -252,7 +249,7 @@ object implicits {
         case None =>
           GrpcMaybeListString(GrpcMaybeListString.OneOf.Nonne(GrpcNonne()))
         case Some(value) =>
-          GrpcMaybeListString(GrpcMaybeListString.OneOf.Somme(value.toGrpc))
+          GrpcMaybeListString(GrpcMaybeListString.OneOf.Somme(GrpcListString(value)))
       }
   }
 
@@ -260,7 +257,7 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, Option[List[String]]] = lhs.oneOf match {
       case GrpcMaybeListString.OneOf.Somme(value) =>
-        value.fromGrpc.map(Some(_))
+        Right(Some(value.list.toList))
       case _ =>
         Right(None)
     }

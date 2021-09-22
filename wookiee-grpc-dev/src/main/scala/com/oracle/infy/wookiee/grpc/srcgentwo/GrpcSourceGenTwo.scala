@@ -115,7 +115,7 @@ object GrpcSourceGenTwo {
       innerModel: Set[Model],
       innerTypeName: String,
       newTypeName: String
-  ) =
+  ): HandleTypeReturn =
     HandleTypeReturn(
       acc ++ Set(
         Model(
@@ -128,9 +128,11 @@ object GrpcSourceGenTwo {
               Term.Param(
                 mods = Nil,
                 name = Term.Name("somme"),
+                //// Type.Apply(List... Type.Name(String..)
                 decltpe = Some(Type.Name(innerTypeName)),
                 default = None
               ),
+              //// repeat string foo...
               innerTypeName
             ),
             ParamModel(
@@ -158,11 +160,47 @@ object GrpcSourceGenTwo {
             Type.Name("Option"),
             (listType @ Type.Apply(Type.Name("List"), Type.Name(innerTypeName) :: Nil)) :: Nil
             ) =>
-          //val listType = s"List$innerType"
-          val listTypeName = getGrpcListType(listType)
           val newTypeName = "MaybeList" + innerTypeName
+          val typeName = s"List$innerTypeName"
 
-          handleTypeReturnOption(acc, noneType, Set.empty, listTypeName, newTypeName)
+          HandleTypeReturn(
+            acc ++ Set(
+              Model(
+                // Using scala type for both because at the end scala type is converted to grpc type
+                // If we call grpcType(newTypeName), we end up with types like "GrpcMaybeGrpcMaybe"
+                newTypeName,
+                newTypeName,
+                oneOfs = List(
+                  ParamModel(
+                    Term.Param(
+                      mods = Nil,
+                      name = Term.Name("somme"),
+                      decltpe = Some(listType),
+                      default = None
+                    ),
+                    typeName
+                  ),
+                  ParamModel(
+                    Term.Param(mods = Nil, name = Term.Name("nonne"), decltpe = Some(noneType), default = None),
+                    "Nonne"
+                  )
+                ),
+                fields = Nil
+              ),
+              Model(
+                typeName, // Check if scala gen works
+                typeName,
+                oneOfs = Nil,
+                fields = List(
+                  ParamModel(
+                    Term.Param(mods = Nil, name = Term.Name("list"), decltpe = Some(listType), default = None),
+                    getGrpcType(Some(listType))
+                  )
+                )
+              )
+            ),
+            newTypeName
+          )
 
         case Type.Apply(Type.Name("Option"), head :: Nil) =>
           val handletypeReturn = handleType(head, acc)
@@ -202,10 +240,9 @@ object GrpcSourceGenTwo {
         .map { model: Model =>
           model.copy(
             grpcTypeName = getGrpcType(Some(Type.Name(model.scalaTypeName))),
-            oneOfs =
-              model.oneOfs.filter(paramMod => paramMod.param.decltpe.exists(p => !isScalaLibraryType(p))).map { paramModel =>
-                paramModel.copy(grpcType = getGrpcType(Some(Type.Name(paramModel.grpcType))))
-              }
+            oneOfs = model.oneOfs.map { paramModel =>
+              paramModel.copy(grpcType = getGrpcType(Some(Type.Name(paramModel.grpcType))))
+            }
           )
         }
 
@@ -302,13 +339,6 @@ object GrpcSourceGenTwo {
     case Type.Name("Float")   => "float32"
     case Type.Name("Double")  => "float64"
     case Type.Name("Boolean") => "bool"
-  }
-
-  def isScalaLibraryType: PartialFunction[Type, Boolean] = {
-    case Type.Name("String") | Type.Name("Int") | Type.Name("Long") | Type.Name("Float") | Type.Name("Double") |
-        Type.Name("Boolean") | Type.Name("Boolean") | Type.Apply(Type.Name("List"), _) | Type.Apply(Type.Name("Map"), _) =>
-      true
-    case _ => false
   }
 
   def isValidScalarMapType(t: Type): Boolean = t match {
