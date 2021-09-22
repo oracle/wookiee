@@ -5,6 +5,7 @@ import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo.{
   getGrpcType,
   isListNonScalarType,
   isListScalarType,
+  isListZonedDateTimeType,
   isScalarType,
   isValidNonScalarMapType,
   isValidScalarMapType,
@@ -26,6 +27,31 @@ object GrpcSourceGenRenderScalaTwo {
 
   private val grpcConversionErrorTypeName = Type.Name("GrpcConversionError")
 
+  def renderScalaGlobals(fmt: String => String): String = {
+
+    val utc = "UTC"
+    val fromGrpcZonedDateTimeFunction =
+      q"""
+          private def fromGrpcZonedDateTime(value: Long): Either[GrpcConversionError, ZonedDateTime] =
+              Try {
+                ZonedDateTime.ofInstant(Instant.ofEpochSecond(value), ZoneId.of($utc))
+              }
+              .toEither
+              .left
+              .map(t => GrpcConversionError(t.getMessage))
+      """
+
+    val toGrpcZonedDateTimeFunction =
+      q"""
+          private def toGrpcZonedDateTime(value: ZonedDateTime): Long = {
+            value.toEpochSecond
+          }
+        """
+
+    val ignoreMethod = q"private val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))"
+    fmt(s"$fromGrpcZonedDateTimeFunction\n$toGrpcZonedDateTimeFunction\n$ignoreMethod\n")
+  }
+
   def renderScalaOptional(t: Type, fmt: String => String): String = {
 
     val toGrpcImplicitClassName = Type.Name(s"${getClassName(t, "Option")}ToGrpc")
@@ -36,6 +62,8 @@ object GrpcSourceGenRenderScalaTwo {
     val toApply = t match {
       case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
         q"value"
+      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isZonedDateTimeType(innerType) =>
+        q"toGrpcZonedDateTime(value)"
       case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
         q"GrpcListString(value)"
       case _ =>
@@ -47,6 +75,8 @@ object GrpcSourceGenRenderScalaTwo {
         q"Right(Some(value))"
       case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
         q"Right(Some(value.list.toList))"
+      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isZonedDateTimeType(innerType) =>
+        q"fromGrpcZonedDateTime(value).map(Some(_))"
       case _ =>
         q"value.fromGrpc.map(Some(_))"
     }
@@ -119,6 +149,8 @@ object GrpcSourceGenRenderScalaTwo {
                   zonedDateTimeAssign
                 } else if (isListScalarType(t)) {
                   scalarAssign
+                } else if (isListZonedDateTimeType(t)) {
+                  Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(toGrpcZonedDateTime)")
                 } else if (isListNonScalarType(t)) {
                   Term.Assign(paramNameTerm, q"lhs.$paramNameTerm.map(_.toGrpc)")
                 } else if (isValidScalarMapType(t)) {
@@ -168,8 +200,6 @@ object GrpcSourceGenRenderScalaTwo {
                 q"lhs.${Term.Name(s"get$upperCaseParamName")}.fromGrpc"
               )
 
-            val utc = Lit.String("UTC")
-
             paramModel
               .param
               .decltpe
@@ -180,7 +210,13 @@ object GrpcSourceGenRenderScalaTwo {
                   Enumerator
                     .Generator(
                       Pat.Var(paramNameTerm),
-                      q"scala.util.Try { java.time.ZonedDateTime.ofInstant(java.time.Instant.ofEpochSecond(lhs.$paramNameTerm), java.time.ZoneId.of($utc)) }.toEither.left.map(t => GrpcConversionError(t.getMessage))"
+                      q"fromGrpcZonedDateTime(lhs.$paramNameTerm)"
+                    )
+                } else if (isListZonedDateTimeType(t)) {
+                  Enumerator
+                    .Generator(
+                      Pat.Var(paramNameTerm),
+                      q"lhs.$paramNameTerm.map(fromGrpcZonedDateTime).foldLeft(Right(Nil): Either[$grpcConversionErrorTypeName, $t]){ case (acc, i) => i.flatMap(a => acc.map(b => a :: b))}"
                     )
                 } else if (isListScalarType(t)) {
                   Enumerator

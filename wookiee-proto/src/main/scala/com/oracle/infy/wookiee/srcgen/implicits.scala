@@ -2,8 +2,19 @@ package com.oracle.infy.wookiee.srcgen
 import Example._
 import Example2._
 import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+import scala.util.Try
+import java.time._
 
 object implicits {
+
+  private def fromGrpcZonedDateTime(value: Long): Either[GrpcConversionError, ZonedDateTime] =
+    Try {
+      ZonedDateTime.ofInstant(Instant.ofEpochSecond(value), ZoneId.of("UTC"))
+    }.toEither.left.map(t => GrpcConversionError(t.getMessage))
+
+  private def toGrpcZonedDateTime(value: ZonedDateTime): Long =
+    value.toEpochSecond
+  private val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
 
   implicit class ASErrorToGrpc(lhs: ASError) {
 
@@ -150,7 +161,7 @@ object implicits {
     def toGrpc: GrpcWatch =
       GrpcWatch(
         time = lhs.time.toEpochSecond,
-        alarms = lhs.alarms.map(_.toGrpc),
+        alarms = lhs.alarms.map(toGrpcZonedDateTime),
         optionTime = Some(lhs.optionTime.toGrpc)
       )
   }
@@ -159,17 +170,10 @@ object implicits {
 
     def fromGrpc: Either[GrpcConversionError, Watch] =
       for {
-        time <- scala
-          .util
-          .Try {
-            java.time.ZonedDateTime.ofInstant(java.time.Instant.ofEpochSecond(lhs.time), java.time.ZoneId.of("UTC"))
-          }
-          .toEither
-          .left
-          .map(t => GrpcConversionError(t.getMessage))
+        time <- fromGrpcZonedDateTime(lhs.time)
         alarms <- lhs
           .alarms
-          .map(_.fromGrpc)
+          .map(fromGrpcZonedDateTime)
           .foldLeft(Right(Nil): Either[GrpcConversionError, List[ZonedDateTime]])({
             case (acc, i) =>
               i.flatMap(a => acc.map(b => a :: b))
@@ -252,27 +256,6 @@ object implicits {
     }
   }
 
-  implicit class OptionTestToGrpc(lhs: Option[Test]) {
-
-    def toGrpc: GrpcMaybeTest =
-      lhs match {
-        case None =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.Nonne(GrpcNonne()))
-        case Some(value) =>
-          GrpcMaybeTest(GrpcMaybeTest.OneOf.Somme(value.toGrpc))
-      }
-  }
-
-  implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
-
-    def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
-      case GrpcMaybeTest.OneOf.Somme(value) =>
-        value.fromGrpc.map(Some(_))
-      case _ =>
-        Right(None)
-    }
-  }
-
   implicit class OptionToGrpc(lhs: Option[List[String]]) {
 
     def toGrpc: GrpcMaybeListString =
@@ -289,27 +272,6 @@ object implicits {
     def fromGrpc: Either[GrpcConversionError, Option[List[String]]] = lhs.oneOf match {
       case GrpcMaybeListString.OneOf.Somme(value) =>
         Right(Some(value.list.toList))
-      case _ =>
-        Right(None)
-    }
-  }
-
-  implicit class OptionZonedDateTimeToGrpc(lhs: Option[ZonedDateTime]) {
-
-    def toGrpc: GrpcMaybeZonedDateTime =
-      lhs match {
-        case None =>
-          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Nonne(GrpcNonne()))
-        case Some(value) =>
-          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Somme(value.toGrpc))
-      }
-  }
-
-  implicit class OptionZonedDateTimeFromGrpc(lhs: GrpcMaybeZonedDateTime) {
-
-    def fromGrpc: Either[GrpcConversionError, Option[ZonedDateTime]] = lhs.oneOf match {
-      case GrpcMaybeZonedDateTime.OneOf.Somme(value) =>
-        value.fromGrpc.map(Some(_))
       case _ =>
         Right(None)
     }
@@ -352,6 +314,48 @@ object implicits {
     def fromGrpc: Either[GrpcConversionError, Option[Option[String]]] = lhs.oneOf match {
       case GrpcMaybeMaybeString.OneOf.Somme(value) =>
         value.fromGrpc.map(Some(_))
+      case _ =>
+        Right(None)
+    }
+  }
+
+  implicit class OptionTestToGrpc(lhs: Option[Test]) {
+
+    def toGrpc: GrpcMaybeTest =
+      lhs match {
+        case None =>
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Nonne(GrpcNonne()))
+        case Some(value) =>
+          GrpcMaybeTest(GrpcMaybeTest.OneOf.Somme(value.toGrpc))
+      }
+  }
+
+  implicit class OptionTestFromGrpc(lhs: GrpcMaybeTest) {
+
+    def fromGrpc: Either[GrpcConversionError, Option[Test]] = lhs.oneOf match {
+      case GrpcMaybeTest.OneOf.Somme(value) =>
+        value.fromGrpc.map(Some(_))
+      case _ =>
+        Right(None)
+    }
+  }
+
+  implicit class OptionZonedDateTimeToGrpc(lhs: Option[ZonedDateTime]) {
+
+    def toGrpc: GrpcMaybeZonedDateTime =
+      lhs match {
+        case None =>
+          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Nonne(GrpcNonne()))
+        case Some(value) =>
+          GrpcMaybeZonedDateTime(GrpcMaybeZonedDateTime.OneOf.Somme(toGrpcZonedDateTime(value)))
+      }
+  }
+
+  implicit class OptionZonedDateTimeFromGrpc(lhs: GrpcMaybeZonedDateTime) {
+
+    def fromGrpc: Either[GrpcConversionError, Option[ZonedDateTime]] = lhs.oneOf match {
+      case GrpcMaybeZonedDateTime.OneOf.Somme(value) =>
+        fromGrpcZonedDateTime(value).map(Some(_))
       case _ =>
         Right(None)
     }

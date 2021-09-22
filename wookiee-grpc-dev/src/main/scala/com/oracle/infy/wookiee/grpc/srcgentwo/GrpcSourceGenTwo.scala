@@ -387,6 +387,11 @@ object GrpcSourceGenTwo {
     case _                                           => false
   }
 
+  def isListZonedDateTimeType(t: Type): Boolean = t match {
+    case Type.Apply(Type.Name("List"), inner :: Nil) => isZonedDateTimeType(inner)
+    case _                                           => false
+  }
+
   def isScalarType(t: Type): Boolean =
     getGrpcScalarType
       .andThen(_ => true)
@@ -463,6 +468,8 @@ object GrpcSourceGenTwo {
         |      import Example._
         |      import Example2._
         |      import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
+        |      import scala.util.Try
+        |      import java.time._
         |""".stripMargin
 
     val scalaOutputPath = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/implicits.scala"
@@ -535,7 +542,7 @@ object GrpcSourceGenTwo {
       (models
         .map(model => GrpcSourceGenRenderScalaTwo.renderScala(model, fmt)) ++ List(
         getOptionalTypes(models).map(a => GrpcSourceGenRenderScalaTwo.renderScalaOptional(a, fmt)).mkString("\n")
-      )).mkString("\n")
+      )).mkString(GrpcSourceGenRenderScalaTwo.renderScalaGlobals(fmt), "\n", "")
     }
 
     val scalaContent =
