@@ -26,7 +26,6 @@ object SrcGenTwoTest {
         Map("foo" -> "bar"),
         Map("baz" -> Foo(), "bar" -> Foo()),
         Some(List("test")),
-        IgnoreThisClass()
       )
 
       val grpcTestObj = testObj.toGrpc

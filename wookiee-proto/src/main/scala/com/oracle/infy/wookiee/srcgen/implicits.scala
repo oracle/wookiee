@@ -97,8 +97,7 @@ object implicits {
         foo = lhs.foo.map(_.toGrpc),
         bar = lhs.bar,
         baz = lhs.baz.map(entry => (entry._1, entry._2.toGrpc)),
-        opt0 = Some(lhs.opt0.toGrpc),
-        ignoreMe = Some(lhs.ignoreMe.toGrpc)
+        opt0 = Some(lhs.opt0.toGrpc)
       )
   }
 
@@ -126,8 +125,7 @@ object implicits {
             .toMap
         )
         opt0 <- lhs.getOpt0.fromGrpc
-        ignoreMe <- lhs.getIgnoreMe.fromGrpc
-      } yield Test(name = name, foo = foo, bar = bar, baz = baz, opt0 = opt0, ignoreMe = ignoreMe)
+      } yield Test(name = name, foo = foo, bar = bar, baz = baz, opt0 = opt0)
   }
 
   implicit class PersonToGrpc(lhs: Person) {
