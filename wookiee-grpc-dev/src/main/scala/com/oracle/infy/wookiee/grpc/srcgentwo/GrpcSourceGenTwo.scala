@@ -25,6 +25,10 @@ object GrpcSourceGenTwo {
 
   final case class ScalaSource(scalaFilePath: String, filter: String => Boolean)
 
+  object ScalaSource {
+    def apply(scalaFilePath: String): ScalaSource = ScalaSource(scalaFilePath, _ => true)
+  }
+
   implicit class Transpiler(lhs: Model) {
 
     private def renderOneOfs(oneOfs: List[ParamModel]): String =

@@ -48,7 +48,12 @@ object GrpcSourceGenRenderScalaTwo {
           }
         """
 
-    val ignoreMethod = q"private val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))"
+    val ignoreMethod =
+      q"""
+          locally {
+            val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
+          }
+       """
     fmt(s"$fromGrpcZonedDateTimeFunction\n$toGrpcZonedDateTimeFunction\n$ignoreMethod\n")
   }
 

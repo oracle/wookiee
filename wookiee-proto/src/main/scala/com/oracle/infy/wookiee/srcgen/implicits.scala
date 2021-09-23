@@ -14,7 +14,9 @@ object implicits {
 
   private def toGrpcZonedDateTime(value: ZonedDateTime): Long =
     value.toEpochSecond
-  private val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
+  locally {
+    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
+  }
 
   implicit class ASErrorToGrpc(lhs: ASError) {
 
