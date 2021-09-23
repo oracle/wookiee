@@ -23,6 +23,8 @@ object GrpcSourceGenTwo {
       fields: List[ParamModel]
   )
 
+  final case class ScalaSource(scalaFilePath: String, filter: String => Boolean)
+
   implicit class Transpiler(lhs: Model) {
 
     private def renderOneOfs(oneOfs: List[ParamModel]): String =
@@ -447,7 +449,7 @@ object GrpcSourceGenTwo {
     val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
     val path2 = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example2.scala"
 
-    val paths = List(path, path2)
+    val paths = List(ScalaSource(path, _ => true), ScalaSource(path2, _ => true))
 
     val protoHeaders = List(
       """syntax = "proto3";""",
@@ -478,45 +480,50 @@ object GrpcSourceGenTwo {
   }
 
   def runSrcGen(
-      paths: List[String],
+      paths: List[ScalaSource],
       protoHeaders: String,
       rpcs: String,
       protoOutputPath: String,
       scalaHeaders: String,
       scalaOutputPath: String
   ): Unit = {
-    val vfiles = paths.map { path =>
-      val p = Paths.get(path)
+    val vfiles = paths.map { source =>
+      val p = Paths.get(source.scalaFilePath)
       val src = new String(java.nio.file.Files.readAllBytes(p))
-      Input.VirtualFile(p.toFile.getName, src)
+      source -> Input.VirtualFile(p.toFile.getName, src)
     }
 
     val models = vfiles
-      .map(_.parse[Source])
-      .map(_.get)
-      .flatMap { source =>
-        val defns = source.collect {
-          case node: Defn.Trait if !node.mods.exists {
-                case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                case _                                   => false
-              } =>
-            node
-          case node: Defn.Class if !node.mods.exists {
-                case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                case _                                   => false
-              } =>
-            node
-        }
+      .map(a => a._1.filter -> a._2.parse[Source].get)
+      .flatMap {
+        case (filter, source) =>
+          val defns = source
+            .collect {
+              case node: Defn.Trait if filter(node.name.value) => node
+              case node: Defn.Class if filter(node.name.value) => node
+            }
+            .collect {
+              case node: Defn.Trait if !node.mods.exists {
+                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                    case _                                   => false
+                  } =>
+                node
+              case node: Defn.Class if !node.mods.exists {
+                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                    case _                                   => false
+                  } =>
+                node
+            }
 
-        val sealedTraitMap = calculateSealedTraits(defns)
+          val sealedTraitMap = calculateSealedTraits(defns)
 
-        defns.flatMap {
-          case clazz: Defn.Class =>
-            Some(handleCaseClass(clazz))
-          case value: Defn.Trait =>
-            Some(handleSealedTrait(value, sealedTraitMap))
-          case _ => None // not a valid type
-        }
+          defns.flatMap {
+            case clazz: Defn.Class =>
+              Some(handleCaseClass(clazz))
+            case value: Defn.Trait =>
+              Some(handleSealedTrait(value, sealedTraitMap))
+            case _ => None // not a valid type
+          }
       }
 
     println("--------- Proto Messages ---------")
