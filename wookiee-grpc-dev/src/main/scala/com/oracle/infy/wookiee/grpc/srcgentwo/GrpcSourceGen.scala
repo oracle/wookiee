@@ -1,33 +1,11 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgen.implicits.MultiversalEquality
-import org.scalafmt.interfaces.Scalafmt
+import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel._
+import com.oracle.infy.wookiee.grpc.srcgentwo.implicits.MultiversalEquality
 
-import java.nio.file.{Files, Paths}
-import scala.meta.inputs.Input
 import scala.meta.{Term, _}
 
-object GrpcSourceGenTwo {
-
-  final case class srcGenIgnoreClass() extends scala.annotation.StaticAnnotation
-  final case class srcGenIgnoreField(field: String) extends scala.annotation.StaticAnnotation
-
-  final case class GrpcConversionError(msg: String)
-
-  final case class ParamModel(param: Term.Param, grpcType: String)
-
-  final case class Model(
-      scalaTypeName: String,
-      grpcTypeName: String,
-      oneOfs: List[ParamModel],
-      fields: List[ParamModel]
-  )
-
-  final case class ScalaSource(scalaFilePath: String, filter: String => Boolean)
-
-  object ScalaSource {
-    def apply(scalaFilePath: String): ScalaSource = ScalaSource(scalaFilePath, _ => true)
-  }
+object GrpcSourceGen {
 
   implicit class Transpiler(lhs: Model) {
 
@@ -71,14 +49,14 @@ object GrpcSourceGenTwo {
 
         case Model(_, grpcTypeName, Nil, fields) =>
           s"""
-             |message $grpcTypeName{
+             |message $grpcTypeName {
              |${renderFields(fields, offset = 1)}
              |}
              |""".stripMargin
 
         case Model(_, grpcTypeName, oneOfs, fields) =>
           s"""
-             |message $grpcTypeName{
+             |message $grpcTypeName {
              |${renderOneOfs(oneOfs)}
              |${renderFields(fields, offset = oneOfs.length)}
              |}
@@ -449,129 +427,4 @@ object GrpcSourceGenTwo {
       }(t.getOrElse(Type.Name("Unknown")))
   }
 
-  def main(args: Array[String]): Unit = {
-    val path = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example.scala"
-    val path2 = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/Example2.scala"
-
-    val paths = List(ScalaSource(path, _ => true), ScalaSource(path2, _ => true))
-
-    val protoHeaders = List(
-      """syntax = "proto3";""",
-      "package com.oracle.infy.wookiee.grpc.srcgen.testService;",
-      """import "importedTestService.proto";"""
-    ).mkString("\n")
-
-    val rpcs = """
-                 |service TestService {
-                 |  rpc test(GrpcPerson) returns (GrpcPerson) {}
-                 |}
-                 |""".stripMargin
-
-    val protoOutputPath = "wookiee-proto/src/main/protobuf/testService.proto"
-    val scalaHeaders =
-      """
-        |package com.oracle.infy.wookiee.srcgen
-        |      import Example._
-        |      import Example2._
-        |      import com.oracle.infy.wookiee.grpc.srcgen.testService.testService._
-        |      import scala.util.Try
-        |      import java.time._
-        |""".stripMargin
-
-    val scalaOutputPath = "wookiee-proto/src/main/scala/com/oracle/infy/wookiee/srcgen/implicits.scala"
-
-    runSrcGen(paths, protoHeaders, rpcs, protoOutputPath, scalaHeaders, scalaOutputPath)
-  }
-
-  def runSrcGen(
-      paths: List[ScalaSource],
-      protoHeaders: String,
-      rpcs: String,
-      protoOutputPath: String,
-      scalaHeaders: String,
-      scalaOutputPath: String
-  ): Unit = {
-    val vfiles = paths.map { source =>
-      val p = Paths.get(source.scalaFilePath)
-      val src = new String(java.nio.file.Files.readAllBytes(p))
-      source -> Input.VirtualFile(p.toFile.getName, src)
-    }
-
-    val models = vfiles
-      .map(a => a._1.filter -> a._2.parse[Source].get)
-      .flatMap {
-        case (filter, source) =>
-          val defns = source
-            .collect {
-              case node: Defn.Trait if filter(node.name.value) => node
-              case node: Defn.Class if filter(node.name.value) => node
-            }
-            .collect {
-              case node: Defn.Trait if !node.mods.exists {
-                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
-                  } =>
-                node
-              case node: Defn.Class if !node.mods.exists {
-                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
-                  } =>
-                node
-            }
-
-          val sealedTraitMap = calculateSealedTraits(defns)
-
-          defns.flatMap {
-            case clazz: Defn.Class =>
-              Some(handleCaseClass(clazz))
-            case value: Defn.Trait =>
-              Some(handleSealedTrait(value, sealedTraitMap))
-            case _ => None // not a valid type
-          }
-      }
-
-    println("--------- Proto Messages ---------")
-
-    val synthesizeOptionModels = synthesizeOptionModel(models)
-    val generatedProto = (models ++ synthesizeOptionModels).map(_.renderProto).mkString("\n")
-
-    val protoContent = List(
-      protoHeaders,
-      generatedProto,
-      rpcs
-    ).mkString("\n")
-    println(protoContent)
-
-    Files.write(Paths.get(protoOutputPath), protoContent.getBytes)
-
-    println("--------- ScalaCode ---------")
-
-    val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
-    val fmt: String => String = str => scalafmt.format(Paths.get(".scalafmt.conf"), Paths.get("Main.scala"), str)
-
-    val generatedScala = {
-      (models
-        .map(model => GrpcSourceGenRenderScalaTwo.renderScala(model, fmt)) ++ List(
-        getOptionalTypes(models).map(a => GrpcSourceGenRenderScalaTwo.renderScalaOptional(a, fmt)).mkString("\n")
-      )).mkString(GrpcSourceGenRenderScalaTwo.renderScalaGlobals(fmt), "\n", "")
-    }
-
-    val scalaContent =
-      s"""
-      $scalaHeaders 
-
-      object implicits {
-        ${fmt(generatedScala)}
-      }
-    """.stripMargin
-
-    println(scalaContent)
-
-    Files.write(
-      Paths.get(scalaOutputPath),
-      fmt(scalaContent).getBytes
-    )
-
-    ()
-  }
 }

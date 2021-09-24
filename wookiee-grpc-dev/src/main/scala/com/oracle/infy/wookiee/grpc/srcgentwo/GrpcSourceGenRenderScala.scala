@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc.srcgentwo
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo.{
-  Model,
+import SourceGenModel._
+import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGen.{
   getGrpcType,
   isListNonScalarType,
   isListScalarType,
@@ -14,7 +14,7 @@ import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenTwo.{
 
 import scala.meta._
 
-object GrpcSourceGenRenderScalaTwo {
+object GrpcSourceGenRenderScala {
 
   private def getClassName(tpe: Type, outerType: String): String =
     tpe match {
@@ -27,18 +27,19 @@ object GrpcSourceGenRenderScalaTwo {
 
   private val grpcConversionErrorTypeName = Type.Name("GrpcConversionError")
 
-  def renderScalaGlobals(fmt: String => String): String = {
+  def renderScalaGlobals: String = {
 
     val utc = "UTC"
     val fromGrpcZonedDateTimeFunction =
       q"""
-          private def fromGrpcZonedDateTime(value: Long): Either[GrpcConversionError, ZonedDateTime] =
-              Try {
-                ZonedDateTime.ofInstant(Instant.ofEpochSecond(value), ZoneId.of($utc))
-              }
-              .toEither
-              .left
-              .map(t => GrpcConversionError(t.getMessage))
+      private def fromGrpcZonedDateTime(value: Long): Either[GrpcConversionError, ZonedDateTime] = {
+          Try {
+            ZonedDateTime.ofInstant(Instant.ofEpochSecond(value), ZoneId.of($utc))
+          }
+          .toEither
+          .left
+          .map(t => GrpcConversionError(t.getMessage))
+      }
       """
 
     val toGrpcZonedDateTimeFunction =
@@ -54,7 +55,8 @@ object GrpcSourceGenRenderScalaTwo {
             val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
           }
        """
-    fmt(s"$fromGrpcZonedDateTimeFunction\n$toGrpcZonedDateTimeFunction\n$ignoreMethod\n")
+
+    s"$fromGrpcZonedDateTimeFunction\n$toGrpcZonedDateTimeFunction\n$ignoreMethod\n"
   }
 
   def renderScalaOptional(t: Type, fmt: String => String): String = {
