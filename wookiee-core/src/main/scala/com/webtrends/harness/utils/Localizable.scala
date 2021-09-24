@@ -25,9 +25,9 @@ import java.util.Locale
  * returns Localized value in highest locale that App supports
  * */
 trait Localizable {
-  val key: String
-  val args: Seq[Any] = Nil
-  val context: String
+  def key: String
+  def args: Seq[Any] = Nil
+  def context: String
 
   def localize(locales: Seq[Locale]): String = {
     val localizedArgs = args.map {
