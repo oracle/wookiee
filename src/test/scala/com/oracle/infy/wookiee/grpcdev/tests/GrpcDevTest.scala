@@ -7,6 +7,18 @@ import utest.{Tests, test}
 
 object GrpcDevTest {
 
+  def genProtoTest(source: String, expectedProto: String): Boolean = {
+    val result = srcGenTestObject.genProto(Nil, Nil, ScalaTextSource(source) :: Nil)
+    val ret = result.trim() === expectedProto.trim()
+    ret
+  }
+
+  def genScalaTest(source: String, expectedScala: String): Boolean = {
+    val result = srcGenTestObject.genScala(Nil, ScalaTextSource(source) :: Nil)
+    val ret = result.trim() === expectedScala.trim()
+    ret
+  }
+
   def tests(): Tests = {
 
     val genServiceIsNonEmpty = {
@@ -17,18 +29,6 @@ object GrpcDevTest {
     val genScalaIsNonEmpty = {
       val scala = srcGenTestObject.genScala(Nil, Nil)
       scala.trim.nonEmpty
-    }
-
-    def genProtoTest(source: String, expectedProto: String): Boolean = {
-      val result = srcGenTestObject.genProto(Nil, Nil, ScalaTextSource(source) :: Nil)
-      val ret = result.trim() === expectedProto.trim()
-      ret
-    }
-
-    def genScalaTest(source: String, expectedScala: String): Boolean = {
-      val result = srcGenTestObject.genScala(Nil, ScalaTextSource(source) :: Nil)
-      val ret = result.trim() === expectedScala.trim()
-      ret
     }
 
     Tests {
