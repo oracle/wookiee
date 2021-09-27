@@ -105,7 +105,7 @@ trait SourceGen {
        |
        |object implicits {
        |$renderScalaGlobals
-       |${models.map(renderScala(_, fmt))}
+       |${models.map(renderScala(_, fmt)).mkString("\n")}
        |${getOptionalTypes(models).map(renderScalaOptional(_, fmt)).mkString("\n")}
        |}
        |""".stripMargin

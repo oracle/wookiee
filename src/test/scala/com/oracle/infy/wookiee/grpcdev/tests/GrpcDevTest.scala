@@ -25,14 +25,14 @@ object GrpcDevTest {
       ret
     }
 
-//    def genScalaTest(source: String, expectedScala: String): Boolean = {
-//      val result = srcGenTestObject.genScala(Nil, ScalaTextSource(source) :: Nil)
-//      result.trim() === expectedScala.trim()
-//    }
+    def genScalaTest(source: String, expectedScala: String): Boolean = {
+      val result = srcGenTestObject.genScala(Nil, ScalaTextSource(source) :: Nil)
+      val ret = result.trim() === expectedScala.trim()
+      ret
+    }
 
     Tests {
       test("genService returns a non empty string") {
-
         assert(genServiceIsNonEmpty)
       }
 
@@ -45,60 +45,16 @@ object GrpcDevTest {
 
         val result = genProtoTest(
           "case class TestOptionString(maybeString: Option[String])",
-          """
-            |syntax = "proto3";
-            |
-            |
-            |
-            |// DO NOT EDIT! (this code is generated)
-            |message GrpcTestOptionString {
-            |  GrpcMaybeString maybeString = 1;
-            |}
-            |
-            |// DO NOT EDIT! (this code is generated)
-            |message GrpcMaybeString {
-            |  oneof OneOf {
-            |    string somme = 1;
-            |    GrpcNonne nonne = 2;
-            |  }
-            |}
-            |
-            |// DO NOT EDIT! (this code is generated)
-            |message GrpcNonne {
-            |}
-            |
-            |""".stripMargin
+          GrpcDevTestResults.genProtoOptionStringResult
         )
         assert(result)
       }
 
       test("genProto constructs proto of Option[CaseClass] properly") {
         val result = genProtoTest(
-          "case class TestOptionCaseClass(maybeCaseClass: Option[TestCaseClass])",
-          """|
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcTestOptionCaseClass {
-             |  GrpcOptionTestCaseClass maybeCaseClass = 1;
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcOptionTestCaseClass {
-             |  oneof sealed_value {
-             |    GrpcNoneTestCaseClass a = 1;
-             |    GrpcSomeTestCaseClass b = 2;
-             |  }
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcNoneTestCaseClass {
-             |
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcSomeTestCaseClass {
-             |  GrpcTestCaseClass value = 1;
-             |}
-             |""".stripMargin
+          """case class TestOptionCaseClass(maybeCaseClass: Option[TestCaseClass])
+             case class TestCaseClass(testString: String, testInt: Int)""",
+          GrpcDevTestResults.genProtoOptionCaseClassResult
         )
         assert(result)
       }
@@ -106,36 +62,7 @@ object GrpcDevTest {
       test("genProto constructs proto of Option[Option[String]] properly") {
         val result = genProtoTest(
           "case class TestOptionOptionString(maybeMaybeString: Option[Option[String]])",
-          """|
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcTestOptionOptionString {
-             |  GrpcOptionOptionString maybeMaybeString = 1;
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcOptionOptionString {
-             |  oneof sealed_value {
-             |    GrpcNoneNoneString a = 1;
-             |    GrpcSomeSomeString b = 2;
-             |    GrpcSomeNoneString c = 3;
-             |  }
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcNoneNoneString {
-             |
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcSomeSomeString {
-             |  string value = 1;
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcSomeNoneString {
-             |
-             |}
-             |""".stripMargin
+          GrpcDevTestResults.genProtoOptionOptionStringResult
         )
         assert(result)
       }
@@ -143,89 +70,28 @@ object GrpcDevTest {
       test("genProto constructs proto of Option[Option[CaseClass]] properly") {
         val result = genProtoTest(
           "case class TestOptionOptionCaseClass(maybeMaybeCaseClass: Option[Option[TestCaseClass]])",
-          """|
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcTestOptionOptionCaseClass {
-             |  GrpcOptionOptionTestCaseClass maybeMaybeCaseClass = 1;
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcOptionOptionTestCaseClass {
-             |  oneof sealed_value {
-             |    GrpcNoneNoneTestCaseClass a = 1;
-             |    GrpcSomeSomeTestCaseClass b = 2;
-             |    GrpcSomeNoneTestCaseClass c = 3;
-             |  }
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcNoneNoneTestCaseClass {
-             |
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcSomeSomeTestCaseClass {
-             |  GrpcTestCaseClass value = 1;
-             |}
-             |
-             |// DO NOT EDIT! (this code is generated)
-             |message GrpcSomeNoneTestCaseClass {
-             |
-             |}
-             |
-             |""".stripMargin
+          GrpcDevTestResults.genProtoOptionOptionCaseClassResult
         )
         assert(result)
       }
 
-//      //grpcEncoder Tests
-//      test("grpcEncoder encodes Option[String] properly") {
-//        val result = grpcEncoderTest(
-//          typeOf[TestOptionString].typeSymbol,
-//          """|  implicit class TestOptionStringToGrpc(lhs: TestOptionString) {
-//             |    def toGrpc: GrpcTestOptionString = {
-//             |      GrpcTestOptionString(
-//             |        maybeString = lhs.maybeString.toGrpc
-//             |      )
-//             |    }
-//             |  }
-//             |
-//             |  implicit class OptionStringToGrpc(lhs: Option[String]) {
-//             |    def toGrpc: GrpcOptionString = {
-//             |      lhs match {
-//             |        case None =>  GrpcNoneString()
-//             |        case Some(v) => GrpcSomeString(v)
-//             |      }
-//             |    }
-//             |  }
-//             |""".stripMargin
-//        )
-//        assert(result)
-//      }
-//
-//      test("grpcEncoder encodes Option[CaseClass] properly") {
-//        val result = grpcEncoderTest(
-//          typeOf[TestOptionCaseClass].typeSymbol,
-//          """|  implicit class TestOptionCaseClassToGrpc(lhs: TestOptionCaseClass) {
-//             |    def toGrpc: GrpcTestOptionCaseClass = {
-//             |      GrpcTestOptionCaseClass(
-//             |        maybeCaseClass = lhs.maybeCaseClass.toGrpc
-//             |      )
-//             |    }
-//             |  }
-//             |
-//             |  implicit class OptionTestCaseClassToGrpc(lhs: Option[TestCaseClass]) {
-//             |    def toGrpc: GrpcOptionTestCaseClass = {
-//             |      lhs match {
-//             |        case None =>  GrpcNoneTestCaseClass()
-//             |        case Some(v) => GrpcSomeTestCaseClass(Some(v.toGrpc))
-//             |      }
-//             |    }
-//             |  }
-//             |""".stripMargin
-//        )
-//        assert(result)
-//      }
+      // genScala Tests
+      test("genScala generates Option[String] properly") {
+        val result = genScalaTest(
+          "case class TestOptionString(maybeString: Option[String])",
+          GrpcDevTestResults.genScalaOptionStringResult
+        )
+        assert(result)
+      }
+
+      test("grpcEncoder encodes Option[CaseClass] properly") {
+        val result = genScalaTest(
+          """case class TestOptionCaseClass(maybeCaseClass: Option[TestCaseClass])
+             case class TestCaseClass(testString: String, testInt: Int)""",
+          GrpcDevTestResults.genScalaOptionCaseClassResult
+        )
+        assert(result)
+      }
 //
 //      test("grpcEncoder encodes Option[Option[String]] properly") {
 //        val result = grpcEncoderTest(
