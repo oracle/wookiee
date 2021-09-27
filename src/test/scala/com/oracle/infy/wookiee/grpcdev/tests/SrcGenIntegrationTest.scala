@@ -32,17 +32,13 @@ object SrcGenIntegrationTest {
         final case class TestMaybeResponseInvalid(errors: List[String]) extends TestMaybeResponse
     """.stripMargin
 
-  val expectedProto: String = ""
-
-  val expectedScala: String = ""
-
   def tests(): Tests =
     Tests {
       test("genService (proto file) integration test") {
-        assert(GrpcDevTest.genScalaTest(scalaSource, expectedScala))
+        assert(GrpcDevTest.genScalaTest(scalaSource, GrpcDevTestResults.expectedScalaIntegration))
       }
       test("genScala (implicits) integration test") {
-        assert(GrpcDevTest.genProtoTest(scalaSource, expectedProto))
+        assert(GrpcDevTest.genProtoTest(scalaSource, GrpcDevTestResults.expectedProtoIntegration))
       }
     }
 }
