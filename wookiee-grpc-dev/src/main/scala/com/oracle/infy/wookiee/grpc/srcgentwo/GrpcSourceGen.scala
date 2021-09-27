@@ -3,6 +3,8 @@ package com.oracle.infy.wookiee.grpc.srcgentwo
 import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel._
 import com.oracle.infy.wookiee.grpc.srcgentwo.implicits.MultiversalEquality
 
+import scala.collection.immutable.SortedSet
+import scala.math.Ordering
 import scala.meta.{Term, _}
 
 object GrpcSourceGen {
@@ -74,18 +76,24 @@ object GrpcSourceGen {
         case _ => Nil
       }
 
-    input
-      .flatMap(_.fields)
-      .flatMap(_.param.decltpe)
-      .collect {
-        case t @ Type.Apply(Type.Name(`outerType`), _) => t
-      }
-      .flatMap(expand)
-      .groupBy(_.toString())
-      .map(entry => (entry._1, entry._2.headOption))
-      .values
-      .flatten
-      .toSet
+    implicit def ordering: Ordering[Type] = new Ordering[Type] {
+      override def compare(x: Type, y: Type): Int = x.toString.compare(y.toString())
+    }
+    SortedSet(
+      input
+        .flatMap(_.fields)
+        .flatMap(_.param.decltpe)
+        .collect {
+          case t @ Type.Apply(Type.Name(`outerType`), _) => t
+        }
+        .flatMap(expand)
+        .groupBy(_.toString())
+        .map(entry => (entry._1, entry._2.headOption))
+        .values
+        .toList
+        .flatten
+        .map(a => a: scala.meta.Type): _*
+    )
   }
 
   def getOptionalTypes(input: List[Model]): Set[Type] =

@@ -70,14 +70,6 @@ object GrpcDevTestResults {
                                            |}
                                            |
                                            |// DO NOT EDIT! (this code is generated)
-                                           |message GrpcMaybeTestCaseClass {
-                                           |  oneof OneOf {
-                                           |    GrpcTestCaseClass somme = 1;
-                                           |    GrpcNonne nonne = 2;
-                                           |  }
-                                           |}
-                                           |
-                                           |// DO NOT EDIT! (this code is generated)
                                            |message GrpcMaybeString {
                                            |  oneof OneOf {
                                            |    string somme = 1;
@@ -89,6 +81,14 @@ object GrpcDevTestResults {
                                            |message GrpcMaybeMaybeString {
                                            |  oneof OneOf {
                                            |    GrpcMaybeString somme = 1;
+                                           |    GrpcNonne nonne = 2;
+                                           |  }
+                                           |}
+                                           |
+                                           |// DO NOT EDIT! (this code is generated)
+                                           |message GrpcMaybeTestCaseClass {
+                                           |  oneof OneOf {
+                                           |    GrpcTestCaseClass somme = 1;
                                            |    GrpcNonne nonne = 2;
                                            |  }
                                            |}

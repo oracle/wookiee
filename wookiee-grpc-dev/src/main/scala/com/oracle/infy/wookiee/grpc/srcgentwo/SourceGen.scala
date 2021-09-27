@@ -57,7 +57,8 @@ trait SourceGen {
           }
       }
 
-    models ++ synthesizeOptionModel(models)
+    (models ++ synthesizeOptionModel(models))
+      .sortBy(_.scalaTypeName)
   }
 
   def genProto(headers: List[String], services: List[Service], sources: List[ScalaSource]): String = {
