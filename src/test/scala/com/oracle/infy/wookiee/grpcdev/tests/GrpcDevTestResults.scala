@@ -487,14 +487,10 @@ object GrpcDevTestResults {
                                            |""".stripMargin
 
   val genProtoOptionStringResult: String = """
+                                             |
                                              |syntax = "proto3";
                                              |
                                              |
-                                             |
-                                             |// DO NOT EDIT! (this code is generated)
-                                             |message GrpcTestOptionString {
-                                             |  GrpcMaybeString maybeString = 1;
-                                             |}
                                              |
                                              |// DO NOT EDIT! (this code is generated)
                                              |message GrpcMaybeString {
@@ -508,46 +504,47 @@ object GrpcDevTestResults {
                                              |message GrpcNonne {
                                              |}
                                              |
+                                             |// DO NOT EDIT! (this code is generated)
+                                             |message GrpcTestOptionString {
+                                             |  GrpcMaybeString maybeString = 1;
+                                             |}
+                                             |
+                                             |
                                              |""".stripMargin
 
   val genProtoOptionCaseClassResult: String = """
-                                                  |syntax = "proto3";
-                                                  |
-                                                  |
-                                                  |
-                                                  |// DO NOT EDIT! (this code is generated)
-                                                  |message GrpcTestOptionCaseClass {
-                                                  |  GrpcMaybeTestCaseClass maybeCaseClass = 1;
-                                                  |}
-                                                  |
-                                                  |// DO NOT EDIT! (this code is generated)
-                                                  |message GrpcTestCaseClass {
-                                                  |  string testString = 1;
-                                                  |  int32 testInt = 2;
-                                                  |}
-                                                  |
-                                                  |// DO NOT EDIT! (this code is generated)
-                                                  |message GrpcMaybeTestCaseClass {
-                                                  |  oneof OneOf {
-                                                  |    GrpcTestCaseClass somme = 1;
-                                                  |    GrpcNonne nonne = 2;
-                                                  |  }
-                                                  |}
-                                                  |
-                                                  |// DO NOT EDIT! (this code is generated)
-                                                  |message GrpcNonne {
-                                                  |}
-                                                  |""".stripMargin
+                                                |syntax = "proto3";
+                                                |
+                                                |
+                                                |
+                                                |// DO NOT EDIT! (this code is generated)
+                                                |message GrpcMaybeTestCaseClass {
+                                                |  oneof OneOf {
+                                                |    GrpcTestCaseClass somme = 1;
+                                                |    GrpcNonne nonne = 2;
+                                                |  }
+                                                |}
+                                                |
+                                                |// DO NOT EDIT! (this code is generated)
+                                                |message GrpcNonne {
+                                                |}
+                                                |
+                                                |// DO NOT EDIT! (this code is generated)
+                                                |message GrpcTestCaseClass {
+                                                |  string testString = 1;
+                                                |  int32 testInt = 2;
+                                                |}
+                                                |
+                                                |// DO NOT EDIT! (this code is generated)
+                                                |message GrpcTestOptionCaseClass {
+                                                |  GrpcMaybeTestCaseClass maybeCaseClass = 1;
+                                                |}
+                                                |""".stripMargin
 
   val genProtoOptionOptionStringResult = """|
-             |syntax = "proto3";
+                                            |syntax = "proto3";
                                             |
                                             |
-                                            |
-                                            |// DO NOT EDIT! (this code is generated)
-                                            |message GrpcTestOptionOptionString {
-                                            |  GrpcMaybeMaybeString maybeMaybeString = 1;
-                                            |}
                                             |
                                             |// DO NOT EDIT! (this code is generated)
                                             |message GrpcMaybeMaybeString {
@@ -569,39 +566,43 @@ object GrpcDevTestResults {
                                             |message GrpcNonne {
                                             |}
                                             |
+                                            |// DO NOT EDIT! (this code is generated)
+                                            |message GrpcTestOptionOptionString {
+                                            |  GrpcMaybeMaybeString maybeMaybeString = 1;
+                                            |}
+                                            |
                                             |""".stripMargin
 
   val genProtoOptionOptionCaseClassResult = """|
-             |syntax = "proto3";
-                                                         |
-                                                         |
-                                                         |
-                                                         |// DO NOT EDIT! (this code is generated)
-                                                         |message GrpcTestOptionOptionCaseClass {
-                                                         |  GrpcMaybeMaybeTestCaseClass maybeMaybeCaseClass = 1;
-                                                         |}
-                                                         |
-                                                         |// DO NOT EDIT! (this code is generated)
-                                                         |message GrpcMaybeMaybeTestCaseClass {
-                                                         |  oneof OneOf {
-                                                         |    GrpcMaybeTestCaseClass somme = 1;
-                                                         |    GrpcNonne nonne = 2;
-                                                         |  }
-                                                         |}
-                                                         |
-                                                         |// DO NOT EDIT! (this code is generated)
-                                                         |message GrpcMaybeTestCaseClass {
-                                                         |  oneof OneOf {
-                                                         |    GrpcTestCaseClass somme = 1;
-                                                         |    GrpcNonne nonne = 2;
-                                                         |  }
-                                                         |}
-                                                         |
-                                                         |// DO NOT EDIT! (this code is generated)
-                                                         |message GrpcNonne {
-                                                         |}
-                                                         |
-                                                         |""".stripMargin
+                                               |syntax = "proto3";
+                                               |
+                                               |
+                                               |
+                                               |// DO NOT EDIT! (this code is generated)
+                                               |message GrpcMaybeMaybeTestCaseClass {
+                                               |  oneof OneOf {
+                                               |    GrpcMaybeTestCaseClass somme = 1;
+                                               |    GrpcNonne nonne = 2;
+                                               |  }
+                                               |}
+                                               |
+                                               |// DO NOT EDIT! (this code is generated)
+                                               |message GrpcMaybeTestCaseClass {
+                                               |  oneof OneOf {
+                                               |    GrpcTestCaseClass somme = 1;
+                                               |    GrpcNonne nonne = 2;
+                                               |  }
+                                               |}
+                                               |
+                                               |// DO NOT EDIT! (this code is generated)
+                                               |message GrpcNonne {
+                                               |}
+                                               |
+                                               |// DO NOT EDIT! (this code is generated)
+                                               |message GrpcTestOptionOptionCaseClass {
+                                               |  GrpcMaybeMaybeTestCaseClass maybeMaybeCaseClass = 1;
+                                               |}
+                                               |""".stripMargin
 
   val genScalaOptionStringResult: String =
     """
@@ -616,18 +617,6 @@ object GrpcDevTestResults {
       |    value.toEpochSecond
       |  locally {
       |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
-      |  }
-      |
-      |  implicit class TestOptionStringToGrpc(lhs: TestOptionString) {
-      |
-      |    def toGrpc: GrpcTestOptionString =
-      |      GrpcTestOptionString(maybeString = Some(lhs.maybeString.toGrpc))
-      |  }
-      |
-      |  implicit class TestOptionStringFromGrpc(lhs: GrpcTestOptionString) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, TestOptionString] =
-      |      for (maybeString <- lhs.getMaybeString.fromGrpc) yield TestOptionString(maybeString = maybeString)
       |  }
       |
       |  implicit class MaybeStringToGrpc(lhs: MaybeString) {
@@ -670,6 +659,18 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
+      |  implicit class TestOptionStringToGrpc(lhs: TestOptionString) {
+      |
+      |    def toGrpc: GrpcTestOptionString =
+      |      GrpcTestOptionString(maybeString = Some(lhs.maybeString.toGrpc))
+      |  }
+      |
+      |  implicit class TestOptionStringFromGrpc(lhs: GrpcTestOptionString) {
+      |
+      |    def fromGrpc: Either[GrpcConversionError, TestOptionString] =
+      |      for (maybeString <- lhs.getMaybeString.fromGrpc) yield TestOptionString(maybeString = maybeString)
+      |  }
+      |
       |  implicit class OptionStringToGrpc(lhs: Option[String]) {
       |
       |    def toGrpc: GrpcMaybeString =
@@ -708,33 +709,6 @@ object GrpcDevTestResults {
       |    value.toEpochSecond
       |  locally {
       |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
-      |  }
-      |
-      |  implicit class TestOptionCaseClassToGrpc(lhs: TestOptionCaseClass) {
-      |
-      |    def toGrpc: GrpcTestOptionCaseClass =
-      |      GrpcTestOptionCaseClass(maybeCaseClass = Some(lhs.maybeCaseClass.toGrpc))
-      |  }
-      |
-      |  implicit class TestOptionCaseClassFromGrpc(lhs: GrpcTestOptionCaseClass) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, TestOptionCaseClass] =
-      |      for (maybeCaseClass <- lhs.getMaybeCaseClass.fromGrpc) yield TestOptionCaseClass(maybeCaseClass = maybeCaseClass)
-      |  }
-      |
-      |  implicit class TestCaseClassToGrpc(lhs: TestCaseClass) {
-      |
-      |    def toGrpc: GrpcTestCaseClass =
-      |      GrpcTestCaseClass(testString = lhs.testString, testInt = lhs.testInt)
-      |  }
-      |
-      |  implicit class TestCaseClassFromGrpc(lhs: GrpcTestCaseClass) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, TestCaseClass] =
-      |      for {
-      |        testString <- Right(lhs.testString)
-      |        testInt <- Right(lhs.testInt)
-      |      } yield TestCaseClass(testString = testString, testInt = testInt)
       |  }
       |
       |  implicit class MaybeTestCaseClassToGrpc(lhs: MaybeTestCaseClass) {
@@ -777,6 +751,33 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
+      |  implicit class TestCaseClassToGrpc(lhs: TestCaseClass) {
+      |
+      |    def toGrpc: GrpcTestCaseClass =
+      |      GrpcTestCaseClass(testString = lhs.testString, testInt = lhs.testInt)
+      |  }
+      |
+      |  implicit class TestCaseClassFromGrpc(lhs: GrpcTestCaseClass) {
+      |
+      |    def fromGrpc: Either[GrpcConversionError, TestCaseClass] =
+      |      for {
+      |        testString <- Right(lhs.testString)
+      |        testInt <- Right(lhs.testInt)
+      |      } yield TestCaseClass(testString = testString, testInt = testInt)
+      |  }
+      |
+      |  implicit class TestOptionCaseClassToGrpc(lhs: TestOptionCaseClass) {
+      |
+      |    def toGrpc: GrpcTestOptionCaseClass =
+      |      GrpcTestOptionCaseClass(maybeCaseClass = Some(lhs.maybeCaseClass.toGrpc))
+      |  }
+      |
+      |  implicit class TestOptionCaseClassFromGrpc(lhs: GrpcTestOptionCaseClass) {
+      |
+      |    def fromGrpc: Either[GrpcConversionError, TestOptionCaseClass] =
+      |      for (maybeCaseClass <- lhs.getMaybeCaseClass.fromGrpc) yield TestOptionCaseClass(maybeCaseClass = maybeCaseClass)
+      |  }
+      |
       |  implicit class OptionTestCaseClassToGrpc(lhs: Option[TestCaseClass]) {
       |
       |    def toGrpc: GrpcMaybeTestCaseClass =
@@ -799,7 +800,6 @@ object GrpcDevTestResults {
       |  }
       |
       |}
-      |
       |""".stripMargin
 
   val genScalaOptionOptionStringResult =
@@ -815,19 +815,6 @@ object GrpcDevTestResults {
       |    value.toEpochSecond
       |  locally {
       |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
-      |  }
-      |
-      |  implicit class TestOptionOptionStringToGrpc(lhs: TestOptionOptionString) {
-      |
-      |    def toGrpc: GrpcTestOptionOptionString =
-      |      GrpcTestOptionOptionString(maybeMaybeString = Some(lhs.maybeMaybeString.toGrpc))
-      |  }
-      |
-      |  implicit class TestOptionOptionStringFromGrpc(lhs: GrpcTestOptionOptionString) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, TestOptionOptionString] =
-      |      for (maybeMaybeString <- lhs.getMaybeMaybeString.fromGrpc)
-      |        yield TestOptionOptionString(maybeMaybeString = maybeMaybeString)
       |  }
       |
       |  implicit class MaybeMaybeStringToGrpc(lhs: MaybeMaybeString) {
@@ -894,25 +881,17 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
-      |  implicit class OptionStringToGrpc(lhs: Option[String]) {
+      |  implicit class TestOptionOptionStringToGrpc(lhs: TestOptionOptionString) {
       |
-      |    def toGrpc: GrpcMaybeString =
-      |      lhs match {
-      |        case None =>
-      |          GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(GrpcNonne()))
-      |        case Some(value) =>
-      |          GrpcMaybeString(GrpcMaybeString.OneOf.Somme(value))
-      |      }
+      |    def toGrpc: GrpcTestOptionOptionString =
+      |      GrpcTestOptionOptionString(maybeMaybeString = Some(lhs.maybeMaybeString.toGrpc))
       |  }
       |
-      |  implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
+      |  implicit class TestOptionOptionStringFromGrpc(lhs: GrpcTestOptionOptionString) {
       |
-      |    def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
-      |      case GrpcMaybeString.OneOf.Somme(value) =>
-      |        Right(Some(value))
-      |      case _ =>
-      |        Right(None)
-      |    }
+      |    def fromGrpc: Either[GrpcConversionError, TestOptionOptionString] =
+      |      for (maybeMaybeString <- lhs.getMaybeMaybeString.fromGrpc)
+      |        yield TestOptionOptionString(maybeMaybeString = maybeMaybeString)
       |  }
       |
       |  implicit class OptionOptionStringToGrpc(lhs: Option[Option[String]]) {
@@ -936,7 +915,29 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
+      |  implicit class OptionStringToGrpc(lhs: Option[String]) {
+      |
+      |    def toGrpc: GrpcMaybeString =
+      |      lhs match {
+      |        case None =>
+      |          GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(GrpcNonne()))
+      |        case Some(value) =>
+      |          GrpcMaybeString(GrpcMaybeString.OneOf.Somme(value))
+      |      }
+      |  }
+      |
+      |  implicit class OptionStringFromGrpc(lhs: GrpcMaybeString) {
+      |
+      |    def fromGrpc: Either[GrpcConversionError, Option[String]] = lhs.oneOf match {
+      |      case GrpcMaybeString.OneOf.Somme(value) =>
+      |        Right(Some(value))
+      |      case _ =>
+      |        Right(None)
+      |    }
+      |  }
+      |
       |}
+      |
       |""".stripMargin
 
   val genScalaOptionOptionCaseClassResult =
@@ -952,19 +953,6 @@ object GrpcDevTestResults {
       |    value.toEpochSecond
       |  locally {
       |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
-      |  }
-      |
-      |  implicit class TestOptionOptionCaseClassToGrpc(lhs: TestOptionOptionCaseClass) {
-      |
-      |    def toGrpc: GrpcTestOptionOptionCaseClass =
-      |      GrpcTestOptionOptionCaseClass(maybeMaybeCaseClass = Some(lhs.maybeMaybeCaseClass.toGrpc))
-      |  }
-      |
-      |  implicit class TestOptionOptionCaseClassFromGrpc(lhs: GrpcTestOptionOptionCaseClass) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, TestOptionOptionCaseClass] =
-      |      for (maybeMaybeCaseClass <- lhs.getMaybeMaybeCaseClass.fromGrpc)
-      |        yield TestOptionOptionCaseClass(maybeMaybeCaseClass = maybeMaybeCaseClass)
       |  }
       |
       |  implicit class MaybeMaybeTestCaseClassToGrpc(lhs: MaybeMaybeTestCaseClass) {
@@ -1031,25 +1019,17 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
-      |  implicit class OptionTestCaseClassToGrpc(lhs: Option[TestCaseClass]) {
+      |  implicit class TestOptionOptionCaseClassToGrpc(lhs: TestOptionOptionCaseClass) {
       |
-      |    def toGrpc: GrpcMaybeTestCaseClass =
-      |      lhs match {
-      |        case None =>
-      |          GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Nonne(GrpcNonne()))
-      |        case Some(value) =>
-      |          GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Somme(value.toGrpc))
-      |      }
+      |    def toGrpc: GrpcTestOptionOptionCaseClass =
+      |      GrpcTestOptionOptionCaseClass(maybeMaybeCaseClass = Some(lhs.maybeMaybeCaseClass.toGrpc))
       |  }
       |
-      |  implicit class OptionTestCaseClassFromGrpc(lhs: GrpcMaybeTestCaseClass) {
+      |  implicit class TestOptionOptionCaseClassFromGrpc(lhs: GrpcTestOptionOptionCaseClass) {
       |
-      |    def fromGrpc: Either[GrpcConversionError, Option[TestCaseClass]] = lhs.oneOf match {
-      |      case GrpcMaybeTestCaseClass.OneOf.Somme(value) =>
-      |        value.fromGrpc.map(Some(_))
-      |      case _ =>
-      |        Right(None)
-      |    }
+      |    def fromGrpc: Either[GrpcConversionError, TestOptionOptionCaseClass] =
+      |      for (maybeMaybeCaseClass <- lhs.getMaybeMaybeCaseClass.fromGrpc)
+      |        yield TestOptionOptionCaseClass(maybeMaybeCaseClass = maybeMaybeCaseClass)
       |  }
       |
       |  implicit class OptionOptionTestCaseClassToGrpc(lhs: Option[Option[TestCaseClass]]) {
@@ -1073,7 +1053,27 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
-      |}
+      |  implicit class OptionTestCaseClassToGrpc(lhs: Option[TestCaseClass]) {
       |
+      |    def toGrpc: GrpcMaybeTestCaseClass =
+      |      lhs match {
+      |        case None =>
+      |          GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Nonne(GrpcNonne()))
+      |        case Some(value) =>
+      |          GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Somme(value.toGrpc))
+      |      }
+      |  }
+      |
+      |  implicit class OptionTestCaseClassFromGrpc(lhs: GrpcMaybeTestCaseClass) {
+      |
+      |    def fromGrpc: Either[GrpcConversionError, Option[TestCaseClass]] = lhs.oneOf match {
+      |      case GrpcMaybeTestCaseClass.OneOf.Somme(value) =>
+      |        value.fromGrpc.map(Some(_))
+      |      case _ =>
+      |        Right(None)
+      |    }
+      |  }
+      |
+      |}
       |""".stripMargin
 }
