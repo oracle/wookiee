@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.grpc.srcgentwo
+package com.oracle.infy.wookiee.grpc.srcgen
 
 import scala.meta.Term
 

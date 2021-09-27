@@ -1,10 +1,10 @@
-package com.oracle.infy.wookiee.grpc.srcgentwo
+package com.oracle.infy.wookiee.grpc.srcgen
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGen._
-import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGenRenderScala._
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel.{Model, ScalaFileSource, ScalaSource, ScalaTextSource}
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGen.{RPC, Service}
-import com.oracle.infy.wookiee.grpc.srcgentwo.implicits._
+import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
+import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGenRenderScala._
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.{Model, ScalaFileSource, ScalaSource, ScalaTextSource}
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, Service}
+import com.oracle.infy.wookiee.grpc.srcgen.implicits._
 import org.scalafmt.interfaces.Scalafmt
 
 import java.nio.file.Paths

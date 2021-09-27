@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpcdev.common
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGen
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen
 
 object TestModel {
   sealed trait TestMaybeResponse

@@ -1,7 +1,7 @@
-package com.oracle.infy.wookiee.grpc.srcgentwo
+package com.oracle.infy.wookiee.grpc.srcgen
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel._
-import com.oracle.infy.wookiee.grpc.srcgentwo.implicits.MultiversalEquality
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel._
+import com.oracle.infy.wookiee.grpc.srcgen.implicits.MultiversalEquality
 
 import scala.collection.immutable.SortedSet
 import scala.math.Ordering

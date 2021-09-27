@@ -1,7 +1,7 @@
-package com.oracle.infy.wookiee.grpc.srcgentwo
+package com.oracle.infy.wookiee.grpc.srcgen
 
 import SourceGenModel._
-import com.oracle.infy.wookiee.grpc.srcgentwo.GrpcSourceGen.{
+import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen.{
   getGrpcType,
   isListNonScalarType,
   isListScalarType,

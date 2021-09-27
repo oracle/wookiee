@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpcdev.tests
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel.ScalaTextSource
-import com.oracle.infy.wookiee.grpcdev.common.TestModel.srcGenTestObject
 import utest.{Tests, test}
 
 object SrcGenIntegrationTest {
@@ -36,11 +34,12 @@ object SrcGenIntegrationTest {
 
   def tests(): Tests =
     Tests {
-//      test("genService (proto file) integration test") {
-//        assert(GrpcDevTest.genScalaTest(scalaSource, GrpcDevTestResults.expectedScalaIntegration))
-//      }
-      test("genScala (implicits) integration test") {
-        val expected = srcGenTestObject.genProto(Nil, Nil, ScalaTextSource(scalaSource) :: Nil).trim
+      test("genScala integration test") {
+        assert(GrpcDevTest.genScalaTest(scalaSource, GrpcDevTestResults.expectedScalaIntegration))
+      }
+
+      test("genProto integration test") {
+        val expected = GrpcDevTestResults.expectedProtoIntegration
         assert(GrpcDevTest.genProtoTest(scalaSource, expected))
       }
     }

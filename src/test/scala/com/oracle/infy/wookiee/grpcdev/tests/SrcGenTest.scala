@@ -6,7 +6,7 @@ import com.oracle.infy.wookiee.utils.implicits._
 import cats.implicits._
 import utest.{Tests, test}
 
-object SrcGenTwoTest {
+object SrcGenTest {
 
   def tests(): Tests = {
 

@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpcdev.tests
 
-import com.oracle.infy.wookiee.grpc.srcgentwo.SourceGenModel.ScalaTextSource
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.ScalaTextSource
 import com.oracle.infy.wookiee.grpcdev.common.TestModel._
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
