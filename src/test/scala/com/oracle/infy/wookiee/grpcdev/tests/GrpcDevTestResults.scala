@@ -121,118 +121,6 @@ object GrpcDevTestResults {
       |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
       |  }
       |
-      |  implicit class MaybeMaybeStringToGrpc(lhs: MaybeMaybeString) {
-      |
-      |    def toGrpc: GrpcMaybeMaybeString = lhs match {
-      |      case value: MaybeString =>
-      |        GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.MaybeString(value.toGrpc))
-      |      case value: Nonne =>
-      |        GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Nonne(value.toGrpc))
-      |      case _ =>
-      |        GrpcMaybeMaybeString(GrpcMaybeMaybeString.OneOf.Empty)
-      |    }
-      |  }
-      |
-      |  implicit class MaybeMaybeStringFromGrpc(lhs: GrpcMaybeMaybeString) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, MaybeMaybeString] = lhs.oneOf match {
-      |      case GrpcMaybeMaybeString.OneOf.Empty =>
-      |        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcMaybeMaybeString"))
-      |      case GrpcMaybeMaybeString.OneOf.MaybeString(value) =>
-      |        value.fromGrpc
-      |      case GrpcMaybeMaybeString.OneOf.Nonne(value) =>
-      |        value.fromGrpc
-      |    }
-      |  }
-      |
-      |  implicit class MaybeMaybeTestCaseClassToGrpc(lhs: MaybeMaybeTestCaseClass) {
-      |
-      |    def toGrpc: GrpcMaybeMaybeTestCaseClass = lhs match {
-      |      case value: MaybeTestCaseClass =>
-      |        GrpcMaybeMaybeTestCaseClass(GrpcMaybeMaybeTestCaseClass.OneOf.MaybeTestCaseClass(value.toGrpc))
-      |      case value: Nonne =>
-      |        GrpcMaybeMaybeTestCaseClass(GrpcMaybeMaybeTestCaseClass.OneOf.Nonne(value.toGrpc))
-      |      case _ =>
-      |        GrpcMaybeMaybeTestCaseClass(GrpcMaybeMaybeTestCaseClass.OneOf.Empty)
-      |    }
-      |  }
-      |
-      |  implicit class MaybeMaybeTestCaseClassFromGrpc(lhs: GrpcMaybeMaybeTestCaseClass) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, MaybeMaybeTestCaseClass] = lhs.oneOf match {
-      |      case GrpcMaybeMaybeTestCaseClass.OneOf.Empty =>
-      |        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcMaybeMaybeTestCaseClass"))
-      |      case GrpcMaybeMaybeTestCaseClass.OneOf.MaybeTestCaseClass(value) =>
-      |        value.fromGrpc
-      |      case GrpcMaybeMaybeTestCaseClass.OneOf.Nonne(value) =>
-      |        value.fromGrpc
-      |    }
-      |  }
-      |
-      |  implicit class MaybeStringToGrpc(lhs: MaybeString) {
-      |
-      |    def toGrpc: GrpcMaybeString = lhs match {
-      |      case value: String =>
-      |        GrpcMaybeString(GrpcMaybeString.OneOf.String(value.toGrpc))
-      |      case value: Nonne =>
-      |        GrpcMaybeString(GrpcMaybeString.OneOf.Nonne(value.toGrpc))
-      |      case _ =>
-      |        GrpcMaybeString(GrpcMaybeString.OneOf.Empty)
-      |    }
-      |  }
-      |
-      |  implicit class MaybeStringFromGrpc(lhs: GrpcMaybeString) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, MaybeString] = lhs.oneOf match {
-      |      case GrpcMaybeString.OneOf.Empty =>
-      |        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcMaybeString"))
-      |      case GrpcMaybeString.OneOf.String(value) =>
-      |        value.fromGrpc
-      |      case GrpcMaybeString.OneOf.Nonne(value) =>
-      |        value.fromGrpc
-      |    }
-      |  }
-      |
-      |  implicit class MaybeTestCaseClassToGrpc(lhs: MaybeTestCaseClass) {
-      |
-      |    def toGrpc: GrpcMaybeTestCaseClass = lhs match {
-      |      case value: TestCaseClass =>
-      |        GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.TestCaseClass(value.toGrpc))
-      |      case value: Nonne =>
-      |        GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Nonne(value.toGrpc))
-      |      case _ =>
-      |        GrpcMaybeTestCaseClass(GrpcMaybeTestCaseClass.OneOf.Empty)
-      |    }
-      |  }
-      |
-      |  implicit class MaybeTestCaseClassFromGrpc(lhs: GrpcMaybeTestCaseClass) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, MaybeTestCaseClass] = lhs.oneOf match {
-      |      case GrpcMaybeTestCaseClass.OneOf.Empty =>
-      |        Left(GrpcConversionError("Unable to convert object from grpc type: GrpcMaybeTestCaseClass"))
-      |      case GrpcMaybeTestCaseClass.OneOf.TestCaseClass(value) =>
-      |        value.fromGrpc
-      |      case GrpcMaybeTestCaseClass.OneOf.Nonne(value) =>
-      |        value.fromGrpc
-      |    }
-      |  }
-      |
-      |  implicit class NoneToGrpc(lhs: None) {
-      |
-      |    def toGrpc: GrpcNone = {
-      |      val _ = lhs
-      |      GrpcNone()
-      |    }
-      |  }
-      |
-      |  implicit class NoneFromGrpc(lhs: GrpcNone) {
-      |
-      |    def fromGrpc: Either[GrpcConversionError, None] = {
-      |      val _ = lhs
-      |      Right(None())
-      |    }
-      |  }
-      |
       |  implicit class TestCaseClassToGrpc(lhs: TestCaseClass) {
       |
       |    def toGrpc: GrpcTestCaseClass =
@@ -483,8 +371,7 @@ object GrpcDevTestResults {
       |    }
       |  }
       |
-      |}
-                                           |""".stripMargin
+      |}""".stripMargin
 
   val genProtoOptionStringResult: String = """
                                              |
