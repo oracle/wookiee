@@ -1076,4 +1076,54 @@ object GrpcDevTestResults {
       |
       |}
       |""".stripMargin
+
+  val genScalaOptionListStringResult =
+    """object implicits {
+                                   |
+                                   |  private def fromGrpcZonedDateTime(value: Long): Either[GrpcConversionError, ZonedDateTime] =
+                                   |    Try {
+                                   |      ZonedDateTime.ofInstant(Instant.ofEpochSecond(value), ZoneId.of("UTC"))
+                                   |    }.toEither.left.map(t => GrpcConversionError(t.getMessage))
+                                   |
+                                   |  private def toGrpcZonedDateTime(value: ZonedDateTime): Long =
+                                   |    value.toEpochSecond
+                                   |  locally {
+                                   |    val _ = (a => fromGrpcZonedDateTime(a), a => toGrpcZonedDateTime(a))
+                                   |  }
+                                   |
+                                   |  implicit class OptionListStringToGrpc(lhs: OptionListString) {
+                                   |
+                                   |    def toGrpc: GrpcOptionListString =
+                                   |      GrpcOptionListString(value = Some(lhs.value.toGrpc))
+                                   |  }
+                                   |
+                                   |  implicit class OptionListStringFromGrpc(lhs: GrpcOptionListString) {
+                                   |
+                                   |    def fromGrpc: Either[GrpcConversionError, OptionListString] =
+                                   |      for (value <- lhs.getValue.fromGrpc) yield OptionListString(value = value)
+                                   |  }
+                                   |
+                                   |  implicit class OptionToGrpc(lhs: Option[List[String]]) {
+                                   |
+                                   |    def toGrpc: GrpcMaybeListString =
+                                   |      lhs match {
+                                   |        case None =>
+                                   |          GrpcMaybeListString(GrpcMaybeListString.OneOf.Nonne(GrpcNonne()))
+                                   |        case Some(value) =>
+                                   |          GrpcMaybeListString(GrpcMaybeListString.OneOf.Somme(GrpcListString(value)))
+                                   |      }
+                                   |  }
+                                   |
+                                   |  implicit class OptionFromGrpc(lhs: GrpcMaybeListString) {
+                                   |
+                                   |    def fromGrpc: Either[GrpcConversionError, Option[List[String]]] = lhs.oneOf match {
+                                   |      case GrpcMaybeListString.OneOf.Somme(value) =>
+                                   |        Right(Some(value.list.toList))
+                                   |      case _ =>
+                                   |        Right(None)
+                                   |    }
+                                   |  }
+                                   |
+                                   |}
+                                   |""".stripMargin
 }

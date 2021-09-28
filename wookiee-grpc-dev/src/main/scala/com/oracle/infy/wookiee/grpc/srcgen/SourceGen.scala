@@ -2,8 +2,8 @@ package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGenRenderScala._
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, Service, scalafmt}
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.{Model, ScalaFileSource, ScalaSource, ScalaTextSource}
-import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, Service}
 import com.oracle.infy.wookiee.grpc.srcgen.implicits._
 import org.scalafmt.interfaces.Scalafmt
 
@@ -57,8 +57,7 @@ trait SourceGen {
           }
       }
 
-    (models ++ synthesizeOptionModel(models))
-      .sortBy(_.scalaTypeName)
+    models.sortBy(_.scalaTypeName)
   }
 
   def genProto(headers: List[String], services: List[Service], sources: List[ScalaSource]): String = {
@@ -86,28 +85,33 @@ trait SourceGen {
         .map(renderService)
         .mkString("\n")
 
+    val models = getModels(sources)
+    val allModels = (models ++ synthesizeOptionModel(models))
+      .sortBy(_.scalaTypeName)
+
     val sep = "// DO NOT EDIT! (this code is generated)"
     s"""
       |$protoHeaders
       |
       |$renderServices
-      |${getModels(sources).map(_.renderProto).mkString(s"\n$sep", s"\n$sep", "")}
+      |${allModels.map(_.renderProto).mkString(s"\n$sep", s"\n$sep", "")}
       |""".stripMargin
   }
 
   def genScala(headers: List[String], sources: List[ScalaSource]): String = {
 
-    val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
     val fmt: String => String = str => scalafmt.format(Paths.get(".scalafmt.conf"), Paths.get("Main.scala"), str)
 
     val models = getModels(sources)
+    val optionalTypes = getOptionalTypes(models).toList.sortBy(_.toString)
+
     val scalaSource = s"""
        |${headers.mkString("\n")}
        |
        |object implicits {
        |$renderScalaGlobals
        |${models.map(renderScala(_, fmt)).mkString("\n")}
-       |${getOptionalTypes(models).map(renderScalaOptional(_, fmt)).mkString("\n")}
+       |${optionalTypes.map(renderScalaOptional(_, fmt)).mkString("\n")}
        |}
        |""".stripMargin
 
@@ -118,4 +122,5 @@ trait SourceGen {
 object SourceGen {
   final case class Service(name: String, rpcs: List[RPC])
   final case class RPC(name: String, input: String, output: String)
+  private lazy val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
 }

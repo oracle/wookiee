@@ -108,6 +108,14 @@ object GrpcDevTest {
         )
         assert(result)
       }
+
+      test("scala source gen handles Option[List[String]] properly") {
+        val result = genScalaTest(
+          "case class OptionListString(value: Option[List[String]])",
+          GrpcDevTestResults.genScalaOptionListStringResult
+        )
+        assert(result)
+      }
     }
   }
 }
