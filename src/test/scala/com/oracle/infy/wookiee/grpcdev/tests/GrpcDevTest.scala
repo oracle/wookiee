@@ -77,6 +77,7 @@ object GrpcDevTest {
 
       // genScala Tests
       test("genScala generates Option[String] properly") {
+
         val result = genScalaTest(
           "case class TestOptionString(maybeString: Option[String])",
           GrpcDevTestResults.genScalaOptionStringResult
