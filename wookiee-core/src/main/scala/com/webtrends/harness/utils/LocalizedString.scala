@@ -104,10 +104,13 @@ private[utils] class UTF8BundleControl(fallBackLocales: mutable.Queue[Locale]) e
  * It accepts ordered collection of locales
  * returns Localized value in highest locale that App supports
  * */
-case class LocalizableString(key: String, args: Seq[Any] = Nil, context: String = "messages") {
+case class LocalizableString(key: String, args: Seq[Any] = Nil, context: String = "messages", maybeLoader: Option[ClassLoader] = None) {
 
   private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String, fallbackLocales: Seq[Locale] = Nil) = {
-  ResourceBundle.getBundle(context, locale, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
+    maybeLoader match {
+      case Some(loader) => ResourceBundle.getBundle(context, locale, loader, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
+      case None => ResourceBundle.getBundle(context, locale, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
+    }
   }
 
   def localize(locales: Seq[Locale] = Seq(Locale.getDefault)): String = {
