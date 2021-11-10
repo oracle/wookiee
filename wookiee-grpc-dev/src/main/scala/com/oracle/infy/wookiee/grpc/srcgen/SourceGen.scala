@@ -24,7 +24,7 @@ trait SourceGen {
         source -> Input.VirtualFile("InlineScala", source.content)
     }
 
-    val models = vfiles
+    val defns = vfiles
       .map(a => a._1.filter -> a._2.parse[Source].get)
       .flatMap {
         case (filter, source) =>
@@ -45,17 +45,18 @@ trait SourceGen {
                   } =>
                 node
             }
-
-          val sealedTraitMap = calculateSealedTraits(defns)
-
-          defns.flatMap {
-            case clazz: Defn.Class =>
-              Some(handleCaseClass(clazz))
-            case value: Defn.Trait =>
-              Some(handleSealedTrait(value, sealedTraitMap))
-            case _ => None // not a valid type
-          }
+          defns
       }
+
+    val sealedTraitMap = calculateSealedTraits(defns)
+
+    val models = defns.flatMap {
+      case clazz: Defn.Class =>
+        Some(handleCaseClass(clazz))
+      case value: Defn.Trait =>
+        Some(handleSealedTrait(value, sealedTraitMap))
+      case _ => None // not a valid type
+    }
 
     models.sortBy(_.scalaTypeName)
   }
