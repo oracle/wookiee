@@ -66,16 +66,15 @@ trait SourceGen {
     val protoHeaders = ("""syntax = "proto3";""" :: headers)
       .mkString("\n")
 
-    def handleStreamingRPCType(rpcType:RPCType): String = {
-      if(rpcType.isStreaming) {
+    def handleStreamingRPCType(rpcType: RPCType): String =
+      if (rpcType.isStreaming) {
         s"stream ${rpcType.name}"
       } else {
         rpcType.name
       }
-    }
     def renderRPC(rpc: RPC): String = {
-      val rpcInput =handleStreamingRPCType(rpc.input)
-      val rpcOutput =handleStreamingRPCType(rpc.output)
+      val rpcInput = handleStreamingRPCType(rpc.input)
+      val rpcOutput = handleStreamingRPCType(rpc.output)
 
       s"""rpc ${rpc.name} ($rpcInput) returns ($rpcOutput) {}"""
     }
@@ -130,7 +129,6 @@ trait SourceGen {
     fmt(scalaSource)
   }
 }
-
 
 object SourceGen {
   final case class Service(name: String, rpcs: List[RPC])

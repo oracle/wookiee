@@ -23,7 +23,13 @@ object TempMain extends SourceGen {
       services = List(
         Service(
           name = "Activity",
-          rpcs = List(RPC("test", RPCType("GrpcValidationException", isStreaming = true), RPCType("GrpcInvalidGroupingIntervalException", isStreaming = false)))
+          rpcs = List(
+            RPC(
+              "test",
+              RPCType("GrpcValidationException", isStreaming = true),
+              RPCType("GrpcInvalidGroupingIntervalException", isStreaming = false)
+            )
+          )
         )
       ),
       sources = sources

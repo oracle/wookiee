@@ -13,5 +13,3 @@ trait PolicyException extends ServiceException
 trait ClientException extends PolicyException
 
 trait ValidationException extends ClientException
-
-
