@@ -135,5 +135,12 @@ object SourceGen {
 
   final case class RPCType(name: String, isStreaming: Boolean)
   final case class RPC(name: String, input: RPCType, output: RPCType)
+
+  object RPC {
+
+    def apply(name: String, input: String, output: String): RPC =
+      RPC(name, RPCType(input, isStreaming = false), RPCType(output, isStreaming = false))
+  }
+
   private lazy val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
 }
