@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGenRenderScala._
-import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, Service, scalafmt}
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, RPCType, Service, scalafmt}
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.{Model, ScalaFileSource, ScalaSource, ScalaTextSource}
 import com.oracle.infy.wookiee.grpc.srcgen.implicits._
 import org.scalafmt.interfaces.Scalafmt
@@ -66,8 +66,19 @@ trait SourceGen {
     val protoHeaders = ("""syntax = "proto3";""" :: headers)
       .mkString("\n")
 
-    def renderRPC(rpc: RPC): String =
-      s"""rpc ${rpc.name}(${rpc.input}) returns (${rpc.output}) {}"""
+    def handleStreamingRPCType(rpcType:RPCType): String = {
+      if(rpcType.isStreaming) {
+        s"stream ${rpcType.name}"
+      } else {
+        rpcType.name
+      }
+    }
+    def renderRPC(rpc: RPC): String = {
+      val rpcInput =handleStreamingRPCType(rpc.input)
+      val rpcOutput =handleStreamingRPCType(rpc.output)
+
+      s"""rpc ${rpc.name} ($rpcInput) returns ($rpcOutput) {}"""
+    }
 
     def renderRPCs(rpcs: List[RPC]): String =
       rpcs
@@ -120,8 +131,11 @@ trait SourceGen {
   }
 }
 
+
 object SourceGen {
   final case class Service(name: String, rpcs: List[RPC])
-  final case class RPC(name: String, input: String, output: String)
+
+  final case class RPCType(name: String, isStreaming: Boolean)
+  final case class RPC(name: String, input: RPCType, output: RPCType)
   private lazy val scalafmt: Scalafmt = Scalafmt.create(this.getClass.getClassLoader)
 }

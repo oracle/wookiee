@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.srcgen
 
-import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.Service
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, RPCType, Service}
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.ScalaFileSource
 
 import java.nio.file.{Files, Paths}
@@ -23,7 +23,7 @@ object TempMain extends SourceGen {
       services = List(
         Service(
           name = "Activity",
-          rpcs = List()
+          rpcs = List(RPC("test", RPCType("GrpcValidationException", isStreaming = true), RPCType("GrpcInvalidGroupingIntervalException", isStreaming = false)))
         )
       ),
       sources = sources
