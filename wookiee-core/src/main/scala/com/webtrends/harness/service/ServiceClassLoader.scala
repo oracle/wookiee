@@ -23,9 +23,6 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
   /**
    * This method will perform the same functionality as ClassLoader.loadClass, except that it
    * will only locate and load the class in it's own class loader.
-   * @param name
-   * @param resolve
-   * @return
    */
   def loadClassLocally(name: String, resolve: Boolean) : Option[Class[_]] = {
     // First see if the class is loaded
@@ -58,6 +55,6 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
    *
    * @param url the URL to be added to the search path of URLs
    */
-  def addServiceURL(url: URL) = addURL(url)
+  def addServiceURL(url: URL): Unit = addURL(url)
 
 }

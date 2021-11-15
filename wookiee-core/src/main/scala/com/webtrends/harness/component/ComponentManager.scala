@@ -38,7 +38,7 @@ import scala.util.{Failure, Success}
 case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
 case class InitializeComponents()
-case class LoadComponent(name:String, classPath:String)
+case class LoadComponent(name:String, classPath:String, classLoader:Option[HarnessClassLoader]=None)
 case class ComponentStarted(name:String)
 case class GetComponent(name:String)
 
@@ -194,14 +194,14 @@ class ComponentManager extends PrepareForShutdown {
   def initializing : Receive = super.receive orElse {
     case InitializeComponents => initializeComponents
     case ComponentStarted(name) => componentStarted(name)
-    case LoadComponent(name, classPath) => sender ! loadComponentClass(name, classPath)
+    case LoadComponent(name, classPath, cl) => sender ! loadComponentClass(name, classPath, cl)
   }
 
   def started : Receive = super.receive orElse {
     case Message(name, msg) => message(name, msg)
     case Request(name, msg) => pipe(request(name, msg)) to sender
     case GetComponent(name) => sender ! context.child(name)
-    case LoadComponent(name, classPath) => sender ! loadComponentClass(name, classPath)
+    case LoadComponent(name, classPath, cl) => sender ! loadComponentClass(name, classPath, cl)
     case SystemReady =>  context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
