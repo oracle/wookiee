@@ -16,7 +16,7 @@ import java.net.URLClassLoader
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
-// Note: This test only works if you set your working directory to wookiee/wookiee-test
+// Note: This test only works if you set your working directory to wookiee or wookiee-test
 class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers {
   implicit val timeout: Timeout = 25.seconds
 
