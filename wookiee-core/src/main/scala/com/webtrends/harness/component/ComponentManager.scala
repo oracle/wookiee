@@ -17,15 +17,15 @@ package com.webtrends.harness.component
 
 import java.io.File
 import java.nio.file.FileSystems
-
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
-import com.webtrends.harness.app.{Harness, HarnessClassLoader, PrepareForShutdown}
+import com.webtrends.harness.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
 import com.webtrends.harness.logging.Logger
+import com.webtrends.harness.service.HawkClassLoader
 import com.webtrends.harness.utils.{ConfigUtil, FileUtil}
 
 import scala.collection.JavaConverters._
@@ -87,6 +87,8 @@ object ComponentManager {
   val KeyManagerClass = "manager"
   val KeyEnabled = "enabled"
 
+  // NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
+  // You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
   def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
@@ -111,7 +113,7 @@ object ComponentManager {
             List(FileUtil.getFilename(f) -> f.getCanonicalFile.toURI.toURL)
         }.flatten
 
-        loader.addURLs(files.map(_._2))
+        files.foreach(f => loader.addChildLoader(new HawkClassLoader(Seq(f._2))))
       case None => // ignore
     }
   }
@@ -144,7 +146,6 @@ object ComponentManager {
         configs
       case None => Seq[Config]()
     }
-
   }
 
   def getComponentPath(config:Config) : Option[File] = {
@@ -174,6 +175,40 @@ object ComponentManager {
     val libDir = folder.listFiles.filter(f => f.isDirectory && f.getName.equalsIgnoreCase("lib"))
     require(libDir.length == 1, "Lib directory not found.")
     (confFile(0), libDir(0))
+  }
+
+  /**
+   * This function will attempt various ways to find the component name of the jar.
+   * 1. Will check to see if the jar filename is the component name
+   * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
+   * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
+   *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
+   * It will perform the checks in the order above
+   *
+   * @param file The file or directory that is the jar or component dir
+   * @return String option if found the name, None otherwise
+   */
+  def getComponentName(file: File, config: Config) : String = {
+    val name = file.getName
+    if (file.isDirectory) {
+      ComponentManager.validateComponentDir(name, file)
+      name
+    } else {
+      if (config.hasPath(name)) {
+        name
+      } else if (config.hasPath(s"${HarnessConstants.KeyComponentMapping}.$name")) {
+        config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
+      } else {
+        val segments = name.split("-")
+        // example wookiee-zookeeper-1.0-SNAPSHOT.jar
+        val fn = segments(0) + "-" + segments(1).replace(".jar", "")
+        if (config.hasPath(s"$fn")) {
+          fn
+        } else {
+          throw new ComponentNotFoundException("ComponentManager", s"$name component not found")
+        }
+      }
+    }
   }
 }
 
@@ -321,7 +356,7 @@ class ComponentManager extends PrepareForShutdown {
           val cfName = compFolder.toString
           try {
             val componentName = compFolder match {
-              case f:File => getComponentName(f)
+              case f:File => ComponentManager.getComponentName(f, config)
               case s:String => s
               case x => x.toString
             }
@@ -332,7 +367,7 @@ class ComponentManager extends PrepareForShutdown {
               } else {
                 require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
                 val className = compConfig.getString(ComponentManager.KeyManagerClass)
-                loadComponentClass(componentName, className)
+                loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
               }
               componentsLoaded += componentName
             }
@@ -343,7 +378,7 @@ class ComponentManager extends PrepareForShutdown {
               componentLoadFailed(cfName, s"Could not load component [$cfName]. Class not found. This could be because the JAR for the component was not found in the component-path", Some(e))
             case nf:ComponentNotFoundException =>
               // this is the one case were we don't set the component as failed
-              log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${nf.getMessage}")
+              log.warning(s"Could not load component [$cfName]. Component not found. Error: ${nf.getMessage}")
             case i:IllegalArgumentException =>
               // this is the one case were we don't set the component as failed
               log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}")
@@ -363,40 +398,6 @@ class ComponentManager extends PrepareForShutdown {
     } else {
       log.info("No components registered.")
       sendComponentInitMessage()
-    }
-  }
-
-  /**
-   * This function will attempt various ways to find the component name of the jar.
-   * 1. Will check to see if the jar filename is the component name
-   * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
-   * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
-   *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
-   * It will perform the checks in the order above
-   *
-   * @param file The file or directory that is the jar or component dir
-   * @return String option if found the name, None otherwise
-   */
-  def getComponentName(file:File) : String = {
-    val name = file.getName
-    if (file.isDirectory) {
-      ComponentManager.validateComponentDir(name, file)
-      name
-    } else {
-      if (config.hasPath(name)) {
-        name
-      } else if (config.hasPath(s"${HarnessConstants.KeyComponentMapping}.$name")) {
-        config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
-      } else {
-        val segments = name.split("-")
-        // example wookiee-socko-1.0-SNAPSHOT.jar
-        val fn = segments(0) + "-" + segments(1)
-        if (config.hasPath(s"$fn")) {
-          fn
-        } else {
-          throw new ComponentNotFoundException("ComponentManager", s"$name component not found")
-        }
-      }
     }
   }
 

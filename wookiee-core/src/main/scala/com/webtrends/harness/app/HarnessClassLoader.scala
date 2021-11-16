@@ -17,12 +17,12 @@ package com.webtrends.harness.app
 
 import java.io.InputStream
 import java.net._
-import com.webtrends.harness.service.ServiceClassLoader
+import com.webtrends.harness.service.HawkClassLoader
 import scala.util.{Failure, Success, Try}
 
-class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty[URL], parent) {
-
-  private var childLoaders: Seq[ServiceClassLoader] = Nil
+protected[harness] class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty[URL], parent) {
+  // Holds Component and Service class loaders, the key is the 'name' of that plugin
+  private var childLoaders: Seq[HawkClassLoader] = Seq()
 
   /**
    * Adds a sequence of urls to load into this class loader
@@ -34,7 +34,10 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
    * Add the child service loader so it can be used to search for classes in child loaders
    * @param loader an instance of ServiceClassLoader
    */
-  def addChildLoader(loader: ServiceClassLoader): Unit = childLoaders = childLoaders ++ Seq(loader)
+  def addChildLoader(loader: HawkClassLoader): Unit =
+    childLoaders = childLoaders :+ loader
+
+  def getChildLoaders: Seq[HawkClassLoader] = childLoaders
 
   /**
    * ClassLoader overrides
@@ -90,7 +93,7 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
       (for {
         value <- childLoaders
         url = value.findResource(name)
-        if (url != null)
+        if url != null
       } yield url).headOption match {
         case Some(url) => url
         case None => null
@@ -99,6 +102,6 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
   }
 }
 
-object HarnessClassLoader {
+protected[harness] object HarnessClassLoader {
   def apply(parent: ClassLoader) = new HarnessClassLoader(parent)
 }
