@@ -3,8 +3,8 @@ package com.webtrends.infy.qa
 import com.webtrends.harness.component.Extension
 import other.`package`.DuplicateClass
 
-class OtherExtension(name: String) extends Extension(name) {
-  private val pkg = 'O'
+class BasicExtension(name: String) extends Extension(name) {
+  private val pkg = 'A'
 
   override def initialize(): Unit = {
     log.info(s"Component Package: '$pkg'")

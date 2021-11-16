@@ -1,20 +1,22 @@
 package com.webtrends.harness.extension
 
 import akka.actor.{ActorRef, ActorSystem, Props}
-import com.webtrends.harness.app.{HarnessActorSystem, HarnessClassLoader}
-import com.webtrends.harness.component.{ComponentManager, LoadComponent}
-import com.webtrends.harness.service.test.BaseWookieeTest
-import org.scalatest.matchers.should.Matchers
-import org.scalatest.wordspec.AnyWordSpecLike
 import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
+import com.webtrends.harness.app.{HarnessActorSystem, HarnessClassLoader}
+import com.webtrends.harness.component.{ComponentManager, ComponentRequest, ComponentResponse, LoadComponent, Request}
 import com.webtrends.harness.service.HawkClassLoader
+import com.webtrends.harness.service.test.BaseWookieeTest
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpecLike
 
+import java.io.File
 import java.net.URLClassLoader
-import scala.concurrent.duration._
 import scala.concurrent.Await
+import scala.concurrent.duration._
 
+// Note: This test only works if you set your working directory to wookiee/wookiee-test
 class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers {
   implicit val timeout: Timeout = 25.seconds
 
@@ -112,11 +114,48 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       HarnessActorSystem.loader.getChildLoaders
         .exists(_.getURLs.exists(_.getPath.contains("other-extension"))) shouldEqual true
     }
+
+    "Should isolate classes to their component's jars/dirs" in {
+      val otherStr = pollComponentReq[String]("other-extension", "log")
+      val basicStr = pollComponentReq[String]("basic-extension", "log")
+
+      otherStr shouldEqual "O"
+      basicStr shouldEqual "A"
+    }
   }
 
-  override def config: Config = ConfigFactory.parseString(
-    s"""{
-       | services.path = "src/"
-       | components.path = "src/test/resources"
-       |}""".stripMargin)
+  override def config: Config = {
+    val workingDir = new File(System.getProperty("user.dir")).listFiles().filter(_.isDirectory).map(_.getName)
+    val compDir = if (workingDir.contains("wookiee")) "wookiee/wookiee-test/src/test/resources"
+    else if (workingDir.contains("wookiee-test")) "wookiee-test/src/test/resources"
+    else "src/test/resources"
+
+    println(s"Component Directory: [$compDir]")
+    ConfigFactory.parseString(
+      s"""{
+         | services.path = "src/"
+         | components.path = "$compDir"
+         |}""".stripMargin)
+  }
+
+  def waitForSome[T](isSome: => Option[T]): T = {
+    val waitTill = System.currentTimeMillis() + timeout.duration.toMillis
+    while (System.currentTimeMillis() < waitTill && isSome.isEmpty) Thread.sleep(500L)
+    isSome.get
+  }
+
+  def pollComponentReq[U](componentName: String, request: U): String = {
+    val cm = waitForSome({ testWookiee.componentManager })
+    val waitTill = System.currentTimeMillis() + timeout.duration.toMillis
+    while (System.currentTimeMillis() < waitTill) {
+      try {
+        val resp = Await.result((cm ? Request[U](componentName,
+          ComponentRequest(request, Some(ComponentManager.ComponentRef)))).mapTo[ComponentResponse[String]], timeout.duration)
+        return resp.resp
+      } catch {
+        case _: Throwable => // Ignore until we're out of time
+      }
+    }
+    "<timeout>"
+  }
 }

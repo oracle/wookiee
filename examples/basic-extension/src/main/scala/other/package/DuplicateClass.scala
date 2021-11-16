@@ -3,7 +3,7 @@ package other.`package`
 import com.webtrends.harness.logging.LoggingAdapter
 
 object DuplicateClass extends LoggingAdapter {
-  private val inst = "O"
+  private val inst = "A"
 
   def logInfo(compName: String): String = {
     log.info(s"Class hash code: '${this.hashCode()}'")
