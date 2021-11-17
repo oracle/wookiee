@@ -87,9 +87,12 @@ object ComponentManager extends LoggingAdapter {
   val KeyManagerClass = "manager"
   val KeyEnabled = "enabled"
 
-  // NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
-  // You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
-  def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader): Unit = {
+  /**
+   * NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
+   * You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
+   * @param replace When true we will replace current class loaders with the ones discovered in this method
+   */
+  def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader, replace:Boolean): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
         val files = dir.listFiles.collect {
@@ -114,7 +117,7 @@ object ComponentManager extends LoggingAdapter {
         }.flatten
 
         log.info(s"Found JARs for Hawk Class Loaders:\n ${files.map(_._1._1).mkString("[", ", ", "]")}")
-        files.foreach(f => loader.addChildLoader(HawkClassLoader(f._1._1, Seq(f._2))))
+        files.foreach(f => loader.addChildLoader(HawkClassLoader(f._1._1, Seq(f._2)), replace = replace))
       case None => // ignore
     }
   }

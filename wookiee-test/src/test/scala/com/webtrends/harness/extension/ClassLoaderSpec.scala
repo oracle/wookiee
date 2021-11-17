@@ -109,7 +109,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     }
 
     "Should not load classes in when reading config" in {
-      val config = HarnessActorSystem.getConfig(None)
+      val config = HarnessActorSystem.getConfig(None, replace = true)
       config.getString("other-extension.something.value") shouldEqual "example"
       HarnessActorSystem.loader.getChildLoaders
         .exists(_.getURLs.exists(_.getPath.contains("other-extension"))) shouldEqual true

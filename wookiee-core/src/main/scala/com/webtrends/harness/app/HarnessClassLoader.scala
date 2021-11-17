@@ -22,7 +22,7 @@ import scala.util.{Failure, Success, Try}
 
 protected[harness] class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty[URL], parent) {
   // Holds Component and Service class loaders, the key is the 'name' of that plugin
-  private var childLoaders: Seq[HawkClassLoader] = Seq()
+  private var childLoaders: Map[String, HawkClassLoader] = Map()
 
   /**
    * Adds a sequence of urls to load into this class loader
@@ -34,10 +34,12 @@ protected[harness] class HarnessClassLoader(parent: ClassLoader) extends URLClas
    * Add the child service loader so it can be used to search for classes in child loaders
    * @param loader an instance of ServiceClassLoader
    */
-  def addChildLoader(loader: HawkClassLoader): Unit =
-    childLoaders = childLoaders :+ loader
+  def addChildLoader(loader: HawkClassLoader, replace: Boolean = true): Unit = {
+    if (!childLoaders.contains(loader.entityName) || replace)
+      childLoaders = childLoaders + (loader.entityName -> loader)
+  }
 
-  def getChildLoaders: Seq[HawkClassLoader] = childLoaders
+  def getChildLoaders: Seq[HawkClassLoader] = childLoaders.values.toList
 
   /**
    * ClassLoader overrides
@@ -71,10 +73,10 @@ protected[harness] class HarnessClassLoader(parent: ClassLoader) extends URLClas
     } else {
       this.synchronized {
         // Get the loaded class
-        childLoaders.filterNot(_.getLoadedClass(name).isEmpty) match {
+        childLoaders.values.filterNot(_.getLoadedClass(name).isEmpty) match {
           case Nil =>
             var ret: Option[Class[_]] = None
-            for (value <- childLoaders; if ret.isEmpty) {
+            for (value <- childLoaders.values; if ret.isEmpty) {
               ret = value.loadClassLocally(name, resolve)
             }
             ret
@@ -91,7 +93,7 @@ protected[harness] class HarnessClassLoader(parent: ClassLoader) extends URLClas
     }
     else {
       (for {
-        value <- childLoaders
+        value <- childLoaders.values
         url = value.findResource(name)
         if url != null
       } yield url).headOption match {
