@@ -19,8 +19,6 @@
 
 package com.webtrends.harness
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import akka.util.Timeout
@@ -30,13 +28,16 @@ import com.webtrends.harness.component.messages.StatusRequest
 import com.webtrends.harness.service.messages.Ready
 import com.webtrends.harness.service.test.TestSystemActor.RegisterShutdownListener
 import com.webtrends.harness.service.test.{TestComponent, TestHarness, TestService}
-import org.scalatest.{Inspectors, Matchers, WordSpecLike}
+import org.scalatest.Inspectors
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpecLike
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 
 
-class TestHarnessSpec extends WordSpecLike with Matchers with Inspectors {
+class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
   implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   val sys: TestHarness = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent])))

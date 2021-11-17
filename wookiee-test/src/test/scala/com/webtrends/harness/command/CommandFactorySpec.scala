@@ -3,9 +3,11 @@ package com.webtrends.harness.command
 import akka.util.Timeout
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.test.BaseWookieeTest
-import org.scalatest.{Matchers, WordSpecLike}
-import scala.concurrent.{Await, Future}
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpecLike
+
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 case class FactoryInput(value: String)
 case class FactoryOutput(value: String)
@@ -33,7 +35,7 @@ class FactoryService extends Service {
   }
 }
 
-class CommandFactorySpec extends BaseWookieeTest with Matchers with WordSpecLike {
+class CommandFactorySpec extends BaseWookieeTest with AnyWordSpecLike with Matchers {
   implicit val timeout: Timeout = Timeout(3.seconds)
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
     Some(Map("factory-service" -> classOf[FactoryService]))

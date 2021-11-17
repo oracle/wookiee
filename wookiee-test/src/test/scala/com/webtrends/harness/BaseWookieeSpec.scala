@@ -5,9 +5,11 @@ import akka.testkit.TestProbe
 import com.webtrends.harness.service.Service
 import com.webtrends.harness.service.messages.Ready
 import com.webtrends.harness.service.test.{BaseWookieeTest, TestHarness, TestService}
-import org.scalatest.{Inspectors, Matchers, WordSpecLike}
+import org.scalatest.Inspectors
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpecLike
 
-class BaseWookieeSpec extends BaseWookieeTest with WordSpecLike with Matchers with Inspectors {
+class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with Inspectors {
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
     Some(Map("testservice" -> classOf[TestService]))
 

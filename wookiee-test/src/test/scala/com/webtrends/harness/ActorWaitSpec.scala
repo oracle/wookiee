@@ -1,14 +1,15 @@
 package com.webtrends.harness
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{Actor, ActorRef, ActorSystem, PoisonPill, Props}
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
 import com.webtrends.harness.utils.ActorWaitHelper
-import org.scalatest.{Inspectors, Matchers, WordSpecLike}
+import org.scalatest.Inspectors
+import org.scalatest.matchers.should.Matchers
+import org.scalatest.wordspec.AnyWordSpecLike
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.Await
 import scala.concurrent.duration.Duration
 
@@ -28,7 +29,7 @@ class WaitActor extends Actor with ActorWaitHelper {
   }
 }
 
-class ActorWaitSpec extends TestKit(ActorSystem("wait-spec")) with WordSpecLike with Matchers with Inspectors {
+class ActorWaitSpec extends TestKit(ActorSystem("wait-spec")) with AnyWordSpecLike with Matchers with Inspectors {
   implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
   val waitActor: ActorRef = ActorWaitHelper.awaitActor(Props[WaitActor], system)
 
