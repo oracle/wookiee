@@ -47,6 +47,7 @@ object HarnessConstants {
   val KeyComponents = "components.lib-components"
   val KeyComponentStartTimeout = "components.start-timeout"
   val KeyDynamicComponent = "dynamic-component"
+  val KeyComponentDistinctClassLoader = "component.distinct-classloader"
 
   // constants for services
   val KeyServicePath = "services.path"
@@ -54,6 +55,7 @@ object HarnessConstants {
   val KeyInternalServiceConfig = "services.internal-config"
   val KeyServiceCheckTimeout = "services.check-timeout"
   val KeyServiceDistinctClassLoader = "services.distinct-classloader"
+  val KeyServiceClassLoaderName = "service-classloader"
 
   val LogHealthCheckDiffs = "logging.health-check.diff-compare"
 }

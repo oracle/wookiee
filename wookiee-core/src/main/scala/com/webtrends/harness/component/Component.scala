@@ -49,9 +49,9 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
    *
    * @return
    */
-  override def receive = health orElse {
-    case StartComponent => start
-    case StopComponent => stop
+  override def receive: Receive = health orElse {
+    case StartComponent => start()
+    case StopComponent => stop()
     case ConfigChange() => // User can receive to do something
     case ComponentRequest(msg, name, timeout) =>
       val caller = sender
@@ -67,8 +67,8 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
         case Some(a) => a ! msg
         case None => log.warn("Failed to send message to child actor [$name] for Component")
       }
-    case SystemReady => systemReady
-    case PrepareForShutdown => prepareForShutdown
+    case SystemReady => systemReady()
+    case PrepareForShutdown => prepareForShutdown()
   }
 
   /**
@@ -96,7 +96,7 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
   /**
    * Starts the component
    */
-  def start() = {
+  def start(): Unit = {
     // after completion of this, we need to send the started message from the component
     context.parent ! ComponentStarted(self.path.name)
   }
@@ -104,21 +104,21 @@ abstract class Component(name:String) extends HActor with ComponentHelper {
   /**
    * Any logic to stop the component
    */
-  def stop() = {}
+  def stop(): Unit = {}
 
   /**
     * Any logic to run once all components and services are up
     */
-  def systemReady() = {}
+  def systemReady(): Unit = {}
 
   /**
     * Any logic to run once we get the shutdown message but before we begin killing actors
     */
-  def prepareForShutdown() = {}
+  def prepareForShutdown(): Unit = {}
 }
 
 object Component {
-  def getActorPath() : String = {
+  def getActorPath: String = {
     s"${HarnessConstants.ComponentName}/"
   }
 }

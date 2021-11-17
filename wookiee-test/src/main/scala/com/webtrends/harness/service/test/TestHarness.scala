@@ -115,7 +115,7 @@ class TestHarness(conf:Config,
   def setLogLevel(level:Level): Unit =
     TestHarness.log.setLogLevel(level)
 
-  def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem) {
+  def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
     while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor().get ? ReadyCheck, timeToWait).asInstanceOf[Boolean]) {
     }
 
@@ -154,7 +154,7 @@ class TestHarness(conf:Config,
     }
   }
 
-  private def componentReady(timeOut: Deadline, componentName: String, componentClass: String) {
+  private def componentReady(timeOut: Deadline, componentName: String, componentClass: String): Unit = {
     if (timeOut.isOverdue()) {
       throw new IllegalStateException(s"Component $componentName did not start up")
     }
@@ -168,7 +168,7 @@ class TestHarness(conf:Config,
     }
   }
 
-  private def serviceReady(timeOut: Deadline, serviceName: String, serviceClass: Class[_ <: Service]) {
+  private def serviceReady(timeOut: Deadline, serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
     if (timeOut.isOverdue()) {
       throw new IllegalStateException(s"Service $serviceName did not start up")
     }

@@ -18,14 +18,15 @@ package com.webtrends.harness.service
 import java.net.{URL, URLClassLoader}
 import scala.util.{Success, Try}
 
-class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLoader(urls.toArray, parent) {
+/**
+ * There should be one isolated instance of this class for each Component library
+ * It is used to keep dependencies seperated between those libs and eventually for hot-deployment
+ */
+class HawkClassLoader(urls: Seq[URL]) extends URLClassLoader(urls.toArray) {
 
   /**
    * This method will perform the same functionality as ClassLoader.loadClass, except that it
    * will only locate and load the class in it's own class loader.
-   * @param name
-   * @param resolve
-   * @return
    */
   def loadClassLocally(name: String, resolve: Boolean) : Option[Class[_]] = {
     // First see if the class is loaded
@@ -46,7 +47,7 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
     }
   }
 
-  def getLoadedClass(name: String): Option[Class[_]] = findLoadedClass(name) match { case null => None case clazz => Some(clazz) }
+  def getLoadedClass(name: String): Option[Class[_]] = Option(findLoadedClass(name))
 
   /**
    * Appends the specified URL to the list of URLs to search for
@@ -58,6 +59,6 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
    *
    * @param url the URL to be added to the search path of URLs
    */
-  def addServiceURL(url: URL) = addURL(url)
+  def addServiceURL(url: URL): Unit = addURL(url)
 
 }

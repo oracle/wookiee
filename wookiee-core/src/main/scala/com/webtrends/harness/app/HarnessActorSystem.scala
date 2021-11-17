@@ -19,7 +19,7 @@ import akka.actor.ActorSystem
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.component.ComponentManager
 import com.webtrends.harness.logging.Logger
-import com.webtrends.harness.service.ServiceManager
+import com.webtrends.harness.service.{HawkClassLoader, ServiceManager}
 
 object HarnessActorSystem {
 
@@ -30,8 +30,11 @@ object HarnessActorSystem {
     ActorSystem.create("server", config, loader)
   }
 
+  def addChildClassLoader(hcl: HawkClassLoader): Unit = loader.addChildLoader(hcl)
+
+  // JARs are loaded onto the classpath in this method, in ComponentManager.loadComponentJars
   def getConfig(config: Option[Config]): Config = {
-    val sysConfig = {
+    var sysConfig = {
       if (config.isDefined) {
         config.get
       } else {
@@ -41,7 +44,9 @@ object HarnessActorSystem {
     }
 
     ComponentManager.loadComponentJars(sysConfig, loader)
-    ConfigFactory.load
+    for (child <- loader.getChildLoaders) {
+      sysConfig = ConfigFactory.load(child).withFallback(sysConfig)
+    }
 
     externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)
