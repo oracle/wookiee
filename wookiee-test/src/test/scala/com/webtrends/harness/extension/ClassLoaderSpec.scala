@@ -84,8 +84,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val jarA = getClass.getResource("/basic-extension-a.jar")
         val jarOther = getClass.getResource("/other-extension.jar")
         val harnessClassLoader = new HarnessClassLoader(new URLClassLoader(Array()))
-        val clA = new HawkClassLoader(List(jarA))
-        val clOther = new HawkClassLoader(List(jarOther))
+        val clA = HawkClassLoader("basic-extension", List(jarA))
+        val clOther = HawkClassLoader("other-extension", List(jarOther))
 
         harnessClassLoader.addChildLoader(clA)
         harnessClassLoader.addChildLoader(clOther)

@@ -21,8 +21,10 @@ import scala.util.{Success, Try}
 /**
  * There should be one isolated instance of this class for each Component library
  * It is used to keep dependencies seperated between those libs and eventually for hot-deployment
+ * @param entityName The name of this Component or Service, should be
+ * @param urls Paths to all the JARs that should be in this Class Loader
  */
-class HawkClassLoader(urls: Seq[URL]) extends URLClassLoader(urls.toArray) {
+case class HawkClassLoader(entityName: String, urls: Seq[URL]) extends URLClassLoader(urls.toArray) {
 
   /**
    * This method will perform the same functionality as ClassLoader.loadClass, except that it

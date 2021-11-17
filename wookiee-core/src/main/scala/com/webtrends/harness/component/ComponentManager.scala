@@ -24,7 +24,7 @@ import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueT
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
 import com.webtrends.harness.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
-import com.webtrends.harness.logging.Logger
+import com.webtrends.harness.logging.{Logger, LoggingAdapter}
 import com.webtrends.harness.service.HawkClassLoader
 import com.webtrends.harness.utils.{ConfigUtil, FileUtil}
 
@@ -48,7 +48,7 @@ private[component] object ComponentState extends Enumeration {
 }
 import com.webtrends.harness.component.ComponentState._
 
-object ComponentManager {
+object ComponentManager extends LoggingAdapter {
   private val externalLogger = Logger.getLogger(this.getClass)
 
   val components: mutable.Map[String, ComponentState] = mutable.Map[String, ComponentState]()
@@ -101,7 +101,7 @@ object ComponentManager {
               (co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map {
                 f =>
                   val jarName = FileUtil.getFilename(f)
-                  jarName -> f.getCanonicalFile.toURI.toURL
+                  (componentName, jarName) -> f.getCanonicalFile.toURI.toURL
               }).toList
             } catch {
               case e: IllegalArgumentException =>
@@ -110,10 +110,11 @@ object ComponentManager {
             }
 
           case f if FileUtil.getExtension(f).equalsIgnoreCase("jar") =>
-            List(FileUtil.getFilename(f) -> f.getCanonicalFile.toURI.toURL)
+            List((jarComponentName(f), FileUtil.getFilename(f)) -> f.getCanonicalFile.toURI.toURL)
         }.flatten
 
-        files.foreach(f => loader.addChildLoader(new HawkClassLoader(Seq(f._2))))
+        log.info(s"Found JARs for Hawk Class Loaders:\n ${files.map(_._1._1).mkString("[", ", ", "]")}")
+        files.foreach(f => loader.addChildLoader(HawkClassLoader(f._1._1, Seq(f._2))))
       case None => // ignore
     }
   }
@@ -199,9 +200,7 @@ object ComponentManager {
       } else if (config.hasPath(s"${HarnessConstants.KeyComponentMapping}.$name")) {
         config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
       } else {
-        val segments = name.split("-")
-        // example wookiee-zookeeper-1.0-SNAPSHOT.jar
-        val fn = segments(0) + "-" + segments(1).replace(".jar", "")
+        val fn = jarComponentName(file)
         if (config.hasPath(s"$fn")) {
           fn
         } else {
@@ -209,6 +208,13 @@ object ComponentManager {
         }
       }
     }
+  }
+
+  def jarComponentName(file: File): String = {
+    val name = file.getName
+    val segments = name.split("-")
+    // example wookiee-zookeeper-1.0-SNAPSHOT.jar
+    segments(0) + "-" + segments(1).replace(".jar", "")
   }
 }
 

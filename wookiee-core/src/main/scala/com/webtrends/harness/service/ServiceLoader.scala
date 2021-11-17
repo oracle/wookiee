@@ -104,7 +104,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       // Load the urls into the class loader
       val loader = if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader,
         config.getBoolean, true)) {
-        val pcl = new HawkClassLoader(urls)
+        val pcl = HawkClassLoader(HarnessConstants.KeyServiceClassLoaderName, urls)
         harnessLoader.addChildLoader(pcl)
         pcl
       } else {
