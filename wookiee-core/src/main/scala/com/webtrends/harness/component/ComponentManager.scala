@@ -57,8 +57,6 @@ object ComponentManager extends LoggingAdapter {
 
   /**
    * Checks to see if all the components have started up
-   *
-   * @return
    */
   def isAllComponentsStarted : Boolean = {
     val groupedMap = components.groupBy(_._2).toList
@@ -166,7 +164,6 @@ object ComponentManager extends LoggingAdapter {
    *
    * @param componentName name of component .conf file
    * @param folder folder in which configs can be found
-   * @return
    * @throws IllegalArgumentException if configuration file is not found, or the lib directory is not there
    */
   def validateComponentDir(componentName:String, folder:File) : (File, File) = {

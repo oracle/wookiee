@@ -30,8 +30,8 @@ object HarnessActorSystem {
     ActorSystem.create("server", config, loader)
   }
 
-  // JARs are loaded onto the classpath in this method if replace = true, in ComponentManager.loadComponentJars
-  def getConfig(config: Option[Config], replace: Boolean = false): Config = {
+  // JARs are reloaded onto the classpath in this method if replace = true, in ComponentManager.loadComponentJars
+  def renewConfigsAndClasses(config: Option[Config], replace: Boolean = false): Config = {
     var sysConfig = {
       if (config.isDefined) {
         config.get
@@ -43,7 +43,8 @@ object HarnessActorSystem {
 
     ComponentManager.loadComponentJars(sysConfig, loader, replace = replace)
     for (child <- loader.getChildLoaders) {
-      sysConfig = ConfigFactory.load(child).withFallback(sysConfig)
+      val childConf = ConfigFactory.load(child)
+      sysConfig = sysConfig.withFallback(childConf)
     }
 
     externalLogger.debug("HAS100: Loading the service configs")

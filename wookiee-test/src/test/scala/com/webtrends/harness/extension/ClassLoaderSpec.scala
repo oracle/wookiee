@@ -25,8 +25,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val sys = ActorSystem("SingleLoader")
 
       try {
-        val jarA = getClass.getResource("/basic-extension-a.jar")
-        val jarB = getClass.getResource("/basic-extension-b.jar")
+        val jarA = getClass.getResource("/basic-extension.jar")
+        val jarB = getClass.getResource("/second-extension-b.jar")
         val harnessClassLoader = new HarnessClassLoader(new URLClassLoader(Array(jarA, jarB)))
         val cm = sys.actorOf(Props[ComponentManager])
 
@@ -52,8 +52,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val sys = ActorSystem("MultiLoader")
 
       try {
-        val jarA = getClass.getResource("/basic-extension-a.jar")
-        val jarB = getClass.getResource("/basic-extension-b.jar")
+        val jarA = getClass.getResource("/basic-extension.jar")
+        val jarB = getClass.getResource("/second-extension.jar")
         val harnessClassLoaderA = new HarnessClassLoader(new URLClassLoader(Array(jarA)))
         val harnessClassLoaderB = new HarnessClassLoader(new URLClassLoader(Array(jarB)))
 
@@ -81,7 +81,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val sys = ActorSystem("MainMultiLoader")
 
       try {
-        val jarA = getClass.getResource("/basic-extension-a.jar")
+        println("Loading in resources..")
+        val jarA = getClass.getResource("/basic-extension.jar")
         val jarOther = getClass.getResource("/other-extension.jar")
         val harnessClassLoader = new HarnessClassLoader(new URLClassLoader(Array()))
         val clA = HawkClassLoader("basic-extension", List(jarA))
@@ -90,7 +91,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         harnessClassLoader.addChildLoader(clA)
         harnessClassLoader.addChildLoader(clOther)
 
-        val cm = sys.actorOf(Props[ComponentManager])
+        val cm = sys.actorOf(Props[ComponentManager], "test-comp-manager")
 
         println("Loading each component jar..")
         val extB = Await.result((cm ? LoadComponent("BasicExtension", "com.webtrends.infy.qa.BasicExtension",
@@ -109,8 +110,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     }
 
     "Should not load classes in when reading config" in {
-      val config = HarnessActorSystem.getConfig(None, replace = true)
-      config.getString("other-extension.something.value") shouldEqual "example"
+      val cf = HarnessActorSystem.renewConfigsAndClasses(Some(config))
+      cf.getString("other-extension.something.value") shouldEqual "changed"
       HarnessActorSystem.loader.getChildLoaders
         .exists(_.getURLs.exists(_.getPath.contains("other-extension"))) shouldEqual true
     }
@@ -135,6 +136,12 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       s"""{
          | services.path = "src/"
          | components.path = "$compDir"
+         |
+         | other-extension {
+         |  something {
+         |   value = "changed"
+         |  }
+         | }
          |}""".stripMargin)
   }
 
