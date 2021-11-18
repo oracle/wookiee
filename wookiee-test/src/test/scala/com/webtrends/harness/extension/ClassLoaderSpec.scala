@@ -5,7 +5,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigFactory}
 import com.webtrends.harness.app.{HarnessActorSystem, HarnessClassLoader}
-import com.webtrends.harness.component.{ComponentManager, ComponentRequest, ComponentResponse, LoadComponent, Request}
+import com.webtrends.harness.component._
 import com.webtrends.harness.service.HawkClassLoader
 import com.webtrends.harness.service.test.BaseWookieeTest
 import org.scalatest.matchers.should.Matchers
@@ -125,17 +125,52 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     }
   }
 
-  override def config: Config = {
-    val workingDir = new File(System.getProperty("user.dir")).listFiles().filter(_.isDirectory).map(_.getName)
-    val compDir = if (workingDir.contains("wookiee")) "wookiee/wookiee-test/src/test/resources"
-    else if (workingDir.contains("wookiee-test")) "wookiee-test/src/test/resources"
-    else "src/test/resources"
+  "The extension reload framework" should {
+    "Reload an extension on command" in {
+      val cm = waitForSome({ testWookiee.componentManager })
+      val harnessClassLoader = new HarnessClassLoader(new URLClassLoader(Array()))
+      val cDir = compDir()
 
-    println(s"Component Directory: [$compDir]")
+      val result = Await.result((cm ? ReloadComponent(new File(s"$cDir/basic-extension.jar"), Some(harnessClassLoader))).mapTo[Boolean], timeout.duration)
+      result shouldBe true
+      harnessClassLoader.getChildLoaders.head.entityName shouldBe "basic-extension"
+    }
+
+    // Disabled because this doesn't pass in repeat runs, if you'd like to use
+    // it be sure to delete wookiee-test/src/test/resources/copy-extension.jar after each run
+    /*
+    "Detect and load a new JAR" in {
+      import java.nio.file.Files
+      val cm = waitForSome({ testWookiee.componentManager })
+      val cDir = compDir()
+
+      Files.copy(new File(s"$cDir/basic-extension.jar").toPath,
+        new File(s"$cDir/copy-extension.jar").toPath)
+      Thread.sleep(2000L)
+      val comp = Await.result((cm ? GetComponent("copy-extension")).mapTo[Option[ActorRef]], timeout.duration)
+      comp.isDefined shouldBe true
+      val output = Await.result((comp.get ? "log").mapTo[String], timeout.duration)
+      output shouldBe "A"
+    }
+     */
+  }
+
+  override def config: Config = {
+    val cDir = compDir()
+
+    println(s"Component Directory: [$cDir]")
     ConfigFactory.parseString(
       s"""{
          | services.path = "src/"
-         | components.path = "$compDir"
+         | components {
+         |  path = "$cDir"
+         |  dynamic-loading = true
+         | }
+         |
+         | copy-extension {
+         |   enabled = true
+         |   manager = "com.webtrends.infy.qa.BasicExtension"
+         | }
          |
          | other-extension {
          |  something {
@@ -164,5 +199,12 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       }
     }
     "<timeout>"
+  }
+
+  def compDir(): String = {
+    val workingDir = new File(System.getProperty("user.dir")).listFiles().filter(_.isDirectory).map(_.getName)
+    if (workingDir.contains("wookiee")) "wookiee/wookiee-test/src/test/resources"
+    else if (workingDir.contains("wookiee-test")) "wookiee-test/src/test/resources"
+    else "src/test/resources"
   }
 }

@@ -24,9 +24,11 @@ import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueT
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
 import com.webtrends.harness.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
+import com.webtrends.harness.component.ComponentManager.{getComponentName, getHawkClassLoader}
 import com.webtrends.harness.logging.{Logger, LoggingAdapter}
 import com.webtrends.harness.service.HawkClassLoader
 import com.webtrends.harness.utils.{ConfigUtil, FileUtil}
+import akka.pattern.gracefulStop
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -39,6 +41,7 @@ case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
 case class InitializeComponents()
 case class LoadComponent(name:String, classPath:String, classLoader:Option[HarnessClassLoader]=None)
+case class ReloadComponent(file: File, classLoader:Option[HarnessClassLoader]=None)
 case class ComponentStarted(name:String)
 case class GetComponent(name:String)
 
@@ -69,7 +72,6 @@ object ComponentManager extends LoggingAdapter {
 
   /**
    * Checks to see if there are any components that have failed
-   *
    * @return Option, if failed will contain name of first component that failed
    */
   def failedComponents : Option[String] = {
@@ -93,32 +95,31 @@ object ComponentManager extends LoggingAdapter {
   def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader, replace:Boolean): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
-        log.info(s"Looking for Component JARs at ${dir.getAbsolutePath}")
-        val files = dir.listFiles.collect {
-          case f if f.isDirectory =>
-            val componentName = f.getName
-            try {
-              val co = validateComponentDir(componentName, f)
-              // get list of all JARS and load each one
-              (co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map {
-                f =>
-                  val jarName = FileUtil.getFilename(f)
-                  (componentName, jarName) -> f.getCanonicalFile.toURI.toURL
-              }).toList
-            } catch {
-              case e: IllegalArgumentException =>
-                externalLogger.warn(e.getMessage)
-                List()
-            }
+        log.debug(s"Looking for Component JARs at ${dir.getAbsolutePath}")
+        val hawks = dir.listFiles.collect(getHawkClassLoader).flatten
 
-          case f if FileUtil.getExtension(f).equalsIgnoreCase("jar") =>
-            List((jarComponentName(f), FileUtil.getFilename(f)) -> f.getCanonicalFile.toURI.toURL)
-        }.flatten
-
-        log.info(s"Found JARs for Hawk Class Loaders:\n ${files.map(_._1._1).mkString("[", ", ", "]")}")
-        files.foreach(f => loader.addChildLoader(HawkClassLoader(f._1._1, Seq(f._2)), replace = replace))
+        log.debug(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
+        hawks.foreach(f => loader.addChildLoader(f, replace = replace))
       case None => // ignore
     }
+  }
+
+  protected[harness] def getHawkClassLoader: PartialFunction[File, Option[HawkClassLoader]] = {
+    case file if file.isDirectory =>
+      val componentName = file.getName
+      try {
+        val co = validateComponentDir(componentName, file)
+        // get list of all JARS and load each one
+        Some(HawkClassLoader(componentName, co._2.listFiles
+          .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")).map(_.getCanonicalFile.toURI.toURL).toList))
+      } catch {
+        case e: IllegalArgumentException =>
+          externalLogger.warn(e.getMessage)
+          None
+      }
+
+    case file if FileUtil.getExtension(file).equalsIgnoreCase("jar") =>
+      Some(HawkClassLoader(jarComponentName(file), Seq(file.getCanonicalFile.toURI.toURL)))
   }
 
   /**
@@ -244,13 +245,54 @@ class ComponentManager extends PrepareForShutdown {
     case Request(name, msg) => pipe(request(name, msg)) to sender
     case GetComponent(name) => sender ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender ! loadComponentClass(name, classPath, cl)
+    case ReloadComponent(file, cl) => pipe(reloadComponent(file, cl)) to sender
     case SystemReady =>  context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
-    case _ =>
-      //throw all other messages to debug
-      //log.debug("Message not handled by ComponentManager")
+    case _ => // Ignore
+  }
+
+  protected def reloadComponent(file: File, classLoader: Option[HarnessClassLoader]): Future[Boolean] = {
+    try {
+      val hClassLoader = getOrDefaultClassLoader(classLoader)
+      val updatedConfig = HarnessActorSystem.renewConfigsAndClasses(Some(config))
+      val compName = getComponentName(file, updatedConfig)
+
+      val stopFuture = context.child(compName) match {
+        case Some(ref) =>
+          log.info(s"Component '$compName' already running, stopping current instance")
+          ref ! StopComponent
+          gracefulStop(ref, componentTimeout.duration)
+        case None =>
+          log.debug(s"Component '$compName' not running, no need to stop")
+          Future.successful(true)
+      }
+
+      stopFuture.map { result =>
+        getHawkClassLoader(file) match {
+          case Some(hcl) =>
+            hClassLoader.addChildLoader(hcl)
+            if (!result)
+              log.warn(s"Note that we didn't stop '$compName' before the timeout")
+
+            findAndLoadComponentManager(compName, updatedConfig)
+            true
+          case None =>
+            log.error(s"Error while getting a hawk class loader for Component [${file.getAbsolutePath}]")
+            false
+        }
+      }
+    } catch {
+      case ex: Throwable =>
+        log.error(s"Could not reload component at [${file.getAbsolutePath}]", ex)
+        Future.successful(false)
+    }
+  }
+
+  private def getOrDefaultClassLoader(classLoader: Option[HarnessClassLoader]) = classLoader match {
+      case Some(loader) => loader
+      case None => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
   }
 
   private def componentStarted(name:String): Unit = {
@@ -368,14 +410,7 @@ class ComponentManager extends PrepareForShutdown {
               case x => x.toString
             }
             if (!componentsLoaded.contains(componentName)) {
-              val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
-              if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
-                log.info(s"Component $componentName not enabled, skipping.")
-              } else {
-                require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
-                val className = compConfig.getString(ComponentManager.KeyManagerClass)
-                loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
-              }
+              findAndLoadComponentManager(componentName, config)
               componentsLoaded += componentName
             }
           } catch {
@@ -414,11 +449,9 @@ class ComponentManager extends PrepareForShutdown {
    * @param className Full class name
    * @param classLoader Class loader for harness
    */
-  def loadComponentClass(componentName: String, className: String, classLoader: Option[HarnessClassLoader] = None): Option[ActorRef] = {
-    val hClassLoader = classLoader match {
-      case Some(loader) => loader
-      case None => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
-    }
+  def loadComponentClass(componentName: String, className: String,
+                         classLoader: Option[HarnessClassLoader] = None): Option[ActorRef] = {
+    val hClassLoader = getOrDefaultClassLoader(classLoader)
     require(className.nonEmpty, "Manager for component not set.")
 
     val clazz = hClassLoader.loadClass(className)
@@ -435,7 +468,7 @@ class ComponentManager extends PrepareForShutdown {
   /**
    * Initializes the component actor
    */
-  def initComponentActor[T](componentName:String, clazz:Class[T]) : Option[ActorRef] = {
+  def initComponentActor[T](componentName: String, clazz: Class[T]): Option[ActorRef] = {
     // check to see if the actor exists
     // need to block in this instance we don't want the system to start prior to
     // the system components to being fully loaded.
@@ -473,5 +506,16 @@ class ComponentManager extends PrepareForShutdown {
       case None => log.error(msg)
     }
     ComponentManager.components(componentName) = ComponentState.Failed
+  }
+
+  private def findAndLoadComponentManager(componentName: String, config: Config) =  {
+    val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
+    if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
+      log.info(s"Component $componentName not enabled, won't be started.")
+    } else {
+      require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
+      val className = compConfig.getString(ComponentManager.KeyManagerClass)
+      loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
+    }
   }
 }

@@ -47,11 +47,11 @@ object HarnessActorSystem {
       sysConfig = sysConfig.withFallback(childConf)
     }
 
-    externalLogger.debug("HAS100: Loading the service configs")
+    externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)
     if (configs.nonEmpty) externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
 
-    externalLogger.debug("HAS101: Loading the component configs")
+    externalLogger.debug("Loading the component configs")
     val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
     if (compConfigs.nonEmpty) externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
 
@@ -61,7 +61,7 @@ object HarnessActorSystem {
     val conf = if (allConfigs.isEmpty) sysConfig
       else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
     val finalConf = conf.resolve()
-    externalLogger.debug(s"HAS102: Used configuration: [$finalConf]")
+    externalLogger.debug(s"Used configuration: [$finalConf]")
     finalConf
   }
 }

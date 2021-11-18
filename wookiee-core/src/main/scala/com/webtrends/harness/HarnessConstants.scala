@@ -24,6 +24,7 @@ object HarnessConstants {
   val ComponentName = "component"
   val CommandName = "command"
   val TypedCommandName = "typedCommand"
+  val ComponentReloadName = "component-reloader"
 
   // full actor names
   val ServicesFullName: String = ActorPrefix + "/" + ServicesName
@@ -47,7 +48,7 @@ object HarnessConstants {
   val KeyComponents = "components.lib-components"
   val KeyComponentStartTimeout = "components.start-timeout"
   val KeyDynamicComponent = "dynamic-component"
-  val KeyComponentDistinctClassLoader = "component.distinct-classloader"
+  val KeyDynamicLoading = "components.dynamic-loading"
 
   // constants for services
   val KeyServicePath = "services.path"
