@@ -61,7 +61,7 @@ object HarnessActorSystem {
     val conf = if (allConfigs.isEmpty) sysConfig
       else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
     val finalConf = conf.resolve()
-    externalLogger.info(s"HAS102: Used configuration: [$finalConf]")
+    externalLogger.debug(s"HAS102: Used configuration: [$finalConf]")
     finalConf
   }
 }
