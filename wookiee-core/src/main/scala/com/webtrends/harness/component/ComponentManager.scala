@@ -95,6 +95,7 @@ object ComponentManager extends LoggingAdapter {
   def loadComponentJars(sysConfig:Config, loader:HarnessClassLoader, replace:Boolean): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
+        log.info(s"Looking for Component JARs at ${dir.getAbsolutePath}")
         val files = dir.listFiles.collect {
           case f if f.isDirectory =>
             val componentName = f.getName
