@@ -44,6 +44,7 @@ object HarnessActorSystem {
     ComponentManager.loadComponentJars(sysConfig, loader, replace = replace)
     for (child <- loader.getChildLoaders) {
       val childConf = ConfigFactory.load(child)
+      externalLogger.info(s"Config from child '${child.entityName}': $childConf")
       sysConfig = sysConfig.withFallback(childConf)
     }
 
