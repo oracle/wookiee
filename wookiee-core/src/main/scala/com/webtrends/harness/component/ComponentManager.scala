@@ -98,7 +98,7 @@ object ComponentManager extends LoggingAdapter {
         log.debug(s"Looking for Component JARs at ${dir.getAbsolutePath}")
         val hawks = dir.listFiles.collect(getHawkClassLoader).flatten
 
-        log.debug(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
+        log.info(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
         hawks.foreach(f => loader.addChildLoader(f, replace = replace))
       case None => // ignore
     }
@@ -206,7 +206,7 @@ object ComponentManager extends LoggingAdapter {
         if (config.hasPath(s"$fn")) {
           fn
         } else {
-          throw new ComponentNotFoundException("ComponentManager", s"$name component not found")
+          throw new ComponentNotFoundException("ComponentManager", s"$fn component not found")
         }
       }
     }
@@ -257,6 +257,7 @@ class ComponentManager extends PrepareForShutdown {
     try {
       val hClassLoader = getOrDefaultClassLoader(classLoader)
       val updatedConfig = HarnessActorSystem.renewConfigsAndClasses(Some(config))
+      log.info(s"Updated config: $updatedConfig")
       val compName = getComponentName(file, updatedConfig)
 
       val stopFuture = context.child(compName) match {
