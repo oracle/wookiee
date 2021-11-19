@@ -20,7 +20,7 @@ import scala.util.{Success, Try}
 
 /**
  * There should be one isolated instance of this class for each Component library
- * It is used to keep dependencies seperated between those libs and eventually for hot-deployment
+ * It is used to keep dependencies seperated between those libs and eventually for hawk(hot)-deployment
  * @param entityName The name of this Component or Service, should be
  * @param urls Paths to all the JARs that should be in this Class Loader
  */
