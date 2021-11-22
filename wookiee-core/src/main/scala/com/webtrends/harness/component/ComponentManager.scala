@@ -260,7 +260,7 @@ class ComponentManager extends PrepareForShutdown {
       log.info(s"Updated config: $updatedConfig")
       val compName = getComponentName(file, updatedConfig)
 
-      val stopFuture = context.child(compName) match {
+      val stopFuture = (context.child(compName) match {
         case Some(ref) =>
           log.info(s"Component '$compName' already running, stopping current instance")
           ref ! StopComponent
@@ -268,6 +268,10 @@ class ComponentManager extends PrepareForShutdown {
         case None =>
           log.debug(s"Component '$compName' not running, no need to stop")
           Future.successful(true)
+      }).recover {
+        case ex: Throwable =>
+          log.warn(s"Failed to stop Component '$compName', attempting reload anyway", ex)
+          false
       }
 
       stopFuture.map { result =>
