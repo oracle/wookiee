@@ -4,6 +4,7 @@ import com.typesafe.config.Config
 import com.webtrends.harness.app.HarnessActorSystem
 
 abstract class Extension(name: String) extends Component(name) {
+  log.info(s"Starting Extension Manager for '$name', reading current configs..")
   private val conf = HarnessActorSystem.renewConfigsAndClasses(None)
   // Use this config instead of 'context.system.settings.config'
   // it will update after a hot/dynamic Extension reload
