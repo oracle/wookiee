@@ -42,7 +42,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO]): ServerSettings = {
+  )(implicit cs: ContextShift[IO]): ServerSettings =
     apply(
       discoveryPath,
       host,
@@ -55,7 +55,6 @@ object ServerSettings {
       curatorFramework,
       (serverServiceDefinition, authSettings)
     )
-  }
 
   def apply(
       discoveryPath: String,
@@ -69,7 +68,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings =
     apply(
       discoveryPath,
       port,
@@ -82,7 +81,6 @@ object ServerSettings {
       curatorFramework,
       (serverServiceDefinition, authSettings)
     )
-  }
 
   // Use when you'd like to register more than one class to this host and discoveryPath
   def apply(
@@ -97,7 +95,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
-  )(implicit cs: ContextShift[IO]): ServerSettings = {
+  )(implicit cs: ContextShift[IO]): ServerSettings =
     ServerSettings(
       discoveryPath,
       NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
@@ -113,7 +111,6 @@ object ServerSettings {
       Ref.of[IO, Boolean](false),
       curatorFramework
     )
-  }
 
   def apply(
       discoveryPath: String,

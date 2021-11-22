@@ -7,7 +7,7 @@ wookiee
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```sbt
-libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.0.12"
+libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "3.1.2"
 ```
 
 ## Setup ScalaPB
@@ -37,19 +37,19 @@ service MyService {
 
 Add ScalaPB plugin to `plugin.sbt` file
 ```sbt
-addSbtPlugin("com.thesamet" % "sbt-protoc" % "0.99.34")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.10.8"
+addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.3")
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.1"
 
 ```
 
 Configure the project in `build.sbt` so that ScalaPB can generate code
 ```sbt
+    Compile / PB.targets := Seq(
+      scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
+    ),
     libraryDependencies ++= Seq(
       "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )
 
@@ -70,11 +70,11 @@ import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.test.TestingServer
 
@@ -203,7 +203,7 @@ Example.main(Array.empty[String])
 Wookiee-metrics is focuses on providing metrics in a purely functional manner.
 #install
 ```sbt
-   libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-metrics" % "3.0.12"
+   libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-metrics" % "3.1.2"
    ```
 ## Using wookiee-metrics
 ```scala mdoc
@@ -261,9 +261,3 @@ object MetricsExample extends IOApp {
 }
 
 ```
-
-# wookiee-grpc-dev
-Utility to generate a proto file and Scala implicit code. See `GrpcSourceGen` for an example of how to use this.
-
-# wookiee-proto
-A few example proto files that are generated from the example `GrpcSourceGen` included in the wookiee-grpc-dev project

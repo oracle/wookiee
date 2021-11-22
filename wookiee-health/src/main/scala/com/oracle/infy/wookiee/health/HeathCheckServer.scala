@@ -33,7 +33,7 @@ object HeathCheckServer extends Serde {
     WookieeHttpServer.of(host, port, routes, executionContext)
   }
 
-  def healthCheckRoutes(healthF: () => IO[Health]): HttpRoutes[IO] = {
+  def healthCheckRoutes(healthF: () => IO[Health]): HttpRoutes[IO] =
     HttpRoutes
       .of[IO] {
         case GET -> Root / "healthcheck" =>
@@ -43,7 +43,6 @@ object HeathCheckServer extends Serde {
         case GET -> Root / "healthcheck" / "nagios" =>
           checkHealth(healthF()).flatMap(h => Ok(s"${h.state}|${h.details}"))
       }
-  }
 
   private def checkHealth(health: IO[Health]): IO[Health] =
     for {

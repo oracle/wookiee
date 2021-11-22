@@ -34,9 +34,8 @@ object GrpcTLSAuthTest {
       val mainECParallelism = 10
 
       val uncaughtExceptionHandler = new UncaughtExceptionHandler {
-        override def uncaughtException(t: Thread, e: Throwable): Unit = {
+        override def uncaughtException(t: Thread, e: Throwable): Unit =
           logger.error(e)("Got an uncaught exception on thread " ++ t.getName).unsafeRunSync()
-        }
       }
 
       val tf = new ThreadFactory {

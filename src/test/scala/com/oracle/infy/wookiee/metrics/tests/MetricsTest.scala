@@ -26,7 +26,7 @@ object MetricsTest extends UTestScalaCheck {
     val histogramName = "histogramTest"
     val gaugeName = "gaugeTest"
 
-    def timerCheck(): Future[Boolean] = {
+    def timerCheck(): Future[Boolean] =
       (for {
         timer <- wookieeMetrics.timer(timerName)
         _ <- timer.update(1000, TimeUnit.NANOSECONDS)
@@ -34,9 +34,8 @@ object MetricsTest extends UTestScalaCheck {
       } yield {
         registry.getTimers.containsKey(timerName) && registry.timer(timerName).getCount === 2
       }).unsafeToFuture()
-    }
 
-    def counterCheck(): Future[Boolean] = {
+    def counterCheck(): Future[Boolean] =
       (for {
         counter <- wookieeMetrics.counter(counterName)
         _ <- counter.inc(2)
@@ -44,36 +43,32 @@ object MetricsTest extends UTestScalaCheck {
       } yield {
         registry.getCounters().containsKey(counterName) && registry.counter(counterName).getCount === 2
       }).unsafeToFuture()
-    }
 
-    def meterCheck(): Future[Boolean] = {
+    def meterCheck(): Future[Boolean] =
       (for {
         meter <- wookieeMetrics.meter(meterName)
         _ <- meter.mark()
       } yield {
         registry.getMeters.containsKey(meterName) && registry.meter(meterName).getCount === 1
       }).unsafeToFuture()
-    }
 
-    def histogramCheck(): Future[Boolean] = {
+    def histogramCheck(): Future[Boolean] =
       (for {
         histogram <- wookieeMetrics.histogram(histogramName, biased = true)
         _ <- histogram.update(1)
       } yield {
         registry.getHistograms.containsKey(histogramName) && registry.histogram(histogramName).getCount === 1
       }).unsafeToFuture()
-    }
 
-    def gaugeCheck(): Future[Boolean] = {
+    def gaugeCheck(): Future[Boolean] =
       (for {
         gauge <- wookieeMetrics.gauge(gaugeName, () => "foo")
         gValue <- gauge.getValue
       } yield {
         registry.getGauges.containsKey(gaugeName) && gValue === "foo"
       }).unsafeToFuture()
-    }
 
-    def removeMetricCheck(): Future[Boolean] = {
+    def removeMetricCheck(): Future[Boolean] =
       (for {
         timer <- wookieeMetrics.timer("removeTest")
         _ <- timer.update(1000, TimeUnit.NANOSECONDS)
@@ -82,7 +77,6 @@ object MetricsTest extends UTestScalaCheck {
         isRemoved && registry.getTimers.containsKey("removeTest") === false
 
       }).unsafeToFuture()
-    }
 
     def getMetricsCheck(): Future[Boolean] =
       (for {

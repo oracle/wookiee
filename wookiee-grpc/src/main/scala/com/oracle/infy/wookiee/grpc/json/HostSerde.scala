@@ -17,7 +17,7 @@ object HostSerde {
 
   private val encoding = "utf8"
 
-  def deserialize(data: Array[Byte]): Either[HostSerdeError, Host] = {
+  def deserialize(data: Array[Byte]): Either[HostSerdeError, Host] =
     parse(new String(data, encoding)) match {
       case Left(err) => Left(HostSerdeError(s"Invalid json: ${err.message}"))
       case Right(json) =>
@@ -26,7 +26,6 @@ object HostSerde {
           case Right(host) => Right(host)
         }
     }
-  }
 
   def serialize(data: Host): Array[Byte] = data.asJson.noSpaces.getBytes(encoding)
 

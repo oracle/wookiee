@@ -33,38 +33,33 @@ final class WookieeGrpcServer(
     blocker: Blocker
 ) {
 
-  def shutdown(): IO[Unit] = {
+  def shutdown(): IO[Unit] =
     for {
       _ <- logger.info("Stopping load writing process...")
       _ <- fiber.cancel
       _ <- logger.info("Shutting down gRPC server...")
       _ <- cs.blockOn(blocker)(IO(server.shutdown()))
     } yield ()
-  }
 
-  def awaitTermination(): IO[Unit] = {
+  def awaitTermination(): IO[Unit] =
     cs.blockOn(blocker)(IO(server.awaitTermination()))
-  }
 
-  def assignLoad(load: Int): IO[Unit] = {
+  def assignLoad(load: Int): IO[Unit] =
     loadQueue.enqueue1(load)
-  }
 
-  def enterQuarantine(): IO[Unit] = {
+  def enterQuarantine(): IO[Unit] =
     quarantined
       .getAndSet(true)
       .*>(
         WookieeGrpcServer.assignQuarantine(isQuarantined = true, host, discoveryPath, curatorFramework)
       )
-  }
 
-  def exitQuarantine(): IO[Unit] = {
+  def exitQuarantine(): IO[Unit] =
     quarantined
       .getAndSet(false)
       .*>(
         WookieeGrpcServer.assignQuarantine(isQuarantined = false, host, discoveryPath, curatorFramework)
       )
-  }
 
 }
 
@@ -75,7 +70,7 @@ object WookieeGrpcServer {
       blocker: Blocker,
       logger: Logger[IO],
       timer: Timer[IO]
-  ): IO[WookieeGrpcServer] = {
+  ): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
       server <- cs.blockOn(blocker)(buildServer(serverSettings, host))
@@ -104,9 +99,8 @@ object WookieeGrpcServer {
       serverSettings.discoveryPath,
       quarantined
     )
-  }
 
-  private def buildServer(serverSettings: ServerSettings, host: Host)(implicit logger: Logger[IO]): IO[Server] = {
+  private def buildServer(serverSettings: ServerSettings, host: Host)(implicit logger: Logger[IO]): IO[Server] =
     for {
       _ <- logger.info("Building gRPC server...")
       builder0 = NettyServerBuilder
@@ -159,12 +153,10 @@ object WookieeGrpcServer {
       server <- IO { builder3.build() }
 
     } yield server
-  }
 
   private def getSslContextBuilder(
       sslServerSettings: SSLServerSettings
-  )(implicit logger: Logger[IO]): IO[SslContext] = {
-
+  )(implicit logger: Logger[IO]): IO[SslContext] =
     for {
 
       sslClientContextBuilder0 <- IO {
@@ -206,7 +198,6 @@ object WookieeGrpcServer {
         GrpcSslContexts.configure(sslContextBuilder1, SslProvider.OPENSSL).build()
       }
     } yield sslContext
-  }
 
   private def streamLoads(
       queue: Queue[IO, Int],
@@ -243,7 +234,7 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
     cs.blockOn(blocker) {
       IO {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
@@ -253,14 +244,13 @@ object WookieeGrpcServer {
         ()
       }
     }
-  }
 
   private def assignQuarantine(
       isQuarantined: Boolean,
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
     cs.blockOn(blocker) {
       IO {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
@@ -270,13 +260,12 @@ object WookieeGrpcServer {
         ()
       }
     }
-  }
 
   private def registerInZookeeper(
       discoveryPath: String,
       curator: CuratorFramework,
       host: Host
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
     cs.blockOn(blocker)(
       IO {
         if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
@@ -304,5 +293,4 @@ object WookieeGrpcServer {
         ()
       }
     )
-  }
 }

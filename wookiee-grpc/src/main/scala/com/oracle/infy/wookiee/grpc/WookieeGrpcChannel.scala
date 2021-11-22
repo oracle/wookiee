@@ -24,6 +24,7 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
+import scala.annotation.nowarn
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
@@ -34,12 +35,11 @@ final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
     blocker: Blocker
 ) {
 
-  def shutdown(): IO[Unit] = {
+  def shutdown(): IO[Unit] =
     cs.blockOn(blocker)(IO({
       managedChannel.shutdown()
       ()
     }))
-  }
 
 }
 
@@ -52,8 +52,7 @@ object WookieeGrpcChannel {
       concurrent: ConcurrentEffect[IO],
       blocker: Blocker,
       logger: Logger[IO]
-  ): IO[WookieeGrpcChannel] = {
-
+  ): IO[WookieeGrpcChannel] =
     for {
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
       fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
@@ -88,7 +87,6 @@ object WookieeGrpcChannel {
         )
       )
     } yield new WookieeGrpcChannel(channel)
-  }
 
   private def addLoadBalancer(lbPolicy: LBPolicy): IO[Unit] = IO {
     lbPolicy match {
@@ -109,6 +107,8 @@ object WookieeGrpcChannel {
     }
   }
 
+  // Please see https://github.com/grpc/grpc-java/issues/7133
+  @nowarn
   private def buildChannel(
       path: String,
       eventLoopGroupExecutionContext: ExecutionContext,
@@ -123,8 +123,7 @@ object WookieeGrpcChannel {
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings]
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
-
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] =
     for {
       channelExecutorJava <- IO { scalaToJavaExecutor(channelExecutionContext) }
       offloadExecutorJava <- IO { scalaToJavaExecutor(offloadExecutionContext) }
@@ -135,7 +134,7 @@ object WookieeGrpcChannel {
           .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
           .nameResolverFactory(
             new NameResolver.Factory {
-              override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver = {
+              override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver =
                 new WookieeNameResolver(
                   listenerRef,
                   semaphore,
@@ -144,7 +143,6 @@ object WookieeGrpcChannel {
                   discoveryPath,
                   maybeSSLClientSettings.map(_.serviceAuthority).getOrElse("zk")
                 )
-              }
 
               override def getDefaultScheme: String = "zookeeper"
             }
@@ -186,7 +184,6 @@ object WookieeGrpcChannel {
 
       channel <- IO { builder2.build() }
     } yield channel
-  }
 
   private def buildSslContext(sslClientSettings: SSLClientSettings): SslContext = {
     val sslContextBuilder = sslClientSettings

@@ -28,7 +28,7 @@ trait ConstableCommon {
     t
   }
 
-  def mainExecutionContext(parallelism: Int): ExecutionContext = {
+  def mainExecutionContext(parallelism: Int): ExecutionContext =
     ExecutionContext.fromExecutor(
       new ForkJoinPool(
         parallelism,
@@ -37,16 +37,13 @@ trait ConstableCommon {
         true
       )
     )
-  }
 
-  def blockingExecutionContext(prefix: String): ExecutionContext = {
+  def blockingExecutionContext(prefix: String): ExecutionContext =
     ExecutionContext.fromExecutorService(
       Executors.newCachedThreadPool(
         blockingThreadFactory(prefix)
       )
     )
-
-  }
 
   implicit def eitherTListenerErrorToProp: EitherT[IO, WookieeGrpcError, Boolean] => Prop = { e =>
     val result = e
@@ -64,11 +61,10 @@ trait ConstableCommon {
   private def testFormatter =
     new Formatter {
 
-      override def formatIcon(success: Boolean): Str = {
+      override def formatIcon(success: Boolean): Str =
         formatResultColor(success)(
           if (success) "✅💯✅" else "\uD83E\uDD26\u200D\uD83E\uDD26\u200D\uD83E\uDD26\u200D️"
         )
-      }
     }
 
   def exitNegativeOnFailure(results: List[HTree[String, Result]]): Unit = {
@@ -84,7 +80,7 @@ trait ConstableCommon {
 
   def runTests(
       tests: List[(Tests, String)]
-  ): List[HTree[String, Result]] = {
+  ): List[HTree[String, Result]] =
     tests.map {
       case (test, label) =>
         TestRunner
@@ -94,11 +90,10 @@ trait ConstableCommon {
             formatter = testFormatter
           )
     }
-  }
 
   def runTestsAsync(
       tests: List[(Tests, String)]
-  )(implicit ec: ExecutionContext, cs: ContextShift[IO]): List[HTree[String, Result]] = {
+  )(implicit ec: ExecutionContext, cs: ContextShift[IO]): List[HTree[String, Result]] =
     IO.fromFuture {
         IO {
           Future
@@ -121,16 +116,13 @@ trait ConstableCommon {
         }
       }
       .unsafeRunSync()
-  }
 
-  private def formatResults(results: Seq[HTree[String, Result]]): Unit = {
-
+  private def formatResults(results: Seq[HTree[String, Result]]): Unit =
     results.flatMap(tree => tree.leaves.map(_.value.isFailure)).find(identity).foreach { _ =>
       println()
       println(ufansi.Color.Red("T E S T S  F A I L E D"))
       println("\"Laws change, depending on who's making them, but justice is justice.\" - Constable Odo")
     }
-  }
 
   implicit def sleep(implicit timer: Timer[IO]): FiniteDuration => IO[Unit] = { duration: FiniteDuration =>
     IO.sleep(duration)

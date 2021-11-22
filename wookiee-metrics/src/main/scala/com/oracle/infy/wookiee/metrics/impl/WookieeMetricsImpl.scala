@@ -32,7 +32,7 @@ class WookieeMetricsImpl(registry: WookieeRegistry) extends WookieeMetrics[IO] w
 
   override def remove(name: String): IO[Boolean] = IO(registry.metricRegistry.remove(name))
 
-  def getMetrics: IO[Json] = {
+  def getMetrics: IO[Json] =
     IO(
       Json
         .obj(
@@ -45,9 +45,8 @@ class WookieeMetricsImpl(registry: WookieeRegistry) extends WookieeMetrics[IO] w
           )
         )
     )
-  }
 
-  private def processJvmRegistry(jvmRegistry: MetricRegistry): Map[String, mutable.Map[String, Metric]] = {
+  private def processJvmRegistry(jvmRegistry: MetricRegistry): Map[String, mutable.Map[String, Metric]] =
     jvmRegistry
       .getMetrics
       .asScala
@@ -64,6 +63,5 @@ class WookieeMetricsImpl(registry: WookieeRegistry) extends WookieeMetrics[IO] w
           case "ThreadStatesGaugeSet"      => "thread-states"
         }
       )
-  }
 
 }

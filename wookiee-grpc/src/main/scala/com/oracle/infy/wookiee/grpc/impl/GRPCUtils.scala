@@ -9,9 +9,8 @@ import scala.concurrent.ExecutionContext
 
 private[grpc] object GRPCUtils {
 
-  protected[grpc] def eventLoopGroup(dispatcherEC: ExecutionContext, dispatcherECThreads: Int): NioEventLoopGroup = {
+  protected[grpc] def eventLoopGroup(dispatcherEC: ExecutionContext, dispatcherECThreads: Int): NioEventLoopGroup =
     new NioEventLoopGroup(dispatcherECThreads, scalaToJavaExecutor(dispatcherEC))
-  }
 
   protected[grpc] def scalaToJavaExecutor(executor: ExecutionContext): Executor =
     (command: Runnable) => executor.execute(command)
@@ -20,12 +19,11 @@ private[grpc] object GRPCUtils {
       zookeeperQuorum: String,
       zookeeperBlockingExecutionContext: ExecutionContext,
       retryPolicy: RetryPolicy
-  ): CuratorFramework = {
+  ): CuratorFramework =
     CuratorFrameworkFactory
       .builder()
       .runSafeService(scalaToJavaExecutor(zookeeperBlockingExecutionContext))
       .connectString(zookeeperQuorum)
       .retryPolicy(retryPolicy)
       .build()
-  }
 }

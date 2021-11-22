@@ -16,7 +16,7 @@ protected[grpc] class WookieeGrpcHostListener(
 )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends ListenerContract[IO, Stream](hostnameServiceContract) {
 
-  override def startListening: EitherT[IO, WookieeGrpcError, Unit] = {
+  override def startListening: EitherT[IO, WookieeGrpcError, Unit] =
     for {
       closableStream <- hostnameServiceContract.hostStream(discoveryPath)
       r <- EitherT(
@@ -31,5 +31,4 @@ protected[grpc] class WookieeGrpcHostListener(
       )
     } yield r
 
-  }
 }

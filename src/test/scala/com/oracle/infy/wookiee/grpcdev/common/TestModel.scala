@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpcdev.common
 
-import com.oracle.infy.wookiee.grpc.srcgen.Model.Record
-import com.oracle.infy.wookiee.grpc.srcgen.SrcGen
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGen
 
 object TestModel {
   sealed trait TestMaybeResponse
@@ -29,18 +28,5 @@ object TestModel {
   final case class TestMaybeResponseFailed(code: Int, msg: String, detail: String) extends TestMaybeResponse
   final case class TestMaybeResponseInvalid(errors: List[String]) extends TestMaybeResponse
 
-  object srcGenTestObject extends SrcGen {
-
-    def grpcEncoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
-      addOptionRecords(List(record), sealedTypes)
-        .map(r => grpcEncoder(r, sealedTypes))
-        .mkString("\n\n")
-    }
-
-    def grpcDecoderWithOptions(record: Record, sealedTypes: Set[String]): String = {
-      addOptionRecords(List(record), sealedTypes)
-        .map(r => grpcDecoder(r, sealedTypes))
-        .mkString("\n\n")
-    }
-  }
+  object srcGenTestObject extends SourceGen
 }

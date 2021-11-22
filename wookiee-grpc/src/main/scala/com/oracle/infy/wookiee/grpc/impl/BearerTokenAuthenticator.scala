@@ -28,7 +28,6 @@ class BearerTokenAuthenticator(authSettings: ServiceAuthSettings) extends Server
 
 object BearerTokenAuthenticator {
 
-  def apply(authSettings: ServiceAuthSettings): BearerTokenAuthenticator = {
+  def apply(authSettings: ServiceAuthSettings): BearerTokenAuthenticator =
     new BearerTokenAuthenticator(authSettings)
-  }
 }
