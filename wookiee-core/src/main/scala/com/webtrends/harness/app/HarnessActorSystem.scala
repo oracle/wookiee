@@ -16,7 +16,7 @@
 package com.webtrends.harness.app
 
 import akka.actor.ActorSystem
-import com.typesafe.config.{Config, ConfigFactory}
+import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 import com.webtrends.harness.component.ComponentManager
 import com.webtrends.harness.logging.Logger
 import com.webtrends.harness.service.ServiceManager
@@ -43,10 +43,12 @@ object HarnessActorSystem {
 
     ComponentManager.loadComponentJars(sysConfig, loader, replace = replace)
     for (child <- loader.getChildLoaders) {
+      ConfigFactory.invalidateCaches()
       val childConf = ConfigFactory.load(child)
-      externalLogger.info(s"Config for extension '${child.entityName}': \n$childConf")
+      externalLogger.info(s"Config for extension '${child.entityName}': \n${childConf.root().render(ConfigRenderOptions.concise())}")
       sysConfig = sysConfig.withFallback(childConf)
     }
+    ConfigFactory.load
 
     externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)

@@ -425,10 +425,10 @@ class ComponentManager extends PrepareForShutdown {
               componentLoadFailed(cfName, s"Could not load component [$cfName]. Class not found. This could be because the JAR for the component was not found in the component-path", Some(e))
             case nf:ComponentNotFoundException =>
               // this is the one case were we don't set the component as failed
-              log.warning(s"Could not load component [$cfName]. Component not found. Error: ${nf.getMessage}")
+              log.warning(s"Could not load component [$cfName]. Component config not found. Error: ${nf.getMessage}", nf)
             case i:IllegalArgumentException =>
               // this is the one case were we don't set the component as failed
-              log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}")
+              log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}", i)
             case c:ConfigException =>
               componentLoadFailed(cfName, s"Could not load component [$cfName]. Configuration failure", Some(c))
           }
