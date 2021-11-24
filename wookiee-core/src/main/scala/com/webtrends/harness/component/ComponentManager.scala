@@ -35,7 +35,7 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 case class Request[T](name:String, msg:ComponentRequest[T])
 case class Message[T](name:String, msg:ComponentMessage[T])
@@ -263,9 +263,8 @@ class ComponentManager extends PrepareForShutdown {
       val stopFuture = (context.child(compName) match {
         case Some(ref) =>
           log.info(s"Component '$compName' already running, stopping current instance")
-          Future({
-            ref ! StopComponent
-          }).flatMap(_ => gracefulStop(ref, componentTimeout.duration))
+          Try(ref ! StopComponent)
+          gracefulStop(ref, componentTimeout.duration)
         case None =>
           log.debug(s"Component '$compName' not running, no need to stop")
           Future.successful(true)
