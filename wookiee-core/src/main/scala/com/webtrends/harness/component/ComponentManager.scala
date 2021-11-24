@@ -256,15 +256,16 @@ class ComponentManager extends PrepareForShutdown {
   protected def reloadComponent(file: File, classLoader: Option[HarnessClassLoader]): Future[Boolean] = {
     try {
       val hClassLoader = getOrDefaultClassLoader(classLoader)
-      val updatedConfig = HarnessActorSystem.renewConfigsAndClasses(Some(config))
+      val updatedConfig = HarnessActorSystem.renewConfigsAndClasses(Some(config), replace = true)
       log.info(s"Updated config: $updatedConfig")
       val compName = getComponentName(file, updatedConfig)
 
       val stopFuture = (context.child(compName) match {
         case Some(ref) =>
           log.info(s"Component '$compName' already running, stopping current instance")
-          ref ! StopComponent
-          gracefulStop(ref, componentTimeout.duration)
+          Future({
+            ref ! StopComponent
+          }).flatMap(_ => gracefulStop(ref, componentTimeout.duration))
         case None =>
           log.debug(s"Component '$compName' not running, no need to stop")
           Future.successful(true)
