@@ -45,7 +45,7 @@ trait HealthCheckProvider {
 
   private def defaultAttributes(): java.util.jar.Manifest = {
     val man = new java.util.jar.Manifest()
-    man.getMainAttributes.put(Name.IMPLEMENTATION_TITLE, "Wookiee Service")
+    man.getMainAttributes.put(Name.IMPLEMENTATION_TITLE, "Webtrends Harness Service")
     man.getMainAttributes.put(Name.IMPLEMENTATION_VERSION, "develop-SNAPSHOT")
     man.getMainAttributes.put(new Attributes.Name("Implementation-Build"), "N/A")
     man
