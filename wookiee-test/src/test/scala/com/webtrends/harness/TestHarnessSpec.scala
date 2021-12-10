@@ -37,8 +37,11 @@ import scala.concurrent.duration.Duration
 
 
 class TestHarnessSpec extends SpecificationWithJUnit {
-  implicit val timeout = Timeout(5000, TimeUnit.MILLISECONDS)
-  val sys = TestHarness(ConfigFactory.empty(), Some(Map("testservice" -> classOf[TestService])),
+  implicit val timeout = Timeout(15000, TimeUnit.MILLISECONDS)
+  val sys = TestHarness(ConfigFactory.parseString(
+    """
+      |akka.test.single-expect-default = 15000
+      |""".stripMargin), Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent])))
   implicit val actorSystem = TestHarness.system.get
 
@@ -117,7 +120,7 @@ class TestHarnessSpec extends SpecificationWithJUnit {
 
       val results = probe.receiveN(2, timeout.duration)
       TestHarness.log.debug(s"Results $results")
-      results must have size(2)
+      results must have size 2
       results must contain(be_==("GotShutdown")).foreach
     }
   }
