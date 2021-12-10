@@ -20,7 +20,6 @@ package com.webtrends.harness.health
 
 import java.util.jar.Attributes.Name
 import java.util.jar.{Attributes, JarFile}
-
 import akka.actor.Actor
 import akka.pattern._
 import akka.util.Timeout
@@ -33,7 +32,7 @@ import org.joda.time.DateTime
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
@@ -44,15 +43,19 @@ trait HealthCheckProvider {
   val scalaVersion = util.Properties.versionString
   val file = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
 
+  private def defaultAttributes(): java.util.jar.Manifest = {
+    val man = new java.util.jar.Manifest()
+    man.getMainAttributes.put(Name.IMPLEMENTATION_TITLE, "Wookiee Service")
+    man.getMainAttributes.put(Name.IMPLEMENTATION_VERSION, "develop-SNAPSHOT")
+    man.getMainAttributes.put(new Attributes.Name("Implementation-Build"), "N/A")
+    man
+  }
+
   val manifest = file match {
     case _ if file.endsWith(".jar") =>
-      new JarFile(file).getManifest
+      Try(new JarFile(file).getManifest).getOrElse(defaultAttributes())
     case _ =>
-      val man = new java.util.jar.Manifest()
-      man.getMainAttributes.put(Name.IMPLEMENTATION_TITLE, "Webtrends Harness Service")
-      man.getMainAttributes.put(Name.IMPLEMENTATION_VERSION, "develop-SNAPSHOT")
-      man.getMainAttributes.put(new Attributes.Name("Implementation-Build"), "N/A")
-      man
+      defaultAttributes()
   }
 
   val application = manifest.getMainAttributes.getValue(Name.IMPLEMENTATION_TITLE)

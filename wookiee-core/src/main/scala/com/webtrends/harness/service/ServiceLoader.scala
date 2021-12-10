@@ -246,7 +246,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       val meta = getServiceMetaDetails(context, serviceActor.get)
       val file = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
       val version = if (file.endsWith(".jar")) {
-        new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
+        Try(new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)).getOrElse("1.0")
       } else "1.0"
       ServiceMetaData(name,
         version,
