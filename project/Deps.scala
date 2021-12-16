@@ -14,7 +14,7 @@ object Deps {
     val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
     val slf4jVersion = "1.7.5"
-    val slf4jImplVersion = "2.13.3"
+    val slf4jImplVersion = "2.16.0"
     val scalaCollectionCompatVersion = "2.1.6"
     val http4sVersion = "0.21.4"
     val dropwizardMetricsVersion = "4.1.17"
