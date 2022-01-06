@@ -21,7 +21,7 @@ import org.joda.time.DateTime
 case class ServiceMetaData(name: String, version: String, loaded: DateTime,
                           path: String, akkaPath: String, jar: String,
                           supportsHttp: Boolean, dependencies: List[String]) extends JsonSerializable {
-  override def toJson(): String = {
+  override def toJson: String = {
     val props = Map[String, Any](
       "name" -> name,
       "version" -> version,

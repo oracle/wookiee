@@ -46,7 +46,7 @@ case class HealthComponent(name: String,
                            details: String,
                            extra: Option[AnyRef] = None,
                            var components: List[HealthComponent] = List.empty) extends JsonSerializable {
-  override def toJson(): String = {
+  override def toJson: String = {
     val extraDetails = extra match {
       case Some(s) => s.toString
       case None => ""
