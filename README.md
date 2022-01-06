@@ -9,7 +9,7 @@ Wookiee is Licensed under the Apache 2.0 License, for more information see [LICE
 ## Usage
 
 Wookiee is meant to save you from the endless tedium of creating yet another micro service. 
-It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/com/webtrends/harness/app/HarnessService.scala)) 
+It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/com/oracle/infy/wookiee/app/HarnessService.scala)) 
 and tacks on a ton of out of the box conveniences.
 
 <b>So think of Wookiee when you...</b>
@@ -47,11 +47,11 @@ Add the jfrog repo to your project first:
 </repositories>
 ~~~~
 
-Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee, either Scala 2.11 or 2.12 varietals:
+Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee, either Scala 2.12 or 2.13 varietals:
 ~~~~
 <dependency>
-    <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-core_2.11</artifactId>
+    <groupId>com.oracle.infy</groupId>
+    <artifactId>wookiee-core_2.12</artifactId>
     <version>${wookiee.version}</version>
 </dependency>
 ~~~~
@@ -94,7 +94,7 @@ There is a cluster component which allows for messaging across a cluster. Howeve
 
 ### Health
 Standardized health checks is provided by the library. The ActorHealth trait will apply default health functionality to any actor that leverages the trait. By default, a developer would only have to insert the following code into their actor class
-```java
+```scala
 class ActorClass extends ActorHealth {
 	def receive = health orElse {
 		case Message => "Do something here"
@@ -108,7 +108,7 @@ The above code will give the actor basic health functionality, this will do thre
 * implement the checkHealth function we will get the health of the current actor using the getHealth function above and then execute the request on the child actors and get the health status for them.
 
 Generally a developer would want to override the getHealth function to give customized health check status for the actor. Example:
-```java
+```scala
 	override def getHealth : Future[HealthComponent] = {
 		Future {
 			Math.random.toInt match {
@@ -130,9 +130,9 @@ The file specified in config.file will actually be watched for any changes to it
 will be sent to all HActors (message: ConfigChange()). To hook into this most easily, extend
 the ConfigHelper class like so:
 
-```java
-import com.webtrends.harness.config.ConfigHelper
-import com.webtrends.harness.app.HActor
+```scala
+import com.oracle.infy.wookiee.config.ConfigHelper
+import com.oracle.infy.wookiee.app.HActor
 
 class ConfigWatchingActor extends HActor with ConfigHelper {
     override def renewConfiguration() {
@@ -144,7 +144,7 @@ class ConfigWatchingActor extends HActor with ConfigHelper {
 
 ### Logging
 Standardized logging is provided by the library. This can be applied to any actor using the trait ActorLoggingAdapter. This will give you the "log" variable which will allow you to write info, debug, warn, error and trace messages to the log. If you need to add logging to a non-actor based class, possibly like an object you can use the following code.
-```java
+```scala
 	val externalLogger = LoggerFactory.getLogger(this.getClass)
 ```
 
@@ -249,5 +249,5 @@ Maven dist.xml
 
 Run command:
 ```
-java -cp *:lib/components/*:lib/thirdparty/* com.webtrends.harness.app.HarnessService
+java -cp *:lib/components/*:lib/thirdparty/* com.oracle.infy.wookiee.app.HarnessService
 ```

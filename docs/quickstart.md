@@ -12,7 +12,7 @@ This step is optional, but can be helpful. We need to build the archetype for Id
 3. Click the Add Archetype button and use the following settings:
 
     ```
-    GroupId = com.webtrends.archetypes
+    GroupId = com.oracle.infy.wookiee.archetypes
     ArtifactId = wookiee-service-archetype
     version = 1.0-SNAPSHOT
     ```
@@ -37,14 +37,14 @@ This will create a base service to start coding in. It will include the dependen
 If you built the baseline using the archetype you can skip this step. Add the following dependencies into your pom.xml:
 ```
 <dependency>
-    <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-core</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <groupId>com.oracle.infy</groupId>
+    <artifactId>wookiee-core_2.12</artifactId>
+    <version>2.0-SNAPSHOT</version>
 </dependency>
 <dependency>
-    <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-test</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <groupId>com.oracle.infy</groupId>
+    <artifactId>wookiee-test_2.12</artifactId>
+    <version>2.0-SNAPSHOT</version>
     <scope>test</scope>
 </dependency>
 ```
@@ -54,9 +54,9 @@ This will get the base libraries for the harness.
 Add any component dependencies into your pom.xml and service config. For example if you wanted to include wookiee-spray you would add the following to your pom.xml:
 ```
 <dependency>
-    <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-spray</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <groupId>com.oracle.infy</groupId>
+    <artifactId>wookiee-akka-http</artifactId>
+    <version>2.0-SNAPSHOT</version>
 </dependency>
 ```
 These components will be automatically found and loaded into Wookiee when you start it using this method. Nothing further is required.
@@ -79,7 +79,7 @@ mvn install
 #####Step 6 
 Add Idea Run/Debug Configuration with following settings:
 
-    * MainClass: com.webtrends.harness.app.HarnessService
+    * MainClass: com.oracle.infy.wookiee.app.HarnessService
     * VM Options: -Dconfig.file=src/main/resources/<CONFIG_NAME>.conf
     * Working Directory: <Root directory for your service>
     * Use classpath of Module: <Choose your service module>
