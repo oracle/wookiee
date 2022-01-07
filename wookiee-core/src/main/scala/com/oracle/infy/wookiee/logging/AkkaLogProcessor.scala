@@ -24,16 +24,15 @@ private[oracle] trait AkkaLogProcessor extends BaseLogProcessor {
   val emptyTemplate = "{}"
 
   /**
-   * Process akka logging events
-   * @param event the akka logging event
-   */
-  def process(event: akka.event.Logging.LogEvent) = {
+    * Process akka logging events
+    * @param event the akka logging event
+    */
+  def process(event: akka.event.Logging.LogEvent): Unit = {
     val logger = getLogger(event)
 
     event match {
       case e: akka.event.Logging.Error =>
-
-        val msg = e.cause match {
+        e.cause match {
           case akka.event.Logging.Error.NoCause | null =>
             withContext(event.thread, event.timestamp, Some(event.logSource)) {
               logger.error(if (e.message != null) e.message.toString else empty, None)
@@ -62,11 +61,10 @@ private[oracle] trait AkkaLogProcessor extends BaseLogProcessor {
     }
   }
 
-
   private def getLogger(event: akka.event.Logging.LogEvent): org.slf4j.Logger = {
     event.logClass match {
       case c if c == classOf[DummyClassForStringSources] => LoggerFactory getLogger event.logSource
-      case _ => LoggerFactory getLogger event.logClass
+      case _                                             => LoggerFactory getLogger event.logClass
     }
   }
 }

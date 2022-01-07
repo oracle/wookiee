@@ -35,8 +35,13 @@ import scala.util.{Failure, Success}
 trait HealthCheckProvider {
   this: Actor with ActorLoggingAdapter =>
   val upTime: DateTime = DateTime.now
+
   implicit val timeout: Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
+    ConfigUtil.getDefaultTimeout(
+      context.system.settings.config,
+      HarnessConstants.KeyDefaultTimeout,
+      Timeout(15.seconds)
+    )
 
   val scalaVersion: String = util.Properties.versionString
   val file: String = getClass.getProtectionDomain.getCodeSource.getLocation.getFile
@@ -57,17 +62,18 @@ trait HealthCheckProvider {
   val alerts: mutable.Buffer[ComponentHealth] = mutable.Buffer()
 
   /**
-   * Rollup the overall status and critical alerts for each component
-   * @param checks List of status objects for each component and service
-   * @return Parent status that is only NOMRAL if all children were NORMAL
-   */
+    * Rollup the overall status and critical alerts for each component
+    * @param checks List of status objects for each component and service
+    * @return Parent status that is only NOMRAL if all children were NORMAL
+    */
   private def rollupStatuses(checks: mutable.Buffer[ComponentHealth]): ComponentHealth = {
     // Check if all components are running normal
     if (alerts.isEmpty) {
       ComponentHealth(ComponentState.NORMAL, "Thunderbirds are GO")
-    }
-    else {
-      val status = if (checks.forall(c => c != null && c.state == ComponentState.DEGRADED)) ComponentState.DEGRADED else ComponentState.CRITICAL
+    } else {
+      val status =
+        if (checks.forall(c => c != null && c.state == ComponentState.DEGRADED)) ComponentState.DEGRADED
+        else ComponentState.CRITICAL
       val details = for (c <- checks) yield if (c != null) c.details else ""
 
       ComponentHealth(status, details.mkString("; "))
@@ -75,9 +81,9 @@ trait HealthCheckProvider {
   }
 
   /**
-   * Rollup alerts for all components that have a CRITICAL or DEGRADED state
-   * @param component Component that has children
-   */
+    * Rollup alerts for all components that have a CRITICAL or DEGRADED state
+    * @param component Component that has children
+    */
   private def checkComponents(component: HealthComponent): Unit = {
     def alertComponent(state: ComponentState.ComponentState): Boolean = {
       if (state == ComponentState.CRITICAL || state == ComponentState.DEGRADED) true else false
@@ -89,8 +95,7 @@ trait HealthCheckProvider {
 
     if (component.components.isEmpty && alertComponent(component.state)) {
       alerts += ComponentHealth(component.state, healthDetails(component))
-    }
-    else {
+    } else {
       if (alertComponent(component.state)) {
         alerts += ComponentHealth(component.state, healthDetails(component))
       }
@@ -99,16 +104,16 @@ trait HealthCheckProvider {
   }
 
   /**
-   * Run the health checks and return the current system state
-   * @return
-   */
+    * Run the health checks and return the current system state
+    * @return
+    */
   def runChecks: Future[ApplicationHealth] = {
 
     import context.dispatcher
 
     // Ask for the health of each component
     val future = (context.actorSelection(HarnessConstants.ActorPrefix) ? CheckHealth).mapTo[Seq[HealthComponent]]
-    val p = Promise[ApplicationHealth]
+    val p = Promise[ApplicationHealth]()
 
     future.onComplete({
       case Success(checks) =>

@@ -23,10 +23,12 @@ import com.oracle.infy.wookiee.utils.ConfigUtil
 import scala.util.{Failure, Success}
 
 object HealthCheckActor {
-  def props: Props = Props[HealthCheckActor]
+  def props: Props = Props[HealthCheckActor]()
 
   // These objects will be temporary enough, favoring time complexity concerns over space concerns
-  protected[health] def collectHealthStates(health: ApplicationHealth): collection.mutable.Map[Seq[String], ComponentState.ComponentState] = {
+  protected[health] def collectHealthStates(
+      health: ApplicationHealth
+  ): collection.mutable.Map[Seq[String], ComponentState.ComponentState] = {
     val checks = collection.mutable.Map.empty[Seq[String], ComponentState.ComponentState]
 
     def drillDown(parentPath: Seq[String], check: HealthComponent): Unit = {
@@ -53,7 +55,7 @@ object HealthCheckActor {
 
     current.components.foreach(c => drillDown(Seq(current.applicationName), c))
     previous.state != current.state ||
-      foundDiff
+    foundDiff
   }
 }
 
@@ -71,7 +73,7 @@ class HealthCheckActor extends HActor with HealthCheckProvider {
 
   override def receive: Receive = health orElse {
     case HealthRequest(typ) =>
-      val caller = sender
+      val caller = sender()
       log.debug("Fetching the system health")
       import context.dispatcher
       runChecks onComplete {
@@ -79,8 +81,8 @@ class HealthCheckActor extends HActor with HealthCheckProvider {
           comparePreviousCheck(s)
           val res = typ match {
             case HealthResponseType.NAGIOS => "%s|%s".format(s.state.toString.toUpperCase, s.details)
-            case HealthResponseType.LB => if (s.state == ComponentState.CRITICAL) "DOWN" else "UP"
-            case _ => s
+            case HealthResponseType.LB     => if (s.state == ComponentState.CRITICAL) "DOWN" else "UP"
+            case _                         => s
           }
           caller ! res
         case Failure(f) => caller ! Status.Failure(f)

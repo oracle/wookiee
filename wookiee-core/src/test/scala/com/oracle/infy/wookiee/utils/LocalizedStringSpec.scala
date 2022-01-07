@@ -6,18 +6,20 @@ import org.scalatest.wordspec.AnyWordSpecLike
 import java.util.Locale
 
 class LocalizedStringSpec extends AnyWordSpecLike with Matchers {
+  val WORLD: String = "world"
+
   "Localization" should {
     "localized message" in {
       LocalizedString("hello")(Locale.ENGLISH) shouldBe "Hello"
       LocalizedString("hello")(Locale.forLanguageTag("ru")) shouldBe "Привет"
     }
     "fallback to default" in {
-      LocalizedString("world")(Locale.ENGLISH) shouldBe "World"
-      LocalizedString("world")(Locale.forLanguageTag("ru")) shouldBe "World"
+      LocalizedString(WORLD)(Locale.ENGLISH) shouldBe "World"
+      LocalizedString(WORLD)(Locale.forLanguageTag("ru")) shouldBe "World"
     }
     "format" in {
-      LocalizedString("greet", "world")(Locale.ENGLISH) shouldBe "Hello, world"
-      LocalizedString("greet", "world")(Locale.forLanguageTag("ru")) shouldBe "Привет, world"
+      LocalizedString("greet", WORLD)(Locale.ENGLISH) shouldBe "Hello, world"
+      LocalizedString("greet", WORLD)(Locale.forLanguageTag("ru")) shouldBe "Привет, world"
     }
 
     "localized message in custom path" in {
@@ -30,10 +32,9 @@ class LocalizedStringSpec extends AnyWordSpecLike with Matchers {
       LocalizedString("custom_path.world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") shouldBe "World"
     }
     "format in custom path" in {
-      LocalizedString("custom_path.greet", "world")(Locale.ENGLISH, "com.custom.path.messages") shouldBe "Hello, world"
-      LocalizedString("custom_path.greet", "world")(Locale.forLanguageTag("ru"), "com.custom.path.messages") shouldBe "Привет, world"
+      LocalizedString("custom_path.greet", WORLD)(Locale.ENGLISH, "com.custom.path.messages") shouldBe "Hello, world"
+      LocalizedString("custom_path.greet", WORLD)(Locale.forLanguageTag("ru"), "com.custom.path.messages") shouldBe "Привет, world"
     }
-
 
     "custom localized message" in {
       LocalizedString("custom.hello")(Locale.ENGLISH, "custom") shouldBe "Hello"
@@ -49,7 +50,7 @@ class LocalizedStringSpec extends AnyWordSpecLike with Matchers {
     }
   }
 
-  "Localizable"  should {
+  "Localizable" should {
     case class HelloMessage() extends Localizable {
       val key = "hello"
       val context: String = "messages"
@@ -64,7 +65,8 @@ class LocalizedStringSpec extends AnyWordSpecLike with Matchers {
     }
     "custom path with localizable argument" in {
       GreetMessage(Seq(HelloMessage())).localize(Seq(Locale.ENGLISH)) shouldBe "Hello, Hello"
-      GreetMessage(Seq(HelloMessage())).localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) shouldBe "Привет, Привет"
+      GreetMessage(Seq(HelloMessage()))
+        .localize(Seq(Locale.FRENCH, Locale.forLanguageTag("ru"), Locale.ENGLISH)) shouldBe "Привет, Привет"
     }
   }
 }

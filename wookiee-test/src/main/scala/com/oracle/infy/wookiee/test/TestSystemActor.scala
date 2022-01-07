@@ -34,21 +34,21 @@ import scala.util.{Failure, Success, Try}
 object TestSystemActor {
 
   /**
-   * Create an instance of TestSystemActor
-   * @param services the initial services to load. This can be empty and additional services loaded later.
-   * @param system the ActorSystem to load the actor into
-   * @return
-   */
+    * Create an instance of TestSystemActor
+    * @param services the initial services to load. This can be empty and additional services loaded later.
+    * @param system the ActorSystem to load the actor into
+    * @return
+    */
   def apply(services: Seq[Class[_ <: Actor]])(implicit system: ActorSystem): ActorRef = {
     val httpPort = Try(system.settings.config.getInt("internal-http.port")).getOrElse(8080)
     system.actorOf(Props(classOf[TestSystemActor], services, httpPort), "system")
   }
 
   /**
-   * This message is used to get an instance of the ActorRef for the given service class. The return will be
-   * an Option[ActorRef] for the service
-   * @param service the class for the service to receive
-   */
+    * This message is used to get an instance of the ActorRef for the given service class. The return will be
+    * an Option[ActorRef] for the service
+    * @param service the class for the service to receive
+    */
   case class GetService(service: Class[_ <: Actor])
 
   case class LoadService(service: Class[_ <: Actor], servicePath: Option[URI])
@@ -58,8 +58,7 @@ object TestSystemActor {
   case class RegisterShutdownListener(ref: ActorRef)
 }
 
-private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val httpPort: Int)
-  extends Actor {
+private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val httpPort: Int) extends Actor {
 
   implicit val sys: ActorSystem = context.system
   implicit val timeout: Timeout = Timeout(1.second)
@@ -68,8 +67,9 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
 
   var services: Map[String, ActorRef] = Map[String, ActorRef]()
 
-  override def preStart: Unit = {
+  override def preStart(): Unit = {
     loadServices
+    ()
   }
 
   private def loadServices: ActorRef = {
@@ -89,7 +89,8 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
           sender() ! services.get(URLEncoder.encode(clazz.getSimpleName.toLowerCase, "utf-8"))
         case CheckHealth =>
           val xSender = sender()
-          val future = Future.traverse(context.children)(plug => (plug ? CheckHealth)(2.second)).mapTo[Seq[HealthComponent]]
+          val future =
+            Future.traverse(context.children)(plug => (plug ? CheckHealth)(2.second)).mapTo[Seq[HealthComponent]]
 
           future.onComplete({
             case Failure(f) =>
@@ -115,7 +116,8 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
 
           (service ? GetMetaDetails).mapTo[ServiceMetaDetails] onComplete {
             case Success(m) =>
-              val meta = ServiceMetaData(name, "n/a", DateTime.now, path, service.path.toString, jar, m.supportsHttp, Nil)
+              val meta =
+                ServiceMetaData(name, "n/a", DateTime.now, path, service.path.toString, jar, m.supportsHttp, Nil)
               serviceMeta += (service.path -> meta)
 
               service ! Ready(meta)
@@ -139,10 +141,9 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
     case gm: TestSystemActor.GetService =>
       (context.actorSelection("services") ! gm)(sender())
     case TestSystemActor.Shutdown =>
-    case _ => // do nothing
+    case _                        => // do nothing
   }
 }
-
 
 trait ShutdownListener {
   this: Actor with ActorLoggingAdapter =>

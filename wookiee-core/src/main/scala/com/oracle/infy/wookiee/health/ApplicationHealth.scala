@@ -21,12 +21,15 @@ import org.joda.time.DateTime
 
 import scala.collection.immutable.ListMap
 
-case class ApplicationHealth(applicationName: String,
-                             version: String,
-                             time: DateTime,
-                             state: ComponentState,
-                             details: String,
-                             components: Seq[HealthComponent]) extends JsonSerializable {
+case class ApplicationHealth(
+    applicationName: String,
+    version: String,
+    time: DateTime,
+    state: ComponentState,
+    details: String,
+    components: Seq[HealthComponent]
+) extends JsonSerializable {
+
   override def toJson: String = {
     val props = ListMap[String, Any](
       "applicationName" -> applicationName,

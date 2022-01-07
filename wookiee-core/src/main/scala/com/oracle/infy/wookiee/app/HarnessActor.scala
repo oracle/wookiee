@@ -38,7 +38,7 @@ import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 
 object HarnessActor {
-  def props()(implicit system: ActorSystem): Props = Props[HarnessActor]
+  def props(): Props = Props[HarnessActor]()
 
   @SerialVersionUID(2L) case class ShutdownSystem()
   @SerialVersionUID(2L) case class RestartSystem()
@@ -58,20 +58,16 @@ trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
   override def receive: Receive = health
 }
 
-
 trait PrepareForShutdown extends HActor {
+
   override def receive: Receive = health orElse {
     case PrepareForShutdown =>
       log.debug("Preparing for shutdown of self and children")
-      context.children foreach(_ ! PrepareForShutdown)
+      context.children foreach (_ ! PrepareForShutdown)
   }
 }
 
-class HarnessActor extends Actor
-    with ActorLoggingAdapter
-    with Health
-    with ConfigWatcher
-    with InternalHTTP {
+class HarnessActor extends Actor with ActorLoggingAdapter with Health with ConfigWatcher with InternalHTTP {
 
   import ConfigUtil._
   import HarnessActor._
@@ -79,19 +75,22 @@ class HarnessActor extends Actor
 
   private val config = context.system.settings.config
 
-  implicit val checkTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
+  implicit val checkTimeout: Timeout =
+    getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
   val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20.seconds))
-  val prepareShutdownTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5.seconds))
+
+  val prepareShutdownTimeout: Timeout =
+    getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5.seconds))
 
   var running: Boolean = false
 
   override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute, loggingEnabled = true) {
       case _: ActorInitializationException => Stop
-      case _: DeathPactException => Stop
-      case _: ActorKilledException => Restart
-      case _: Exception => Restart
-      case _: Throwable => Escalate
+      case _: DeathPactException           => Stop
+      case _: ActorKilledException         => Restart
+      case _: Exception                    => Restart
+      case _: Throwable                    => Escalate
     }
 
   // The service manager will be created after we have started and all of the system's actors are able to receive messages
@@ -108,23 +107,24 @@ class HarnessActor extends Actor
   override def receive: Receive = initializing
 
   def initializing: Receive = {
-    case CheckHealth => pipe(getHealth(true)) to sender
-    case ComponentInitializationComplete => initializationComplete()
-    case ShutdownSystem => shutdownCoreServices()
-    case ReadyCheck => sender ! running
+    case CheckHealth                     => pipe(getHealth(true)) to sender(); ()
+    case ComponentInitializationComplete => initializationComplete(); ()
+    case ShutdownSystem                  => shutdownCoreServices(); ()
+    case ReadyCheck                      => sender() ! running
   }
 
   def processing: Receive = {
-    case CheckHealth => pipe(getHealth(false)) to sender
+    case CheckHealth => pipe(getHealth(false)) to sender(); ()
 
     case ServicesReady =>
       // This message is sent from the service manager that tells us the services are loaded.
       // Notify the services, components and commands that we are all ready to go
       List(serviceActor, componentActor, dispatchManager, commandManager)
-        .flatten.foreach(_ ! SystemReady)
-    case ReadyCheck => sender ! running
+        .flatten
+        .foreach(_ ! SystemReady)
+    case ReadyCheck => sender() ! running
     case GetManagers =>
-      sender ! Map[String, Option[ActorRef]](
+      sender() ! Map[String, Option[ActorRef]](
         HarnessConstants.CommandName -> commandManager,
         HarnessConstants.ServicesName -> serviceActor,
         HarnessConstants.ComponentName -> componentActor
@@ -138,8 +138,8 @@ class HarnessActor extends Actor
   }
 
   /**
-   * Start the core services
-   */
+    * Start the core services
+    */
   private def initialize(): Unit = {
     startHealth
     startConfigWatcher
@@ -173,8 +173,8 @@ class HarnessActor extends Actor
   }
 
   /**
-   * Complete the shutdown process. This will be called after clustering has been shutdown.
-   */
+    * Complete the shutdown process. This will be called after clustering has been shutdown.
+    */
   private def shutdownCoreServices(): Unit = {
     log.info("Starting the shutdown process")
     if (running) {
@@ -186,6 +186,8 @@ class HarnessActor extends Actor
         case _ => Try(gracefulShutdown())
       }
     } else Try(gracefulShutdown())
+
+    ()
   }
 
   private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
@@ -202,8 +204,7 @@ class HarnessActor extends Actor
     }
   }
 
-
-  private def gracefulShutdown():Unit = {
+  private def gracefulShutdown(): Unit = {
     def gStop(actOpt: Option[ActorRef]): Future[Boolean] = {
       if (actOpt != null && actOpt.isDefined) gracefulStop(actOpt.get, checkTimeout.duration)
       else Future.successful(true)
@@ -228,13 +229,13 @@ class HarnessActor extends Actor
         })
       })
     })
+    ()
   }
 
-
   /**
-   * Fetch the health of this actor and all of its children.
-   * @return A Future that contains a sequence of the children's HealthComponent
-   */
+    * Fetch the health of this actor and all of its children.
+    * @return A Future that contains a sequence of the children's HealthComponent
+    */
   private def getHealth(initializing: Boolean): Future[Seq[HealthComponent]] = {
     log.debug("We have received a message to check our health")
     if (initializing) {
@@ -243,9 +244,8 @@ class HarnessActor extends Actor
       }
     } else {
       // Call the sections and get their health
-      val future = Future.traverse(context.children) {
-        a: ActorRef =>
-          (a ? CheckHealth).mapTo[HealthComponent]
+      val future = Future.traverse(context.children) { a: ActorRef =>
+        (a ? CheckHealth).mapTo[HealthComponent]
       }
 
       val p = Promise[Seq[HealthComponent]]()

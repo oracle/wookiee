@@ -33,7 +33,9 @@ object HarnessService extends App {
             keepRunning = false
             Harness.externalLogger.info("Caught interrupt, exiting.")
           case ex: Throwable =>
-            Harness.externalLogger.info("Caught exception '" + ex.getMessage + "'keeping main thread alive, keeping on.")
+            Harness
+              .externalLogger
+              .info("Caught exception '" + ex.getMessage + "'keeping main thread alive, keeping on.")
         }
       }
     } catch {

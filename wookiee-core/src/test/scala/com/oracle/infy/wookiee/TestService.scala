@@ -47,7 +47,7 @@ class TestService extends Service {
     case TestClass("foo", _) =>
       TestService.gotMessage = true
       sender() ! "gotit"
-    case GetMetaDetails => sender ! ServiceMetaDetails(supportsHttp = false)
+    case GetMetaDetails => sender() ! ServiceMetaDetails(supportsHttp = false)
   }
 
 }

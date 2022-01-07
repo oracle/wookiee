@@ -26,32 +26,35 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
   private var childLoaders: Seq[ServiceClassLoader] = Nil
 
   /**
-   * Adds a sequence of urls to load into this class loader
-   * @param urls Urls of the JAR files to load
-   */
+    * Adds a sequence of urls to load into this class loader
+    * @param urls Urls of the JAR files to load
+    */
   def addURLs(urls: Seq[URL]): Unit = urls foreach addURL
 
   /**
-   * Add the child service loader so it can be used to search for classes in child loaders
-   * @param loader an instance of ServiceClassLoader
-   */
+    * Add the child service loader so it can be used to search for classes in child loaders
+    * @param loader an instance of ServiceClassLoader
+    */
   def addChildLoader(loader: ServiceClassLoader): Unit = childLoaders = childLoaders ++ Seq(loader)
 
   /**
-   * ClassLoader overrides
-   */
+    * ClassLoader overrides
+    */
   override def loadClass(name: String, resolve: Boolean): Class[_] = {
     // First, check if the class has already been loaded
     Try(super.loadClass(name, resolve)) match {
       case Success(v) => v
-      case Failure(_) => loadClassFromChildren(name, resolve) getOrElse (throw new ClassNotFoundException("Could not locate the class " + name))
+      case Failure(_) =>
+        loadClassFromChildren(name, resolve) getOrElse (throw new ClassNotFoundException(
+          "Could not locate the class " + name
+        ))
     }
   }
 
   override def getResource(name: String): URL = {
     Try(super.getResource(name)) match {
       case Success(v) if v != null => v
-      case _ => getResourceFromChildren(name)
+      case _                       => getResourceFromChildren(name)
     }
   }
 
@@ -93,15 +96,15 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
   private def loadClassFromChildren(name: String, resolve: Boolean): Option[Class[_]] = {
     if (childLoaders.isEmpty) {
       None
-    }
-    else {
+    } else {
       this.synchronized {
         // Get the loaded class
         childLoaders.filterNot(_.getLoadedClass(name).isEmpty) match {
           case Nil =>
             var ret: Option[Class[_]] = None
-            for (value <- childLoaders; if ret.isEmpty) {
-              ret = value.loadClassLocally(name, resolve)
+            childLoaders.find { loader =>
+              ret = loader.loadClassLocally(name, resolve)
+              ret.nonEmpty
             }
             ret
           case list => // Return the first if already loaded
@@ -114,38 +117,37 @@ class HarnessClassLoader(parent: ClassLoader) extends URLClassLoader(Array.empty
   private def getResourceFromChildren(name: String): URL = {
     if (childLoaders.isEmpty) {
       null
-    }
-    else {
+    } else {
       (for {
         value <- childLoaders
         url = value.findResource(name)
         if url != null
       } yield url).headOption match {
         case Some(url) => url
-        case None => null
+        case None      => null
       }
     }
   }
 
-  private def getResourcesFromChildren(name: String): java.util.Enumeration[URL] = {
-    Try(super.getResources(name)).get
-  }
-
-  private def getResourceAsStreamFromChildren(name: String): InputStream = {
-    if (childLoaders.isEmpty) {
-      null
-    }
-    else {
-      (for {
-        value <- childLoaders
-        url = value.getResourceAsStream(name)
-        if url != null
-      } yield url).headOption match {
-        case Some(url) => url
-        case None => null
-      }
-    }
-  }
+//  private def getResourcesFromChildren(name: String): java.util.Enumeration[URL] = {
+//    Try(super.getResources(name)).get
+//  }
+//
+//  private def getResourceAsStreamFromChildren(name: String): InputStream = {
+//    if (childLoaders.isEmpty) {
+//      null
+//    }
+//    else {
+//      (for {
+//        value <- childLoaders
+//        url = value.getResourceAsStream(name)
+//        if url != null
+//      } yield url).headOption match {
+//        case Some(url) => url
+//        case None => null
+//      }
+//    }
+//  }
 
 }
 

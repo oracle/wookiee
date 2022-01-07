@@ -23,15 +23,17 @@ private[oracle] trait Slf4jLogging extends LogProcessor with AkkaLogProcessor {
   protected def getRootLevel: Level = {
     LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) match {
       case classic: ch.qos.logback.classic.Logger => classic.getLevel
-      case logger => translateLevel(logger)
+      case logger                                 => translateLevel(logger)
     }
   }
 
-  def setLogLevel(level:Level): Unit = {
+  def setLogLevel(level: Level): Unit = {
     LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME) match {
       case classic: ch.qos.logback.classic.Logger => classic.setLevel(level)
       case log =>
-        log.info(s"Not using 'ch.qos.logback.classic.Logger', actually using '${log.getClass}', so not changing level to $level")
+        log.info(
+          s"Not using 'ch.qos.logback.classic.Logger', actually using '${log.getClass}', so not changing level to $level"
+        )
     }
   }
 

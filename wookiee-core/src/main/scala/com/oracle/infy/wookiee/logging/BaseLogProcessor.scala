@@ -25,15 +25,15 @@ private[oracle] trait BaseLogProcessor {
   val akkaSource = "akkaSource"
 
   /**
-   * Make sure we have Java friendly Object instances
-   */
+    * Make sure we have Java friendly Object instances
+    */
   protected def transformParams(params: Seq[Any]): Seq[Object] = params.map(_.asInstanceOf[Object])
 
   /**
-   * Format the given string template. this is only used when receiving an event which includes
-   * a throwable. this is due to the fact that SLF4J does not allow template arguments when including
-   * a throwable in its calls.
-   */
+    * Format the given string template. this is only used when receiving an event which includes
+    * a throwable. this is due to the fact that SLF4J does not allow template arguments when including
+    * a throwable in its calls.
+    */
   protected def format(template: String, arg: Seq[Any]): String = {
     val sb = new java.lang.StringBuilder(64)
     var p = 0
@@ -54,7 +54,9 @@ private[oracle] trait BaseLogProcessor {
   }
 
   @inline
-  protected final def withContext(thread: Thread, timestamp: Long, altSource: Option[String])(logStatement: => Unit): Unit = {
+  protected final def withContext(thread: Thread, timestamp: Long, altSource: Option[String])(
+      logStatement: => Unit
+  ): Unit = {
     if (!thread.getName.equals(Thread.currentThread.getName)) {
       MDC.put(sourceThread, thread.getName)
     }
@@ -62,7 +64,8 @@ private[oracle] trait BaseLogProcessor {
     MDC.put(akkaSource, if (altSource.isDefined) altSource.get else "")
     MDC.put(sourceTime, Helpers.currentTimeMillisToUTCString(timestamp))
 
-    try logStatement finally {
+    try logStatement
+    finally {
       MDC.remove(akkaSource)
       MDC.remove(sourceThread)
       MDC.remove(sourceTime)

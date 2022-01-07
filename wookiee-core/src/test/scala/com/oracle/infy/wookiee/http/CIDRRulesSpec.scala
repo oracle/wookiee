@@ -57,4 +57,3 @@ class CIDRRulesSpec extends AnyWordSpecLike with Matchers {
     }
   }
 }
-

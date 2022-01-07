@@ -19,8 +19,6 @@ import akka.actor.{ActorRef, ActorSystem}
 import akka.event.LogSource
 import org.slf4j.{LoggerFactory, Marker, Logger => Underlying}
 
-import scala.language.experimental.macros
-
 object Logger {
 
   private[logging] var mediator: Option[ActorRef] = None
@@ -29,7 +27,7 @@ object Logger {
     mediator = Some(actor)
   }
 
-  private[oracle] def unregisterMediator(actor: ActorRef): Unit = {
+  private[oracle] def unregisterMediator(): Unit = {
     mediator = None
   }
 
@@ -56,11 +54,11 @@ object Logger {
 
 }
 
-final class Logger private(val logger: Underlying, val altSource: Option[String] = None) extends Slf4jLogging {
+final class Logger private (val logger: Underlying, val altSource: Option[String]) extends Slf4jLogging {
 
   private def publish(event: LogEvent): Unit = Logger.mediator match {
     case Some(actor) => actor ! event
-    case None => process(event)
+    case None        => process(event)
   }
 
   def error(message: String): Unit =
@@ -85,7 +83,7 @@ final class Logger private(val logger: Underlying, val altSource: Option[String]
     if (logger.isErrorEnabled(marker)) publish(Error(logger, message, Some(marker), altSource, params))
 
   def error(marker: Marker, t: Throwable, message: String, params: Any*): Unit =
-    if (logger.isErrorEnabled(marker)) publish(Error(logger, message, Some(marker), altSource, Nil, Some(t)))
+    if (logger.isErrorEnabled(marker)) publish(Error(logger, message, Some(marker), altSource, params, Some(t)))
 
   // Warn
   def warn(message: String): Unit =
@@ -116,8 +114,7 @@ final class Logger private(val logger: Underlying, val altSource: Option[String]
     if (logger.isWarnEnabled(marker)) publish(Warn(logger, message, Some(marker), altSource, params))
 
   def warn(marker: Marker, t: Throwable, message: String, params: Any*): Unit =
-    if (logger.isWarnEnabled(marker)) publish(Warn(logger, message, Some(marker), altSource, Nil, Some(t)))
-
+    if (logger.isWarnEnabled(marker)) publish(Warn(logger, message, Some(marker), altSource, params, Some(t)))
 
   // Info
   def info(message: String): Unit =
@@ -142,8 +139,7 @@ final class Logger private(val logger: Underlying, val altSource: Option[String]
     if (logger.isInfoEnabled(marker)) publish(Info(logger, message, Some(marker), altSource, params))
 
   def info(marker: Marker, t: Throwable, message: String, params: Any*): Unit =
-    if (logger.isInfoEnabled(marker)) publish(Info(logger, message, Some(marker), altSource, Nil, Some(t)))
-
+    if (logger.isInfoEnabled(marker)) publish(Info(logger, message, Some(marker), altSource, params, Some(t)))
 
   // Debug
   def debug(message: String): Unit =
@@ -168,8 +164,7 @@ final class Logger private(val logger: Underlying, val altSource: Option[String]
     if (logger.isDebugEnabled(marker)) publish(Debug(logger, message, Some(marker), altSource, params))
 
   def debug(marker: Marker, t: Throwable, message: String, params: Any*): Unit =
-    if (logger.isDebugEnabled(marker)) publish(Debug(logger, message, Some(marker), altSource, Nil, Some(t)))
-
+    if (logger.isDebugEnabled(marker)) publish(Debug(logger, message, Some(marker), altSource, params, Some(t)))
 
   // Trace
   def trace(message: String): Unit =
@@ -194,6 +189,6 @@ final class Logger private(val logger: Underlying, val altSource: Option[String]
     if (logger.isTraceEnabled(marker)) publish(Trace(logger, message, Some(marker), altSource, params))
 
   def trace(marker: Marker, t: Throwable, message: String, params: Any*): Unit =
-    if (logger.isTraceEnabled(marker)) publish(Trace(logger, message, Some(marker), altSource, Nil, Some(t)))
+    if (logger.isTraceEnabled(marker)) publish(Trace(logger, message, Some(marker), altSource, params, Some(t)))
 
 }

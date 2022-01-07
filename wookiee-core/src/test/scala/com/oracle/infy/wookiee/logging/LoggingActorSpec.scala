@@ -26,10 +26,13 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-class LoggingActorSpec extends TestKit(ActorSystem("test", ConfigFactory.parseString( """logging.use-actor=off""")))
-  with AnyWordSpecLike with Matchers with BeforeAndAfterAll {
+class LoggingActorSpec
+    extends TestKit(ActorSystem("test", ConfigFactory.parseString("""logging.use-actor=off""")))
+    with AnyWordSpecLike
+    with Matchers
+    with BeforeAndAfterAll {
 
-  val logger: ActorRef = system.actorOf(Props[LoggingActor])
+  val logger: ActorRef = system.actorOf(Props[LoggingActor]())
 
   "Logging" should {
     "test logging initialization" in {

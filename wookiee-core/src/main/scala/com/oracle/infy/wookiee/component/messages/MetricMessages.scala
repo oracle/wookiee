@@ -16,12 +16,12 @@
 package com.oracle.infy.wookiee.component.messages
 
 /**
- * This is messages that components would use to easily communicate with components that
- * it doesn't know whether they are loaded in the system or not
- */
+  * This is messages that components would use to easily communicate with components that
+  * it doesn't know whether they are loaded in the system or not
+  */
 sealed class MetricMessage
-case class StatusRequest(format:String="json") extends MetricMessage
+case class StatusRequest(format: String = "json") extends MetricMessage
 case class RemoveMetric() extends MetricMessage
-case class AddTimerMetric(name:String) extends MetricMessage
-case class AddGaugeMetric(name:String) extends MetricMessage
-case class GetMetric(name:String) extends MetricMessage
+case class AddTimerMetric(name: String) extends MetricMessage
+case class AddGaugeMetric(name: String) extends MetricMessage
+case class GetMetric(name: String) extends MetricMessage

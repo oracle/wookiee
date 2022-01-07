@@ -17,11 +17,12 @@
 package com.oracle.infy.wookiee.command
 
 /**
- * @author Michael Cuthbert on 12/1/14.
- */
-class CommandException(name:String, msg:String, ex:Option[Throwable]=None) extends Exception(msg, ex.orNull)
+  * @author Michael Cuthbert on 12/1/14.
+  */
+class CommandException(name: String, msg: String, ex: Option[Throwable] = None)
+    extends Exception(s"$name: '$msg'", ex.orNull)
 
 object CommandException {
-  def apply(name:String, msg:String) = new CommandException(name, msg)
-  def apply(name:String, t:Throwable) = new CommandException(name, t.getMessage, Some(t))
+  def apply(name: String, msg: String) = new CommandException(name, msg)
+  def apply(name: String, t: Throwable) = new CommandException(name, t.getMessage, Some(t))
 }

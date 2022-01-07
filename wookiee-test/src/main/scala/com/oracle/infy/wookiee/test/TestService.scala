@@ -43,11 +43,12 @@ class TestService extends Service with ShutdownListener {
       metaData = Some(meta)
       log.info("I am now ready, meta data set: " + self.path)
     case GetMetaDetails =>
-      sender ! ServiceMetaDetails(supportsHttp = false)
+      sender() ! ServiceMetaDetails(supportsHttp = false)
   }
 
   override def addCommands(): Unit = {
     addCommand(TestCommand.CommandName, classOf[TestCommand])
+    ()
   }
 }
 

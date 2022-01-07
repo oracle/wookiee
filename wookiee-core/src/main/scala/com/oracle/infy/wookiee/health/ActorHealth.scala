@@ -34,30 +34,42 @@ trait ActorHealth {
 
   import context.dispatcher
 
-  implicit val checkTimeout:Timeout =
-    ConfigUtil.getDefaultTimeout(context.system.settings.config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
+  implicit val checkTimeout: Timeout =
+    ConfigUtil.getDefaultTimeout(
+      context.system.settings.config,
+      HarnessConstants.KeyDefaultTimeout,
+      Timeout(15.seconds)
+    )
 
-  def health:Receive = {
+  def health: Receive = {
     case CheckHealth =>
-      pipe(Try(checkHealth)
-        .recover({
-        case e: Exception =>
-          _log.error("Error fetching health", e)
-          Future.successful(HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
-            "Exception when trying to check the health: %s".format(e.getMessage)))
-      }).get
+      pipe(
+        Try(checkHealth)
+          .recover({
+            case e: Exception =>
+              _log.error("Error fetching health", e)
+              Future.successful(
+                HealthComponent(
+                  getClass.getSimpleName,
+                  ComponentState.CRITICAL,
+                  "Exception when trying to check the health: %s".format(e.getMessage)
+                )
+              )
+          })
+          .get
       ) to sender()
+      ()
   }
 
   /**
-   * This is the health of the current object, by default will be NORMAL
-   * In general this should be overridden to define the health of the current object
-   * For objects that simply manage other objects you shouldn't need to do anything
-   * else, as the health of the children components would be handled by their own
-   * CheckHealth function
-   *
-   * @return
-   */
+    * This is the health of the current object, by default will be NORMAL
+    * In general this should be overridden to define the health of the current object
+    * For objects that simply manage other objects you shouldn't need to do anything
+    * else, as the health of the children components would be handled by their own
+    * CheckHealth function
+    *
+    * @return
+    */
   protected def getHealth: Future[HealthComponent] = {
     Future {
       HealthComponent(self.path.toString, ComponentState.NORMAL, "Healthy")
@@ -65,26 +77,26 @@ trait ActorHealth {
   }
 
   /**
-   * This is the list of child actors that should be iterated and checked for health
-   * This can be overridden in cases where one does not want to check all children for
-   * health, or some children may not support health checks, or a child is using a push
-   * based model of health reporting
-   * CheckHealth function
-   *
-   * @return
-   */
+    * This is the list of child actors that should be iterated and checked for health
+    * This can be overridden in cases where one does not want to check all children for
+    * health, or some children may not support health checks, or a child is using a push
+    * based model of health reporting
+    * CheckHealth function
+    *
+    * @return
+    */
   protected def getHealthChildren: Iterable[ActorRef] = {
     if (context != null) context.children else Iterable()
   }
 
   /**
-   * The actor has been asked to respond with some health information. It needs
-   * to implement this function and provide a list of components used in this service
-   * and their current state. By default the health check will simply run through all the
-   * children for the actor and get their health. Should be overridden for any custom
-   * behavior
-   * @return An instance of a health component
-   */
+    * The actor has been asked to respond with some health information. It needs
+    * to implement this function and provide a list of components used in this service
+    * and their current state. By default the health check will simply run through all the
+    * children for the actor and get their health. Should be overridden for any custom
+    * behavior
+    * @return An instance of a health component
+    */
   def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
@@ -94,19 +106,32 @@ trait ActorHealth {
           (ref ? CheckHealth).mapTo[HealthComponent] recover {
             case _: AskTimeoutException =>
               _log.warn(s"Health Check time out on child actor ${ref.path.toStringWithoutAddress}")
-              HealthComponent(getClass.getSimpleName, ComponentState.CRITICAL,
-                "Time out on child: %s".format(ref.path.toStringWithoutAddress))
+              HealthComponent(
+                getClass.getSimpleName,
+                ComponentState.CRITICAL,
+                "Time out on child: %s".format(ref.path.toStringWithoutAddress)
+              )
             case ex: Exception =>
-              HealthComponent(ref.path.name, ComponentState.CRITICAL, s"Failure to get health of child component. ${ex.getMessage}")
+              HealthComponent(
+                ref.path.name,
+                ComponentState.CRITICAL,
+                s"Failure to get health of child component. ${ex.getMessage}"
+              )
           }
         }
 
         Future.sequence(healthFutures) onComplete {
           case Failure(f) =>
             _log.debug(f, "Failed to retrieve health of children objects")
-            p success HealthComponent(s.name, ComponentState.CRITICAL, s"Failure to get health of child components. ${f.getMessage}")
+            p success HealthComponent(
+              s.name,
+              ComponentState.CRITICAL,
+              s"Failure to get health of child components. ${f.getMessage}"
+            )
           case Success(healths) =>
-            healths foreach { it => s.addComponent(it) }
+            healths foreach { it =>
+              s.addComponent(it)
+            }
             p success s
         }
       case Failure(f) =>

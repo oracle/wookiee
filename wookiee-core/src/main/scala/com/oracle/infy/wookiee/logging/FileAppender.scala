@@ -19,7 +19,5 @@ import ch.qos.logback.core.rolling.RollingFileAppender
 
 class FileAppender[E] extends RollingFileAppender[E] {
 
-  protected override def writeOut(event: E): Unit = {
-
-  }
+  protected override def writeOut(event: E): Unit = {}
 }

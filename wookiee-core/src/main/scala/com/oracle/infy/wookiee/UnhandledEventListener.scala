@@ -20,18 +20,20 @@ import akka.actor.{Actor, UnhandledMessage}
 import org.slf4j.{Logger, LoggerFactory}
 
 /**
- * @author Michael Cuthbert on 11/21/14.
- */
+  * @author Michael Cuthbert on 11/21/14.
+  */
 class UnhandledEventListener extends Actor {
 
   val externalLogger: Logger = LoggerFactory.getLogger(this.getClass)
 
   override def receive: Receive = {
-    case message:UnhandledMessage =>
+    case message: UnhandledMessage =>
       //externalLogger.error(s"CRITICAL! No actors found for message ${message.getMessage} " +
-        //s"for expected recipient ${message.getRecipient().path.toString}")
+      //s"for expected recipient ${message.getRecipient().path.toString}")
 
-      externalLogger.debug(s"CRITICAL! No actors found for message ${message.getMessage} " +
-        s"for expected recipient ${message.getRecipient().path.toString}")
+      externalLogger.debug(
+        s"CRITICAL! No actors found for message ${message.getMessage()} " +
+          s"for expected recipient ${message.getRecipient().path.toString}"
+      )
   }
 }

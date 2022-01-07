@@ -26,7 +26,7 @@ import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.oracle.infy.wookiee.service.ServiceManager
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.util.Try
@@ -45,13 +45,16 @@ class ConfigWatcherActor extends HActor {
         configDir = s.toPath
         val dirs = s.listFiles.filter(_.isDirectory)
 
-        dirs foreach {
-          dir =>
-            val path = Paths.get(dir.getPath.concat("/conf"))
-            if (Files.exists(path)) {
-              log.info("Adding watcher to existing service directory {} for any *.conf file changes", path)
-              path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
-            }
+        dirs foreach { dir =>
+          val path = Paths.get(dir.getPath.concat("/conf"))
+          if (Files.exists(path)) {
+            log.info("Adding watcher to existing service directory {} for any *.conf file changes", path)
+            path.register(
+              configWatcher,
+              Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY),
+              SensitivityWatchEventModifier.HIGH
+            )
+          }
         }
         if (dirs.length > 0) {
           configExists = true
@@ -63,9 +66,13 @@ class ConfigWatcherActor extends HActor {
       case s: String =>
         val cPath = new File(s)
         if (cPath.exists()) {
-          Try(cPath.getParentFile.toPath) map { path =>
+          Try(cPath.getParentFile.toPath) foreach { path =>
             log.info("Adding watcher to existing config directory {} for any *.conf file changes", path)
-            path.register(configWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY), SensitivityWatchEventModifier.HIGH)
+            path.register(
+              configWatcher,
+              Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY),
+              SensitivityWatchEventModifier.HIGH
+            )
 
             if (!configExists) {
               configExists = true
@@ -90,11 +97,13 @@ class ConfigWatcherActor extends HActor {
     Future {
       if (!configExists || (watchThread.isAlive && !watchThread.isInterrupted)) {
         HealthComponent("Config Watcher Health", ComponentState.NORMAL, "Config being watched as expected")
-      } else HealthComponent("Config Watcher Health", ComponentState.CRITICAL, "Config changes are no longer being watched")
+      } else
+        HealthComponent("Config Watcher Health", ComponentState.CRITICAL, "Config changes are no longer being watched")
     }
   }
 
   private class DirectoryWatcher extends Runnable {
+
     def run(): Unit = {
       while (true) {
 
@@ -107,26 +116,28 @@ class ConfigWatcherActor extends HActor {
             return
         }
 
-        key.get.pollEvents().asScala.toStream.takeWhile(_.kind() != OVERFLOW) foreach {
-          event =>
-            log.debug("Detected alteration on file {}", event.context().toString)
-            // The filename is the context of the event.
-            val ev = event.asInstanceOf[WatchEvent[Path]]
-            val filename = ev.context()
+        key.get.pollEvents().asScala.to(LazyList).takeWhile(_.kind() != OVERFLOW) foreach { event =>
+          log.debug("Detected alteration on file {}", event.context().toString)
+          // The filename is the context of the event.
+          val ev = event.asInstanceOf[WatchEvent[Path]]
+          val filename = ev.context()
 
-            try {
-              // Resolve the filename against the directory.
-              val child = configDir.resolve(filename)
-              if (filename.toString.endsWith(".conf")) {
-                log.debug("Config file change detected, {}, sending message to services/components to reload if applicable.", filename.toString)
-                context.parent ! ConfigChange()
-              } else {
-                log.debug("Ignoring change to {} as it is not a .conf file", child.toString)
-              }
-            } catch {
-              case x: IOException =>
-                log.error("Issue reading file changed in config dir.", x)
+          try {
+            // Resolve the filename against the directory.
+            val child = configDir.resolve(filename)
+            if (filename.toString.endsWith(".conf")) {
+              log.debug(
+                "Config file change detected, {}, sending message to services/components to reload if applicable.",
+                filename.toString
+              )
+              context.parent ! ConfigChange()
+            } else {
+              log.debug("Ignoring change to {} as it is not a .conf file", child.toString)
             }
+          } catch {
+            case x: IOException =>
+              log.error("Issue reading file changed in config dir.", x)
+          }
         }
 
         // Reset the key -- this step is critical if you want to receive further watch events.
@@ -140,5 +151,5 @@ class ConfigWatcherActor extends HActor {
 }
 
 object ConfigWatcherActor {
-  def props: Props = Props[ConfigWatcherActor]
+  def props: Props = Props[ConfigWatcherActor]()
 }

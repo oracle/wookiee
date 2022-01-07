@@ -18,55 +18,65 @@ package com.oracle.infy.wookiee.logging
 private[oracle] trait LogProcessor extends BaseLogProcessor {
 
   def process(event: LogEvent): Unit = event match {
-    case e@(_: LogEvent) if e.marker.isDefined => processMarkerEvent(e)
-    case e => processLoggerEvent(e)
+    case e @ (_: LogEvent) if e.marker.isDefined => processMarkerEvent(e)
+    case e                                       => processLoggerEvent(e)
   }
 
   private def processLoggerEvent(event: LogEvent): Unit = event match {
     case Error(logger, message, _, _, params, cause) =>
       cause match {
-        case Some(t) => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.error(format(message, params), t)
-        }
-        case None => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.error(message, transformParams(params): _*)
-        }
+        case Some(t) =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.error(format(message, params), t)
+          }
+        case None =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.error(message, transformParams(params): _*)
+          }
       }
     case Warn(logger, message, _, _, params, cause) =>
       cause match {
-        case Some(t) => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.warn(format(message, params), t)
-        }
-        case None => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.warn(message, transformParams(params): _*)
-        }
+        case Some(t) =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.warn(format(message, params), t)
+          }
+        case None =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.warn(message, transformParams(params): _*)
+          }
       }
     case Info(logger, message, _, _, params, cause) =>
       cause match {
-        case Some(t) => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.info(format(message, params), t)
-        }
-        case None => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.info(message, transformParams(params): _*)
-        }
+        case Some(t) =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.info(format(message, params), t)
+          }
+        case None =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.info(message, transformParams(params): _*)
+          }
       }
     case Debug(logger, message, _, _, params, cause) =>
       cause match {
-        case Some(t) => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.debug(format(message, params), t)
-        }
-        case None => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.debug(message, transformParams(params): _*)
-        }
+        case Some(t) =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.debug(format(message, params), t)
+          }
+        case None =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.debug(message, transformParams(params): _*)
+          }
       }
     case Trace(logger, message, _, _, params, cause) =>
       cause match {
-        case Some(t) => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.trace(format(message, params), t)
-        }
-        case None => withContext(event.thread, event.timestamp, event.altSource) {
-          logger.trace(message, transformParams(params): _*)
-        }
+        case Some(t) =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.trace(format(message, params), t)
+          }
+        case None =>
+          withContext(event.thread, event.timestamp, event.altSource) {
+            logger.trace(message, transformParams(params): _*)
+          }
       }
     case _ => // Do nothing
 
@@ -76,27 +86,27 @@ private[oracle] trait LogProcessor extends BaseLogProcessor {
     case Error(logger, message, Some(marker), _, params, cause) =>
       cause match {
         case Some(t) => logger.error(marker, format(message, params), t)
-        case None => logger.error(marker, message, transformParams(params): _*)
+        case None    => logger.error(marker, message, transformParams(params): _*)
       }
     case Warn(logger, message, Some(marker), _, params, cause) =>
       cause match {
         case Some(t) => logger.warn(marker, format(message, params), t)
-        case None => logger.warn(marker, message, transformParams(params): _*)
+        case None    => logger.warn(marker, message, transformParams(params): _*)
       }
     case Info(logger, message, Some(marker), _, params, cause) =>
       cause match {
         case Some(t) => logger.info(marker, format(message, params), t)
-        case None => logger.info(marker, message, transformParams(params): _*)
+        case None    => logger.info(marker, message, transformParams(params): _*)
       }
     case Debug(logger, message, Some(marker), _, params, cause) =>
       cause match {
         case Some(t) => logger.debug(marker, format(message, params), t)
-        case None => logger.debug(marker, message, transformParams(params): _*)
+        case None    => logger.debug(marker, message, transformParams(params): _*)
       }
     case Trace(logger, message, Some(marker), _, params, cause) =>
       cause match {
         case Some(t) => logger.trace(marker, format(message, params), t)
-        case None => logger.trace(marker, message, transformParams(params): _*)
+        case None    => logger.trace(marker, message, transformParams(params): _*)
       }
     case _ => // Do nothing
 

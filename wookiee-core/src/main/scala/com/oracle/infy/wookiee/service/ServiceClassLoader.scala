@@ -21,10 +21,10 @@ import scala.util.{Success, Try}
 class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLoader(urls.toArray, parent) {
 
   /**
-   * This method will perform the same functionality as ClassLoader.loadClass, except that it
-   * will only locate and load the class in it's own class loader.
-   */
-  def loadClassLocally(name: String, resolve: Boolean) : Option[Class[_]] = {
+    * This method will perform the same functionality as ClassLoader.loadClass, except that it
+    * will only locate and load the class in it's own class loader.
+    */
+  def loadClassLocally(name: String, resolve: Boolean): Option[Class[_]] = {
     // First see if the class is loaded
     (findLoadedClass(name) match {
       case null =>
@@ -35,7 +35,7 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
         Success(c)
     }) match {
       case Success(clazz) =>
-        val l = findLoadedClass(name)
+        val _ = findLoadedClass(name)
         if (resolve) resolveClass(clazz)
         Some(clazz)
       case _ =>
@@ -43,18 +43,21 @@ class ServiceClassLoader(urls: Seq[URL], parent: ClassLoader) extends URLClassLo
     }
   }
 
-  def getLoadedClass(name: String): Option[Class[_]] = findLoadedClass(name) match { case null => None case clazz => Some(clazz) }
+  def getLoadedClass(name: String): Option[Class[_]] = findLoadedClass(name) match {
+    case null  => None
+    case clazz => Some(clazz)
+  }
 
   /**
-   * Appends the specified URL to the list of URLs to search for
-   * classes and resources.
-   * <p>
-   * If the URL specified is <code>null</code> or is already in the
-   * list of URLs, or if this loader is closed, then invoking this
-   * method has no effect.
-   *
-   * @param url the URL to be added to the search path of URLs
-   */
+    * Appends the specified URL to the list of URLs to search for
+    * classes and resources.
+    * <p>
+    * If the URL specified is <code>null</code> or is already in the
+    * list of URLs, or if this loader is closed, then invoking this
+    * method has no effect.
+    *
+    * @param url the URL to be added to the search path of URLs
+    */
   def addServiceURL(url: URL): Unit = addURL(url)
 
 }

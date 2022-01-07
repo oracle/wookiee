@@ -29,8 +29,8 @@ import scala.util.{Failure, Success}
 case class HarnessMeta(actorSystem: ActorSystem, harnessActor: ActorRef, config: Config)
 
 /**
- * @author Spencer Wood
- */
+  * @author Spencer Wood
+  */
 object Harness {
   // Map from tcp port to Harness system and HarnessActor ref
   protected[oracle] var harnessMap: Map[ActorSystem, HarnessMeta] = Map.empty
@@ -41,24 +41,26 @@ object Harness {
   val externalLogger: Logger = Logger.getLogger(this.getClass)
 
   /**
-   * Restart the specified actor system
-   */
+    * Restart the specified actor system
+    */
   def restartActorSystem()(implicit system: ActorSystem): Unit = {
     harnessMap.get(system) match {
       case Some(meta) =>
         externalLogger.info(s"Restarting the actor system ${system.name}")
         shutdownActorSystem(block = false) {
           startActorSystem(Some(meta.config))
+          ()
         }
       case None =>
         externalLogger.info(s"There is no actor system ${system.name} so starting up now")
         startActorSystem(None)
     }
+    ()
   }
 
   /**
-   * Force a shutdown of the ActorSystem and the application's process, if port = None will shutdown all.
-   */
+    * Force a shutdown of the ActorSystem and the application's process, if port = None will shutdown all.
+    */
   def shutdown()(implicit system: ActorSystem): Unit = {
     log.info("Shutting down Wookiee")
     new Thread("lifecycle") {
@@ -72,8 +74,8 @@ object Harness {
   }
 
   /**
-   * Start the actor system
-   */
+    * Start the actor system
+    */
   def startActorSystem(config: Option[Config] = None): HarnessMeta = harnessMap.synchronized {
     try {
       externalLogger.debug(s"Creating the actor system")
@@ -87,8 +89,7 @@ object Harness {
       log = Logger(this.getClass, system)
       log.debug(s"Creating main Wookiee actor for ${system.name}")
 
-      implicit val sys: ActorSystem = system
-      val rootActor = system.actorOf(HarnessActor.props, "system")
+      val rootActor = system.actorOf(HarnessActor.props(), "system")
       val meta = HarnessMeta(system, rootActor, finalConfig)
       harnessMap = harnessMap.updated(system, meta)
       meta
@@ -100,8 +101,8 @@ object Harness {
   }
 
   /**
-   * Shutdown the actor system
-   */
+    * Shutdown the actor system
+    */
   def shutdownActorSystem(block: Boolean)(f: => Unit)(implicit system: ActorSystem): Unit = harnessMap.synchronized {
     log.debug(s"Shutting down the main actor ")
     import scala.concurrent.ExecutionContext.Implicits.global
@@ -136,14 +137,16 @@ object Harness {
   }
 
   /**
-   * Add a shutdown hook so when the process is shut down that we cleanup cleanly, adds to all if port = None
-   */
+    * Add a shutdown hook so when the process is shut down that we cleanup cleanly, adds to all if port = None
+    */
   def addShutdownHook()(implicit system: ActorSystem): Unit = {
-    Runtime.getRuntime.addShutdownHook(new Thread(() => {
-      system.log.debug("The shutdown hook has been called")
-      shutdownActorSystem(block = true) {
-        externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
-      }
-    }))
+    Runtime
+      .getRuntime
+      .addShutdownHook(new Thread(() => {
+        system.log.debug("The shutdown hook has been called")
+        shutdownActorSystem(block = true) {
+          externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
+        }
+      }))
   }
 }

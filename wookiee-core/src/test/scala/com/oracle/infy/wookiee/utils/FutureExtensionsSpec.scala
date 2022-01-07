@@ -36,7 +36,7 @@ class FutureExtensionsSpec extends AnyWordSpecLike with Matchers {
         case Success(_) => throw FutureException("Failed")
         case Failure(_) => Future.successful("success")
       }
-      an [FutureException] should be thrownBy Await.result(f, duration)
+      an[FutureException] should be thrownBy Await.result(f, duration)
     }
 
     "return failed future if exception is thrown in Failure case" in {
@@ -44,7 +44,7 @@ class FutureExtensionsSpec extends AnyWordSpecLike with Matchers {
         case Success(_) => Future.successful("success")
         case Failure(_) => throw FutureException("Failed")
       }
-      an [FutureException] should be thrownBy Await.result(f, duration)
+      an[FutureException] should be thrownBy Await.result(f, duration)
     }
   }
 
@@ -70,7 +70,7 @@ class FutureExtensionsSpec extends AnyWordSpecLike with Matchers {
         case Success(_) => throw FutureException("Failed")
         case Failure(_) => "success"
       }
-      an [FutureException] should be thrownBy Await.result(f, duration)
+      an[FutureException] should be thrownBy Await.result(f, duration)
     }
 
     "Return failed future if exception is thrown in Failure case" in {
@@ -78,7 +78,7 @@ class FutureExtensionsSpec extends AnyWordSpecLike with Matchers {
         case Success(_) => "success"
         case Failure(_) => throw FutureException("Failed")
       }
-      an [FutureException] should be thrownBy Await.result(f, duration)
+      an[FutureException] should be thrownBy Await.result(f, duration)
     }
   }
 }

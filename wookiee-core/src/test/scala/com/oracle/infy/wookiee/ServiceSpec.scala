@@ -68,4 +68,3 @@ class ServiceSpec extends TestKit(ActorSystem("harness")) with AnyWordSpecLike w
     TestKit.shutdownActorSystem(system)
   }
 }
-

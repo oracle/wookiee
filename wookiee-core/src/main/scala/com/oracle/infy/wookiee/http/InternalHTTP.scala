@@ -16,16 +16,16 @@
 
 package com.oracle.infy.wookiee.http
 
-import akka.actor.{Props, ActorRef, Actor}
+import akka.actor.{Actor, ActorRef, Props}
 
 /**
- * @author Michael Cuthbert on 2/3/15.
- */
+  * @author Michael Cuthbert on 2/3/15.
+  */
 trait InternalHTTP {
   this: Actor =>
-  var httpRef:Option[ActorRef] = None
+  var httpRef: Option[ActorRef] = None
 
-  def startInternalHTTP(port:Int) : ActorRef = {
+  def startInternalHTTP(port: Int): ActorRef = {
     httpRef = Some(context.actorOf(Props(classOf[SimpleHttpServer], port), InternalHTTP.InternalHttpName))
     httpRef.get
   }

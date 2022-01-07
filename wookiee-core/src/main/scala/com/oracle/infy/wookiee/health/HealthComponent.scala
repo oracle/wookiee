@@ -16,14 +16,14 @@
 package com.oracle.infy.wookiee.health
 
 /**
- * This is the current state of the component. A 'Normal' state refers to
- * the system operating as it should and without any issues. A 'Degraded' state
- * refers to the system operating with difficulty. Notification of the state should
- * be made, however, this state does not mean that the service should be removed from
- * service. A 'Critical' state refers to the system operating in a fully compromised
- * state. Notification of the state should occur and the service should be taken out
- * of service until the issue is resolved.
- */
+  * This is the current state of the component. A 'Normal' state refers to
+  * the system operating as it should and without any issues. A 'Degraded' state
+  * refers to the system operating with difficulty. Notification of the state should
+  * be made, however, this state does not mean that the service should be removed from
+  * service. A 'Critical' state refers to the system operating in a fully compromised
+  * state. Notification of the state should occur and the service should be taken out
+  * of service until the issue is resolved.
+  */
 object ComponentState extends Enumeration {
   type ComponentState = Value
   val NORMAL, DEGRADED, CRITICAL = Value
@@ -35,21 +35,24 @@ import com.oracle.infy.wookiee.utils.{Json, JsonSerializable}
 import scala.collection.immutable.ListMap
 
 /**
- * The health component is used to define a subset of functionality that
- * can be asked of it's state. It can contain optional child components.
- * @param name  The name of the component being checked
- * @param state The current state of the component (defaults to NORMAL)
- * @param extra Any extra information
- */
-case class HealthComponent(name: String,
-                           state: ComponentState = ComponentState.NORMAL,
-                           details: String,
-                           extra: Option[AnyRef] = None,
-                           var components: List[HealthComponent] = List.empty) extends JsonSerializable {
+  * The health component is used to define a subset of functionality that
+  * can be asked of it's state. It can contain optional child components.
+  * @param name  The name of the component being checked
+  * @param state The current state of the component (defaults to NORMAL)
+  * @param extra Any extra information
+  */
+case class HealthComponent(
+    name: String,
+    state: ComponentState = ComponentState.NORMAL,
+    details: String,
+    extra: Option[AnyRef] = None,
+    var components: List[HealthComponent] = List.empty
+) extends JsonSerializable {
+
   override def toJson: String = {
     val extraDetails = extra match {
       case Some(s) => s.toString
-      case None => ""
+      case None    => ""
     }
 
     val props = ListMap[String, Any](

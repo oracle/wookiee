@@ -38,18 +38,20 @@ import scala.reflect.io.{Directory, Path}
 class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
   implicit val dur: FiniteDuration = FiniteDuration(2, TimeUnit.SECONDS)
   new File("services/test/conf").mkdirs()
-  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString( """
+  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString("""
     services { path = "services" }
     """).withFallback(ConfigFactory.load()))
 
-  implicit val ec: ExecutionContextExecutor =  sys.dispatcher
+  implicit val ec: ExecutionContextExecutor = sys.dispatcher
 
   val probe: TestProbe = TestProbe()
+
   val parent: ActorRef = sys.actorOf(Props(new Actor {
     val child: ActorRef = context.actorOf(ConfigWatcherActor.props, "child")
+
     def receive: Receive = {
-      case x if sender == child => probe.ref forward x
-      case x => child forward x
+      case x if sender() == child => probe.ref forward x
+      case x                      => child forward x
     }
   }))
 
@@ -72,8 +74,7 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
 
   override protected def afterAll(): Unit = {
     sys.terminate().onComplete { _ =>
-        Directory(Path(new File("services"))).deleteRecursively()
+      Directory(Path(new File("services"))).deleteRecursively()
     }
   }
 }
-

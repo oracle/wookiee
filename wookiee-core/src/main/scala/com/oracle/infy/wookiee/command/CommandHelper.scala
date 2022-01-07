@@ -26,10 +26,11 @@ import scala.concurrent.duration._
 import scala.reflect.ClassTag
 
 /**
- * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily
- * and execute commands at will
- */
+  * A trait that you can add to any actor that will enable the actor to talk to the CommandManager easily
+  * and execute commands at will
+  */
 object CommandHelper {
+
   def getCommandManager(implicit system: ActorSystem, timeout: Timeout = 2.seconds): Future[ActorRef] = {
     system.actorSelection(HarnessConstants.CommandFullName).resolveOne()(timeout)
   }
@@ -43,10 +44,11 @@ object CommandHelper {
     * @param bean the bean that will be passed to the command
     * @return Result of executing this Command
     */
-  def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
-                                                                           bean: Input,
-                                                                           cm: Option[ActorRef] = None)
-                                                                          (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
+  def executeCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+      id: String,
+      bean: Input,
+      cm: Option[ActorRef] = None
+  )(implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
     import system.dispatcher
 
     cm.map(Future.successful).getOrElse(getCommandManager) flatMap { cm: ActorRef =>
@@ -65,11 +67,12 @@ object CommandHelper {
     *                    remote command instead of a local one, takes the Input bean and the Command 'id' as parameters
     * @return Result of executing this Command
     */
-  def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String,
-                                                                            bean: Input,
-                                                                            remoteLogic: (String, Input) => Future[Output],
-                                                                            cm: Option[ActorRef] = None)
-                                                                           (implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
+  def executeRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+      id: String,
+      bean: Input,
+      remoteLogic: (String, Input) => Future[Output],
+      cm: Option[ActorRef] = None
+  )(implicit system: ActorSystem, timeout: Timeout): Future[Output] = {
     import system.dispatcher
 
     cm.map(Future.successful).getOrElse(getCommandManager) flatMap { cm: ActorRef =>
@@ -78,7 +81,7 @@ object CommandHelper {
   }
 }
 
-trait CommandHelper  { this: Actor =>
+trait CommandHelper { this: Actor =>
   import context.dispatcher
 
   lazy implicit val actorSystem: ActorSystem = context.system
@@ -89,7 +92,7 @@ trait CommandHelper  { this: Actor =>
     addCommands()
   }
 
-  def initCommandManager : Future[ActorRef] = {
+  def initCommandManager: Future[ActorRef] = {
     commandManager match {
       case Some(cm) =>
         Future.successful(cm)
@@ -97,16 +100,17 @@ trait CommandHelper  { this: Actor =>
         CommandHelper.getCommandManager(actorSystem) map { cm =>
           commandManager = Some(cm)
           cm
-        } recover { case f: Throwable =>
-          throw CommandException("Component Manager", f)
+        } recover {
+          case f: Throwable =>
+            throw CommandException("Component Manager", f)
         }
     }
   }
 
   /**
-   * This function should be implemented by any service that wants to add
-   * any commands to make available for use
-   */
+    * This function should be implemented by any service that wants to add
+    * any commands to make available for use
+    */
   def addCommands(): Unit = {}
 
   /**
@@ -118,8 +122,7 @@ trait CommandHelper  { this: Actor =>
     * @tparam V Output type
     * @return Reference to the newly created Command Actor
     */
-  def addCommand[U <: Product: ClassTag, V: ClassTag](id: String,
-                                                      businessLogic: U => Future[V]): Future[ActorRef] = {
+  def addCommand[U <: Product: ClassTag, V: ClassTag](id: String, businessLogic: U => Future[V]): Future[ActorRef] = {
     val props = CommandFactory.createCommand[U, V](businessLogic)
     addCommandWithProps(id, props)
   }
@@ -135,21 +138,23 @@ trait CommandHelper  { this: Actor =>
     * @tparam V Output type
     * @return Reference to the newly created Command Actor
     */
-  def addCommand[U <: Product: ClassTag, V: ClassTag](id: String,
-                                                      customUnmarshaller: Bean => U,
-                                                      businessLogic: U => Future[V],
-                                                      customMarshaller: V => Array[Byte]): Future[ActorRef] = {
+  def addCommand[U <: Product: ClassTag, V: ClassTag](
+      id: String,
+      customUnmarshaller: Bean => U,
+      businessLogic: U => Future[V],
+      customMarshaller: V => Array[Byte]
+  ): Future[ActorRef] = {
     val props = CommandFactory.createCommand[U, V](customUnmarshaller, businessLogic, customMarshaller)
     addCommandWithProps(id, props)
   }
 
   /**
-   * Wrapper that allows services to add commands to the command manager with a single command
-   * @param id id of the Command you want to add, should be unique as it's used to call the Command after
-   * @param props the props for that command actor class
-   * @return Reference to the newly created Command Actor
-   */
-  def addCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) : Future[ActorRef] = {
+    * Wrapper that allows services to add commands to the command manager with a single command
+    * @param id id of the Command you want to add, should be unique as it's used to call the Command after
+    * @param props the props for that command actor class
+    * @return Reference to the newly created Command Actor
+    */
+  def addCommandWithProps(id: String, props: Props, checkHealth: Boolean = false): Future[ActorRef] = {
     implicit val timeout: Timeout = Timeout(4.seconds)
 
     initCommandManager flatMap { cm =>
@@ -158,13 +163,13 @@ trait CommandHelper  { this: Actor =>
   }
 
   /**
-   * Wrapper that allows services add commands to the command manager with a single command
-   *
-   * @param id id of the Command you want to add, should be unique as it's used to call the Command after
-   * @param checkHealth should this command have heath checks
-   * @return Reference to the newly created Command Actor
-   */
-  def addCommand[T:ClassTag](id: String, actorClass:Class[T], checkHealth: Boolean = false) : Future[ActorRef] = {
+    * Wrapper that allows services add commands to the command manager with a single command
+    *
+    * @param id id of the Command you want to add, should be unique as it's used to call the Command after
+    * @param checkHealth should this command have heath checks
+    * @return Reference to the newly created Command Actor
+    */
+  def addCommand[T: ClassTag](id: String, actorClass: Class[T], checkHealth: Boolean = false): Future[ActorRef] = {
     implicit val timeout: Timeout = Timeout(4.seconds)
 
     initCommandManager flatMap { cm =>
@@ -173,14 +178,15 @@ trait CommandHelper  { this: Actor =>
   }
 
   /**
-   * Wrapper that allows services to execute local commands
-   *
-   * @param id Name of the command you want to execute
-   * @param bean The bean that will be passed to the command
-   * @return Result of executing this Command
-   */
-  def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String, bean: Input,
-  remoteLogic: Option[(String, Input) => Future[Output]] = None)(implicit timeout: Timeout): Future[Output] = {
+    * Wrapper that allows services to execute local commands
+    *
+    * @param id Name of the command you want to execute
+    * @param bean The bean that will be passed to the command
+    * @return Result of executing this Command
+    */
+  def executeCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](id: String, bean: Input)(
+      implicit timeout: Timeout
+  ): Future[Output] = {
     initCommandManager flatMap { _ =>
       CommandHelper.executeCommand[Input, Output](id, bean, commandManager)
     }
@@ -197,9 +203,11 @@ trait CommandHelper  { this: Actor =>
     *                   remote command instead of a local one, takes the Input bean and the Command 'id' as parameters
     * @return Result of executing this Command
     */
-  def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag](id: String, bean: Input,
-                                                                            remoteLogic: (String, Input) => Future[Output])
-                                                                                 (implicit timeout: Timeout): Future[Output] = {
+  def executeRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+      id: String,
+      bean: Input,
+      remoteLogic: (String, Input) => Future[Output]
+  )(implicit timeout: Timeout): Future[Output] = {
     initCommandManager flatMap { _ =>
       CommandHelper.executeRemoteCommand[Input, Output](id, bean, remoteLogic, commandManager)
     }

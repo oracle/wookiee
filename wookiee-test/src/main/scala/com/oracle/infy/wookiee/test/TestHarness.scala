@@ -36,18 +36,19 @@ object TestHarness {
   var harnessMap: Map[ActorSystem, TestHarness] = Map.empty
 
   /**
-   * Create a new instance of the test harness and start all of it's components.
-   * @param config the config to use
-   * @param timeToWait after starting, this function will wait this amount of time for Wookiee to "come up"
-   * @param serviceMap map of arbitrary names to Service classes that will be loaded up with Test Wookiee
-   * @param componentMap map of arbitrary names to Component classes that will be loaded up with Test Wookiee
-   */
-  def apply(config:Config,
-            serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-            componentMap: Option[Map[String, Class[_ <: Component]]] = None,
-            logLevel: Level = Level.INFO,
-            timeToWait: FiniteDuration = 15.seconds
-           ): TestHarness = harnessMap.synchronized {
+    * Create a new instance of the test harness and start all of it's components.
+    * @param config the config to use
+    * @param timeToWait after starting, this function will wait this amount of time for Wookiee to "come up"
+    * @param serviceMap map of arbitrary names to Service classes that will be loaded up with Test Wookiee
+    * @param componentMap map of arbitrary names to Component classes that will be loaded up with Test Wookiee
+    */
+  def apply(
+      config: Config,
+      serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
+      componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+      logLevel: Level = Level.INFO,
+      timeToWait: FiniteDuration = 15.seconds
+  ): TestHarness = harnessMap.synchronized {
     val harness = new TestHarness(config, serviceMap, componentMap, logLevel, timeToWait)
     harnessMap = harnessMap.updated(harness.system, harness)
     harness
@@ -59,16 +60,18 @@ object TestHarness {
   def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
     harnessMap.get(system) match {
       case Some(h) => h.stop()
-      case None => // ignore
+      case None    => // ignore
     }
   }
 }
 
-class TestHarness(conf:Config,
-                  serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-                  componentMap: Option[Map[String, Class[_ <: Component]]] = None,
-                  logLevel: Level = Level.ERROR,
-                  timeToWait: FiniteDuration = 15.seconds) {
+class TestHarness(
+    conf: Config,
+    serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
+    componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+    logLevel: Level = Level.ERROR,
+    timeToWait: FiniteDuration = 15.seconds
+) {
 
   var services: Map[String, ActorRef] = Map[String, ActorRef]()
   var components: Map[String, ActorRef] = Map[String, ActorRef]()
@@ -112,12 +115,13 @@ class TestHarness(conf:Config,
     }
   }
 
-  def setLogLevel(level:Level): Unit =
+  def setLogLevel(level: Level): Unit =
     TestHarness.log.setLogLevel(level)
 
   def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
-    while(!timeOut.isOverdue() && !Await.result(TestHarness.rootActor().get ? ReadyCheck, timeToWait).asInstanceOf[Boolean]) {
-    }
+    while (!timeOut.isOverdue() && !Await
+             .result(TestHarness.rootActor().get ? ReadyCheck, timeToWait)
+             .asInstanceOf[Boolean]) {}
 
     if (timeOut.isOverdue()) {
       throw new IllegalStateException("HarnessActor did not start up")
@@ -129,8 +133,12 @@ class TestHarness(conf:Config,
   }
 
   def getServiceOrDie(service: String): ActorRef = {
-    services.getOrElse(service,
-      throw new IllegalStateException(s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"))
+    services.getOrElse(
+      service,
+      throw new IllegalStateException(
+        s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"
+      )
+    )
   }
 
   def getComponent(component: String): Option[ActorRef] = {
@@ -138,8 +146,12 @@ class TestHarness(conf:Config,
   }
 
   def getComponentOrDie(component: String): ActorRef = {
-    components.getOrElse(component,
-      throw new IllegalStateException(s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"))
+    components.getOrElse(
+      component,
+      throw new IllegalStateException(
+        s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"
+      )
+    )
   }
 
   def loadComponents(componentMap: Map[String, Class[_ <: Component]]): Unit = {
@@ -147,7 +159,7 @@ class TestHarness(conf:Config,
       componentReady(5.seconds.fromNow, p._1, p._2.getCanonicalName)
     }
   }
-  
+
   def loadServices(serviceMap: Map[String, Class[_ <: Service]]): Unit = {
     serviceMap foreach { p =>
       serviceReady(5.seconds.fromNow, p._1, p._2)
@@ -182,9 +194,8 @@ class TestHarness(conf:Config,
     }
   }
 
-  def defaultConfig : Config = {
-    ConfigFactory.parseString(
-      """
+  def defaultConfig: Config = {
+    ConfigFactory.parseString("""
         wookiee-system {
           prepare-to-shutdown-timeout = 1
         }

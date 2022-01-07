@@ -15,8 +15,6 @@
  */
 package com.oracle.infy.wookiee.functional
 
-import scala.language.higherKinds
-
 sealed trait Variant[M[_]]
 
 trait Functor[M[_]] extends Variant[M] {
@@ -71,7 +69,8 @@ case class FunctorExtractor[M[_]](functor: Functor[M]) extends VariantExtractor[
 
 case class InvariantFunctorExtractor[M[_]](InvariantFunctor: InvariantFunctor[M]) extends VariantExtractor[M]
 
-case class ContravariantFunctorExtractor[M[_]](ContraVariantFunctor: ContravariantFunctor[M]) extends VariantExtractor[M]
+case class ContravariantFunctorExtractor[M[_]](ContraVariantFunctor: ContravariantFunctor[M])
+    extends VariantExtractor[M]
 
 object VariantExtractor {
 

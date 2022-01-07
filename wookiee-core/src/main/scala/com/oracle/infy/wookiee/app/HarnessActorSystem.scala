@@ -45,16 +45,21 @@ object HarnessActorSystem {
 
     externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)
-    if (configs.nonEmpty) externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
+    if (configs.nonEmpty)
+      externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
 
     externalLogger.debug("Loading the component configs")
     val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
-    if (compConfigs.nonEmpty) externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
+    if (compConfigs.nonEmpty)
+      externalLogger.info(
+        s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs."
+      )
 
     val allConfigs = configs ++ compConfigs
 
     // Build the hierarchy
-    val conf = if (allConfigs.isEmpty) sysConfig
+    val conf =
+      if (allConfigs.isEmpty) sysConfig
       else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
     conf.resolve()
   }

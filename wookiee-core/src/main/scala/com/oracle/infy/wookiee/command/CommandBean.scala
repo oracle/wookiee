@@ -23,12 +23,12 @@ import com.google.common.primitives.Primitives
 import scala.reflect.ClassTag
 
 /**
- * This commandBean should be extended for specific implementation,
- * however can be used just as is. Allows a standard base class to
- * work with though.
- *
- * @author Pete Crossley
- */
+  * This commandBean should be extended for specific implementation,
+  * however can be used just as is. Allows a standard base class to
+  * work with though.
+  *
+  * @author Pete Crossley
+  */
 sealed trait Bean extends Product
 
 object Bean {
@@ -37,7 +37,7 @@ object Bean {
 
   def infer[T: ClassTag](any: Bean): T = any match {
     case a: ArrayBean => apply(a.array)
-    case m: MapBean => apply(m.map)
+    case m: MapBean   => apply(m.map)
   }
 }
 
@@ -62,6 +62,7 @@ trait ClassSpawner {
 }
 
 object ArraySpawner extends ClassSpawner {
+
   def apply[T: ClassTag](input: Array[Any]): T = {
     val params: Array[Parameter] = ctor.getParameters
     // validate that types are compatible
@@ -72,14 +73,15 @@ object ArraySpawner extends ClassSpawner {
         )
       }
     }
-    ctor.
-      newInstance(input.map(_.asInstanceOf[Object]).toArray: _*)
+    ctor
+      .newInstance(input.map(_.asInstanceOf[Object]).toArray: _*)
       .asInstanceOf[T]
   }
 }
 
 object MapSpawner extends ClassSpawner {
-   def apply[T: ClassTag](input: Map[String, Any]): T = {
+
+  def apply[T: ClassTag](input: Map[String, Any]): T = {
     val params: Array[Parameter] = ctor.getParameters
     val marshalled: Array[Any] = new Array[Any](params.length)
     for (i: Int <- params.indices) {

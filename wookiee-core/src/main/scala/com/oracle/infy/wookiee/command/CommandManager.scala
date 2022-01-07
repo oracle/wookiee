@@ -39,11 +39,18 @@ case class AddCommandWithProps(id: String, props: Props, checkHealth: Boolean = 
 case class AddCommand[T: ClassTag](id: String, actorClass: Class[T], checkHealth: Boolean = false) extends AddCommands
 case class GetCommands()
 
-case class ExecuteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
-  (id: String, bean: Input, timeout: Timeout)
-case class ExecuteRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
-  (id: String, bean: Input, remoteLogic: (String, Input) => Future[Output], timeout: Timeout)
+case class ExecuteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+    id: String,
+    bean: Input,
+    timeout: Timeout
+)
 
+case class ExecuteRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+    id: String,
+    bean: Input,
+    remoteLogic: (String, Input) => Future[Output],
+    timeout: Timeout
+)
 
 class CommandManager extends PrepareForShutdown {
   import context.dispatcher
@@ -61,31 +68,31 @@ class CommandManager extends PrepareForShutdown {
 
   override def receive: PartialFunction[Any, Unit] = super.receive orElse {
     case AddCommandWithProps(name, props, checkHealth) =>
-      sender ! addCommand(name, props, checkHealth)
+      sender() ! addCommand(name, props, checkHealth)
     case AddCommand(name, actorClass, checkHealth) =>
-      sender ! addCommand(name, actorClass, checkHealth)
-    case exec: ExecuteCommand[Product, Any] =>
-      pipe(executeCommand(exec)) to sender
-    case exec: ExecuteRemoteCommand[Product, Any] =>
-      pipe(executeRemoteCommand(exec)) to sender
+      sender() ! addCommand(name, actorClass, checkHealth)
+    case exec: ExecuteCommand[Product, Any] @unchecked =>
+      pipe(executeCommand(exec)) to sender(); ()
+    case exec: ExecuteRemoteCommand[Product, Any] @unchecked =>
+      pipe(executeRemoteCommand(exec)) to sender(); ()
     case GetCommands() =>
-      sender ! getCommands
+      sender() ! getCommands
     case SystemReady => // ignore
     case ex =>
       log.warn(s"Unable to handle message type: $ex")
   }
 
-  protected def addCommand[T:ClassTag](name:String, actorClass:Class[T], checkHealth: Boolean): ActorRef = {
+  protected def addCommand[T: ClassTag](name: String, actorClass: Class[T], checkHealth: Boolean): ActorRef = {
     addCommand(name, Props(actorClass), checkHealth)
   }
 
-  protected def getCommand(name:String): Option[ActorRef] = commandMap.get(name)
+  protected def getCommand(name: String): Option[ActorRef] = commandMap.get(name)
   protected def getCommands: Map[String, ActorRef] = commandMap.toMap
 
   /**
-   * We add commands as children to the CommandManager, based on default routing
-   * or we use the setup defined for the command
-   */
+    * We add commands as children to the CommandManager, based on default routing
+    * or we use the setup defined for the command
+    */
   protected def addCommand(name: String, props: Props, checkHealth: Boolean): ActorRef = {
     // check first if the router props have been defined else
     // use the default Round Robin approach
@@ -111,35 +118,39 @@ class CommandManager extends PrepareForShutdown {
   }
 
   /**
-   * Executes a remote command and will return a BaseCommandResponse to the sender
-   * @param exec The name, server, port, and bean for the command you want to execute
-   */
-  protected def executeRemoteCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
-  (exec: ExecuteRemoteCommand[Input, Output]): Future[Output] = {
-    exec.remoteLogic(exec.id, exec.bean) recover { case f =>
-      throw CommandException("CommandManager", f)
+    * Executes a remote command and will return a BaseCommandResponse to the sender
+    * @param exec The name, server, port, and bean for the command you want to execute
+    */
+  protected def executeRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+      exec: ExecuteRemoteCommand[Input, Output]
+  ): Future[Output] = {
+    exec.remoteLogic(exec.id, exec.bean) recover {
+      case f =>
+        throw CommandException("CommandManager", f)
     }
   }
 
   /**
-   * Executes a command and will return expected Output to the sender
-   */
-  protected def executeCommand[Input <: Product : ClassTag, Output <: Any : ClassTag]
-  (exec: ExecuteCommand[Input, Output]): Future[Output] = {
+    * Executes a command and will return expected Output to the sender
+    */
+  protected def executeCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+      exec: ExecuteCommand[Input, Output]
+  ): Future[Output] = {
     getCommand(exec.id).map { ref =>
-      (ref ? exec).mapTo[Output] recover { case ex =>
-        log.warn(s"Command ${exec.id} execution failed", ex)
-        throw CommandException(exec.id, ex)
+      (ref ? exec).mapTo[Output] recover {
+        case ex =>
+          log.warn(s"Command ${exec.id} execution failed", ex)
+          throw CommandException(exec.id, ex)
       }
     } getOrElse Future.failed(CommandException(exec.id, "Command not found"))
   }
 
-  def addCommand(name:String, ref:ActorRef): commandMap.type = {
+  def addCommand(name: String, ref: ActorRef): commandMap.type = {
     log.info(s"Registered Command $name using path ${ref.path} with Command Manager.")
     commandMap += (name -> ref)
   }
 }
 
 object CommandManager {
-  def props: Props = Props[CommandManager]
+  def props: Props = Props[CommandManager]()
 }

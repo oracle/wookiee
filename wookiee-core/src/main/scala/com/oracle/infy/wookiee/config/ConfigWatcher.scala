@@ -19,10 +19,11 @@ package com.oracle.infy.wookiee.config
 import akka.actor.{Actor, ActorRef}
 
 /**
- * @author woods
- *         2/9/15
- */
-trait ConfigWatcher { this: Actor=>
+  * @author woods
+  *         2/9/15
+  */
+trait ConfigWatcher { this: Actor =>
+
   def startConfigWatcher: ActorRef = {
     // Create the config watcher to watch for changes in application config
     context.actorOf(ConfigWatcherActor.props, ConfigWatcher.ConfigWatcherName)

@@ -14,7 +14,12 @@ import java.util.concurrent.TimeUnit
 import scala.concurrent.Await
 import scala.concurrent.duration.FiniteDuration
 
-class InternalHttpSpec extends TestKit(ActorSystem("internal")) with AnyWordSpecLike with Matchers with BeforeAndAfterAll with InternalHttpClient {
+class InternalHttpSpec
+    extends TestKit(ActorSystem("internal"))
+    with AnyWordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with InternalHttpClient {
   val port = 8123
   val path: String = "http://127.0.0.1:" + port + "/"
   val httpActor: ActorRef = system.actorOf(Props(classOf[SimpleHttpServer], port))

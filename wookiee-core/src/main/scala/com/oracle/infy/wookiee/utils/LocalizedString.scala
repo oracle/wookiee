@@ -16,6 +16,7 @@
 
 package com.oracle.infy.wookiee.utils
 
+import java.io.InputStream
 import java.text.MessageFormat
 import java.util.{Locale, ResourceBundle}
 import scala.collection.mutable
@@ -38,6 +39,7 @@ import scala.collection.mutable
   * Messages are formatted with `java.text.MessageFormat`.
   */
 trait LocalizedString {
+
   /** get the message w/o formatting */
   def raw(msg: String)(implicit locale: Locale = Locale.getDefault, context: String = "messages"): String = {
     val bundle = ResourceBundle.getBundle(context, locale, new UTF8BundleControl(mutable.Queue.empty))
@@ -49,9 +51,7 @@ trait LocalizedString {
   }
 }
 
-
 object LocalizedString extends LocalizedString
-
 
 // @see https://gist.github.com/alaz/1388917
 // @see http://stackoverflow.com/questions/4659929/how-to-use-utf-8-in-resource-properties-with-resourcebundle
@@ -60,7 +60,7 @@ private[utils] class UTF8BundleControl(fallBackLocales: mutable.Queue[Locale]) e
   val Format = "properties.utf8"
 
   override def getFormats(baseName: String): java.util.List[String] = {
-    import scala.collection.JavaConverters._
+    import scala.jdk.CollectionConverters._
 
     Seq(Format).asJava
   }
@@ -69,54 +69,68 @@ private[utils] class UTF8BundleControl(fallBackLocales: mutable.Queue[Locale]) e
     val defaultLocale = Locale.getDefault
     (fallBackLocales.isEmpty, locale) match {
       case (true, `defaultLocale`) => null
-      case (true, _) => defaultLocale
-      case (false, _) => fallBackLocales.dequeue()
+      case (true, _)               => defaultLocale
+      case (false, _)              => fallBackLocales.dequeue()
     }
   }
 
-  override def newBundle(baseName: String, locale: Locale, fmt: String, loader: ClassLoader, reload: Boolean): ResourceBundle = {
+  override def newBundle(
+      baseName: String,
+      locale: Locale,
+      fmt: String,
+      loader: ClassLoader,
+      reload: Boolean
+  ): ResourceBundle = {
     import java.io.InputStreamReader
     import java.util.PropertyResourceBundle
 
     // The below is an approximate copy of the default Java implementation
     def resourceName = toResourceName(toBundleName(baseName, locale), "properties")
 
-    def stream =
+    def stream: Option[InputStream] =
       if (reload) {
-        for {url <- Option(loader getResource resourceName)
-             connection <- Option(url.openConnection)}
-          yield {
-            connection.setUseCaches(false)
-            connection.getInputStream
-          }
+        for {
+          url <- Option(loader getResource resourceName)
+          connection <- Option(url.openConnection)
+        } yield {
+          connection.setUseCaches(false)
+          connection.getInputStream
+        }
       } else
         Option(loader getResourceAsStream resourceName)
 
-    (for {format <- Option(fmt) if format == Format
-          is <- stream}
-      yield new PropertyResourceBundle(new InputStreamReader(is, "UTF-8"))).orNull
+    if (Option(fmt).contains(Format)) {
+      stream.map(is => new PropertyResourceBundle(new InputStreamReader(is, "UTF-8"))).orNull
+    } else null
   }
 }
 
 /**
- * Support for multiple locales in Localization
- * It accepts ordered collection of locales
- * returns Localized value in highest locale that App supports
- * */
-case class LocalizableString(key: String, args: Seq[Any] = Nil, context: String = "messages", maybeLoader: Option[ClassLoader] = None) {
+  * Support for multiple locales in Localization
+  * It accepts ordered collection of locales
+  * returns Localized value in highest locale that App supports
+  * */
+case class LocalizableString(
+    key: String,
+    args: Seq[Any] = Nil,
+    context: String = "messages",
+    maybeLoader: Option[ClassLoader] = None
+) {
 
-  private def resourceBundle(key: String)(locale: Locale = Locale.getDefault, context: String, fallbackLocales: Seq[Locale] = Nil) = {
+  private def resourceBundle(locale: Locale, context: String, fallbackLocales: Seq[Locale] = Nil) = {
     maybeLoader match {
-      case Some(loader) => ResourceBundle.getBundle(context, locale, loader, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
+      case Some(loader) =>
+        ResourceBundle.getBundle(context, locale, loader, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
       case None => ResourceBundle.getBundle(context, locale, new UTF8BundleControl(mutable.Queue(fallbackLocales: _*)))
     }
   }
 
   def localize(locales: Seq[Locale] = Seq(Locale.getDefault)): String = {
     val bundle = locales match {
-      case Nil => resourceBundle(key)(Locale.getDefault, context)
-      case head :: tail => resourceBundle(key)(head, context, tail)
+      case Nil          => resourceBundle(Locale.getDefault, context)
+      case head :: tail => resourceBundle(head, context, tail)
     }
-    new MessageFormat(bundle.getString(key), bundle.getLocale).format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
+    new MessageFormat(bundle.getString(key), bundle.getLocale)
+      .format(args.map(_.asInstanceOf[java.lang.Object]).toArray)
   }
 }

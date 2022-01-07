@@ -17,18 +17,20 @@
 package com.oracle.infy.wookiee.component
 
 /**
- * @author Michael Cuthbert on 12/10/14.
- */
-class ComponentException(name:String, msg:String, ex:Option[Throwable]=None) extends Exception(msg, ex.orNull)
+  * @author Michael Cuthbert on 12/10/14.
+  */
+class ComponentException(name: String, msg: String, ex: Option[Throwable] = None)
+    extends Exception(s"$name: '$msg'", ex.orNull)
 
 object ComponentException {
-  def apply(name:String, msg:String) = new ComponentException(name, msg)
-  def apply(name:String, t:Throwable) = new ComponentException(name, t.getMessage, Some(t))
+  def apply(name: String, msg: String) = new ComponentException(name, msg)
+  def apply(name: String, t: Throwable) = new ComponentException(name, t.getMessage, Some(t))
 }
 
-class ComponentNotFoundException(name:String, msg:String, ex:Option[Throwable]=None) extends Exception(msg, ex.orNull)
+class ComponentNotFoundException(name: String, msg: String, ex: Option[Throwable] = None)
+    extends Exception(s"$name: '$msg'", ex.orNull)
 
 object ComponentNotFoundException {
-  def apply(name:String, msg:String) = new ComponentNotFoundException(name, msg)
-  def apply(name:String, t:Throwable) = new ComponentNotFoundException(name, t.getMessage, Some(t))
+  def apply(name: String, msg: String) = new ComponentNotFoundException(name, msg)
+  def apply(name: String, t: Throwable) = new ComponentNotFoundException(name, t.getMessage, Some(t))
 }

@@ -23,29 +23,34 @@ import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 /**
- * A command should be a business logic that handles messages from some source (like http) then executes
- * the logic that is defined for the end point and returns the response. It should not ever deal with the
- * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
- * deal with any storage or caching or anything like that.
- *
- * @author Michael Cuthbert on 12/1/14.
- */
-abstract class Command[Input <: Product : ClassTag, Output <: Any : ClassTag] extends BaseCommand with HActor with CommandHelper {
+  * A command should be a business logic that handles messages from some source (like http) then executes
+  * the logic that is defined for the end point and returns the response. It should not ever deal with the
+  * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
+  * deal with any storage or caching or anything like that.
+  *
+  * @author Michael Cuthbert on 12/1/14.
+  */
+abstract class Command[Input <: Product: ClassTag, Output <: Any: ClassTag]
+    extends BaseCommand
+    with HActor
+    with CommandHelper {
   import context.dispatcher
 
-  override def receive: Receive = health orElse ({
-    case ExecuteCommand(_, bean:Input, _) =>
-      pipe(execute(bean)) to sender
-    case _ => // ignore all other messages to this actor
-  } : Receive)
+  override def receive: Receive =
+    health orElse ({
+      case ExecuteCommand(_, bean: Input, _) =>
+        pipe(execute(bean)) to sender()
+        ()
+      case _ => // ignore all other messages to this actor
+    }: Receive)
 
   /**
-   * The primary entry point for the command, the actor for this command
-   * will ignore all other messaging and only execute through this
-   */
-  def execute(bean: Input) : Future[Output]
+    * The primary entry point for the command, the actor for this command
+    * will ignore all other messaging and only execute through this
+    */
+  def execute(bean: Input): Future[Output]
 }
 
 object CommandBeanHelper {
-  def createInput[Input:ClassTag](bean: Bean): Input = Bean.infer[Input](bean)
+  def createInput[Input: ClassTag](bean: Bean): Input = Bean.infer[Input](bean)
 }

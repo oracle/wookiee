@@ -15,8 +15,6 @@
  */
 package com.oracle.infy.wookiee.functional
 
-import scala.language.higherKinds
-
 trait Applicative[M[_]] {
 
   def pure[A](a: A): M[A]

@@ -18,6 +18,7 @@ package com.oracle.infy.wookiee.logging
 import org.slf4j.{Marker, Logger => Underlying}
 
 private[oracle] sealed trait LogEvent {
+
   @transient
   val thread: Thread = Thread.currentThread
   val timestamp: Long = System.currentTimeMillis
@@ -35,23 +36,47 @@ private[oracle] sealed trait LogEvent {
   def cause: Option[Throwable]
 }
 
-private[oracle] case class Error(logger: Underlying, message: String,
-                                 marker: Option[Marker] = None, altSource: Option[String] = None,
-                                 params: Seq[Any] = Nil, cause: Option[Throwable] = None) extends LogEvent
+private[oracle] case class Error(
+    logger: Underlying,
+    message: String,
+    marker: Option[Marker] = None,
+    altSource: Option[String] = None,
+    params: Seq[Any] = Nil,
+    cause: Option[Throwable] = None
+) extends LogEvent
 
-private[oracle] case class Warn(logger: Underlying, message: String,
-                                marker: Option[Marker] = None, altSource: Option[String] = None,
-                                params: Seq[Any] = Nil, cause: Option[Throwable] = None) extends LogEvent
+private[oracle] case class Warn(
+    logger: Underlying,
+    message: String,
+    marker: Option[Marker] = None,
+    altSource: Option[String] = None,
+    params: Seq[Any] = Nil,
+    cause: Option[Throwable] = None
+) extends LogEvent
 
-private[oracle] case class Info(logger: Underlying, message: String,
-                                marker: Option[Marker] = None, altSource: Option[String] = None,
-                                params: Seq[Any] = Nil, cause: Option[Throwable] = None) extends LogEvent
+private[oracle] case class Info(
+    logger: Underlying,
+    message: String,
+    marker: Option[Marker] = None,
+    altSource: Option[String] = None,
+    params: Seq[Any] = Nil,
+    cause: Option[Throwable] = None
+) extends LogEvent
 
-private[oracle] case class Debug(logger: Underlying, message: String,
-                                 marker: Option[Marker] = None, altSource: Option[String] = None,
-                                 params: Seq[Any] = Nil, cause: Option[Throwable] = None) extends LogEvent
+private[oracle] case class Debug(
+    logger: Underlying,
+    message: String,
+    marker: Option[Marker] = None,
+    altSource: Option[String] = None,
+    params: Seq[Any] = Nil,
+    cause: Option[Throwable] = None
+) extends LogEvent
 
-private[oracle] case class Trace(logger: Underlying, message: String,
-                                  marker: Option[Marker] = None, altSource: Option[String] = None,
-                                  params: Seq[Any] = Nil, cause: Option[Throwable] = None) extends LogEvent
-
+private[oracle] case class Trace(
+    logger: Underlying,
+    message: String,
+    marker: Option[Marker] = None,
+    altSource: Option[String] = None,
+    params: Seq[Any] = Nil,
+    cause: Option[Throwable] = None
+) extends LogEvent

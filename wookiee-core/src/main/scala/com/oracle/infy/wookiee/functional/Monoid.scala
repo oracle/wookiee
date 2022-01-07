@@ -23,6 +23,7 @@ trait Monoid[A] {
 }
 
 object Monoid {
+
   implicit def endomorphismMonoid[A]: Monoid[A => A] = new Monoid[A => A] {
     override def append(f1: A => A, f2: A => A): A => A = f2 compose f1
     override def identity: A => A = Predef.identity
@@ -47,6 +48,7 @@ trait Reducer[A, B] {
 }
 
 object Reducer {
+
   def apply[A, B](f: A => B)(implicit m: Monoid[B]): Reducer[A, B] = new Reducer[A, B] {
     def unit(a: A): B = f(a)
     def prepend(a: A, b: B): B = m.append(unit(a), b)

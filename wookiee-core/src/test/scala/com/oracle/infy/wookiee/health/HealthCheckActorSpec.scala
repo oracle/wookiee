@@ -38,7 +38,7 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
   implicit val dur: FiniteDuration = FiniteDuration(15, TimeUnit.SECONDS)
 
   implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.load())
-  implicit val ec: ExecutionContextExecutor =  sys.dispatcher
+  implicit val ec: ExecutionContextExecutor = sys.dispatcher
 
   override protected def beforeAll(): Unit = {
     sys.actorOf(Props(new Actor {
@@ -46,6 +46,7 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
         case CheckHealth => sender() ! Seq(HealthComponent("test", ComponentState.NORMAL, "test"))
       }
     }))
+    ()
   }
 
   override protected def afterAll(): Unit = {
@@ -87,14 +88,30 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
     "return true when sub component state changes" in {
       val changedComplexStates = Seq(
-        (baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
-          baseHealth.copy(components = Seq(baseComponentA.copy(state = ComponentState.CRITICAL), baseComponentB))),
-        (baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
-          baseHealth.copy(components = Seq(baseComponentA.copy(state = ComponentState.CRITICAL), baseComponentB.copy(state = ComponentState.CRITICAL)))),
-        (baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
-          baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))),
-        (baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentB)))),
-          baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentB.copy(state = ComponentState.DEGRADED))))))
+        (
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
+          baseHealth.copy(components = Seq(baseComponentA.copy(state = ComponentState.CRITICAL), baseComponentB))
+        ),
+        (
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
+          baseHealth.copy(
+            components = Seq(
+              baseComponentA.copy(state = ComponentState.CRITICAL),
+              baseComponentB.copy(state = ComponentState.CRITICAL)
+            )
+          )
+        ),
+        (
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB)),
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))
+        ),
+        (
+          baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentB)))),
+          baseHealth.copy(
+            components =
+              Seq(baseComponentA.copy(components = List(baseComponentB.copy(state = ComponentState.DEGRADED))))
+          )
+        )
       )
 
       (for ((previousHealth, newHealth) <- changedComplexStates) yield {
@@ -104,10 +121,20 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
     "return false when sub component state remains same" in {
       val unchangedComplexStates = Seq(
-        (baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL))),
-          baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))),
-        (baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))),
-          baseHealth.copy(components = Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))))
+        (
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL))),
+          baseHealth.copy(components = Seq(baseComponentA, baseComponentB.copy(state = ComponentState.CRITICAL)))
+        ),
+        (
+          baseHealth.copy(
+            components =
+              Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))
+          ),
+          baseHealth.copy(
+            components =
+              Seq(baseComponentA.copy(components = List(baseComponentA.copy(components = List(baseComponentB)))))
+          )
+        )
       )
 
       (for ((previousHealth, newHealth) <- unchangedComplexStates) yield {
@@ -124,11 +151,17 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val baseMap = mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL)
 
       val baseWithSubComponent = baseHealth.copy(components = Seq(baseComponent))
-      val baseWithSubComponentMap = mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
-        Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL)
+      val baseWithSubComponentMap = mutable.Map(
+        Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
+        Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL
+      )
 
-      val baseWithMultipleSubLevels = baseHealth.copy(components = Seq(baseComponent,
-        baseComponent.copy(name = "b", state = ComponentState.DEGRADED, components = List(baseComponent))))
+      val baseWithMultipleSubLevels = baseHealth.copy(
+        components = Seq(
+          baseComponent,
+          baseComponent.copy(name = "b", state = ComponentState.DEGRADED, components = List(baseComponent))
+        )
+      )
       val baseWithMultipleSubLevelsMap = mutable.Map(
         Seq(baseHealth.applicationName) -> ComponentState.NORMAL,
         Seq(baseHealth.applicationName, baseComponent.name) -> ComponentState.CRITICAL,
@@ -136,8 +169,11 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
         Seq(baseHealth.applicationName, "b", baseComponent.name) -> ComponentState.CRITICAL
       )
 
-      val testPairs = Seq((baseHealth, baseMap), (baseWithSubComponent, baseWithSubComponentMap),
-        (baseWithMultipleSubLevels,baseWithMultipleSubLevelsMap))
+      val testPairs = Seq(
+        (baseHealth, baseMap),
+        (baseWithSubComponent, baseWithSubComponentMap),
+        (baseWithMultipleSubLevels, baseWithMultipleSubLevelsMap)
+      )
 
       (for ((input, expected) <- testPairs) yield (HealthCheckActor.collectHealthStates(input), expected))
         .forall(x => x._1 == x._2)

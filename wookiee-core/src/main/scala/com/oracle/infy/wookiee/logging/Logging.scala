@@ -23,11 +23,12 @@ import akka.actor.Actor
 import scala.util.Try
 
 /**
- * Use this trait to include in your actor so that there is logging support.
- * This is a substitute for akka's ActorLogging trait
- */
+  * Use this trait to include in your actor so that there is logging support.
+  * This is a substitute for akka's ActorLogging trait
+  */
 trait ActorLoggingAdapter extends LoggingAdapter {
   this: Actor =>
+
   @transient
   override protected lazy val log: Logger = context match {
     case null =>
@@ -40,9 +41,10 @@ trait ActorLoggingAdapter extends LoggingAdapter {
 }
 
 /**
- * Use this trait in your class so that there is logging support
- */
+  * Use this trait in your class so that there is logging support
+  */
 trait LoggingAdapter {
+
   @transient
   protected lazy val log: Logger = Logger(getClass)
 
@@ -54,14 +56,14 @@ trait LoggingAdapter {
       val message = messageOnFail.getOrElse(ex.getMessage)
 
       level match {
-        case SEVERE => log.error(message, ex)
-        case INFO => log.info(message, ex)
-        case FINE => log.info(message, ex)
-        case CONFIG => log.debug(message, ex)
-        case FINER => log.debug(message, ex)
-        case FINEST => log.trace(message, ex)
+        case SEVERE  => log.error(message, ex)
+        case INFO    => log.info(message, ex)
+        case FINE    => log.info(message, ex)
+        case CONFIG  => log.debug(message, ex)
+        case FINER   => log.debug(message, ex)
+        case FINEST  => log.trace(message, ex)
         case WARNING => log.warn(message, ex)
-        case _ => log.warn(message, ex)
+        case _       => log.warn(message, ex)
       }
     }
     tried

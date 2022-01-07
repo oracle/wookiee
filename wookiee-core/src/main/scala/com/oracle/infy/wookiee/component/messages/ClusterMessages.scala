@@ -18,4 +18,4 @@ package com.oracle.infy.wookiee.component.messages
 sealed class ClusterMessages
 case class ClusterState() extends ClusterMessages
 case class Subscriptions() extends ClusterMessages
-case class Rejoin(auto:Boolean) extends ClusterMessages
+case class Rejoin(auto: Boolean) extends ClusterMessages

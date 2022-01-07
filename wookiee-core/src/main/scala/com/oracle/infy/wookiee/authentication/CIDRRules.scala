@@ -24,16 +24,16 @@ import com.oracle.infy.wookiee.utils.ConfigUtil
 import com.typesafe.config.Config
 
 /**
- * @author Michael Cuthbert on 2/23/15.
- */
-case class CIDRRules(cidrAllow:Seq[String], cidrDeny:Seq[String]) {
+  * @author Michael Cuthbert on 2/23/15.
+  */
+case class CIDRRules(cidrAllow: Seq[String], cidrDeny: Seq[String]) {
 
   private val log = Logger.getLogger(getClass)
 
   private lazy val allow = { cidrAllow map (x => new IpAddressMatcher(x.trim)) }
   private lazy val deny = { cidrDeny map (x => new IpAddressMatcher(x.trim)) }
 
-  def checkCidrRules(ip:InetAddress) : Boolean = {
+  def checkCidrRules(ip: InetAddress): Boolean = {
     try {
       deny.count(_.matches(ip.getHostAddress)) match {
         case 0 if allow.nonEmpty =>
@@ -54,7 +54,7 @@ case class CIDRRules(cidrAllow:Seq[String], cidrDeny:Seq[String]) {
           false
       }
     } catch {
-      case iae:IllegalArgumentException =>
+      case iae: IllegalArgumentException =>
         log.info("CIDR rules do not support IPv6 yet", iae)
         false
     }
@@ -62,16 +62,20 @@ case class CIDRRules(cidrAllow:Seq[String], cidrDeny:Seq[String]) {
 }
 
 object CIDRRules {
-  def apply(config:Config) : CIDRRules = {
+
+  def apply(config: Config): CIDRRules = {
     val c = ConfigUtil.prepareSubConfig(config, "cidr-rules")
 
-    CIDRRules(immutableSeq(c getStringList "allow" toArray Array.empty[String]),
-              immutableSeq(c getStringList "deny" toArray Array.empty[String]))
+    CIDRRules(
+      immutableSeq(c getStringList "allow" toArray Array.empty[String]),
+      immutableSeq(c getStringList "deny" toArray Array.empty[String])
+    )
   }
 }
 
 final class IpAddressMatcher(var ipAddress: String) {
-  private var nMaskBits: Int = if (ipAddress.indexOf(47) > 0) {
+
+  private val nMaskBits: Int = if (ipAddress.indexOf(47) > 0) {
     val addressAndMask: Array[String] = ipAddress.split("/")
     ipAddress = addressAndMask(0)
     addressAndMask(1).toInt
@@ -88,7 +92,7 @@ final class IpAddressMatcher(var ipAddress: String) {
       val reqAddr: Array[Byte] = requiredAddress.getAddress
       val oddBits: Int = nMaskBits % 8
       val nMaskBytes: Int = nMaskBits / 8 + (if (oddBits == 0) 0
-      else 1)
+                                             else 1)
       val mask: Array[Byte] = new Array[Byte](nMaskBytes)
       val topBits = if (oddBits == 0) {
         mask.length
@@ -112,10 +116,11 @@ final class IpAddressMatcher(var ipAddress: String) {
     }
   }
 
-  private def parseAddress(address: String): InetAddress = try {
-    InetAddress.getByName(address)
-  } catch {
-    case var3: UnknownHostException =>
-      throw new IllegalArgumentException("Failed to parse address" + address, var3)
-  }
+  private def parseAddress(address: String): InetAddress =
+    try {
+      InetAddress.getByName(address)
+    } catch {
+      case var3: UnknownHostException =>
+        throw new IllegalArgumentException("Failed to parse address" + address, var3)
+    }
 }

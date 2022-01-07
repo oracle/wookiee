@@ -23,11 +23,12 @@ import scala.concurrent.Future
 case class TestPayload(name: String)
 
 class TestCommand extends Command[TestPayload, String] {
+
   override def execute(bean: TestPayload): Future[String] = {
     Future.successful(s"Test ${bean.name} OK")
   }
 }
 
 object TestCommand {
-  def CommandName:String = "TestCommand"
+  def CommandName: String = "TestCommand"
 }

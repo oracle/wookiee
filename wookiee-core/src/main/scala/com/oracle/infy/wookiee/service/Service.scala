@@ -25,9 +25,7 @@ import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails
 
 import scala.concurrent.ExecutionContextExecutor
 
-trait Service extends HActor
-    with CommandHelper
-    with ComponentHelper {
+trait Service extends HActor with CommandHelper with ComponentHelper {
 
   implicit val executor: ExecutionContextExecutor = context.dispatcher
 
@@ -36,18 +34,19 @@ trait Service extends HActor
   // To be defined in service actor, be sure to route through super.serviceRecieve like so:
   //
   def serviceReceive: Receive = {
-    case GetMetaDetails => sender ! getMetaDetails()
-    case Ready(meta) => ready(meta) // Meta info received
+    case GetMetaDetails => sender() ! getMetaDetails()
+    case Ready(meta)    => ready(meta) // Meta info received
   }: Receive
 
   override def preStart(): Unit = {
-    initCommandHelper
+    initCommandHelper()
     initComponentHelper
-    log.info("The service {} started", serviceName)
+    log.info("The service {} is starting", serviceName)
   }
 
   // Override to act after Service and Component actors are started
-  def ready(meta: ServiceMetaData): Unit = {}
+  def ready(meta: ServiceMetaData): Unit =
+    log.info("The service {} started", meta.name)
 
   // Override to act right after Service has been started (after preStart)
   // Return whether or not this Service supports HTTP requests in any form (for the /services endpoint)
@@ -55,16 +54,17 @@ trait Service extends HActor
     ServiceMetaDetails(false)
   }
 
-  def serviceName : String = this.getClass.getSimpleName
+  def serviceName: String = this.getClass.getSimpleName
 
   // Combine the services receive along with any optional routes
-  override def receive: Receive = super.receive orElse ({
-    case Ping =>
-      sender() ! Pong
+  override def receive: Receive =
+    super.receive orElse ({
+      case Ping =>
+        sender() ! Pong
 
-    case ConfigChange() =>
+      case ConfigChange() =>
       // User can receive this themselves to renew their config
 
-    case GetMetaData => (context.parent ! GetMetaData(Some(self.path)))(sender())
-  }: Receive) orElse serviceReceive
+      case GetMetaData => (context.parent ! GetMetaData(Some(self.path)))(sender())
+    }: Receive) orElse serviceReceive
 }

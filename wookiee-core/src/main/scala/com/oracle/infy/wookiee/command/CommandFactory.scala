@@ -22,9 +22,10 @@ import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 object CommandFactory {
-  def createCommand[U <: Product : ClassTag, V <: Any : ClassTag](
-                                                      businessLogic: U => Future[V]
-                                                    ): Props = {
+
+  def createCommand[U <: Product: ClassTag, V <: Any: ClassTag](
+      businessLogic: U => Future[V]
+  ): Props = {
     class FunctionalCommand extends Command[U, V] {
       override def execute(bean: U): Future[V] = {
         businessLogic(bean)
@@ -33,13 +34,14 @@ object CommandFactory {
     object FunctionalCommand {
       def apply() = new FunctionalCommand()
     }
-    Props({FunctionalCommand()})
+    Props({ FunctionalCommand() })
   }
 
-  def createCommand[U <: Product : ClassTag, V  <: Any : ClassTag](
-     customUnmarshaller: Bean => U,
-     businessLogic: U => Future[V],
-     customMarshaller: V => Array[Byte]): Props = {
+  def createCommand[U <: Product: ClassTag, V <: Any: ClassTag](
+      customUnmarshaller: Bean => U,
+      businessLogic: U => Future[V],
+      customMarshaller: V => Array[Byte]
+  ): Props = {
 
     class FunctionalCommand extends Command[Bean, Array[Byte]] {
       import context.dispatcher
@@ -52,6 +54,6 @@ object CommandFactory {
     object FunctionalCommand {
       def apply() = new FunctionalCommand()
     }
-    Props({FunctionalCommand()})
+    Props({ FunctionalCommand() })
   }
 }

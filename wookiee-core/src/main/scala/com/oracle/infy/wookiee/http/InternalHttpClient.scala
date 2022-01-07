@@ -20,15 +20,15 @@ import java.net.{HttpURLConnection, URLConnection}
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 
 /**
- * Contains common methods used to call our web server
- */
+  * Contains common methods used to call our web server
+  */
 trait InternalHttpClient {
 
   /**
-   * Get standard response form the supplied connection
-   *
-   * @param conn HTTP Connection
-   */
+    * Get standard response form the supplied connection
+    *
+    * @param conn HTTP Connection
+    */
   def getResponseContent(conn: HttpURLConnection): HttpResponseData = {
     try {
       val connIn = conn.getInputStream
@@ -64,10 +64,10 @@ trait InternalHttpClient {
   }
 
   /**
-   * Get error response in the event that response status is not 200
-   *
-   * @param conn HTTP Connection
-   */
+    * Get error response in the event that response status is not 200
+    *
+    * @param conn HTTP Connection
+    */
   def getResponseErrorContent(conn: HttpURLConnection): HttpResponseData = {
     val content = new StringBuilder()
     if (conn.getErrorStream != null) {
@@ -83,11 +83,11 @@ trait InternalHttpClient {
   }
 
   /**
-   * Read in headers
-   *
-   * @param conn HTTP Connection
-   * @param headers Collection of header name-values
-   */
+    * Read in headers
+    *
+    * @param conn HTTP Connection
+    * @param headers Collection of header name-values
+    */
   def getResponseHeaders(conn: URLConnection, headers: collection.mutable.Map[String, String]): String = {
     headers.clear()
     var statusLine = ""
@@ -125,12 +125,9 @@ trait InternalHttpClient {
   }
 
   /**
-   * Data returned from the HTTP connection
-   */
-  case class HttpResponseData(
-                               statusLine: String,
-                               content: String,
-                               headers: collection.mutable.Map[String, String]) {
+    * Data returned from the HTTP connection
+    */
+  case class HttpResponseData(statusLine: String, content: String, headers: collection.mutable.Map[String, String]) {
 
     private val startIndex = statusLine.indexOf(" ") + 1
     val status: String = statusLine.substring(startIndex, startIndex + 3)

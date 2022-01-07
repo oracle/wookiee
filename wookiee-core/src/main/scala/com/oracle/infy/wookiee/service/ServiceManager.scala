@@ -35,8 +35,8 @@ import scala.concurrent.duration._
 import scala.util.control.Exception._
 
 /**
- * Request to return service meta data
- */
+  * Request to return service meta data
+  */
 class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
   import context.dispatcher
@@ -44,13 +44,13 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
   override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute) {
       case _: ActorInitializationException => Stop
-      case _: DeathPactException => Stop
-      case _: ActorKilledException => Restart
-      case _: Exception => Restart
-      case _: Throwable => Escalate
+      case _: DeathPactException           => Stop
+      case _: ActorKilledException         => Restart
+      case _: Exception                    => Restart
+      case _: Throwable                    => Escalate
     }
 
-  override def preStart: Unit = {
+  override def preStart(): Unit = {
 
     load(context)
     // Tell the harness that the services are loaded. The parent will then
@@ -61,11 +61,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
   override def postStop(): Unit = {
     // Kill any custom class loaders
-    services.values foreach {
-      p =>
-        if (p._2.isDefined) p._2.get.close()
+    services.values foreach { p =>
+      if (p._2.isDefined) p._2.get.close()
     }
-    services.clear
+    services.clear()
     if (context != null) log.info("Service Manager stopped: {}", context.self.path)
   }
 
@@ -84,42 +83,44 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
       val meta = getServiceMeta(path)
       path match {
         case None => sender() ! meta // Asked for all services
-        case _ => sender() ! meta.head // Asked for only a specific service
+        case _    => sender() ! meta.head // Asked for only a specific service
       }
 
     case LoadService(name, clazz) =>
       log.info(s"We have received a message to load service $name")
-      sender ! context.child(name).orElse(context.child(clazz.getSimpleName)).orElse(loadService(name, clazz))
+      sender() ! context.child(name).orElse(context.child(clazz.getSimpleName)).orElse(loadService(name, clazz))
 
     case GetMetaDataByName(service) =>
       log.info("We have received a message to get service meta data")
       services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
         case Some(meta) => sender() ! meta
-        case None => sender() ! Status.Failure(new NoSuchElementException(s"Could not locate the meta information for service $service"))
+        case None =>
+          sender() ! Status.Failure(
+            new NoSuchElementException(s"Could not locate the meta information for service $service")
+          )
       }
 
     case RestartService(service) =>
       log.info(s"We have received a message to restart the service $service")
       services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
         case Some(m) => services(m)._1 ! Kill
-        case None =>
+        case None    =>
       }
 
     case ConfigChange() =>
       log.debug("Sending config change message to all services...")
-      context.children foreach {
-        p => p ! ConfigChange()
+      context.children foreach { p =>
+        p ! ConfigChange()
       }
 
     case Terminated(service) =>
       log.info("Service {} terminated", service.path.name)
       // Find and nuke the classloader
-      services.filter(_._1.akkaPath == service.path.toString) foreach {
-        p =>
-          if (p._2._2.isDefined) {
-            p._2._2.get.close()
-          }
-          services.remove(p._1)
+      services.filter(_._1.akkaPath == service.path.toString) foreach { p =>
+        if (p._2._2.isDefined) {
+          p._2._2.get.close()
+        }
+        services.remove(p._1)
       }
   }
 
@@ -139,25 +140,36 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     }
   }
 
-
   /**
-   * This is the health of the current object, by default will be NORMAL
-   * In general this should be overridden to define the health of the current object
-   * For objects that simply manage other objects you shouldn't need to do anything
-   * else, as the health of the children components would be handled by their own
-   * CheckHealth function
-   *
-   * @return
-   */
+    * This is the health of the current object, by default will be NORMAL
+    * In general this should be overridden to define the health of the current object
+    * For objects that simply manage other objects you shouldn't need to do anything
+    * else, as the health of the children components would be handled by their own
+    * CheckHealth function
+    *
+    * @return
+    */
   override protected def getHealth: Future[HealthComponent] = {
     log.debug("Service health requested")
     Future {
       if (services.isEmpty) {
-          HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, "There are no services currently installed")
+        HealthComponent(
+          ServiceManager.ServiceManagerName,
+          ComponentState.CRITICAL,
+          "There are no services currently installed"
+        )
       } else if (context.children.size != services.size) {
-          HealthComponent(ServiceManager.ServiceManagerName, ComponentState.CRITICAL, s"There are ${services.size} installed, but only ${context.children.size} that were successfully loaded")
+        HealthComponent(
+          ServiceManager.ServiceManagerName,
+          ComponentState.CRITICAL,
+          s"There are ${services.size} installed, but only ${context.children.size} that were successfully loaded"
+        )
       } else {
-        HealthComponent(ServiceManager.ServiceManagerName, ComponentState.NORMAL, s"Currently managing ${services.size} service(s)")
+        HealthComponent(
+          ServiceManager.ServiceManagerName,
+          ComponentState.NORMAL,
+          s"Currently managing ${services.size} service(s)"
+        )
       }
     }
   }
@@ -173,41 +185,40 @@ object ServiceManager extends LoggingAdapter {
 
   @SerialVersionUID(1L) case class RestartService(name: String)
 
-  def props: Props = Props[ServiceManager]
+  def props: Props = Props[ServiceManager]()
 
   /**
-   * Load the configuration files for the deployed services
-   * @param sysConfig System level config for wookiee
-   * @return
-   */
+    * Load the configuration files for the deployed services
+    * @param sysConfig System level config for wookiee
+    * @return
+    */
   def loadConfigs(sysConfig: Config): Seq[Config] = {
     serviceDir(sysConfig) match {
       case Some(s) =>
         val dirs = s.listFiles.filter(_.isDirectory)
 
-        val configs = dirs flatMap {
-          dir =>
-            val path = dir.getPath.concat("/conf")
-            log.info("Checking the directory {} for any *.conf files to load", path)
-            for {
-              file <- getConfigFiles(path)
-              conf = allCatch either ConfigFactory.parseFile(file) match {
-                case Left(fail) => log.error(s"Could not load the config file ${file.getAbsolutePath}", fail); None
-                case Right(value) => Some(value)
-              }
-              if conf.isDefined
-            } yield conf.get
+        val configs = dirs flatMap { dir =>
+          val path = dir.getPath.concat("/conf")
+          log.info("Checking the directory {} for any *.conf files to load", path)
+          for {
+            file <- getConfigFiles(path)
+            conf = allCatch either ConfigFactory.parseFile(file) match {
+              case Left(fail)   => log.error(s"Could not load the config file ${file.getAbsolutePath}", fail); None
+              case Right(value) => Some(value)
+            }
+            if conf.isDefined
+          } yield conf.get
         }
-        configs
+        configs.toList
       case None => Seq()
     }
   }
 
   /**
-   * Get the services directory
-   * @param config The systems main config
-   * @return The service root path, this is option, so if none then not found
-   */
+    * Get the services directory
+    * @param config The systems main config
+    * @return The service root path, this is option, so if none then not found
+    */
   def serviceDir(config: Config): Option[File] = {
     val file = FileSystems.getDefault.getPath(config.getString(HarnessConstants.KeyServicePath)).toFile
     if (file.exists()) {
@@ -220,9 +231,11 @@ object ServiceManager extends LoggingAdapter {
   private def getConfigFiles(path: String): Seq[File] = {
     val root = new File(path)
     if (root.exists) {
-      root.listFiles(new FilenameFilter {
-        def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
-      })
+      root
+        .listFiles(new FilenameFilter {
+          def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
+        })
+        .toList
     } else Seq.empty
   }
 

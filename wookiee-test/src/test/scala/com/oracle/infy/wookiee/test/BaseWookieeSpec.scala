@@ -9,6 +9,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with Inspectors {
+
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
     Some(Map("testservice" -> classOf[TestService]))
 

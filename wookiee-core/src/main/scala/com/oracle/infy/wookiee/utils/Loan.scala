@@ -17,6 +17,7 @@
 package com.oracle.infy.wookiee.utils
 
 class Loan[A <: AutoCloseable](resource: A) {
+
   def to[B](block: A => B): B = {
     var t: Throwable = null
     try {

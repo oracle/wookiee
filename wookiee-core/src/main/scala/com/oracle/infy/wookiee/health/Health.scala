@@ -17,7 +17,7 @@ package com.oracle.infy.wookiee.health
 
 import akka.actor.{Actor, ActorRef}
 
-trait Health { this: Actor=>
+trait Health { this: Actor =>
 
   def startHealth: ActorRef = {
     // Create the health check system
