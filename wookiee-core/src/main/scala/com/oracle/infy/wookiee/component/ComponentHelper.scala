@@ -78,14 +78,14 @@ trait ComponentHelper extends CommandHelper {
   }
 
   /**
-   * Wrapper function around request that allows the developer to not have to deal with the
-   * ComponentResponse return object, and just deal with the message that they care about
-   *
-   * @param name name of the component
-   * @param msg msg to send to the component
-   * @return
-   */
-  def unwrapRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[U] =
+    * Wrapper function around request that allows the developer to not have to deal with the
+    * ComponentResponse return object, and just deal with the message that they care about
+    *
+    * @param name name of the component
+    * @param msg msg to send to the component
+    * @return
+    */
+  def unwrapRequest[T, U](name: String, msg: ComponentRequest[T]): Future[U] =
     componentRequest(name, msg).mapTo[ComponentResponse[U]].map(_.resp)
 
   def request[T](name: String, msg: Any, childName: Option[String] = None): Future[ComponentResponse[T]] =
@@ -100,13 +100,13 @@ trait ComponentHelper extends CommandHelper {
     unwrapRequest[msg.type, T](name, ComponentRequest[msg.type](msg, Some(ComponentManager.ComponentRef)))
 
   /**
-   * Wrapper function that allows developer to make requests to components individually without having to know about the
-   * ComponentManager as the parent that routes the messages to the various components
-   * @param name name of the component
-   * @param msg message you want to send to the component
-   * @return
-   */
-  def componentRequest[T, U](name:String, msg:ComponentRequest[T]) : Future[ComponentResponse[U]] =
+    * Wrapper function that allows developer to make requests to components individually without having to know about the
+    * ComponentManager as the parent that routes the messages to the various components
+    * @param name name of the component
+    * @param msg message you want to send to the component
+    * @return
+    */
+  def componentRequest[T, U](name: String, msg: ComponentRequest[T]): Future[ComponentResponse[U]] =
     initComponentHelper.flatMap { cm =>
       (cm ? Request(name, msg))(msg.timeout).mapTo[ComponentResponse[U]]
     }
@@ -126,32 +126,34 @@ trait ComponentHelper extends CommandHelper {
     componentMessage(name, ComponentMessage(msg, childName))
 
   /**
-   * Wrapper function that allows the developer to message components individually without having to know about the
-   * ComponentManager as the parent that routes the messages to the various components
-   *
-   * @param name name of the component
-   * @param msg message you want to send to the component
-   */
+    * Wrapper function that allows the developer to message components individually without having to know about the
+    * ComponentManager as the parent that routes the messages to the various components
+    *
+    * @param name name of the component
+    * @param msg message you want to send to the component
+    */
   def componentMessage[T](name: String, msg: ComponentMessage[T]): Unit =
     initComponentHelper.foreach { cm =>
       cm ! Message(name, msg)
     }
 
   /**
-   * Wrapper function that allows developers to get the actor reference for a particular component
-   * @param name the name of the component
-   * @param timeout implicit timeout value
-   */
+    * Wrapper function that allows developers to get the actor reference for a particular component
+    * @param name the name of the component
+    * @param timeout implicit timeout value
+    */
   def getComponent(name: String)(implicit timeout: Timeout): Future[ActorRef] =
     initComponentHelper.flatMap { cm =>
       (cm ? GetComponent(name))(timeout).mapTo[Option[ActorRef]].map {
         case Some(ref) => ref
-        case None => throw ComponentNotFoundException("Component Manager", s"component $name not found")
+        case None      => throw ComponentNotFoundException("Component Manager", s"component $name not found")
       }
     }
 
   // Will return 'false' if the reload failed for any reason, error should be in logs
-  protected[oracle] def reloadComponentFromFile(file: File, classLoader: Option[HarnessClassLoader])(implicit timeout:Timeout): Future[Boolean] =
+  protected[oracle] def reloadComponentFromFile(file: File, classLoader: Option[HarnessClassLoader])(
+      implicit timeout: Timeout
+  ): Future[Boolean] =
     initComponentHelper.flatMap { cm =>
       (cm ? ReloadComponent(file, classLoader))(timeout).mapTo[Boolean]
     }

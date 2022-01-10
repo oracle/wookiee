@@ -87,10 +87,10 @@ object ComponentManager extends LoggingAdapter {
   val KeyEnabled = "enabled"
 
   /**
-   * NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
-   * You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
-   * @param replace When true we will replace current class loaders with the ones discovered in this method
-   */
+    * NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
+    * You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
+    * @param replace When true we will replace current class loaders with the ones discovered in this method
+    */
   def loadComponentJars(sysConfig: Config, loader: HarnessClassLoader, replace: Boolean): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
@@ -109,8 +109,16 @@ object ComponentManager extends LoggingAdapter {
       try {
         val co = validateComponentDir(componentName, file)
         // get list of all JARS and load each one
-        Some(HawkClassLoader(componentName, co._2.listFiles
-          .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")).map(_.getCanonicalFile.toURI.toURL).toList))
+        Some(
+          HawkClassLoader(
+            componentName,
+            co._2
+              .listFiles
+              .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar"))
+              .map(_.getCanonicalFile.toURI.toURL)
+              .toList
+          )
+        )
       } catch {
         case e: IllegalArgumentException =>
           externalLogger.warn(e.getMessage)
@@ -182,17 +190,17 @@ object ComponentManager extends LoggingAdapter {
   }
 
   /**
-   * This function will attempt various ways to find the component name of the jar.
-   * 1. Will check to see if the jar filename is the component name
-   * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
-   * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
-   *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
-   * It will perform the checks in the order above
-   *
-   * @param file The file or directory that is the jar or component dir
-   * @return String option if found the name, None otherwise
-   */
-  def getComponentName(file: File, config: Config) : String = {
+    * This function will attempt various ways to find the component name of the jar.
+    * 1. Will check to see if the jar filename is the component name
+    * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
+    * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
+    *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
+    * It will perform the checks in the order above
+    *
+    * @param file The file or directory that is the jar or component dir
+    * @return String option if found the name, None otherwise
+    */
+  def getComponentName(file: File, config: Config): String = {
     val name = file.getName
     if (file.isDirectory) {
       validateComponentDir(name, file)
@@ -224,6 +232,7 @@ object ComponentManager extends LoggingAdapter {
 class ComponentManager extends PrepareForShutdown {
   import context.dispatcher
   import ComponentManager._
+
   val componentTimeout: Timeout = ConfigUtil
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
 
@@ -237,18 +246,18 @@ class ComponentManager extends PrepareForShutdown {
   }
 
   def initializing: Receive = super.receive orElse {
-    case InitializeComponents           => initializeComponents
-    case ComponentStarted(name)         => componentStarted(name)
+    case InitializeComponents               => initializeComponents
+    case ComponentStarted(name)             => componentStarted(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
   }
 
   def started: Receive = super.receive orElse {
-    case Message(name, msg)             => message(name, msg)
-    case Request(name, msg)             => pipe(request(name, msg)) to sender(); ()
-    case GetComponent(name)             => sender() ! context.child(name)
+    case Message(name, msg)                 => message(name, msg)
+    case Request(name, msg)                 => pipe(request(name, msg)) to sender(); ()
+    case GetComponent(name)                 => sender() ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
-    case ReloadComponent(file, cl) => pipe(reloadComponent(file, cl)) to sender(); ()
-    case SystemReady                    => context.children.foreach(ref => ref ! SystemReady)
+    case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()
+    case SystemReady                        => context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
@@ -298,8 +307,8 @@ class ComponentManager extends PrepareForShutdown {
   }
 
   private def getOrDefaultClassLoader(classLoader: Option[HarnessClassLoader]) = classLoader match {
-      case Some(loader) => loader
-      case None => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
+    case Some(loader) => loader
+    case None         => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
   }
 
   private def componentStarted(name: String): Unit = {
@@ -528,7 +537,7 @@ class ComponentManager extends PrepareForShutdown {
     ComponentManager.components(componentName) = ComponentState.Failed
   }
 
-  private def findAndLoadComponentManager(componentName: String, config: Config) =  {
+  private def findAndLoadComponentManager(componentName: String, config: Config) = {
     val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
     if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
       log.info(s"Component $componentName not enabled, won't be started.")

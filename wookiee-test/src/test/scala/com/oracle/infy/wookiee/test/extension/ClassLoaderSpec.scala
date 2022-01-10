@@ -4,7 +4,14 @@ import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.{HarnessActorSystem, HarnessClassLoader}
-import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentResponse, LoadComponent, ReloadComponent, Request}
+import com.oracle.infy.wookiee.component.{
+  ComponentManager,
+  ComponentRequest,
+  ComponentResponse,
+  LoadComponent,
+  ReloadComponent,
+  Request
+}
 import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.test.BaseWookieeTest
 import com.typesafe.config.{Config, ConfigFactory}
@@ -31,10 +38,16 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val cm = sys.actorOf(Props[ComponentManager]())
 
         println("Loading each component jar..")
-        val extA = Await.result((cm ? LoadComponent("BasicExtensionA", "com.oracle.infy.wookiee.qa.BasicExtension",
-          Some(harnessClassLoader))).mapTo[Option[ActorRef]], timeout.duration)
-        val extB = Await.result((cm ? LoadComponent("BasicExtensionB", "com.oracle.infy.wookiee.qa.BasicExtension",
-          Some(harnessClassLoader))).mapTo[Option[ActorRef]], timeout.duration)
+        val extA = Await.result(
+          (cm ? LoadComponent("BasicExtensionA", "com.oracle.infy.wookiee.qa.BasicExtension", Some(harnessClassLoader)))
+            .mapTo[Option[ActorRef]],
+          timeout.duration
+        )
+        val extB = Await.result(
+          (cm ? LoadComponent("BasicExtensionB", "com.oracle.infy.wookiee.qa.BasicExtension", Some(harnessClassLoader)))
+            .mapTo[Option[ActorRef]],
+          timeout.duration
+        )
         Thread.sleep(1000L)
         println("\nTrying to log from each..")
         val instA = extA.map(act => Await.result((act ? "log").mapTo[String], timeout.duration)).getOrElse("")
@@ -61,10 +74,19 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val cm = sys.actorOf(Props[ComponentManager]())
 
         println("Loading each component jar..")
-        val extB = Await.result((cm ? LoadComponent("SecondExtension", "com.oracle.infy.wookiee.qa.SecondExtension",
-          Some(harnessClassLoaderB))).mapTo[Option[ActorRef]], timeout.duration)
-        val extA = Await.result((cm ? LoadComponent("BasicExtension", "com.oracle.infy.wookiee.qa.BasicExtension",
-          Some(harnessClassLoaderA))).mapTo[Option[ActorRef]], timeout.duration)
+        val extB = Await.result(
+          (cm ? LoadComponent(
+            "SecondExtension",
+            "com.oracle.infy.wookiee.qa.SecondExtension",
+            Some(harnessClassLoaderB)
+          )).mapTo[Option[ActorRef]],
+          timeout.duration
+        )
+        val extA = Await.result(
+          (cm ? LoadComponent("BasicExtension", "com.oracle.infy.wookiee.qa.BasicExtension", Some(harnessClassLoaderA)))
+            .mapTo[Option[ActorRef]],
+          timeout.duration
+        )
         Thread.sleep(1000L)
         println("\nTrying to log from each..")
         val instA = extA.map(act => Await.result((act ? "log").mapTo[String], timeout.duration)).getOrElse("")
@@ -96,10 +118,16 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val cm = sys.actorOf(Props[ComponentManager](), "test-comp-manager")
 
         println("Loading each component jar..")
-        val extB = Await.result((cm ? LoadComponent("BasicExtension", "com.oracle.infy.wookiee.qa.BasicExtension",
-          Some(harnessClassLoader))).mapTo[Option[ActorRef]], timeout.duration)
-        val extA = Await.result((cm ? LoadComponent("OtherExtension", "com.oracle.infy.wookiee.qa.OtherExtension",
-          Some(harnessClassLoader))).mapTo[Option[ActorRef]], timeout.duration)
+        val extB = Await.result(
+          (cm ? LoadComponent("BasicExtension", "com.oracle.infy.wookiee.qa.BasicExtension", Some(harnessClassLoader)))
+            .mapTo[Option[ActorRef]],
+          timeout.duration
+        )
+        val extA = Await.result(
+          (cm ? LoadComponent("OtherExtension", "com.oracle.infy.wookiee.qa.OtherExtension", Some(harnessClassLoader)))
+            .mapTo[Option[ActorRef]],
+          timeout.duration
+        )
         Thread.sleep(1000L)
         println("\nTrying to log from each..")
         val instA = extA.map(act => Await.result((act ? "log").mapTo[String], timeout.duration)).getOrElse("")
@@ -115,7 +143,9 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     "Should not load classes in when reading config" in {
       val cf = HarnessActorSystem.renewConfigsAndClasses(Some(config))
       cf.getString("other-extension.something.value") shouldEqual "example-other"
-      HarnessActorSystem.loader.getChildLoaders
+      HarnessActorSystem
+        .loader
+        .getChildLoaders
         .exists(_.getURLs.exists(_.getPath.contains("other-extension"))) shouldEqual true
     }
 
@@ -134,7 +164,10 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val harnessClassLoader = new HarnessClassLoader(new URLClassLoader(Array()))
       val cDir = compDir()
 
-      val result = Await.result((cm ? ReloadComponent(new File(s"$cDir/basic-extension.jar"), Some(harnessClassLoader))).mapTo[Boolean], timeout.duration)
+      val result = Await.result(
+        (cm ? ReloadComponent(new File(s"$cDir/basic-extension.jar"), Some(harnessClassLoader))).mapTo[Boolean],
+        timeout.duration
+      )
       result shouldBe true
       harnessClassLoader.getChildLoaders.head.entityName shouldBe "basic-extension"
     }
@@ -155,15 +188,14 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val output = Await.result((comp.get ? "log").mapTo[String], timeout.duration)
       output shouldBe "A"
     }
-     */
+   */
   }
 
   override def config: Config = {
     val cDir = compDir()
 
     println(s"Component Directory: [$cDir]")
-    ConfigFactory.parseString(
-      s"""{
+    ConfigFactory.parseString(s"""{
          | services.path = "src/"
          | components {
          |  path = "$cDir"
@@ -194,8 +226,11 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     val waitTill = System.currentTimeMillis() + timeout.duration.toMillis
     while (System.currentTimeMillis() < waitTill) {
       try {
-        val resp = Await.result((cm ? Request[U](componentName,
-          ComponentRequest(request, Some(ComponentManager.ComponentRef)))).mapTo[ComponentResponse[String]], timeout.duration)
+        val resp = Await.result(
+          (cm ? Request[U](componentName, ComponentRequest(request, Some(ComponentManager.ComponentRef))))
+            .mapTo[ComponentResponse[String]],
+          timeout.duration
+        )
         return resp.resp
       } catch {
         case _: Throwable => // Ignore until we're out of time

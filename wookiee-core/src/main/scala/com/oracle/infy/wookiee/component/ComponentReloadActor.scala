@@ -18,14 +18,14 @@ object ComponentReloadActor {
 }
 
 /**
- * Enabled by setting 'components.dynamic-loading' to 'true'
- * Used to monitor the directories specified at 'components.path' and 'components.lib-components'
- * When an add/modify is detected in the JARs in those dirs then we will:
- *  1) Stop the current actor associated with that Component if it already exists
- *  2) Discard the HawkClassLoader for that Component if it existed
- *  3) Load up the classes in that JAR via a new HawkClassLoader
- *  4) Start up the main Component actor for that new JAR
- */
+  * Enabled by setting 'components.dynamic-loading' to 'true'
+  * Used to monitor the directories specified at 'components.path' and 'components.lib-components'
+  * When an add/modify is detected in the JARs in those dirs then we will:
+  *  1) Stop the current actor associated with that Component if it already exists
+  *  2) Discard the HawkClassLoader for that Component if it existed
+  *  3) Load up the classes in that JAR via a new HawkClassLoader
+  *  4) Start up the main Component actor for that new JAR
+  */
 class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with ComponentHelper {
   import context.dispatcher
   val componentWatcher: WatchService = FileSystems.getDefault.newWatchService()
@@ -38,19 +38,29 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
       } else {
         // Start up monitoring of our directories
         val toWatch = watchDirs()
-        log.info("Starting up Component Reload Actor for dynamic loading of " +
-          s"Components in the directories: [${toWatch.mkString(",")}]")
+        log.info(
+          "Starting up Component Reload Actor for dynamic loading of " +
+            s"Components in the directories: [${toWatch.mkString(",")}]"
+        )
 
         val watched = toWatch.flatMap { dir =>
           val path = Paths.get(new File(dir).getPath)
           if (Files.exists(path)) {
             log.debug("Adding watcher to Component directory [{}]", path)
-            Some(path.register(componentWatcher, Array[WatchEvent.Kind[_]](ENTRY_CREATE), SensitivityWatchEventModifier.MEDIUM))
+            Some(
+              path.register(
+                componentWatcher,
+                Array[WatchEvent.Kind[_]](ENTRY_CREATE),
+                SensitivityWatchEventModifier.MEDIUM
+              )
+            )
           } else None
         }
 
         if (watched.isEmpty) {
-          log.warn(s"None of the directories configured at '$KeyPathComponents' or '$KeyComponents' were found, not watching")
+          log.warn(
+            s"None of the directories configured at '$KeyPathComponents' or '$KeyComponents' were found, not watching"
+          )
           context.stop(self)
         } else {
           log.debug("Successfully setup directory watching for Component Reloads")
@@ -83,16 +93,15 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
       val key = componentWatcher.take()
 
       val events = key.pollEvents().asScala.to(LazyList).takeWhile(_.kind() != OVERFLOW).toList
-      events.foreach {
-        event =>
-          log.info("Detected new JAR/Directory at {}", event.context().toString)
-          val ev = event.asInstanceOf[WatchEvent[Path]]
-          val file = truePath(ev.context().toFile)
+      events.foreach { event =>
+        log.info("Detected new JAR/Directory at {}", event.context().toString)
+        val ev = event.asInstanceOf[WatchEvent[Path]]
+        val file = truePath(ev.context().toFile)
 
-          reloadComponentFromFile(file, Some(loader)).foreach { result =>
-            if (result) log.info(s"Successfully sent Component at [${file.getAbsolutePath}] to reload")
-            else log.error(s"Component Manager reported failed reload of Component at [${file.getAbsolutePath}]")
-          }
+        reloadComponentFromFile(file, Some(loader)).foreach { result =>
+          if (result) log.info(s"Successfully sent Component at [${file.getAbsolutePath}] to reload")
+          else log.error(s"Component Manager reported failed reload of Component at [${file.getAbsolutePath}]")
+        }
       }
 
       // Reset the key -- this step is critical if you want to receive further watch events.

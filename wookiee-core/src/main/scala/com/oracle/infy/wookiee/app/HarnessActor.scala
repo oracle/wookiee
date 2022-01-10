@@ -162,7 +162,8 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
         serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
         log.debug("Harness Manager started: {}", context.self.path)
         val cl = Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
-        componentReloadActor = Some(context.actorOf(Props(classOf[ComponentReloadActor], cl), HarnessConstants.ComponentReloadName))
+        componentReloadActor =
+          Some(context.actorOf(Props(classOf[ComponentReloadActor], cl), HarnessConstants.ComponentReloadName))
         // in general the internal http should always start, but in the cases where you want to turn it off
         // you can just disable it in the config using internal-http.enable = false
         // it will also fail silently with a warning if another http component is using the same port as it.

@@ -37,9 +37,15 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
-  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])]()
+
+  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])] =
+    collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])]()
   private val userDir = System.getProperty("user.dir")
-  private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
+
+  private val libDir = userDir + (if (!new File(userDir + "/lib").exists) {
+                                    if (new File(userDir + "/dist").exists) "/dist" else "/target"
+                                  } else "")
+
   private val harnessLibs = FileSystems.getDefault.getPath(libDir + "/lib").toFile.listFiles match {
     case null  => null
     case files => files.filter(_.getName.endsWith("jar"))
@@ -107,8 +113,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
 
       // Load the urls into the class loader
       val loader =
-        if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader,
-          config.getBoolean, true)) {
+        if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader, config.getBoolean, true)) {
           val pcl = HawkClassLoader(HarnessConstants.KeyServiceClassLoaderName, urls.toList)
           harnessLoader.addChildLoader(pcl)
           pcl
@@ -136,7 +141,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     val jarFile = new JarFile(jar)
     val loaderOpt = loader match {
       case loader1: HawkClassLoader => Some(loader1)
-      case _                           => None
+      case _                        => None
     }
 
     try {
@@ -238,7 +243,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     }
     val loaderOpt = classLoaderFinal match {
       case loader: HawkClassLoader => Some(loader)
-      case _                          => None
+      case _                       => None
     }
     var serviceActor: Option[ActorRef] = None
     val serv = Try {

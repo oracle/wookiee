@@ -56,8 +56,10 @@ object HarnessActorSystem {
           if (next.getPath.contains(child.entityName)) {
             val confStr = Source.fromInputStream(next.getContent.asInstanceOf[InputStream]).mkString
             val childConf = ConfigFactory.parseString(confStr)
-            externalLogger.info(s"New config for extension '${child.entityName}', jar: '${child.urls.head.getPath}': " +
-              s"\n${printConf(childConf)}")
+            externalLogger.info(
+              s"New config for extension '${child.entityName}', jar: '${child.urls.head.getPath}': " +
+                s"\n${printConf(childConf)}"
+            )
             return Some(childConf)
           }
         }
@@ -76,12 +78,16 @@ object HarnessActorSystem {
     externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)
     if (configs.nonEmpty)
-      externalLogger.info(s"${configs.size} service config(s) have been loaded: \n${configs.map(printConf).mkString(", ")}")
+      externalLogger.info(
+        s"${configs.size} service config(s) have been loaded: \n${configs.map(printConf).mkString(", ")}"
+      )
 
     externalLogger.debug("Loading the component configs")
     val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
     if (compConfigs.nonEmpty)
-      externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: \n${compConfigs.map(printConf).mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
+      externalLogger.info(
+        s"${compConfigs.size} component config(s) have been loaded: \n${compConfigs.map(printConf).mkString(", ")}\nIf 0 could be due to config loaded from component JARs."
+      )
 
     val allConfigs = configs ++ compConfigs
 
