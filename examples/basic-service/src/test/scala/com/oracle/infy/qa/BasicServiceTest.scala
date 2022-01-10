@@ -1,7 +1,6 @@
 package com.oracle.infy.qa
 
 import akka.testkit.TestProbe
-import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.GetMetaDetails
 import com.oracle.infy.wookiee.service.meta.ServiceMetaDetails
 import com.oracle.infy.wookiee.test.BaseWookieeTest
@@ -11,7 +10,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 class BasicServiceTest extends BaseWookieeTest with AnyWordSpecLike with Matchers {
   override def config: Config = ConfigFactory.empty()
-  override def servicesMap: Option[Map[String, Class[_ <: Service]]] = Some(Map("base" -> classOf[BasicService]))
+  override def servicesMap: Option[Map[String, Class[BasicService]]] = Some(Map("base" -> classOf[BasicService]))
 
   "BasicService" should {
     "start itself up" in {
@@ -20,7 +19,7 @@ class BasicServiceTest extends BaseWookieeTest with AnyWordSpecLike with Matcher
       assert(testService.isDefined, "Basic Service was not registered")
 
       probe.send(testService.get, GetMetaDetails)
-      ServiceMetaDetails(false) shouldBe probe.expectMsg(ServiceMetaDetails(false))
+      ServiceMetaDetails(false) shouldEqual probe.expectMsg(ServiceMetaDetails(false))
     }
   }
 }

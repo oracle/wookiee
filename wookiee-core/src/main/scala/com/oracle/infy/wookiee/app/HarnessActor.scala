@@ -22,7 +22,7 @@ import akka.util.Timeout
 import com.typesafe.config.Config
 import HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{ComponentManager, InitializeComponents}
+import com.oracle.infy.wookiee.component.{ComponentManager, ComponentReloadActor, InitializeComponents}
 import com.oracle.infy.wookiee.config.ConfigWatcher
 import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -96,6 +96,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   // The service manager will be created after we have started and all of the system's actors are able to receive messages
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
+  var componentReloadActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
   var dispatchManager: Option[ActorRef] = None
 
@@ -160,6 +161,8 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
         // Load any services
         serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
         log.debug("Harness Manager started: {}", context.self.path)
+        val cl = Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
+        componentReloadActor = Some(context.actorOf(Props(classOf[ComponentReloadActor], cl), HarnessConstants.ComponentReloadName))
         // in general the internal http should always start, but in the cases where you want to turn it off
         // you can just disable it in the config using internal-http.enable = false
         // it will also fail silently with a warning if another http component is using the same port as it.

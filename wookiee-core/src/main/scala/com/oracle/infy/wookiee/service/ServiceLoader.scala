@@ -37,15 +37,9 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
-
-  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])] =
-    collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
+  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])]()
   private val userDir = System.getProperty("user.dir")
-
-  private val libDir = userDir + (if (!new File(userDir + "/lib").exists) {
-                                    if (new File(userDir + "/dist").exists) "/dist" else "/target"
-                                  } else "")
-
+  private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
   private val harnessLibs = FileSystems.getDefault.getPath(libDir + "/lib").toFile.listFiles match {
     case null  => null
     case files => files.filter(_.getName.endsWith("jar"))
@@ -113,8 +107,9 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
 
       // Load the urls into the class loader
       val loader =
-        if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader, config.getBoolean, true)) {
-          val pcl = new ServiceClassLoader(urls.toList, harnessLoader)
+        if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader,
+          config.getBoolean, true)) {
+          val pcl = HawkClassLoader(HarnessConstants.KeyServiceClassLoaderName, urls.toList)
           harnessLoader.addChildLoader(pcl)
           pcl
         } else {
@@ -140,7 +135,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     // Open the jar file
     val jarFile = new JarFile(jar)
     val loaderOpt = loader match {
-      case loader1: ServiceClassLoader => Some(loader1)
+      case loader1: HawkClassLoader => Some(loader1)
       case _                           => None
     }
 
@@ -150,7 +145,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       val localServices = jarFile
         .entries()
         .asScala
-        .flatMap[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))](
+        .flatMap[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))](
           entry =>
             try {
               val entryName = entry.getName
@@ -209,7 +204,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
                     case Success(None) => None
                     case Success(meta) =>
                       log.debug(s"Loaded service $name")
-                      Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))])
+                      Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))])
                   }
                 } else {
                   None
@@ -242,7 +237,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       case Some(t) => t
     }
     val loaderOpt = classLoaderFinal match {
-      case loader: ServiceClassLoader => Some(loader)
+      case loader: HawkClassLoader => Some(loader)
       case _                          => None
     }
     var serviceActor: Option[ActorRef] = None
@@ -279,7 +274,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       case Failure(_)    =>
       case Success(None) =>
       case Success(meta) =>
-        services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))])
+        services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))])
     }
     serviceActor
   }

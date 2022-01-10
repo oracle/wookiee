@@ -102,6 +102,15 @@ lazy val `basic-service` = project
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
 
+lazy val `basic-extension` = project
+  .in(file("examples/basic-extension"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.all ++ Deps.test.all
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`)
+  .aggregate(`wookiee-core`, `wookiee-test`)
+
 lazy val `wookiee-grpc` = project
   .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)

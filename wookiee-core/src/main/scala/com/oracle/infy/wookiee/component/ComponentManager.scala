@@ -23,8 +23,9 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
 import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.oracle.infy.wookiee.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
-import com.oracle.infy.wookiee.app.{Harness, HarnessClassLoader, PrepareForShutdown}
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
+import com.oracle.infy.wookiee.logging.{Logger, LoggingAdapter}
+import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{ConfigUtil, FileUtil}
 
 import scala.jdk.CollectionConverters._
@@ -32,12 +33,13 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 case class Request[T](name: String, msg: ComponentRequest[T])
 case class Message[T](name: String, msg: ComponentMessage[T])
 case class InitializeComponents()
-case class LoadComponent(name: String, classPath: String)
+case class LoadComponent(name: String, classPath: String, classLoader: Option[HarnessClassLoader] = None)
+case class ReloadComponent(file: File, classLoader: Option[HarnessClassLoader] = None)
 case class ComponentStarted(name: String)
 case class GetComponent(name: String)
 
@@ -47,7 +49,7 @@ private[component] object ComponentState extends Enumeration {
 }
 import ComponentState._
 
-object ComponentManager {
+object ComponentManager extends LoggingAdapter {
   private val externalLogger = Logger.getLogger(this.getClass)
 
   val components: mutable.Map[String, ComponentState] = mutable.Map[String, ComponentState]()
@@ -56,8 +58,6 @@ object ComponentManager {
 
   /**
     * Checks to see if all the components have started up
-    *
-    * @return
     */
   def isAllComponentsStarted: Boolean = {
     val groupedMap = components.groupBy(_._2).toList
@@ -86,35 +86,39 @@ object ComponentManager {
   val KeyManagerClass = "manager"
   val KeyEnabled = "enabled"
 
-  def loadComponentJars(sysConfig: Config, loader: HarnessClassLoader): Unit = {
+  /**
+   * NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
+   * You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
+   * @param replace When true we will replace current class loaders with the ones discovered in this method
+   */
+  def loadComponentJars(sysConfig: Config, loader: HarnessClassLoader, replace: Boolean): Unit = {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
-        val files = dir
-          .listFiles
-          .collect {
-            case f if f.isDirectory =>
-              val componentName = f.getName
-              try {
-                val co = validateComponentDir(componentName, f)
-                // get list of all JARS and load each one
-                (co._2.listFiles.filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")) map { f =>
-                  val jarName = FileUtil.getFilename(f)
-                  jarName -> f.getCanonicalFile.toURI.toURL
-                }).toList
-              } catch {
-                case e: IllegalArgumentException =>
-                  externalLogger.warn(e.getMessage)
-                  List()
-              }
+        log.debug(s"Looking for Component JARs at ${dir.getAbsolutePath}")
+        val hawks = dir.listFiles.collect(getHawkClassLoader).flatten
 
-            case f if FileUtil.getExtension(f).equalsIgnoreCase("jar") =>
-              List(FileUtil.getFilename(f) -> f.getCanonicalFile.toURI.toURL)
-          }
-          .flatten
-
-        loader.addURLs(files.map(_._2).toList)
+        log.info(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
+        hawks.foreach(f => loader.addChildLoader(f, replace = replace))
       case None => // ignore
     }
+  }
+
+  protected[oracle] def getHawkClassLoader: PartialFunction[File, Option[HawkClassLoader]] = {
+    case file if file.isDirectory =>
+      val componentName = file.getName
+      try {
+        val co = validateComponentDir(componentName, file)
+        // get list of all JARS and load each one
+        Some(HawkClassLoader(componentName, co._2.listFiles
+          .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar")).map(_.getCanonicalFile.toURI.toURL).toList))
+      } catch {
+        case e: IllegalArgumentException =>
+          externalLogger.warn(e.getMessage)
+          None
+      }
+
+    case file if FileUtil.getExtension(file).equalsIgnoreCase("jar") =>
+      Some(HawkClassLoader(jarComponentName(file), Seq(file.getCanonicalFile.toURI.toURL)))
   }
 
   /**
@@ -145,7 +149,6 @@ object ComponentManager {
         configs.toList
       case None => Seq[Config]()
     }
-
   }
 
   def getComponentPath(config: Config): Option[File] = {
@@ -163,7 +166,6 @@ object ComponentManager {
     *
     * @param componentName name of component .conf file
     * @param folder folder in which configs can be found
-    * @return
     * @throws IllegalArgumentException if configuration file is not found, or the lib directory is not there
     */
   def validateComponentDir(componentName: String, folder: File): (File, File) = {
@@ -178,11 +180,50 @@ object ComponentManager {
     require(libDir.length == 1, "Lib directory not found.")
     (confFile(0), libDir(0))
   }
+
+  /**
+   * This function will attempt various ways to find the component name of the jar.
+   * 1. Will check to see if the jar filename is the component name
+   * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
+   * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
+   *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
+   * It will perform the checks in the order above
+   *
+   * @param file The file or directory that is the jar or component dir
+   * @return String option if found the name, None otherwise
+   */
+  def getComponentName(file: File, config: Config) : String = {
+    val name = file.getName
+    if (file.isDirectory) {
+      validateComponentDir(name, file)
+      name
+    } else {
+      if (config.hasPath(name)) {
+        name
+      } else if (config.hasPath(s"${HarnessConstants.KeyComponentMapping}.$name")) {
+        config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
+      } else {
+        val fn = jarComponentName(file)
+        if (config.hasPath(s"$fn")) {
+          fn
+        } else {
+          throw new ComponentNotFoundException("ComponentManager", s"$fn component not found")
+        }
+      }
+    }
+  }
+
+  def jarComponentName(file: File): String = {
+    val name = file.getName
+    val segments = name.split("-")
+    // example wookiee-zookeeper-1.0-SNAPSHOT.jar
+    segments(0) + "-" + segments(1).replace(".jar", "")
+  }
 }
 
 class ComponentManager extends PrepareForShutdown {
   import context.dispatcher
-
+  import ComponentManager._
   val componentTimeout: Timeout = ConfigUtil
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
 
@@ -198,21 +239,67 @@ class ComponentManager extends PrepareForShutdown {
   def initializing: Receive = super.receive orElse {
     case InitializeComponents           => initializeComponents
     case ComponentStarted(name)         => componentStarted(name)
-    case LoadComponent(name, classPath) => sender() ! loadComponentClass(name, classPath)
+    case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
   }
 
   def started: Receive = super.receive orElse {
     case Message(name, msg)             => message(name, msg)
     case Request(name, msg)             => pipe(request(name, msg)) to sender(); ()
     case GetComponent(name)             => sender() ! context.child(name)
-    case LoadComponent(name, classPath) => sender() ! loadComponentClass(name, classPath)
+    case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
+    case ReloadComponent(file, cl) => pipe(reloadComponent(file, cl)) to sender(); ()
     case SystemReady                    => context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
-    case _ =>
-    //throw all other messages to debug
-    //log.debug("Message not handled by ComponentManager")
+    case _ => // Ignore
+  }
+
+  protected def reloadComponent(file: File, classLoader: Option[HarnessClassLoader]): Future[Boolean] = {
+    try {
+      val hClassLoader = getOrDefaultClassLoader(classLoader)
+      val updatedConfig = HarnessActorSystem.renewConfigsAndClasses(Some(config), replace = true)
+      log.info(s"Updated config: $updatedConfig")
+      val compName = getComponentName(file, updatedConfig)
+
+      val stopFuture = (context.child(compName) match {
+        case Some(ref) =>
+          log.info(s"Component '$compName' already running, stopping current instance")
+          Try(ref ! StopComponent)
+          gracefulStop(ref, componentTimeout.duration)
+        case None =>
+          log.debug(s"Component '$compName' not running, no need to stop")
+          Future.successful(true)
+      }).recover {
+        case ex: Throwable =>
+          log.warn(s"Failed to stop Component '$compName', attempting reload anyway", ex)
+          false
+      }
+
+      stopFuture.map { result =>
+        getHawkClassLoader(file) match {
+          case Some(hcl) =>
+            hClassLoader.addChildLoader(hcl)
+            if (!result)
+              log.warn(s"Note that we didn't stop '$compName' before the timeout")
+
+            findAndLoadComponentManager(compName, updatedConfig)
+            true
+          case None =>
+            log.error(s"Error while getting a hawk class loader for Component [${file.getAbsolutePath}]")
+            false
+        }
+      }
+    } catch {
+      case ex: Throwable =>
+        log.error(s"Could not reload component at [${file.getAbsolutePath}]", ex)
+        Future.successful(false)
+    }
+  }
+
+  private def getOrDefaultClassLoader(classLoader: Option[HarnessClassLoader]) = classLoader match {
+      case Some(loader) => loader
+      case None => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
   }
 
   private def componentStarted(name: String): Unit = {
@@ -325,19 +412,12 @@ class ComponentManager extends PrepareForShutdown {
         val cfName = compFolder.toString
         try {
           val componentName = compFolder match {
-            case f: File   => getComponentName(f)
+            case f: File   => getComponentName(f, config)
             case s: String => s
             case x         => x.toString
           }
           if (!componentsLoaded.contains(componentName)) {
-            val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
-            if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
-              log.info(s"Component $componentName not enabled, skipping.")
-            } else {
-              require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
-              val className = compConfig.getString(ComponentManager.KeyManagerClass)
-              loadComponentClass(componentName, className)
-            }
+            findAndLoadComponentManager(componentName, config)
             componentsLoaded += componentName
           }
         } catch {
@@ -381,40 +461,6 @@ class ComponentManager extends PrepareForShutdown {
   }
 
   /**
-    * This function will attempt various ways to find the component name of the jar.
-    * 1. Will check to see if the jar filename is the component name
-    * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
-    * 3. Will grab the first two segments of the filename separated by "-" and use that as the component name
-    *    eg. "wookiee-socko-1.0-SNAPSHOT.jar" will evaluate the component name to "wookiee-socko"
-    * It will perform the checks in the order above
-    *
-    * @param file The file or directory that is the jar or component dir
-    * @return String option if found the name, None otherwise
-    */
-  def getComponentName(file: File): String = {
-    val name = file.getName
-    if (file.isDirectory) {
-      ComponentManager.validateComponentDir(name, file)
-      name
-    } else {
-      if (config.hasPath(name)) {
-        name
-      } else if (config.hasPath(s"${HarnessConstants.KeyComponentMapping}.$name")) {
-        config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
-      } else {
-        val segments = name.split("-")
-        // example wookiee-socko-1.0-SNAPSHOT.jar
-        val fn = segments(0) + "-" + segments(1)
-        if (config.hasPath(s"$fn")) {
-          fn
-        } else {
-          throw new ComponentNotFoundException("ComponentManager", s"$name component not found")
-        }
-      }
-    }
-  }
-
-  /**
     * Will load a component class and initialize it
     * @param componentName Name of component
     * @param className Full class name
@@ -425,10 +471,7 @@ class ComponentManager extends PrepareForShutdown {
       className: String,
       classLoader: Option[HarnessClassLoader] = None
   ): Option[ActorRef] = {
-    val hClassLoader = classLoader match {
-      case Some(loader) => loader
-      case None         => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
-    }
+    val hClassLoader = getOrDefaultClassLoader(classLoader)
     require(className.nonEmpty, "Manager for component not set.")
 
     val clazz = hClassLoader.loadClass(className)
@@ -483,5 +526,16 @@ class ComponentManager extends PrepareForShutdown {
       case None    => log.error(msg)
     }
     ComponentManager.components(componentName) = ComponentState.Failed
+  }
+
+  private def findAndLoadComponentManager(componentName: String, config: Config) =  {
+    val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
+    if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
+      log.info(s"Component $componentName not enabled, won't be started.")
+    } else {
+      require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
+      val className = compConfig.getString(ComponentManager.KeyManagerClass)
+      loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
+    }
   }
 }

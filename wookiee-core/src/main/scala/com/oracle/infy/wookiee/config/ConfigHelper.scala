@@ -38,7 +38,7 @@ trait ConfigHelper {
     */
   def renewConfiguration(): Unit = {
     ConfigFactory.invalidateCaches()
-    renewableConfig = HarnessActorSystem.getConfig(None)
+    renewableConfig = HarnessActorSystem.renewConfigsAndClasses(None)
   }
 
   def configReceive: Receive = {
