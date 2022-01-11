@@ -65,7 +65,6 @@ object Harness {
     log.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run(): Unit = {
-        Thread.sleep(10)
         shutdownActorSystem(block = false) {
           System.exit(0)
         }
