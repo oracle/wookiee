@@ -92,8 +92,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
       // wait for key to be signaled
       val key = componentWatcher.take()
 
-      // Need to keep .toStream for Scala 2.12 compatibility
-      val events = key.pollEvents().asScala.toStream.takeWhile(_.kind() != OVERFLOW).toList //scalafix:ok
+      val events = key.pollEvents().asScala.takeWhile(_.kind() != OVERFLOW).toList
       events.foreach { event =>
         log.info("Detected new JAR/Directory at {}", event.context().toString)
         val ev = event.asInstanceOf[WatchEvent[Path]]
