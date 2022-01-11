@@ -188,7 +188,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val output = Await.result((comp.get ? "log").mapTo[String], timeout.duration)
       output shouldBe "A"
     }
-   */
+ */
   }
 
   override def config: Config = {
@@ -246,4 +246,4 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     else "src/test/resources"
   }
 }
-*/
+ */
