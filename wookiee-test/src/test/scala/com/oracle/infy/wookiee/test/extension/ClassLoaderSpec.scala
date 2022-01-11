@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.test.extension
+/*package com.oracle.infy.wookiee.test.extension
 
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.pattern.ask
@@ -246,3 +246,4 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     else "src/test/resources"
   }
 }
+*/
