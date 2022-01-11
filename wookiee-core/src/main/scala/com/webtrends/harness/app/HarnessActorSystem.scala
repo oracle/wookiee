@@ -16,10 +16,13 @@
 package com.webtrends.harness.app
 
 import akka.actor.ActorSystem
-import com.typesafe.config.{Config, ConfigFactory}
+import com.typesafe.config.{Config, ConfigFactory, ConfigParseOptions, ConfigRenderOptions}
 import com.webtrends.harness.component.ComponentManager
 import com.webtrends.harness.logging.Logger
 import com.webtrends.harness.service.ServiceManager
+
+import java.io.InputStream
+import scala.io.Source
 
 object HarnessActorSystem {
 
@@ -30,8 +33,12 @@ object HarnessActorSystem {
     ActorSystem.create("server", config, loader)
   }
 
-  def getConfig(config: Option[Config]): Config = {
-    val sysConfig = {
+  // JARs are reloaded onto the classpath in this method if replace = true, in ComponentManager.loadComponentJars
+  def renewConfigsAndClasses(config: Option[Config], replace: Boolean = false): Config = {
+    def printConf(conf: Config): String =
+      conf.root().render(ConfigRenderOptions.concise())
+
+    var sysConfig = {
       if (config.isDefined) {
         config.get
       } else {
@@ -40,22 +47,49 @@ object HarnessActorSystem {
       }
     }
 
-    ComponentManager.loadComponentJars(sysConfig, loader)
+    ComponentManager.loadComponentJars(sysConfig, loader, replace = replace)
+    for (child <- loader.getChildLoaders) {
+      def readRefConf(): Option[Config] = {
+        val re = child.getResources("reference.conf")
+        while (re.hasMoreElements) {
+          val next = re.nextElement()
+          if (next.getPath.contains(child.entityName)) {
+            val confStr = Source.fromInputStream(next.getContent.asInstanceOf[InputStream]).mkString
+            val childConf = ConfigFactory.parseString(confStr)
+            externalLogger.info(s"New config for extension '${child.entityName}', jar: '${child.urls.head.getPath}': " +
+              s"\n${printConf(childConf)}")
+            return Some(childConf)
+          }
+        }
+        None
+      }
+
+      readRefConf() match {
+        case Some(conf) =>
+          sysConfig = conf.withFallback(sysConfig)
+        case None =>
+          externalLogger.warn(s"Didn't find 'reference.conf' in jar file '${child.urls.head.getPath}'")
+      }
+    }
     ConfigFactory.load
 
     externalLogger.debug("Loading the service configs")
     val configs = ServiceManager.loadConfigs(sysConfig)
-    if (configs.nonEmpty) externalLogger.info(s"${configs.size} service config(s) have been loaded: ${configs.mkString(", ")}")
+    if (configs.nonEmpty)
+      externalLogger.info(s"${configs.size} service config(s) have been loaded: \n${configs.map(printConf).mkString(", ")}")
 
     externalLogger.debug("Loading the component configs")
     val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
-    if (compConfigs.nonEmpty) externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: ${compConfigs.mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
+    if (compConfigs.nonEmpty)
+      externalLogger.info(s"${compConfigs.size} component config(s) have been loaded: \n${compConfigs.map(printConf).mkString(", ")}\nIf 0 could be due to config loaded from component JARs.")
 
     val allConfigs = configs ++ compConfigs
 
     // Build the hierarchy
     val conf = if (allConfigs.isEmpty) sysConfig
       else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
-    conf.resolve()
+    val finalConf = conf.resolve()
+    externalLogger.debug(s"Used configuration: \n${printConf(finalConf)}")
+    finalConf
   }
 }

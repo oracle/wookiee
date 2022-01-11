@@ -36,9 +36,9 @@ trait ConfigHelper {
    * Should override this method and use it when ConfigChange is received, be sure
    * to call super.renewConfiguration() though to ensure you get the new values
    */
-  def renewConfiguration() {
+  def renewConfiguration(): Unit = {
     ConfigFactory.invalidateCaches()
-    renewableConfig = HarnessActorSystem.getConfig(None)
+    renewableConfig = HarnessActorSystem.renewConfigsAndClasses(None)
   }
 
   def configReceive: Receive = {

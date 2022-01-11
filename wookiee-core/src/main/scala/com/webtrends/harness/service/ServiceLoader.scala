@@ -38,7 +38,7 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success, Try}
 
 trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
-  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[ServiceClassLoader])]()
+  val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])] = collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])]()
   private val userDir = System.getProperty("user.dir")
   private val libDir = userDir + (if (!new File(userDir + "/lib").exists) { if (new File(userDir + "/dist").exists) "/dist" else "/target" } else "")
   private val harnessLibs = FileSystems.getDefault.getPath(libDir + "/lib").toFile.listFiles match {
@@ -50,7 +50,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
    * Load the services
    * @param context The service manager's context
    */
-  def load(context: ActorContext) {
+  def load(context: ActorContext): Unit = {
     Try({
       val internalService = ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalService, config.getString, "")
       if (internalService.nonEmpty) {
@@ -104,7 +104,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       // Load the urls into the class loader
       val loader = if (ConfigUtil.getDefaultValue(HarnessConstants.KeyServiceDistinctClassLoader,
         config.getBoolean, true)) {
-        val pcl = new ServiceClassLoader(urls, harnessLoader)
+        val pcl = HawkClassLoader(HarnessConstants.KeyServiceClassLoaderName, urls)
         harnessLoader.addChildLoader(pcl)
         pcl
       } else {
@@ -134,14 +134,14 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     // Open the jar file
     val jarFile = new JarFile(jar)
     val loaderOpt = loader match {
-      case loader1: ServiceClassLoader => Some(loader1)
+      case loader1: HawkClassLoader => Some(loader1)
       case _ => None
     }
 
     try {
       val sClass = classOf[Service]
 
-      val localServices = jarFile.entries().asScala.flatMap[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))](entry =>
+      val localServices = jarFile.entries().asScala.flatMap[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))](entry =>
         try {
           val entryName = entry.getName
           if (entryName.endsWith(".class")) {
@@ -197,7 +197,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
                 case Success(None) => None
                 case Success(meta) =>
                   log.debug(s"Loaded service $name")
-                  Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))])
+                  Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))])
               }
             }
             else {
@@ -231,7 +231,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       case Some(t) => t
     }
     val loaderOpt = classLoaderFinal match {
-      case loader: ServiceClassLoader => Some(loader)
+      case loader: HawkClassLoader => Some(loader)
       case _ => None
     }
     var serviceActor: Option[ActorRef] = None
@@ -274,7 +274,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       case Failure(_) =>
       case Success(None) =>
       case Success(meta) =>
-          services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[ServiceClassLoader]))])
+          services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))])
     }
     serviceActor
   }
@@ -284,7 +284,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     services foreach { s =>
       if (s._1.name.equals(name)) {
         s._2._1.resolveOne(4.seconds) onComplete {
-          case Success(some) => ref = Some(some.asInstanceOf[ActorRef])
+          case Success(some) => ref = Some(some)
           case Failure(_) => log.warn(s"Failed to get service $name")
         }
       }

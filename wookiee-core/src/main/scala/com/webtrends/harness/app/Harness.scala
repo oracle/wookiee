@@ -77,7 +77,7 @@ object Harness {
   def startActorSystem(config: Option[Config] = None): HarnessMeta = harnessMap.synchronized {
     try {
       externalLogger.debug(s"Creating the actor system")
-      val finalConfig = HarnessActorSystem.getConfig(config)
+      val finalConfig = HarnessActorSystem.renewConfigsAndClasses(config, replace = true)
 
       val system = HarnessActorSystem(finalConfig)
       // add the unhandled message listener so we can debug messages easily that are not being handled

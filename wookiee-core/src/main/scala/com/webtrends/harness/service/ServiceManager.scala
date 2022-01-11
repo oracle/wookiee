@@ -188,7 +188,7 @@ object ServiceManager extends LoggingAdapter {
         val configs = dirs flatMap {
           dir =>
             val path = dir.getPath.concat("/conf")
-            log.info("Checking the directory {} for any *.conf files to load", path)
+            log.debug("Checking the directory {} for any *.conf files to load", path)
             for {
               file <- getConfigFiles(path)
               conf = allCatch either ConfigFactory.parseFile(file) match {

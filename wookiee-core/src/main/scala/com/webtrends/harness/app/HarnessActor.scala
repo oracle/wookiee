@@ -23,7 +23,7 @@ import com.typesafe.config.Config
 import com.webtrends.harness.HarnessConstants
 import com.webtrends.harness.app.HarnessActor.PrepareForShutdown
 import com.webtrends.harness.command.CommandManager
-import com.webtrends.harness.component.{ComponentManager, InitializeComponents}
+import com.webtrends.harness.component.{ComponentManager, ComponentReloadActor, InitializeComponents}
 import com.webtrends.harness.config.ConfigWatcher
 import com.webtrends.harness.health.{ActorHealth, ComponentState, Health, HealthComponent}
 import com.webtrends.harness.http.InternalHTTP
@@ -97,6 +97,7 @@ class HarnessActor extends Actor
   // The service manager will be created after we have started and all of the system's actors are able to receive messages
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
+  var componentReloadActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
   var dispatchManager: Option[ActorRef] = None
 
@@ -160,6 +161,8 @@ class HarnessActor extends Actor
         // Load any services
         serviceActor = Some(context.actorOf(ServiceManager.props, HarnessConstants.ServicesName))
         log.debug("Harness Manager started: {}", context.self.path)
+        val cl = Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
+        componentReloadActor = Some(context.actorOf(Props(classOf[ComponentReloadActor], cl), HarnessConstants.ComponentReloadName))
         // in general the internal http should always start, but in the cases where you want to turn it off
         // you can just disable it in the config using internal-http.enable = false
         // it will also fail silently with a warning if another http component is using the same port as it.
