@@ -56,7 +56,15 @@ trait ActorHealth {
                 )
               )
           })
-          .get
+          .getOrElse({
+            Future.successful(
+              HealthComponent(
+                getClass.getSimpleName,
+                ComponentState.DEGRADED,
+                "No return message when trying to check the health"
+              )
+            )
+          })
       ) to sender()
       ()
   }
