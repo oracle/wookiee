@@ -116,7 +116,8 @@ class ConfigWatcherActor extends HActor {
             return
         }
 
-        key.get.pollEvents().asScala.to(LazyList).takeWhile(_.kind() != OVERFLOW) foreach { event =>
+        // Need to keep .toStream for Scala 2.12 compatibility
+        key.get.pollEvents().asScala.toStream.takeWhile(_.kind() != OVERFLOW) foreach { event => //scalafix:ok
           log.debug("Detected alteration on file {}", event.context().toString)
           // The filename is the context of the event.
           val ev = event.asInstanceOf[WatchEvent[Path]]

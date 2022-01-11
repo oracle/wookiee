@@ -182,16 +182,19 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
                     val meta = getServiceMetaDetails(serviceActor)
                     log.info("{}: {}", name, loader.toString)
 
-                    ServiceMetaData(
-                      name,
-                      version,
-                      DateTime.now(),
-                      rootPath.getAbsolutePath,
-                      serviceActor.path.toString,
-                      jar.toURI.toString,
-                      meta.supportsHttp,
-                      classPath.split(" ").toList.sorted
-                    ) -> (context.actorSelection(serviceActor.path), loaderOpt)
+                    (
+                      ServiceMetaData(
+                        name,
+                        version,
+                        DateTime.now(),
+                        rootPath.getAbsolutePath,
+                        serviceActor.path.toString,
+                        jar.toURI.toString,
+                        meta.supportsHttp,
+                        classPath.split(" ").toList.sorted
+                      ),
+                      (context.actorSelection(serviceActor.path), loaderOpt)
+                    )
 
                   }.recover {
                     case e: Throwable =>
@@ -257,8 +260,14 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       val version = if (file.endsWith(".jar")) {
         new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
       } else "1.0"
-      ServiceMetaData(name, version, DateTime.now(), "", serviceActor.get.path.toString, "", meta.supportsHttp, null) -> (context
-        .actorSelection(serviceActor.get.path), loaderOpt)
+      (
+        ServiceMetaData(name, version, DateTime.now(), "", serviceActor.get.path.toString, "", meta.supportsHttp, null),
+        (
+          context
+            .actorSelection(serviceActor.get.path),
+          loaderOpt
+        )
+      )
 
     }.recover {
       case _: InvalidActorNameException =>
