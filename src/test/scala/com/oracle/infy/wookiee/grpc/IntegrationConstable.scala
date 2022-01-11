@@ -89,10 +89,10 @@ object IntegrationConstable extends ConstableCommon {
     }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism)
+    // val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism)
 
     val result = runTestsAsync(
-      List((grpcTests, "Integration - GrpcTest"), (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"))
+      List((grpcTests, "Integration - GrpcTest") /*, (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest")*/ )
     )
     zkFake.stop()
     exitNegativeOnFailure(result)
