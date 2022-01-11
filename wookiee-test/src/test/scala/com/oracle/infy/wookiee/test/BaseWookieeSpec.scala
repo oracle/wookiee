@@ -15,7 +15,7 @@ class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
   "Base Wookiee Test" should {
     "Start up the services" in {
-      testWookiee.serviceManager.get.isInstanceOf[ActorRef] shouldBe true
+      testWookiee.serviceManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
     }
 
     "load both test services " in {

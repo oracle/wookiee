@@ -56,8 +56,8 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
 
   "test harnesses " should {
     "start up service manager for both " in {
-      sys.serviceManager.get.isInstanceOf[ActorRef] shouldBe true
-      sys2.serviceManager.get.isInstanceOf[ActorRef] shouldBe true
+      sys.serviceManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
+      sys2.serviceManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
     }
 
     "load both test services " in {
@@ -74,8 +74,8 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
     }
 
     "start up component manager on both " in {
-      sys.componentManager.get.isInstanceOf[ActorRef] shouldBe true
-      sys2.componentManager.get.isInstanceOf[ActorRef] shouldBe true
+      sys.componentManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
+      sys2.componentManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
     }
 
     "load test components " in {

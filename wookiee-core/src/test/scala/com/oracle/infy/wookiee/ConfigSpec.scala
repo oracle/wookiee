@@ -68,7 +68,7 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
       bw.write("test = \"value\"")
       bw.close()
       val msg = probe.expectMsgClass(classOf[ConfigChange])
-      msg.isInstanceOf[ConfigChange]
+      msg.isInstanceOf[ConfigChange] //scalafix:ok
     }
   }
 
