@@ -101,17 +101,15 @@ class ZookeeperServiceMockSpec
     " allow callers to get children with no data for a valid path " in {
       Await.result(createNode("/test/child", ephemeral = false, None), awaitResultTimeout)
       val res2 = Await.result(getChildren("/test"), awaitResultTimeout)
-      val child = res2.toList.find(_._1 == "child").getOrElse(("not-found", None))
-      child._1 shouldEqual "child"
-      child._2 shouldEqual None
+      res2.head._1 shouldEqual "child"
+      res2.head._2 shouldEqual None
     }
 
     " allow callers to get children with data for a valid path " in {
       Await.result(setData("/test/child", "data".getBytes), awaitResultTimeout)
       val res2 = Await.result(getChildren("/test", includeData = true), awaitResultTimeout)
-      val child = res2.toList.find(_._1 == "child").getOrElse(("not-found", None))
-      child._1 shouldEqual "child"
-      child._2.get shouldEqual "data".getBytes
+      res2.head._1 shouldEqual "child"
+      res2.head._2.get shouldEqual "data".getBytes
     }
 
     " return an error when getting children for an invalid path " in {
@@ -127,7 +125,6 @@ class ZookeeperServiceMockSpec
       res2.increment()
       res3.increment()
       res.increment()
-      println(s"res1=${res.get().postValue()},res2=${res2.get().postValue()},res3=${res3.get().postValue()}")
       res2.get().postValue() shouldEqual 3
       res.get().postValue() shouldEqual 3
       res3.get().postValue() shouldEqual 1
