@@ -26,6 +26,8 @@ object Deps {
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val scalaCollectionCompatVersion = "2.1.6"
+    val zookeeperVersion = "3.6.2"
+    val json4sVersion = "3.6.8"
   }
 
   object build {
@@ -33,12 +35,24 @@ object Deps {
     import versions._
 
     val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion
+    val curatorLibs: Seq[ModuleID] = Seq(
+      curator exclude("org.apache.zookeeper", "zookeeper"),
+      "org.apache.curator" % "curator-framework" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
+      "org.apache.curator" % "curator-x-discovery" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
+      test.curatorTest exclude("org.apache.zookeeper", "zookeeper"),
+    )
+
+    val json4sLibs: Seq[ModuleID] = Seq(
+      "org.json4s" %% "json4s-jackson" % json4sVersion,
+      "org.json4s" %% "json4s-ext" % json4sVersion
+    )
 
     val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion
     val scalaStm: ModuleID = "org.scala-stm" %% "scala-stm" % scalaStmVersion
     val cats: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
     val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsVersion
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
+    val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
 
     val log4CatsCore: ModuleID = "io.chrisdavenport" %% "log4cats-core" % log4CatsVersion
     val log4CatsSlf4J: ModuleID = "io.chrisdavenport" %% "log4cats-slf4j" % log4CatsVersion
@@ -54,6 +68,14 @@ object Deps {
 
     val scalaCollectionCompat
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
+
+    val wookieeZk: Seq[ModuleID] = Seq(
+      zookeeper,
+      guava,
+      test.scalatest,
+      test.curatorTest,
+      test.akkaTest
+    ) ++ json4sLibs ++ curatorLibs
 
     val all: Seq[ModuleID] = Seq(
       akka,
