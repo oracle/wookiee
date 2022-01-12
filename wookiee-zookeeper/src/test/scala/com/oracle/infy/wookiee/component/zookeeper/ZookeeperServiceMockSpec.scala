@@ -119,9 +119,10 @@ class ZookeeperServiceMockSpec
     }
 
     "allow callers to create atomic longs " in {
-      val res = Await.result(createCounter("/test/counter"), awaitResultTimeout)
-      val res2 = Await.result(createCounter("/test/counter"), awaitResultTimeout)
-      val res3 = Await.result(createCounter("/test/counter3"), awaitResultTimeout)
+      val time = System.currentTimeMillis()
+      val res = Await.result(createCounter(s"/test/$time-counter"), awaitResultTimeout)
+      val res2 = Await.result(createCounter(s"/test/$time-counter"), awaitResultTimeout)
+      val res3 = Await.result(createCounter(s"/test/$time-counter3"), awaitResultTimeout)
 
       res.increment()
       res2.increment()
