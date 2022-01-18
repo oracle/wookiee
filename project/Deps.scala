@@ -25,7 +25,7 @@ object Deps {
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
-    val scalaCollectionCompatVersion = "2.1.6"
+    val scalaCollectionCompatVersion = "2.3.0"
     val zookeeperVersion = "3.6.2"
     val json4sVersion = "4.0.3"
     val dropwizardVersion = "4.2.7"
