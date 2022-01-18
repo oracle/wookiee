@@ -1,12 +1,23 @@
 package com.oracle.infy.wookiee.test
 
-import akka.actor.ActorRef
+import akka.actor.{Actor, ActorRef, Props}
 import akka.testkit.TestProbe
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.Ready
 import org.scalatest.Inspectors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
+
+case class ListHolder(buff: StringBuffer)
+
+class SimpleActor extends Actor {
+
+  override def receive: Receive = {
+    case lh: ListHolder =>
+      lh.buff.append("-added")
+      sender() ! lh
+  }
+}
 
 class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with Inspectors {
 
@@ -28,6 +39,15 @@ class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       }
 
       checkReady(testWookiee)
+    }
+
+    "do actors keep the same object?" in {
+      val probe = TestProbe()
+      val actor = testWookiee.system.actorOf(Props[SimpleActor]())
+      val origList = ListHolder(new StringBuffer("base"))
+      probe.send(actor, origList) // actor ? origList
+      val outList = probe.expectMsgType[ListHolder]
+      origList.buff.toString shouldBe outList.buff.toString()
     }
   }
 }

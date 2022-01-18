@@ -24,4 +24,3 @@ case class StatusRequest(format: String = "json") extends MetricMessage
 case class RemoveMetric() extends MetricMessage
 case class AddTimerMetric(name: String) extends MetricMessage
 case class AddGaugeMetric(name: String) extends MetricMessage
-case class GetMetric(name: String) extends MetricMessage

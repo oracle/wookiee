@@ -27,7 +27,11 @@ object Deps {
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val scalaCollectionCompatVersion = "2.1.6"
     val zookeeperVersion = "3.6.2"
-    val json4sVersion = "3.6.8"
+    val json4sVersion = "4.0.3"
+    val dropwizardVersion = "4.2.7"
+    val akkaHttpVersion = "10.2.7"
+    val akkaHttpJson4sVersion = "1.39.2"
+    val akkaHttpCorsVersion = "1.1.2"
   }
 
   object build {
@@ -44,10 +48,28 @@ object Deps {
 
     val json4sLibs: Seq[ModuleID] = Seq(
       "org.json4s" %% "json4s-jackson" % json4sVersion,
-      "org.json4s" %% "json4s-ext" % json4sVersion
+      "org.json4s" %% "json4s-ext" % json4sVersion,
+      "org.json4s" %% "json4s-core" % json4sVersion
+    )
+
+    val dropWizardLibs: Seq[ModuleID] = Seq(
+      "io.dropwizard.metrics" % "metrics-core" % dropwizardVersion,
+      "io.dropwizard.metrics" % "metrics-graphite" % dropwizardVersion,
+      "io.dropwizard.metrics" % "metrics-jvm" % dropwizardVersion,
+      "io.dropwizard.metrics" % "metrics-jmx" % dropwizardVersion
     )
 
     val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion
+    val akkaStream: ModuleID = "com.typesafe.akka" %% "akka-stream" % akkaVersion
+    val akkaHttp: Seq[ModuleID] = Seq(
+      "com.typesafe.akka" %% "akka-http" % akkaHttpVersion,
+      "de.heikoseeberger" %% "akka-http-json4s" % akkaHttpJson4sVersion,
+      "ch.megard" %% "akka-http-cors" % akkaHttpCorsVersion,
+      "com.typesafe.akka" %% "akka-http-spray-json" % akkaHttpVersion % Test,
+      "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpVersion % Test,
+      logbackClassic
+    )
+
     val scalaStm: ModuleID = "org.scala-stm" %% "scala-stm" % scalaStmVersion
     val cats: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
     val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsVersion
@@ -68,6 +90,18 @@ object Deps {
 
     val scalaCollectionCompat
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
+
+    val wookieeAkkaHttp: Seq[ModuleID] = Seq(
+      test.scalatest,
+      test.akkaTest,
+      akkaStream,
+      test.akkaStreamTest
+    ) ++ json4sLibs ++ akkaHttp
+
+    val wookieeMetrics: Seq[ModuleID] = Seq(
+      test.scalatest,
+      test.akkaTest
+    ) ++ json4sLibs ++ dropWizardLibs
 
     val wookieeZk: Seq[ModuleID] = Seq(
       zookeeper,
@@ -112,6 +146,7 @@ object Deps {
     val µTest: ModuleID = "com.lihaoyi" %% "utest" % µTestVersion % Test
     val shapeless: ModuleID = "com.github.alexarchambault" %% "scalacheck-shapeless_1.14" % shapelessVersion % Test
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
+    val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
 //    val slf4jAPI: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
 //    val slf4jLog4j: ModuleID = "org.slf4j" % "slf4j-log4j12" % slf4jVersion

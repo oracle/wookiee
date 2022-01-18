@@ -111,6 +111,15 @@ lazy val `basic-extension` = project
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
 
+lazy val `metrics-example` = project
+  .in(file("examples/metrics"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeMetrics
+  )
+  .dependsOn(`wookiee-core`, `wookiee-metrics`)
+  .aggregate(`wookiee-core`, `wookiee-metrics`)
+
 lazy val `wookiee-grpc` = project
   .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)
@@ -136,6 +145,24 @@ lazy val `wookiee-zookeeper` = project
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
 
+lazy val `wookiee-metrics` = project
+  .in(file("wookiee-metrics"))
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeMetrics
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`)
+  .aggregate(`wookiee-core`, `wookiee-test`)
+
+lazy val `wookiee-akka-http` = project
+  .in(file("wookiee-akka-http"))
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeAkkaHttp
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -159,7 +186,9 @@ lazy val root = project
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`,
-    `wookiee-zookeeper`
+    `wookiee-zookeeper`,
+    `wookiee-metrics`,
+    `wookiee-akka-http`
   )
   .aggregate(
     `wookiee-core`,
@@ -167,7 +196,9 @@ lazy val root = project
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`,
-    `wookiee-zookeeper`
+    `wookiee-zookeeper`,
+    `wookiee-metrics`,
+    `wookiee-akka-http`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
