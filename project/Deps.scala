@@ -18,8 +18,8 @@ object Deps {
     val guavaVersion = "31.0.1-jre"
     val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
-    val slf4jVersion = "1.7.32"
-    val slf4jImplVersion = "2.13.3"
+    val slf4jVersion = "1.7.33"
+    val slf4jImplVersion = "2.17.1"
     val logbackVersion = "1.2.10"
     val jodaTimeVersion = "2.10.13"
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
@@ -148,12 +148,8 @@ object Deps {
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
     val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
-//    val slf4jAPI: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
-//    val slf4jLog4j: ModuleID = "org.slf4j" % "slf4j-log4j12" % slf4jVersion
     val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion
     val log4CatsNoop: ModuleID = "io.chrisdavenport" %% "log4cats-noop" % log4CatsVersion
-
-    //val slf4jSimple: ModuleID = "org.slf4j" % "slf4j-simple" % slf4jVersion
 
     val all: Seq[ModuleID] = Seq(
       log4CatsNoop,

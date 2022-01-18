@@ -57,7 +57,7 @@ object PriorityUnboundedDequeMailbox {
   class MessageQueue(priority: Envelope => Boolean, isDupe: (Envelope, Envelope) => Boolean)
       extends LinkedBlockingDeque[Envelope]
       with UnboundedDequeBasedMessageQueue {
-    final val queue = this
+    def queue: MessageQueue = this
 
     override def enqueue(receiver: ActorRef, handle: Envelope): Unit =
       if (priority(handle)) {
