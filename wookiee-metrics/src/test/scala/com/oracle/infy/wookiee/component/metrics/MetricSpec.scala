@@ -70,7 +70,8 @@ class MetricSpec extends TestKit(ActorSystem("metricspec")) with AnyWordSpecLike
 
       metric.meter() {}
 
-      probe.expectMsgClass(classOf[MeterObservation]).isInstanceOf[MeterObservation] mustBe true
+      val out = probe.expectMsgClass(classOf[MeterObservation])
+      out.metric.name mustBe "group.metrics.name.meter"
     }
 
     "allow for timers" in {
@@ -78,7 +79,8 @@ class MetricSpec extends TestKit(ActorSystem("metricspec")) with AnyWordSpecLike
 
       metric.time() {}
 
-      probe.expectMsgClass(classOf[TimerObservation]).isInstanceOf[TimerObservation] mustBe true
+      val obs = probe.expectMsgClass(classOf[TimerObservation])
+      obs.metric.name mustBe "group.metrics.name.timer"
     }
   }
 

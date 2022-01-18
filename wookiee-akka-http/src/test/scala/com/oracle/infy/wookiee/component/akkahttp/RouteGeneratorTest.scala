@@ -159,7 +159,10 @@ class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with Pr
         responseTo,
         toHandler,
         defaultConfig.copy(accessLogIdGetter = r => {
-          called = r.isInstanceOf[AkkaHttpRequest]
+          r match {
+            case _: AkkaHttpRequest => called = true
+            case _                  =>
+          }
           "works"
         }),
         accessLoggingEnabled = true
