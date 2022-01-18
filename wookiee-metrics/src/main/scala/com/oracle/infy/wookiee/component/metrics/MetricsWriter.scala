@@ -165,7 +165,7 @@ class MetricsWriter extends JsonDSL with DoubleMode {
       ("mean" -> metric.getMeanRate) ~
       ("m1" -> metric.getOneMinuteRate) ~
       ("m5" -> metric.getFiveMinuteRate) ~
-      ("m15", metric.getFifteenMinuteRate)
+      ("m15" -> metric.getFifteenMinuteRate)
   }
 
   private def matchAny(num: Any): JValue = {
