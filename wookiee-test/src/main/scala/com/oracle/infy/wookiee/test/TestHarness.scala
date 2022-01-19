@@ -84,7 +84,7 @@ class TestHarness(
 
   implicit val timeout: Timeout = Timeout(timeToWait)
 
-  Harness.externalLogger.info("Starting Harness...")
+  Harness.externalLogger.info("Starting Wookiee...")
   Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
 
   implicit val system: ActorSystem = Harness.startActorSystem(Some(config)).actorSystem

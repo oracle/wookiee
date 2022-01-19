@@ -21,7 +21,7 @@ object HarnessService extends App {
   def execute(): Unit = {
     // Main body which gets run at startup
     try {
-      Harness.externalLogger.info("Starting Harness...")
+      Harness.externalLogger.info("Starting Wookiee...")
 
       val meta = Harness.startActorSystem()
       Harness.addShutdownHook()(meta.actorSystem)
