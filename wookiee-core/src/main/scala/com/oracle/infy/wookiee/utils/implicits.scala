@@ -19,6 +19,7 @@ object implicits {
   }
 
   implicit class ThrowableHelpers(t: Throwable) {
+
     def stackTrace: String = {
       val baos = new ByteArrayOutputStream()
       val pw = new PrintWriter(baos)
