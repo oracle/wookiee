@@ -14,7 +14,7 @@ val buildVersion = Try {
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
 val LatestScalaVersion = "2.13.3"
-val Scala212 = "2.12.12"
+val Scala212 = "2.12.13"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
 lazy val ciBuild = taskKey[Unit]("prepare final builds")
@@ -194,7 +194,7 @@ lazy val root = project
       (test in Test).value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-//      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
