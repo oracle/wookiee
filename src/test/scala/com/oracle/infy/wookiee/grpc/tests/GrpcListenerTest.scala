@@ -18,13 +18,12 @@ import utest.{Tests, test}
 
 object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 
-  private implicit class ToEitherT[A, F[_]: Monad: Sync](lhs: F[A]) {
+  implicit private class ToEitherT[A, F[_]: Monad: Sync](lhs: F[A]) {
 
-    def toEitherT: EitherT[F, WookieeGrpcError, A] = {
+    def toEitherT: EitherT[F, WookieeGrpcError, A] =
       implicits
         .ToEitherT(lhs)
         .toEitherT(e => UnknownWookieeGrpcError(e.getMessage))
-    }
   }
 
   def tests[F[_]: Monad: Sync: Concurrent, S[_[_], _]](

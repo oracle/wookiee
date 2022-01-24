@@ -1,19 +1,24 @@
 package com.oracle.infy.wookiee.grpc
 
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
+import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO, Timer}
 import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, GrpcLoadBalanceTest}
+import com.oracle.infy.wookiee.grpc.tests.{
+  GrpcListenerTest,
+  GrpcLoadBalanceTest,
+  GrpcMultipleClientsTest,
+  GrpcTLSAuthTest
+}
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import org.apache.curator.framework.CuratorFramework
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.test.TestingServer
 
@@ -25,24 +30,30 @@ object IntegrationConstable extends ConstableCommon {
     val mainECParallelism = 100
     implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
     implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+
     implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
     val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
-    val blocker = Blocker.liftExecutionContext(blockingEC)
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
+
+    implicit val timer: Timer[IO] = IO.timer(blockingEC)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
     val discoveryPath = "/example"
     createDiscoveryPath(connStr, discoveryPath)
 
+    val curator = curatorFactory(connStr)
+    curator.start()
+
     def pushMessagesFuncAndListenerFactory(
         callback: Set[Host] => IO[Unit]
-    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] = {
+    ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] =
       for {
         queue <- Queue.unbounded[IO, Set[Host]]
         killSwitch <- Deferred[IO, Either[Throwable, Unit]]
 
         logger <- Slf4jLogger.create[IO]
-        hostConsumerCuratorRef <- Ref.of[IO, CuratorFramework](curatorFactory(connStr))
         hostProducerCurator <- IO {
           val curator = curatorFactory(connStr)
           curator.start()
@@ -66,7 +77,7 @@ object IntegrationConstable extends ConstableCommon {
           new WookieeGrpcHostListener(
             callback,
             new ZookeeperHostnameService(
-              hostConsumerCuratorRef,
+              curator,
               cache,
               semaphore,
               Fs2CloseableImpl(queue.dequeue, killSwitch),
@@ -86,14 +97,19 @@ object IntegrationConstable extends ConstableCommon {
         }
         (pushMessagesFunc, cleanup, listener)
       }
-    }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    // val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, connStr, mainECParallelism)
+    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
 
     val result = runTestsAsync(
-      List((grpcTests, "Integration - GrpcTest") /*, (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest")*/ )
+      List(
+        (grpcTests, "Integration - GrpcTest"),
+        (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"),
+        (GrpcMultipleClientsTest.multipleClientTest, "Integration - MultipleClientTest"),
+        (GrpcTLSAuthTest.tests, "Integration - GrpcTLSAuthTest")
+      )
     )
+    curator.close()
     zkFake.stop()
     exitNegativeOnFailure(result)
   }
