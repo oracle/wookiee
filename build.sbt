@@ -149,7 +149,11 @@ lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings)
   .settings(
-    libraryDependencies ++= Seq(Deps.build.scalaReflect(scalaVersion.value))
+    libraryDependencies ++= Seq(
+      Deps.build.scalaReflect(scalaVersion.value),
+      "org.scalameta" %% "scalameta" % "4.4.25",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
+    )
   )
 
 lazy val `wookiee-zookeeper` = project
@@ -190,6 +194,8 @@ lazy val root = project
       (test in Test).value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
       ((Keys.`package` in Compile) dependsOn (test in Compile)).value
@@ -204,6 +210,8 @@ lazy val root = project
     `wookiee-proto`,
     `wookiee-zookeeper`,
     `wookiee-metrics`,
+    `wookiee-http`,
+    `wookiee-health`,
     `wookiee-akka-http`
   )
   .aggregate(
@@ -214,6 +222,8 @@ lazy val root = project
     `wookiee-proto`,
     `wookiee-zookeeper`,
     `wookiee-metrics`,
+    `wookiee-http`,
+    `wookiee-health`,
     `wookiee-akka-http`
   )
 
@@ -243,8 +253,11 @@ lazy val `wookiee-docs` = project
       "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString)
-    )
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString),
+      "METRICSEXAMPLE" -> readF(
+        "wookiee-docs/src/main/scala/com/oracle/infy/wookiee/MetricsExample.scala",
+        _.drop(2).mkString
+      ))
   )
   .settings(
     libraryDependencies ++= Seq(
