@@ -7,7 +7,7 @@ import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerC
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
 import com.oracle.infy.wookiee.model.Host
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 
 protected[grpc] class WookieeGrpcHostListener(
     listenerCallback: Set[Host] => IO[Unit],
@@ -16,7 +16,7 @@ protected[grpc] class WookieeGrpcHostListener(
 )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends ListenerContract[IO, Stream](hostnameServiceContract) {
 
-  override def startListening: EitherT[IO, WookieeGrpcError, Unit] = {
+  override def startListening: EitherT[IO, WookieeGrpcError, Unit] =
     for {
       closableStream <- hostnameServiceContract.hostStream(discoveryPath)
       r <- EitherT(
@@ -31,5 +31,4 @@ protected[grpc] class WookieeGrpcHostListener(
       )
     } yield r
 
-  }
 }

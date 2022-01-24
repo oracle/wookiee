@@ -1,62 +1,92 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.net.URI
-
 import cats.effect.concurrent.{Deferred, Ref, Semaphore}
 import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
+import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
-import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
-import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, scalaToJavaExecutor}
+import com.oracle.infy.wookiee.grpc.impl.{
+  BearerTokenClientProvider,
+  Fs2CloseableImpl,
+  WookieeNameResolver,
+  ZookeeperHostnameService
+}
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
 import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
 import fs2.concurrent.Queue
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import org.typelevel.log4cats.Logger
 import io.grpc._
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder
+import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
-import org.apache.curator.framework.CuratorFramework
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.recipes.cache.CuratorCache
 
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
+import scala.annotation.nowarn
+import java.io.File
+import java.net.URI
+import java.util.concurrent.TimeUnit
+import scala.concurrent.ExecutionContext
 
-class WookieeGrpcChannel(val managedChannel: ManagedChannel)(implicit cs: ContextShift[IO], blocker: Blocker) {
+final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
+    implicit cs: ContextShift[IO],
+    blocker: Blocker
+) {
 
-  def shutdown(): IO[Unit] = {
-    for {
-      _ <- cs.blockOn(blocker)(IO(managedChannel.shutdown()))
-    } yield ()
-  }
+  def shutdown(): IO[Unit] =
+    cs.blockOn(blocker)(IO({
+      managedChannel.shutdown()
+      ()
+    }))
 
-  def shutdownUnsafe(): Future[Unit] = shutdown().unsafeToFuture()
 }
 
 object WookieeGrpcChannel {
 
-  private def addNameResolver(
-      listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
-      semaphore: Semaphore[IO],
-      fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
-      hostnameServiceContract: HostnameServiceContract[IO, Stream],
-      discoveryPath: String
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = IO {
-    NameResolverRegistry
-      .getDefaultRegistry
-      .register(new NameResolverProvider {
-        override def isAvailable = true
+  def of(
+      settings: ChannelSettings
+  )(
+      implicit cs: ContextShift[IO],
+      concurrent: ConcurrentEffect[IO],
+      blocker: Blocker,
+      logger: Logger[IO]
+  ): IO[WookieeGrpcChannel] =
+    for {
+      listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
+      fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
 
-        override def priority() = 10
-
-        override def getDefaultScheme = "zookeeper"
-
-        override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver = {
-          new WookieeNameResolver(listenerRef, semaphore, fiberRef, hostnameServiceContract, discoveryPath)
-        }
-      })
-  }
+      hostnameServiceSemaphore <- Semaphore(1)
+      nameResolverSemaphore <- Semaphore(1)
+      queue <- Queue.unbounded[IO, Set[Host]]
+      killSwitch <- Deferred[IO, Either[Throwable, Unit]]
+      cache <- Ref.of[IO, Option[CuratorCache]](None)
+      _ <- addLoadBalancer(settings.lbPolicy)
+      channel <- cs.blockOn(blocker)(
+        buildChannel(
+          settings.serviceDiscoveryPath,
+          settings.eventLoopGroupExecutionContext,
+          settings.channelExecutionContext,
+          settings.offloadExecutionContext,
+          settings.eventLoopGroupExecutionContextThreads,
+          settings.lbPolicy,
+          listener,
+          nameResolverSemaphore,
+          fiberRef,
+          new ZookeeperHostnameService(
+            settings.curatorFramework,
+            cache,
+            hostnameServiceSemaphore,
+            Fs2CloseableImpl(queue.dequeue, killSwitch),
+            queue.enqueue1
+          ),
+          settings.serviceDiscoveryPath,
+          settings.sslClientSettings,
+          settings.clientAuthSettings
+        )
+      )
+    } yield new WookieeGrpcChannel(channel)
 
   private def addLoadBalancer(lbPolicy: LBPolicy): IO[Unit] = IO {
     lbPolicy match {
@@ -77,164 +107,116 @@ object WookieeGrpcChannel {
     }
   }
 
-  private def scalaToJavaExecutor(executor: ExecutionContext) = new java.util.concurrent.Executor {
-    override def execute(command: Runnable): Unit = executor.execute(command)
-  }
-
+  // Please see https://github.com/grpc/grpc-java/issues/7133
+  @nowarn
   private def buildChannel(
       path: String,
-      grpcChannelThreadLimit: Int,
-      mainExecutor: ExecutionContext,
-      blockingExecutor: ExecutionContext,
-      lbPolicy: LBPolicy
-  ): IO[ManagedChannel] = IO {
-    val mainExecutorJava = scalaToJavaExecutor(mainExecutor)
-    val blockingExecutorJava = scalaToJavaExecutor(blockingExecutor)
-
-    NettyChannelBuilder
-      .forTarget(s"zookeeper://$path")
-      .defaultLoadBalancingPolicy(lbPolicy match {
-        case RoundRobinPolicy                       => "round_robin"
-        case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
-      })
-      .usePlaintext()
-      .channelFactory(() => new NioSocketChannel())
-      .eventLoopGroup(eventLoopGroup(blockingExecutor, grpcChannelThreadLimit))
-      .executor(mainExecutorJava)
-      .offloadExecutor(blockingExecutorJava)
-      .build()
-  }
-
-  def of(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  )(
-      implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO],
-      blocker: Blocker,
-      logger: Logger[IO]
-  ): IO[WookieeGrpcChannel] = {
-    of(
-      zookeeperQuorum,
-      serviceDiscoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      RoundRobinPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
-    )
-  }
-
-  def of(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
+      eventLoopGroupExecutionContext: ExecutionContext,
+      channelExecutionContext: ExecutionContext,
+      offloadExecutionContext: ExecutionContext,
+      eventLoopGroupExecutionContextThreads: Int,
       lbPolicy: LBPolicy,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  )(
-      implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO],
-      blocker: Blocker,
-      logger: Logger[IO]
-  ): IO[WookieeGrpcChannel] = {
-
-    val retryPolicy = exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
-
+      listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
+      semaphore: Semaphore[IO],
+      fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
+      hostnameServiceContract: HostnameServiceContract[IO, Stream],
+      discoveryPath: String,
+      maybeSSLClientSettings: Option[SSLClientSettings],
+      maybeClientAuthSettings: Option[ClientAuthSettings]
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] =
     for {
-      listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
-      fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
-      curator <- cs.blockOn(blocker)(
-        Ref.of[IO, CuratorFramework](
-          curatorFramework(zookeeperQuorum, blockingExecutionContext, retryPolicy)
+      channelExecutorJava <- IO { scalaToJavaExecutor(channelExecutionContext) }
+      offloadExecutorJava <- IO { scalaToJavaExecutor(offloadExecutionContext) }
+
+      builder0 <- IO {
+        NettyChannelBuilder
+          .forTarget(s"zookeeper://$path")
+          .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
+          .nameResolverFactory(
+            new NameResolver.Factory {
+              override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver =
+                new WookieeNameResolver(
+                  listenerRef,
+                  semaphore,
+                  fiberRef,
+                  hostnameServiceContract,
+                  discoveryPath,
+                  maybeSSLClientSettings.map(_.serviceAuthority).getOrElse("zk")
+                )
+
+              override def getDefaultScheme: String = "zookeeper"
+            }
+          )
+          .defaultLoadBalancingPolicy(lbPolicy match {
+            case RoundRobinPolicy                       => "round_robin"
+            case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
+          })
+          .usePlaintext()
+          .channelFactory(() => new NioSocketChannel())
+          .eventLoopGroup(eventLoopGroup(eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads))
+          .executor(channelExecutorJava)
+          .offloadExecutor(offloadExecutorJava)
+      }
+
+      builder1 <- maybeSSLClientSettings
+        .map { sslClientSettings =>
+          logger
+            .info(s"gRPC client using trust path '${sslClientSettings.sslCertificateTrustPath}'")
+            .as(
+              builder0
+                .negotiationType(NegotiationType.TLS)
+                .sslContext(buildSslContext(sslClientSettings))
+            )
+        }
+        .getOrElse(
+          builder0.pure[IO]
         )
-      )
-      hostnameServiceSemaphore <- Semaphore(1)
-      nameResolverSemaphore <- Semaphore(1)
-      queue <- Queue.unbounded[IO, Set[Host]]
-      killSwitch <- Deferred[IO, Either[Throwable, Unit]]
-      cache <- Ref.of[IO, Option[CuratorCache]](None)
-      _ <- cs.blockOn(blocker)(
-        addNameResolver(
-          listener,
-          nameResolverSemaphore,
-          fiberRef,
-          new ZookeeperHostnameService(
-            curator,
-            cache,
-            hostnameServiceSemaphore,
-            Fs2CloseableImpl(queue.dequeue, killSwitch),
-            queue.enqueue1
-          )(blocker, cs, concurrent, logger),
-          serviceDiscoveryPath
-        )(cs, blocker, logger)
-      )
-      _ <- addLoadBalancer(lbPolicy)
-      channel <- cs.blockOn(blocker)(
-        buildChannel(
-          serviceDiscoveryPath,
-          grpcChannelThreadLimit,
-          mainExecutionContext,
-          blockingExecutionContext,
-          lbPolicy
-        )
-      )
-    } yield new WookieeGrpcChannel(channel)
-  }
 
-  def unsafeOf(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  ): WookieeGrpcChannel = {
-    unsafeOf(
-      zookeeperQuorum,
-      serviceDiscoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      RoundRobinPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
-    )
-  }
+      builder2 <- maybeClientAuthSettings
+        .map { authClientSettings =>
+          logger
+            .info("gRPC client using bearer token authentication for [" + path + "].")
+            .as(
+              builder1.intercept(BearerTokenClientProvider(authClientSettings))
+            )
+        }
+        .getOrElse(builder1.pure[IO])
 
-  def unsafeOf(
-      zookeeperQuorum: String,
-      serviceDiscoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      grpcChannelThreadLimit: Int,
-      lbPolicy: LBPolicy,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext
-  ): WookieeGrpcChannel = {
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
+      channel <- IO { builder2.build() }
+    } yield channel
 
-    of(
-      zookeeperQuorum,
-      serviceDiscoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      grpcChannelThreadLimit,
-      lbPolicy,
-      mainExecutionContext,
-      blockingExecutionContext
-    ).unsafeRunSync()
+  private def buildSslContext(sslClientSettings: SSLClientSettings): SslContext = {
+    val sslContextBuilder = sslClientSettings
+      .mTLSOptions
+      .map { options =>
+        options
+          .sslPassphrase
+          .map { passphrase =>
+            GrpcSslContexts
+              .forClient
+              .keyManager(
+                new File(options.sslCertificateChainPath),
+                new File(options.sslPrivateKeyPath),
+                passphrase
+              )
+          }
+          .getOrElse(
+            GrpcSslContexts
+              .forClient
+              .keyManager(
+                new File(options.sslCertificateChainPath),
+                new File(options.sslPrivateKeyPath)
+              )
+          )
+      }
+      .getOrElse(
+        GrpcSslContexts.forClient
+      )
+
+    sslClientSettings
+      .sslCertificateTrustPath
+      .map(trustPath => sslContextBuilder.trustManager(new File(trustPath)))
+      .getOrElse(sslContextBuilder)
+      .build()
   }
 }

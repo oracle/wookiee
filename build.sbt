@@ -129,6 +129,22 @@ lazy val `wookiee-grpc` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
+lazy val `wookiee-http` = project
+  .in(file("wookiee-http"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.all ++ Deps.build.http4s
+  )
+
+lazy val `wookiee-health` = project
+  .in(file("wookiee-health"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.all
+  )
+  .dependsOn(`wookiee-http`, `wookiee-core`)
+  .aggregate(`wookiee-http`, `wookiee-core`)
+
 lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings)
@@ -244,11 +260,11 @@ lazy val `wookiee-proto` = project
   .settings(commonSettings)
   .settings(
     //scalaPB
+    Compile / PB.targets := Seq(
+      scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
+    ),
     libraryDependencies ++= Seq(
       "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
       "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    ),
-    PB.targets in Compile := Seq(
-      scalapb.gen() -> (sourceManaged in Compile).value
     )
   )

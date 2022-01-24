@@ -1,5 +1,5 @@
 package com.oracle.infy.wookiee.grpc.json
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
 import io.circe.parser.parse
 import io.circe.syntax._
@@ -9,12 +9,15 @@ object HostSerde {
 
   final case class HostSerdeError(msg: String)
 
-  implicit private val hostDecoder: Decoder[Host] = deriveDecoder[Host]
-  implicit private val hostEncoder: Encoder[Host] = deriveEncoder[Host]
+  implicit val hostMetadataDecoder: Decoder[HostMetadata] = deriveDecoder[HostMetadata]
+  implicit val hostMetadataEncoder: Encoder[HostMetadata] = deriveEncoder[HostMetadata]
+
+  implicit val hostDecoder: Decoder[Host] = deriveDecoder[Host]
+  implicit val hostEncoder: Encoder[Host] = deriveEncoder[Host]
 
   private val encoding = "utf8"
 
-  def deserialize(data: Array[Byte]): Either[HostSerdeError, Host] = {
+  def deserialize(data: Array[Byte]): Either[HostSerdeError, Host] =
     parse(new String(data, encoding)) match {
       case Left(err) => Left(HostSerdeError(s"Invalid json: ${err.message}"))
       case Right(json) =>
@@ -23,7 +26,6 @@ object HostSerde {
           case Right(host) => Right(host)
         }
     }
-  }
 
   def serialize(data: Host): Array[Byte] = data.asJson.noSpaces.getBytes(encoding)
 

@@ -1,23 +1,28 @@
 package com.oracle.infy.wookiee.grpc.impl
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
-
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
 import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
-import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
+import com.oracle.infy.wookiee.grpc.errors.Errors.{
+  UnknownCuratorShutdownError,
+  UnknownHostStreamError,
+  UnknownShutdownError,
+  WookieeGrpcError
+}
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
+
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 protected[grpc] object ZookeeperHostnameService {
 
@@ -32,7 +37,7 @@ protected[grpc] object ZookeeperHostnameService {
 }
 
 protected[grpc] class ZookeeperHostnameService(
-    curatorRef: Ref[IO, CuratorFramework],
+    curator: CuratorFramework,
     cacheRef: Ref[IO, Option[CuratorCache]],
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
@@ -42,14 +47,12 @@ protected[grpc] class ZookeeperHostnameService(
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
-      curator <- curatorRef.get
       cache <- cacheRef.get
       _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
-      _ <- cs.blockOn(blocker)(IO(curator.close()))
     } yield ())
-      .toEitherT(t => UnknownWookieeGrpcError(t.getMessage))
+      .toEitherT(t => UnknownCuratorShutdownError(t.stackTrace): WookieeGrpcError)
 
-    val shutdownStream = closableStream.shutdown().leftMap(err => UnknownWookieeGrpcError(err.toString))
+    val shutdownStream = closableStream.shutdown().leftMap(err => UnknownShutdownError(err.toString): WookieeGrpcError)
 
     EitherT(
       s.acquire
@@ -70,9 +73,7 @@ protected[grpc] class ZookeeperHostnameService(
     val state = new ConcurrentHashMap[String, CachedNodeReference]()
 
     val computation = for {
-      curator <- curatorRef.get
-      _ <- cs.blockOn(blocker)(IO(curator.start()))
-      _ <- logger.info(s"GRPC Service Discovery curator has started. Looking under path $rootPath")
+      _ <- logger.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
       cache <- cs.blockOn(blocker)(
         IO(
           CuratorCache
@@ -95,7 +96,7 @@ protected[grpc] class ZookeeperHostnameService(
 
     s.acquire
       .bracket(_ => computation)(_ => s.release)
-      .toEitherT(t => UnknownWookieeGrpcError(t.getMessage))
+      .toEitherT(t => UnknownHostStreamError(t.stackTrace))
   }
 
   private def cacheListener(
@@ -104,7 +105,7 @@ protected[grpc] class ZookeeperHostnameService(
       state: ConcurrentHashMap[String, CachedNodeReference],
       pushHosts: Set[Host] => IO[Unit],
       rootPath: String
-  ): CuratorCacheListener = {
+  ): CuratorCacheListener =
     CuratorCacheListener
       .builder
       .forCreates((node: ChildData) => {
@@ -145,7 +146,6 @@ protected[grpc] class ZookeeperHostnameService(
         }
       })
       .build
-  }
 
   private def sendHosts(
       pushHosts: Set[Host] => IO[Unit],
@@ -155,13 +155,12 @@ protected[grpc] class ZookeeperHostnameService(
     pushHosts(toHostList(state)).unsafeRunSync()
   }
 
-  private def toHostList(state: ConcurrentHashMap[String, CachedNodeReference]): Set[Host] = {
+  private def toHostList(state: ConcurrentHashMap[String, CachedNodeReference]): Set[Host] =
     state
       .valueSet
       .collect {
         case NodeData(data, _) => data
       }
-  }
 
   private def addOrUpdateNodeState(
       zkData: ChildData,

@@ -1,218 +1,296 @@
 package com.oracle.infy.wookiee.grpc
 
-import java.net.InetAddress
-
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.concurrent.Ref
+import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
+import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.model.Host
-import io.chrisdavenport.log4cats.Logger
-import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
-import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.netty.shaded.io.netty.channel
-import io.grpc.netty.shaded.io.netty.channel.ChannelFactory
+import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import fs2.concurrent.Queue
+import org.typelevel.log4cats.Logger
+import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
-import io.grpc.{Server, ServerServiceDefinition}
+import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslContextBuilder, SslProvider}
+import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
 
-import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Future}
+import java.io.File
+import scala.util.Try
 
-class WookieeGrpcServer(private val server: Server, private val curatorFramework: CuratorFramework)(
+final class WookieeGrpcServer(
+    private val server: Server,
+    private val curatorFramework: CuratorFramework,
+    private val fiber: Fiber[IO, Unit],
+    private val loadQueue: Queue[IO, Int],
+    private val host: Host,
+    private val discoveryPath: String,
+    private val quarantined: Ref[IO, Boolean]
+)(
     implicit cs: ContextShift[IO],
     logger: Logger[IO],
     blocker: Blocker
 ) {
 
-  def shutdown(): IO[Unit] = {
+  def shutdown(): IO[Unit] =
     for {
-      _ <- logger.info("Closing curator client")
-      _ <- cs.blockOn(blocker)(IO(curatorFramework.close()))
+      _ <- logger.info("Stopping load writing process...")
+      _ <- fiber.cancel
       _ <- logger.info("Shutting down gRPC server...")
       _ <- cs.blockOn(blocker)(IO(server.shutdown()))
     } yield ()
-  }
 
-  def awaitTermination(): IO[Unit] = {
+  def awaitTermination(): IO[Unit] =
     cs.blockOn(blocker)(IO(server.awaitTermination()))
-  }
 
-  def shutdownUnsafe(): Future[Unit] = {
-    shutdown().unsafeToFuture()
-  }
+  def assignLoad(load: Int): IO[Unit] =
+    loadQueue.enqueue1(load)
+
+  def enterQuarantine(): IO[Unit] =
+    quarantined
+      .getAndSet(true)
+      .*>(
+        WookieeGrpcServer.assignQuarantine(isQuarantined = true, host, discoveryPath, curatorFramework)
+      )
+
+  def exitQuarantine(): IO[Unit] =
+    quarantined
+      .getAndSet(false)
+      .*>(
+        WookieeGrpcServer.assignQuarantine(isQuarantined = false, host, discoveryPath, curatorFramework)
+      )
 
 }
 
 object WookieeGrpcServer {
 
-  def start(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      mainExecutionContextThreads: Int
-  )(
+  def start(serverSettings: ServerSettings)(
       implicit cs: ContextShift[IO],
       blocker: Blocker,
-      logger: Logger[IO]
-  ): IO[WookieeGrpcServer] = {
-    cs.blockOn(blocker)(IO {
-      InetAddress.getLocalHost.getCanonicalHostName
-    }.flatMap { address =>
-      start(
-        zookeeperQuorum,
-        discoveryPath,
-        zookeeperRetryInterval,
-        zookeeperMaxRetries,
-        serverServiceDefinition,
-        port,
-        Host(0, address, port, Map.empty),
-        mainExecutionContext,
-        blockingExecutionContext,
-        bossThreads,
-        mainExecutionContextThreads
-      )
-    })
-  }
-
-  def startUnsafe(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      mainExecutionContextThreads: Int
-  ): Future[WookieeGrpcServer] = {
-
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-
-    start(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      mainExecutionContext,
-      blockingExecutionContext,
-      bossThreads,
-      mainExecutionContextThreads
-    ).unsafeToFuture()
-  }
-
-  def start(
-      zookeeperQuorum: String,
-      discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: Host,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      mainExecutionContextThreads: Int
-  )(
-      implicit cs: ContextShift[IO],
-      blocker: Blocker,
-      logger: Logger[IO]
-  ): IO[WookieeGrpcServer] = {
+      logger: Logger[IO],
+      timer: Timer[IO]
+  ): IO[WookieeGrpcServer] =
     for {
-      server <- cs.blockOn(blocker)(IO {
-        NettyServerBuilder
-          .forPort(port)
-          .channelFactory(new ChannelFactory[channel.ServerChannel] {
-            override def newChannel(): channel.ServerChannel = new NioServerSocketChannel()
-          })
-          .bossEventLoopGroup(eventLoopGroup(blockingExecutionContext, bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(mainExecutionContext, mainExecutionContextThreads))
-          .executor(scalaToJavaExecutor(mainExecutionContext))
-          .addService(
-            serverServiceDefinition
-          )
-          .build()
-      })
-      _ <- cs.blockOn(blocker)(IO {
-        server.start()
-      })
+      host <- serverSettings.host
+      server <- cs.blockOn(blocker)(buildServer(serverSettings, host))
+      _ <- cs.blockOn(blocker)(IO { server.start() })
       _ <- logger.info("gRPC server started...")
-      curator <- cs.blockOn(blocker)(
-        IO(
-          curatorFramework(
-            zookeeperQuorum,
-            blockingExecutionContext,
-            exponentialBackoffRetry(zookeeperRetryInterval, zookeeperMaxRetries)
-          )
-        )
-      )
-      _ <- cs.blockOn(blocker)(IO(curator.start()))
       _ <- logger.info("Registering gRPC server in zookeeper...")
-      _ <- cs.blockOn(blocker)(IO(registerInZookeeper(discoveryPath, curator, localhost)))
-    } yield new WookieeGrpcServer(server, curator)
+      queue <- serverSettings.queue
+      quarantined <- serverSettings.quarantined
+      // Create an object that stores whether or not the server is quarantined.
+      _ <- registerInZookeeper(serverSettings.discoveryPath, serverSettings.curatorFramework, host)
+      loadWriteFiber <- streamLoads(
+        queue,
+        host,
+        serverSettings.discoveryPath,
+        serverSettings.curatorFramework,
+        serverSettings,
+        quarantined
+      ).start
+
+    } yield new WookieeGrpcServer(
+      server,
+      serverSettings.curatorFramework,
+      loadWriteFiber,
+      queue,
+      host,
+      serverSettings.discoveryPath,
+      quarantined
+    )
+
+  private def buildServer(serverSettings: ServerSettings, host: Host)(implicit logger: Logger[IO]): IO[Server] =
+    for {
+      _ <- logger.info("Building gRPC server...")
+      builder0 = NettyServerBuilder
+        .forPort(host.port)
+        .channelFactory(() => new NioServerSocketChannel())
+
+      builder1 <- serverSettings
+        .sslServerSettings
+        .map(getSslContextBuilder)
+        .map(_.map(sslCtx => builder0.sslContext(sslCtx)))
+        .getOrElse(IO(builder0))
+
+      builder2 = IO {
+        builder1
+          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
+          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
+          .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
+      }
+
+      builder3 <- serverSettings
+        .serverServiceDefinitions
+        .foldLeft(builder2) {
+          case (builderIO, (serverServiceDefinition, maybeAuth)) =>
+            maybeAuth
+              .map { authSettings =>
+                logger
+                  .info(
+                    s"Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] with authentication"
+                  )
+                  .*>(builderIO)
+                  .map { builder =>
+                    builder.addService(
+                      ServerInterceptors.intercept(serverServiceDefinition, BearerTokenAuthenticator(authSettings))
+                    )
+                  }
+              }
+              .getOrElse(
+                logger
+                  .info(
+                    s"Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] without authentication"
+                  )
+                  .*>(builderIO)
+                  .map { builder =>
+                    builder.addService(serverServiceDefinition)
+                  }
+              )
+        }
+
+      _ <- logger.info("Successfully built gRPC server")
+      server <- IO { builder3.build() }
+
+    } yield server
+
+  private def getSslContextBuilder(
+      sslServerSettings: SSLServerSettings
+  )(implicit logger: Logger[IO]): IO[SslContext] =
+    for {
+
+      sslClientContextBuilder0 <- IO {
+        sslServerSettings
+          .sslPassphrase
+          .map { passphrase =>
+            SslContextBuilder.forServer(
+              new File(sslServerSettings.sslCertificateChainPath),
+              new File(sslServerSettings.sslPrivateKeyPath),
+              passphrase
+            )
+          }
+          .getOrElse(
+            SslContextBuilder.forServer(
+              new File(sslServerSettings.sslCertificateChainPath),
+              new File(sslServerSettings.sslPrivateKeyPath)
+            )
+          )
+      }
+
+      sslContextBuilder1 <- sslServerSettings
+        .sslCertificateTrustPath
+        .map { path =>
+          logger
+            .info("gRPC server will require mTLS for client connections.")
+            .as(
+              sslClientContextBuilder0
+                .trustManager(new File(path))
+                .clientAuth(ClientAuth.REQUIRE)
+            )
+        }
+        .getOrElse(
+          logger
+            .info("gRPC server has TLS enabled.")
+            .as(sslClientContextBuilder0)
+        )
+
+      sslContext <- IO {
+        GrpcSslContexts.configure(sslContextBuilder1, SslProvider.OPENSSL).build()
+      }
+    } yield sslContext
+
+  private def streamLoads(
+      queue: Queue[IO, Int],
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework,
+      serverSettings: ServerSettings,
+      quarantined: Ref[IO, Boolean]
+  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
+    val stream = queue.dequeue
+    stream
+      .debounce(serverSettings.loadUpdateInterval)
+      .evalTap { load: Int =>
+        for {
+          isQuarantined <- quarantined.get
+          _ <- if (isQuarantined) {
+            logger
+              .info(s"In quarantine. Not updating load...")
+          } else {
+            assignLoad(load, host, discoveryPath, curatorFramework)
+              .*>(
+                logger
+                  .info(s"Wrote load to zookeeper: load = $load")
+              )
+          }
+        } yield ()
+      }
+      .compile
+      .drain
   }
 
-  def startUnsafe(
-      zookeeperQuorum: String,
+  private def assignLoad(
+      load: Int,
+      host: Host,
       discoveryPath: String,
-      zookeeperRetryInterval: FiniteDuration,
-      zookeeperMaxRetries: Int,
-      serverServiceDefinition: ServerServiceDefinition,
-      port: Int,
-      localhost: Host,
-      mainExecutionContext: ExecutionContext,
-      blockingExecutionContext: ExecutionContext,
-      bossThreads: Int,
-      mainExecutionContextThreads: Int
-  ): Future[WookieeGrpcServer] = {
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingExecutionContext)
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainExecutionContext)
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
-    start(
-      zookeeperQuorum,
-      discoveryPath,
-      zookeeperRetryInterval,
-      zookeeperMaxRetries,
-      serverServiceDefinition,
-      port,
-      localhost,
-      mainExecutionContext,
-      blockingExecutionContext,
-      bossThreads,
-      mainExecutionContextThreads
-    ).unsafeToFuture()
-  }
+      curatorFramework: CuratorFramework
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+    cs.blockOn(blocker) {
+      IO {
+        val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
+        curatorFramework
+          .setData()
+          .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+        ()
+      }
+    }
+
+  private def assignQuarantine(
+      isQuarantined: Boolean,
+      host: Host,
+      discoveryPath: String,
+      curatorFramework: CuratorFramework
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+    cs.blockOn(blocker) {
+      IO {
+        val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
+        curatorFramework
+          .setData()
+          .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+        ()
+      }
+    }
 
   private def registerInZookeeper(
       discoveryPath: String,
       curator: CuratorFramework,
       host: Host
-  ): Unit = {
+  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+    cs.blockOn(blocker)(
+      IO {
+        if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
+          curator
+            .create()
+            .orSetData()
+            .creatingParentsIfNeeded()
+            .forPath(discoveryPath)
+        }
 
-    if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
-      curator
-        .create()
-        .orSetData()
-        .creatingParentsIfNeeded()
-        .forPath(discoveryPath)
-    }
-    curator
-      .create
-      .orSetData()
-      .withMode(CreateMode.EPHEMERAL)
-      .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(host))
-    ()
-  }
+        val path = s"$discoveryPath/${host.address}:${host.port}"
 
+        // Remove any nodes attached to old sessions first (if they exists)
+        Try {
+          curator
+            .delete()
+            .forPath(path)
+        }
+
+        curator
+          .create
+          .orSetData()
+          .withMode(CreateMode.EPHEMERAL)
+          .forPath(path, HostSerde.serialize(host))
+        ()
+      }
+    )
 }

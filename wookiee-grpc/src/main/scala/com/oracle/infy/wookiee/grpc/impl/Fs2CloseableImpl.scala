@@ -9,7 +9,7 @@ import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, StreamCon
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
 
-protected[grpc] final case class Fs2CloseableImpl[T](
+final protected[grpc] case class Fs2CloseableImpl[T](
     strm: Stream[IO, T],
     interruptSignal: Deferred[IO, Either[Throwable, Unit]]
 )(
@@ -18,7 +18,7 @@ protected[grpc] final case class Fs2CloseableImpl[T](
 
   override val stream: Stream[IO, T] = strm.interruptWhen(interruptSignal.get)
 
-  override def evalN(n: Long): EitherT[IO, StreamContract.StreamError, List[T]] = {
+  override def evalN(n: Long): EitherT[IO, StreamContract.StreamError, List[T]] =
     EitherT(
       stream
         .take(n)
@@ -29,17 +29,14 @@ protected[grpc] final case class Fs2CloseableImpl[T](
           StreamError(err.getMessage).asLeft[List[T]].pure[IO]
         }
     )
-  }
 
-  override def flatMap[B](f: T => StreamContract[IO, B, Stream]): StreamContract[IO, B, Stream] = {
+  override def flatMap[B](f: T => StreamContract[IO, B, Stream]): StreamContract[IO, B, Stream] =
     Fs2CloseableImpl(stream.flatMap(f(_).stream), interruptSignal)
-  }
 
-  override def shutdown(): EitherT[IO, StreamError, Unit] = {
+  override def shutdown(): EitherT[IO, StreamError, Unit] =
     interruptSignal
       .complete(().asRight[Throwable])
       .attempt
       .void
       .toEitherT(err => StreamError(err.getMessage))
-  }
 }

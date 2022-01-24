@@ -1,7 +1,5 @@
 package com.oracle.infy.wookiee.grpc.impl
 
-import java.net.InetSocketAddress
-
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
 import cats.effect.concurrent.{Ref, Semaphore}
@@ -9,24 +7,25 @@ import cats.effect.{Blocker, ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2._
-import io.chrisdavenport.log4cats.Logger
+import org.typelevel.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
+
+import java.net.InetSocketAddress
 
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
     semaphore: Semaphore[IO],
     fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
     hostNameService: HostnameServiceContract[IO, Stream],
-    discoveryPath: String
+    discoveryPath: String,
+    serviceAuthority: String
 )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
     extends NameResolver {
 
-  override def getServiceAuthority: String = {
-    "zk"
-  }
+  override def getServiceAuthority: String = serviceAuthority
 
   override def shutdown(): Unit = {
     val computation = for {
@@ -70,7 +69,7 @@ protected[grpc] class WookieeNameResolver(
       fiber <- wookieeListener
         .startListening
         .leftFlatMap { err =>
-          EitherT(logger.error("Error on listen start").map(_ => err.asLeft[Unit]))
+          EitherT(logger.error(s"Error on listen start: $err").map(_ => err.asLeft[Unit]))
         }
         .value
         .start
@@ -85,6 +84,6 @@ protected[grpc] class WookieeNameResolver(
 }
 
 object WookieeNameResolver {
-  protected[grpc] val METADATA: Attributes.Key[Map[String, String]] = Attributes.Key.create("metadata")
+  protected[grpc] val METADATA: Attributes.Key[HostMetadata] = Attributes.Key.create("metadata")
 
 }

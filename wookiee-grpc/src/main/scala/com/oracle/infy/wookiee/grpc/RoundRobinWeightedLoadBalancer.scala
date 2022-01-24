@@ -1,19 +1,17 @@
 package com.oracle.infy.wookiee.grpc
-import java.util
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-import java.util.function.UnaryOperator
-
 import com.google.common.base.{MoreObjects, Objects}
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, RoundRobinWeightedPicker}
 import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
+import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
 import io.grpc.ConnectivityState._
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
 import io.grpc.util.ForwardingSubchannel
 import io.grpc.{Attributes, ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 
+import java.util
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters._
-import scala.util.{Random, Try}
-import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
+import scala.util.Random
 
 class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
 
@@ -38,11 +36,10 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   override def handleResolvedAddresses(resolvedAddresses: LoadBalancer.ResolvedAddresses): Unit = {
     // Map of equivalent address groups: EAG stripped of Attributes -> Original EAG with Attributes
     val latestAddrs: List[(EquivalentAddressGroup, EquivalentAddressGroup)] = resolvedAddresses
-      .getAddresses()
+      .getAddresses
       .asScala
       .flatMap(eag => Map[EquivalentAddressGroup, EquivalentAddressGroup]((stripAttrs(eag), eag)))
       .toList
-      .sortBy(subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel._2.getAttributes))
     // Set of keys of addresses after channel has made connection
     val currentAddrs: Set[EquivalentAddressGroup] = subChannels.keySet.asScala.toSet
     // Addresses that are no longer in use and need to be shutdown
@@ -94,12 +91,11 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
     removedSubchannels.forEach((removedSubchannel: Subchannel) => shutdownSubchannel(removedSubchannel))
   }
 
-  override def handleNameResolutionError(error: Status): Unit = {
+  override def handleNameResolutionError(error: Status): Unit =
     eitherPicker.get() match {
       case Left(readyPicker) => helper.updateBalancingState(TRANSIENT_FAILURE, readyPicker)
       case Right(_)          => helper.updateBalancingState(TRANSIENT_FAILURE, EmptyPicker(error))
     }
-  }
 
   private def processSubchannelState(subchannel: Subchannel, connectivityStateInfo: ConnectivityStateInfo): Unit = {
     if (subChannels.get(stripAttrs(subchannel.getAddresses)) === subchannel) {
@@ -112,8 +108,9 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
       if (!(subchannelStateRef.get.getState === TRANSIENT_FAILURE && (connectivityStateInfo.getState
             === CONNECTING || connectivityStateInfo.getState === IDLE))) {
         subchannelStateRef
-          .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
-            override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo = connectivityStateInfo
+          .getAndUpdate((t: ConnectivityStateInfo) => {
+            val _ = t
+            connectivityStateInfo
           })
         updateBalancingState()
       }
@@ -124,20 +121,20 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
   private def shutdownSubchannel(subchannel: Subchannel): Unit = {
     subchannel.shutdown()
     getSubchannelStateInfoRef(subchannel)
-      .getAndUpdate(new UnaryOperator[ConnectivityStateInfo] {
-        override def apply(t: ConnectivityStateInfo): ConnectivityStateInfo =
-          ConnectivityStateInfo.forNonError(SHUTDOWN)
+      .getAndUpdate((t: ConnectivityStateInfo) => {
+        val _ = t
+        ConnectivityStateInfo.forNonError(SHUTDOWN)
       })
     ()
   }
 
-  override def shutdown(): Unit = {
+  override def shutdown(): Unit =
     getSubchannels.forEach(subchannel => shutdownSubchannel(subchannel))
-  }
 
   private def updateBalancingState(): Unit = {
     val activeList: List[LoadBalancer.Subchannel] = filterNonFailingSubchannels(getSubchannels).asScala.toList
-    if (activeList.isEmpty) { // No READY subchannels, determine aggregate state and error status
+    if (activeList.isEmpty || activeList.size < subChannels
+          .size()) { // No READY subchannels, determine aggregate state and error status
       val isConnecting: AtomicBoolean = new AtomicBoolean(false)
       val aggStatus: AtomicReference[Status] = new AtomicReference[Status](EMPTY_OK)
       subChannels
@@ -174,15 +171,15 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
       picker match {
         case Left(readyPicker) =>
           helper.updateBalancingState(state, readyPicker)
-          eitherPicker.getAndUpdate(new UnaryOperator[Either[ReadyPicker, EmptyPicker]] {
-            override def apply(t: Either[ReadyPicker, EmptyPicker]): Either[ReadyPicker, EmptyPicker] =
-              Left(readyPicker)
+          eitherPicker.getAndUpdate((t: Either[ReadyPicker, EmptyPicker]) => {
+            val _ = t
+            Left(readyPicker)
           })
         case Right(emptyPicker) =>
           helper.updateBalancingState(state, emptyPicker)
-          eitherPicker.getAndUpdate(new UnaryOperator[Either[ReadyPicker, EmptyPicker]] {
-            override def apply(t: Either[ReadyPicker, EmptyPicker]): Either[ReadyPicker, EmptyPicker] =
-              Right(emptyPicker)
+          eitherPicker.getAndUpdate((t: Either[ReadyPicker, EmptyPicker]) => {
+            val _ = t
+            Right(emptyPicker)
           })
       }
     }
@@ -239,31 +236,26 @@ object RoundRobinWeightedLoadBalancer {
 
     def apply(
         list: List[Subchannel]
-    ): ReadyPicker = {
+    ): ReadyPicker =
       ReadyPicker(
         list: List[Subchannel]
       )
-    }
 
-    def apply(status: Option[Status]): EmptyPicker = {
+    def apply(status: Option[Status]): EmptyPicker =
       status match {
         case Some(someStatus) => EmptyPicker(someStatus)
         case None             => throw new NullPointerException("status") //scalafix:ok
       }
-    }
 
-    def sortByLoad(attrs: Attributes): Int = {
+    def sortByLoad(attrs: Attributes): Int =
       attrs
         .get(WookieeNameResolver.METADATA)
-        .get("load")
-        .flatMap(l => Try { l.toInt }.toOption)
-        .getOrElse(0)
-    }
+        .load
 
     def isEquivalentTo(
         currentPicker: Either[ReadyPicker, EmptyPicker],
         picker: Either[ReadyPicker, EmptyPicker]
-    ): Boolean = {
+    ): Boolean =
       currentPicker match {
         case Left(currentReadyPicker) =>
           picker match {
@@ -285,7 +277,6 @@ object RoundRobinWeightedLoadBalancer {
                 .isOk)
           }
       }
-    }
   }
 
   // There are two cases for a subchannel: either it is in a READY state, or it is in some other state. If it isn't READY, depending
@@ -294,18 +285,21 @@ object RoundRobinWeightedLoadBalancer {
   // the subchannel is in a non-error state, and if so it will continue normally, otherwise it will throw an exception.
   case class ReadyPicker(list: List[Subchannel]) extends SubchannelPicker {
 
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
+    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult =
       nextSubchannel match {
-        case Some(subchannel) => PickResult.withSubchannel(subchannel)
-        case None             => PickResult.withError(Status.UNKNOWN)
+        case Some(subchannel) =>
+          PickResult.withSubchannel(subchannel)
+
+        case None => PickResult.withError(Status.UNKNOWN)
       }
-    }
 
     override def toString: String =
       MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
 
     private def nextSubchannel: Option[Subchannel] = {
-      val sortedList = list.sortBy(
+      val validList =
+        list.filter(p => !p.getAttributes.get(WookieeNameResolver.METADATA).quarantined)
+      val sortedList = validList.sortBy(
         subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
       )
       sortedList.headOption
@@ -316,10 +310,9 @@ object RoundRobinWeightedLoadBalancer {
 
   case class EmptyPicker(status: Status) extends SubchannelPicker {
 
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult = {
+    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult =
       if (status.isOk) PickResult.withNoResult
       else PickResult.withError(status)
-    }
 
     override def toString: String =
       MoreObjects.toStringHelper(classOf[EmptyPicker]).add("status", status).toString
