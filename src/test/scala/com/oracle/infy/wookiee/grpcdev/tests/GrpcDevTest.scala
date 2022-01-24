@@ -100,7 +100,7 @@ object GrpcDevTest {
           GrpcDevTestResults.genScalaOptionOptionStringResult
         )
         assert(result)
-      }*/
+      }
 
       test("grpcEncoder encodes Option[Option[CaseClass]] properly") {
         val result = genScalaTest(
@@ -116,7 +116,7 @@ object GrpcDevTest {
           GrpcDevTestResults.genScalaOptionListStringResult
         )
         assert(result)
-      }
+      }*/
     }
   }
 }
