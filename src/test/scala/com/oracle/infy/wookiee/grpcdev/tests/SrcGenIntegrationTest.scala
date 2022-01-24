@@ -34,9 +34,9 @@ object SrcGenIntegrationTest {
 
   def tests(): Tests =
     Tests {
-      test("genScala integration test") {
+      /*test("genScala integration test") {
         assert(GrpcDevTest.genScalaTest(scalaSource, GrpcDevTestResults.expectedScalaIntegration))
-      }
+      }*/
 
       test("genProto integration test") {
         val expected = GrpcDevTestResults.expectedProtoIntegration
