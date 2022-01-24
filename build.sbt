@@ -194,7 +194,7 @@ lazy val root = project
       (test in Test).value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+//      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
       (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
@@ -204,27 +204,27 @@ lazy val root = project
   )
   .dependsOn(
     `wookiee-core`,
-    `wookiee-test`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`,
-    `wookiee-zookeeper`,
-    `wookiee-metrics`,
     `wookiee-http`,
     `wookiee-health`,
+    `wookiee-test`,
+    `wookiee-zookeeper`,
+    `wookiee-metrics`,
     `wookiee-akka-http`
   )
   .aggregate(
     `wookiee-core`,
-    `wookiee-test`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-proto`,
+    `wookiee-health`,
+    `wookiee-akka-http`,
+    `wookiee-test`,
     `wookiee-zookeeper`,
     `wookiee-metrics`,
-    `wookiee-http`,
-    `wookiee-health`,
-    `wookiee-akka-http`
+    `wookiee-http`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
