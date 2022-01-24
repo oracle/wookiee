@@ -101,6 +101,8 @@ object Json {
           .map {
             case (k: Any, v: Any) =>
               quote(k.toString) + ":" + build(v, sort, locale).body
+            case (k: Any, null) =>
+              quote(k.toString) + ":" + build(null, sort, locale).body
           }
           .mkString("{", ",", "}")
       case x: JsonLocalization => x.toJson(locale)
