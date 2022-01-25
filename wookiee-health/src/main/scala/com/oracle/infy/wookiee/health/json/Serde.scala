@@ -10,8 +10,8 @@ import org.http4s.{EntityDecoder, EntityEncoder}
 
 trait Serde {
 
-  implicit def healthEncoder: Encoder[Health] = deriveEncoder[Health]
-  implicit def healthDecoder: Decoder[Health] = deriveDecoder[Health]
+  implicit def healthEncoder: Encoder[WookieeHealth] = deriveEncoder[WookieeHealth]
+  implicit def healthDecoder: Decoder[WookieeHealth] = deriveDecoder[WookieeHealth]
 
   implicit def stateEncoder: Encoder[State] = Encoder.instance { state: State =>
     s"""${state.toStr}""".asJson
@@ -27,7 +27,7 @@ trait Serde {
     })
   implicit def stateEntityDecoder: EntityDecoder[IO, State] = jsonOf[IO, State]
   implicit def stateEntityEncoder: EntityEncoder[IO, State] = jsonEncoderOf[IO, State]
-  implicit def healthEntityEncoder: EntityEncoder[IO, Health] = jsonEncoderOf[IO, Health]
-  implicit def healthEntityDecoder: EntityDecoder[IO, Health] = jsonOf[IO, Health]
+  implicit def healthEntityEncoder: EntityEncoder[IO, WookieeHealth] = jsonEncoderOf[IO, WookieeHealth]
+  implicit def healthEntityDecoder: EntityDecoder[IO, WookieeHealth] = jsonOf[IO, WookieeHealth]
 
 }

@@ -16,4 +16,4 @@ case object Degraded extends State {
   val toStr = "DEGRADED"
 }
 
-case class Health(state: State, details: String, components: Map[String, Health] = Map.empty)
+case class WookieeHealth(state: State, details: String, components: Map[String, WookieeHealth] = Map.empty)

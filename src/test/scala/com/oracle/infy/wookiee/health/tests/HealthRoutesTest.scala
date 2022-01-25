@@ -4,7 +4,7 @@ import cats.effect.{ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.health.HeathCheckServer
 import com.oracle.infy.wookiee.health.json.Serde
-import com.oracle.infy.wookiee.health.model.{Critical, Health, Normal, State}
+import com.oracle.infy.wookiee.health.model.{Critical, WookieeHealth, Normal, State}
 import com.oracle.infy.wookiee.utils.implicits._
 import org.http4s._
 import org.http4s.implicits._
@@ -30,7 +30,7 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
 
   def tests()(implicit cs: ContextShift[IO], executionContext: ExecutionContext): Tests = {
 
-    val health = Health(Normal, "Thunderbirds are GO", Map("ZK" -> Health(Critical, "no host found")))
+    val health = WookieeHealth(Normal, "Thunderbirds are GO", Map("ZK" -> WookieeHealth(Critical, "no host found")))
     val response: IO[Response[IO]] = HeathCheckServer
       .healthCheckRoutes(() => IO(health))
       .orNotFound
@@ -55,7 +55,7 @@ object HealthRoutesTest extends UTestScalaCheck with Serde {
 
     Tests {
       test("get application health") {
-        checkResponse[Health](response, Status.Ok, Some(expectedHealth)).map(assert)
+        checkResponse[WookieeHealth](response, Status.Ok, Some(expectedHealth)).map(assert)
       }
       test("get load balancer state") {
         checkResponse[State](lbResponse, Status.Ok, Some(expectedHealth.state)).map(assert)
