@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.health
 import cats.effect.{IO, _}
 import cats.implicits._
 import com.oracle.infy.wookiee.health.json.Serde
-import com.oracle.infy.wookiee.health.model.{Critical, Degraded, WookieeHealth, Normal}
+import com.oracle.infy.wookiee.health.model.{Critical, Degraded, Normal, WookieeHealth}
 import com.oracle.infy.wookiee.utils.implicits._
 import fs2.Stream
 import com.oracle.infy.wookiee.http.WookieeHttpServer
@@ -15,11 +15,11 @@ import scala.concurrent.ExecutionContext
 object HeathCheckServer extends Serde {
 
   def of(
-          host: String,
-          port: Int,
-          healthF: () => IO[WookieeHealth],
-          executionContext: ExecutionContext,
-          additionalRoutes: Option[HttpRoutes[IO]]
+      host: String,
+      port: Int,
+      healthF: () => IO[WookieeHealth],
+      executionContext: ExecutionContext,
+      additionalRoutes: Option[HttpRoutes[IO]]
   )(
       implicit timer: Timer[IO],
       cs: ContextShift[IO]

@@ -4,7 +4,7 @@ import cats.effect.{ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.health.HeathCheckServer
 import com.oracle.infy.wookiee.health.json.Serde
-import com.oracle.infy.wookiee.health.model.{Critical, WookieeHealth, Normal, State}
+import com.oracle.infy.wookiee.health.model.{Critical, Normal, State, WookieeHealth}
 import com.oracle.infy.wookiee.utils.implicits._
 import org.http4s._
 import org.http4s.implicits._
