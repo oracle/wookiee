@@ -22,6 +22,7 @@ import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HActor
 import com.oracle.infy.wookiee.service.messages.CheckHealth
+import com.oracle.infy.wookiee.utils.Json
 import com.typesafe.config.ConfigFactory
 import org.joda.time.DateTime
 import org.scalatest.BeforeAndAfterAll
@@ -146,6 +147,15 @@ class HealthCheckActorSpec extends AnyWordSpecLike with Matchers with BeforeAndA
   "collectHealthStates" should {
     val baseHealth = ApplicationHealth("a", "", DateTime.now, ComponentState.NORMAL, "", Seq())
     val baseComponent = HealthComponent("subA", ComponentState.CRITICAL, "")
+
+    "ApplicationHealth can handle nulls" in {
+      val nullHealth = ApplicationHealth(null, null, DateTime.now, ComponentState.NORMAL, "", Seq())
+      val jsonStr = nullHealth.toJson
+      jsonStr.contains("null") shouldEqual true
+
+      val jsonStr2 = Json.build(nullHealth).toString
+      jsonStr2.contains("null") shouldEqual true
+    }
 
     "map out ApplicationHealth objects" in {
       val baseMap = mutable.Map(Seq(baseHealth.applicationName) -> ComponentState.NORMAL)
