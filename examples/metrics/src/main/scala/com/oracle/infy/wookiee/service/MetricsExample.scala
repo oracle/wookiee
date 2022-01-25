@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
+ * Copyright 2015 Oracle (http://www.webtrends.com)
  *
  * See the LICENCE.txt file distributed with this work for additional
  * information regarding copyright ownership.
@@ -17,7 +17,12 @@
  * limitations under the License.
  */
 
-package com.webtrends.service
+package com.oracle.infy.wookiee.service
+
+import com.oracle.infy.wookiee.component.metrics.TimerContext
+import com.oracle.infy.wookiee.component.metrics.metrictype.{Counter, Gauge, Histogram, Meter, Timer}
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
+import com.oracle.infy.wookiee.service.messages.Ready
 
 import scala.concurrent._
 import scala.util.Random
@@ -39,22 +44,22 @@ import scala.util.Random
  * </pre>
  */
 class MetricsExample extends Service {
-  val counter = Counter("MetricsExample.counter")
-  val gauge = Gauge("MetricsExample.gauge")
-  val timer = Timer("MetricsExample.timer")
-  val histogram = Histogram("MetricsExample.histogram")
-  val meter = Meter("MetricsExample.meter")
+  val counter: Counter = Counter("MetricsExample.counter")
+  val gauge: Gauge = Gauge("MetricsExample.gauge")
+  val timer: Timer = Timer("MetricsExample.timer")
+  val histogram: Histogram = Histogram("MetricsExample.histogram")
+  val meter: Meter = Meter("MetricsExample.meter")
 
   val rand = new Random()
 
   /**
    * When the Ready message is received, start generating metrics
    */
-  override def serviceReceive = ({
-    case Ready(meta) =>
+  override def serviceReceive: Receive = ({
+    case Ready(_) =>
       log.info("Ready message received, start generating metrics")
       val thread = new Thread {
-        override def run: Unit = {
+        override def run(): Unit = {
           startGeneratingMetrics(generateMetrics)
         }
       }
@@ -63,9 +68,8 @@ class MetricsExample extends Service {
 
   /**
    * Call the given callback function every 30 seconds
-   * @param callback
    */
-  def startGeneratingMetrics(callback: () => Unit)  {
+  def startGeneratingMetrics(callback: () => Unit): Unit = {
     while(true) {
       // Increment the number of times the callback is called
       counter.incr

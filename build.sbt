@@ -253,11 +253,7 @@ lazy val `wookiee-docs` = project
       "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString),
-      "METRICSEXAMPLE" -> readF(
-        "wookiee-docs/src/main/scala/com/oracle/infy/wookiee/MetricsExample.scala",
-        _.drop(2).mkString
-      ))
+      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString))
   )
   .settings(
     libraryDependencies ++= Seq(
