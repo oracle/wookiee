@@ -14,7 +14,7 @@ val buildVersion = Try {
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
 val LatestScalaVersion = "2.13.3"
-val Scala212 = "2.12.13"
+val Scala212 = "2.12.12"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
 lazy val ciBuild = taskKey[Unit]("prepare final builds")
