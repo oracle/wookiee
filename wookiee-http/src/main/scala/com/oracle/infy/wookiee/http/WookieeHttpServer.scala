@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.http
 
-import cats.effect.{IO, _}
+import cats.effect.{ContextShift, ExitCode, IO, Timer}
 import fs2.Stream
 import org.http4s.HttpRoutes
 import org.http4s.implicits._

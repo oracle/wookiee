@@ -16,6 +16,8 @@ object Deps {
     val fs2Version = "2.4.0"
     val junitVersion = "4.13.2"
     val guavaVersion = "31.0.1-jre"
+    val finagleVersion = "22.1.0"
+    val upickleVersion = "1.5.0"
     val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
     val slf4jVersion = "1.7.33"
@@ -28,7 +30,7 @@ object Deps {
     val scalaCollectionCompatVersion = "2.3.0"
     val zookeeperVersion = "3.6.2"
     val json4sVersion = "4.0.3"
-    val http4sVersion = "0.21.4"
+    val http4sVersion = "0.23.9"
     val dropwizardVersion = "4.2.7"
     val akkaHttpVersion = "10.2.7"
     val akkaHttpJson4sVersion = "1.39.2"
@@ -80,6 +82,9 @@ object Deps {
     val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
     val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
 
+    val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
+    val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion
+
     val circeCore: ModuleID = "io.circe" %% "circe-core" % circeVersion
     val circeParser: ModuleID = "io.circe" %% "circe-parser" % circeVersion
     val circeGeneric: ModuleID = "io.circe" %% "circe-generic" % circeVersion
@@ -116,6 +121,17 @@ object Deps {
       test.curatorTest,
       test.akkaTest
     ) ++ json4sLibs ++ curatorLibs
+
+    val wookieeMemcache: Seq[ModuleID] = Seq(
+      test.scalatest,
+      finagle,
+      upickle
+    )
+
+    val wookieeCache: Seq[ModuleID] = Seq(
+      test.scalatest,
+      test.akkaTest
+    ) ++ json4sLibs
 
     val http4s: Seq[ModuleID] = Seq(
       http4sServer,

@@ -120,6 +120,12 @@ lazy val `metrics-example` = project
   .dependsOn(`wookiee-core`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-metrics`)
 
+lazy val `caching-example` = project
+  .in(file("examples/caching"))
+  .settings(commonSettings: _*)
+  .dependsOn(`wookiee-core`, `wookiee-cache-memcache`)
+  .aggregate(`wookiee-core`, `wookiee-cache-memcache`)
+
 lazy val `wookiee-grpc` = project
   .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)
@@ -183,6 +189,26 @@ lazy val `wookiee-akka-http` = project
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
+lazy val `wookiee-cache` = project
+  .in(file("wookiee-cache"))
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeCache
+  )
+  .dependsOn(`wookiee-core`)
+  .aggregate(`wookiee-core`)
+
+
+lazy val `wookiee-cache-memcache` = project
+  .in(file("wookiee-cache-memcache"))
+  .settings(commonSettings)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeMemcache
+  )
+  .dependsOn(`wookiee-core`, `wookiee-metrics`, `wookiee-cache`)
+  .aggregate(`wookiee-core`, `wookiee-metrics`, `wookiee-cache`)
+
+
 lazy val root = project
   .in(file("."))
   .settings(commonSettings: _*)
@@ -212,7 +238,9 @@ lazy val root = project
     `wookiee-test`,
     `wookiee-zookeeper`,
     `wookiee-metrics`,
-    `wookiee-akka-http`
+    `wookiee-akka-http`,
+    `wookiee-cache`,
+    `wookiee-cache-memcache`
   )
   .aggregate(
     `wookiee-core`,
@@ -224,7 +252,9 @@ lazy val root = project
     `wookiee-test`,
     `wookiee-zookeeper`,
     `wookiee-metrics`,
-    `wookiee-http`
+    `wookiee-http`,
+    `wookiee-cache`,
+    `wookiee-cache-memcache`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
