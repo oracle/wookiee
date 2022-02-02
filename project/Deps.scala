@@ -7,7 +7,8 @@ object Deps {
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.2.3"
     val curatorVersion = "5.1.0"
-    val catsVersion = "2.3.0"
+    val catsVersion = "2.6.1"
+    val catsEffectVersion = "2.5.4"
     val log4CatsVersion = "1.3.1"
     val circeVersion = "0.13.0"
     val µTestVersion = "0.7.2"
@@ -30,7 +31,7 @@ object Deps {
     val scalaCollectionCompatVersion = "2.3.0"
     val zookeeperVersion = "3.6.2"
     val json4sVersion = "4.0.3"
-    val http4sVersion = "0.23.9"
+    val http4sVersion = "0.21.4"
     val dropwizardVersion = "4.2.7"
     val akkaHttpVersion = "10.2.7"
     val akkaHttpJson4sVersion = "1.39.2"
@@ -74,8 +75,16 @@ object Deps {
     )
 
     val scalaStm: ModuleID = "org.scala-stm" %% "scala-stm" % scalaStmVersion
-    val cats: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
-    val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsVersion
+    val catsCore: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
+    val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsEffectVersion
+    val catsKernel: ModuleID = "org.typelevel" %% "cats-kernel" % catsVersion
+
+    val cats: Seq[ModuleID] = Seq(
+      catsCore,
+      catsEffect,
+      catsKernel
+    )
+
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
     val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
 
@@ -148,7 +157,6 @@ object Deps {
 
     val all: Seq[ModuleID] = Seq(
       akka,
-      catsEffect,
       slf4jApi,
       logbackClassic,
       jodaTime,
@@ -156,14 +164,13 @@ object Deps {
       guava,
       curator,
       scalaCollectionCompat,
-      cats,
       log4CatsCore,
       log4CatsSlf4J,
       fs2,
       grpcNetty,
       grpcProtoBuf,
       grpcStub
-    ) ++ circe
+    ) ++ circe ++ cats
   }
 
   object test {
