@@ -60,6 +60,7 @@ object Deps {
       "io.dropwizard.metrics" % "metrics-core" % dropwizardVersion,
       "io.dropwizard.metrics" % "metrics-graphite" % dropwizardVersion,
       "io.dropwizard.metrics" % "metrics-jvm" % dropwizardVersion,
+      "io.dropwizard.metrics" % "metrics-json" % dropwizardVersion,
       "io.dropwizard.metrics" % "metrics-jmx" % dropwizardVersion
     )
 
@@ -106,10 +107,25 @@ object Deps {
     val http4sClient: ModuleID = "org.http4s" %% "http4s-async-http-client" % http4sVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
+
+    val http4s: Seq[ModuleID] = Seq(
+      http4sServer,
+      http4sClient,
+      http4sDsl,
+      htt4sCirce
+    )
+
+    val circe: Seq[ModuleID] = Seq(
+      circeCore,
+      circeGeneric,
+      circeParser
+    )
     def scalaReflect(scalaVersion: String): ModuleID = "org.scala-lang" % "scala-reflect" % scalaVersion
 
     val scalaCollectionCompat
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
+
+    val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
 
     val wookieeAkkaHttp: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -141,19 +157,6 @@ object Deps {
       test.scalatest,
       test.akkaTest
     ) ++ json4sLibs
-
-    val http4s: Seq[ModuleID] = Seq(
-      http4sServer,
-      http4sClient,
-      http4sDsl,
-      htt4sCirce
-    )
-
-    val circe: Seq[ModuleID] = Seq(
-      circeCore,
-      circeGeneric,
-      circeParser
-    )
 
     val all: Seq[ModuleID] = Seq(
       akka,

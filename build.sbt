@@ -135,6 +135,15 @@ lazy val `wookiee-grpc` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
+lazy val `wookiee-functional-metrics` = project
+  .in(file("wookiee-functional-metrics"))
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeFuncMetrics
+  )
+  .dependsOn(`wookiee-core`)
+  .aggregate(`wookiee-core`)
+
 lazy val `wookiee-http` = project
   .in(file("wookiee-http"))
   .settings(commonSettings: _*)
@@ -240,7 +249,8 @@ lazy val root = project
     `wookiee-metrics`,
     `wookiee-akka-http`,
     `wookiee-cache`,
-    `wookiee-cache-memcache`
+    `wookiee-cache-memcache`,
+    `wookiee-functional-metrics`
   )
   .aggregate(
     `wookiee-core`,
@@ -254,7 +264,8 @@ lazy val root = project
     `wookiee-metrics`,
     `wookiee-http`,
     `wookiee-cache`,
-    `wookiee-cache-memcache`
+    `wookiee-cache-memcache`,
+    `wookiee-functional-metrics`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
