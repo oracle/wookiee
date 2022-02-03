@@ -6,12 +6,7 @@ import cats.effect.{Blocker, Concurrent, ContextShift, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
-import com.oracle.infy.wookiee.grpc.errors.Errors.{
-  UnknownCuratorShutdownError,
-  UnknownHostStreamError,
-  UnknownShutdownError,
-  WookieeGrpcError
-}
+import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.model.Host
