@@ -3,8 +3,8 @@ package com.oracle.infy.wookiee.grpc.impl
 import cats.data.EitherT
 import cats.effect.{Concurrent, IO}
 import cats.implicits._
-import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
-import com.oracle.infy.wookiee.grpc.errors.Errors.{HostNameServiceError, WookieeGrpcError}
+import com.oracle.infy.wookiee.grpc.contract._
+import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.model.Host
 import fs2._
 

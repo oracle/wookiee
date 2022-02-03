@@ -16,6 +16,7 @@ object WookieeGrpcUtils {
       zookeeperBlockingExecutionContext: ExecutionContext
   )(implicit cs: ContextShift[IO], blocker: Blocker): IO[CuratorFramework] =
     cs.blockOn(blocker) {
+//      val _ = Some("foo").asInstanceOf[Option[String]]
       IO {
         curatorFramework(
           zkQuorumString,

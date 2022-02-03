@@ -130,6 +130,7 @@ lazy val `wookiee-grpc` = project
   .in(file("wookiee-grpc"))
   .settings(commonSettings: _*)
   .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.all
   )
   .dependsOn(`wookiee-core`)
@@ -139,6 +140,7 @@ lazy val `wookiee-http` = project
   .in(file("wookiee-http"))
   .settings(commonSettings: _*)
   .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.all ++ Deps.build.http4s
   )
 
@@ -146,6 +148,7 @@ lazy val `wookiee-health` = project
   .in(file("wookiee-health"))
   .settings(commonSettings: _*)
   .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.all
   )
   .dependsOn(`wookiee-http`, `wookiee-core`)
@@ -155,6 +158,7 @@ lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings)
   .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
       Deps.build.scalaReflect(scalaVersion.value),
       "org.scalameta" %% "scalameta" % "4.4.25",
@@ -274,6 +278,7 @@ lazy val `wookiee-docs` = project
   .in(file("wookiee-docs"))
   .settings(commonSettings)
   .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
     // NOTE: DO NOT use $ in variable value, otherwise mdoc complains
     mdocIn := file("wookiee-docs/docs"),
     mdocOut := file("."),
