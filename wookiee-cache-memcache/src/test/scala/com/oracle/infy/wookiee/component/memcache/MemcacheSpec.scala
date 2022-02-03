@@ -20,7 +20,10 @@ class MemcacheSpec extends AnyWordSpecLike with Matchers {
         val bytes = "testValue".getBytes
         memcache.set("testKey", new ByteArray(bytes, 0, bytes.length))
         val got = Await.result(memcache.get("testKey"), Duration(3, TimeUnit.SECONDS)).get
-        val Buf.Utf8(toStr) = got
+        val toStr = got match {
+          case Buf.Utf8(str) => str
+          case _             => "<empty>"
+        }
         toStr mustEqual new String(bytes)
       } finally {
         val _ = client.close()
