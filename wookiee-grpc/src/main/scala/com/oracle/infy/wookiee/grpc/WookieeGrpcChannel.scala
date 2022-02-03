@@ -17,17 +17,17 @@ import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalanc
 import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
 import fs2.Stream
 import fs2.concurrent.Queue
-import org.typelevel.log4cats.Logger
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.recipes.cache.CuratorCache
+import org.typelevel.log4cats.Logger
 
-import scala.annotation.nowarn
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import scala.annotation.nowarn
 import scala.concurrent.ExecutionContext
 
 final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
@@ -123,7 +123,19 @@ object WookieeGrpcChannel {
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings]
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] =
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
+    val nameResolverRegistry = NameResolverRegistry.getDefaultRegistry()
+    nameResolverRegistry.register(
+      new AddressNameLoadingFactory(
+        listenerRef,
+        semaphore,
+        fiberRef,
+        hostnameServiceContract,
+        discoveryPath,
+        maybeSSLClientSettings
+      )
+    )
+
     for {
       channelExecutorJava <- IO { scalaToJavaExecutor(channelExecutionContext) }
       offloadExecutorJava <- IO { scalaToJavaExecutor(offloadExecutionContext) }
@@ -132,21 +144,6 @@ object WookieeGrpcChannel {
         NettyChannelBuilder
           .forTarget(s"zookeeper://$path")
           .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
-          .nameResolverFactory(
-            new NameResolver.Factory {
-              override def newNameResolver(targetUri: URI, args: NameResolver.Args): NameResolver =
-                new WookieeNameResolver(
-                  listenerRef,
-                  semaphore,
-                  fiberRef,
-                  hostnameServiceContract,
-                  discoveryPath,
-                  maybeSSLClientSettings.map(_.serviceAuthority).getOrElse("zk")
-                )
-
-              override def getDefaultScheme: String = "zookeeper"
-            }
-          )
           .defaultLoadBalancingPolicy(lbPolicy match {
             case RoundRobinPolicy                       => "round_robin"
             case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
@@ -184,6 +181,35 @@ object WookieeGrpcChannel {
 
       channel <- IO { builder2.build() }
     } yield channel
+  }
+
+  class AddressNameLoadingFactory(
+      listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
+      semaphore: Semaphore[IO],
+      fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
+      hostnameServiceContract: HostnameServiceContract[IO, Stream],
+      discoveryPath: String,
+      maybeSSLClientSettings: Option[SSLClientSettings]
+  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
+      extends NameResolverProvider {
+
+    def newNameResolver(notUsedUri: URI, args: NameResolver.Args): NameResolver = {
+      new WookieeNameResolver(
+        listenerRef,
+        semaphore,
+        fiberRef,
+        hostnameServiceContract,
+        discoveryPath,
+        maybeSSLClientSettings.map(_.serviceAuthority).getOrElse("zk")
+      )
+    }
+
+    override def isAvailable = true
+
+    override def priority(): Int = 0
+
+    override def getDefaultScheme: String = "zookeeper"
+  }
 
   private def buildSslContext(sslClientSettings: SSLClientSettings): SslContext = {
     val sslContextBuilder = sslClientSettings
