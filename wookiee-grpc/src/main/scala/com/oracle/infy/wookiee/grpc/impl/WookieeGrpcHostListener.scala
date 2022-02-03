@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.grpc.impl
 import cats.data.EitherT
 import cats.effect.{Blocker, ContextShift, IO}
 import cats.implicits._
-import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
+import com.oracle.infy.wookiee.grpc.contract._
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
 import com.oracle.infy.wookiee.model.Host
 import fs2._

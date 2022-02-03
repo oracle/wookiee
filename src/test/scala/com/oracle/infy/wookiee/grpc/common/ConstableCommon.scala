@@ -2,7 +2,6 @@ package com.oracle.infy.wookiee.grpc.common
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-
 import cats.data.EitherT
 import cats.effect.{ContextShift, IO, Timer}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
