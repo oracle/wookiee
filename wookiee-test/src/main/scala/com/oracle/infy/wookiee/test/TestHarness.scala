@@ -29,7 +29,7 @@ import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.LoadService
 import com.typesafe.config.{Config, ConfigFactory}
 
-import scala.concurrent.Await
+import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
 object TestHarness {
@@ -120,8 +120,13 @@ class TestHarness(
 
   def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
     while (!timeOut.isOverdue() && !Await
-             .result(TestHarness.rootActor().get ? ReadyCheck, timeToWait)
-             .asInstanceOf[Boolean]) {}
+             .result[Boolean](
+               TestHarness
+                 .rootActor()
+                 .map(act => (act ? ReadyCheck).mapTo[Boolean])
+                 .getOrElse(Future.successful(false)),
+               timeToWait
+             )) {}
 
     if (timeOut.isOverdue()) {
       throw new IllegalStateException("HarnessActor did not start up")
