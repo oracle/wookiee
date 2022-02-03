@@ -22,7 +22,6 @@ class MemcacheSpec extends AnyWordSpecLike with Matchers {
         val got = Await.result(memcache.get("testKey"), Duration(3, TimeUnit.SECONDS)).get
         val toStr = got match {
           case Buf.Utf8(str) => str
-          case _             => "<empty>"
         }
         toStr mustEqual new String(bytes)
       } finally {
