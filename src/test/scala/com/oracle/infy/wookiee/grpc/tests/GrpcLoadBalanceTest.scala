@@ -17,10 +17,11 @@ import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import utest.{Tests, test}
-import java.util.Random
 
+import java.util.Random
 import cats.data.NonEmptyList
 
+import java.net.ServerSocket
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -82,9 +83,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         } yield queue2
       }
 
-      val port1 = 7080
-      val port2 = 7090
-      val port3 = 7091
+      val port1 = getFreePort
+      val port2 = getFreePort
+      val port3 = getFreePort
 
       // Hosts for the servers that will be generated later.
 //      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))
@@ -252,6 +253,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           _ <- server3
             .exitQuarantine()
             .unsafeToFuture()
+          _ <- Future { Thread.sleep(300L) }
           res4 <- verifyLastServerIsUsed(quarantined = false)
           _ <- server3.shutdown().unsafeToFuture()
         } yield res2 && !res3 && res4
@@ -260,7 +262,9 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         _ <- server2.shutdown().unsafeToFuture()
         _ <- server.shutdown().unsafeToFuture()
         _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
-      } yield result && result2 && load1Result && load2Result
+      } yield {
+        result && result2 && load1Result && load2Result
+      }
 
       gRPCResponseF
     }
@@ -270,5 +274,13 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         testWeightedLoadBalancer.map(assert)
       }
     }
+  }
+
+  def getFreePort: Int = {
+    val socket = new ServerSocket(0)
+    try {
+      socket.setReuseAddress(true)
+      socket.getLocalPort
+    } finally if (socket != null) socket.close()
   }
 }

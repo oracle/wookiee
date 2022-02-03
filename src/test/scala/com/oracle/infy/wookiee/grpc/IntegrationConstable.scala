@@ -7,8 +7,8 @@ import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest /*,
-  GrpcLoadBalanceTest,
+import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest,
+  GrpcLoadBalanceTest/*,
   GrpcMultipleClientsTest,
   GrpcTLSAuthTest*/}
 import com.oracle.infy.wookiee.model.Host
@@ -97,12 +97,12 @@ object IntegrationConstable extends ConstableCommon {
       }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-//    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
+    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
 
     val result = runTestsAsync(
       List(
-        (grpcTests, "Integration - GrpcTest") /*,
-        (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"),
+        (grpcTests, "Integration - GrpcTest"),
+        (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest")/*,
         (GrpcMultipleClientsTest.multipleClientTest, "Integration - MultipleClientTest"),
         (GrpcTLSAuthTest.tests, "Integration - GrpcTLSAuthTest")*/
       )
