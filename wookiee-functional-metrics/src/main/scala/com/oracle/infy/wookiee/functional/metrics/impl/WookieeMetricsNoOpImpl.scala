@@ -1,7 +1,14 @@
 package com.oracle.infy.wookiee.functional.metrics.impl
 
 import cats.effect.IO
-import com.codahale.metrics.{UniformReservoir, Counter => DWCounter, Gauge => DWGauge, Histogram => DWHistogram, Meter => DWMeter, Timer => DWTimer}
+import com.codahale.metrics.{
+  UniformReservoir,
+  Counter => DWCounter,
+  Gauge => DWGauge,
+  Histogram => DWHistogram,
+  Meter => DWMeter,
+  Timer => DWTimer
+}
 import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.metrics.model._
 import io.circe.Json
