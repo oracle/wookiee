@@ -30,6 +30,7 @@ import com.oracle.infy.wookiee.utils.{ConfigUtil, FileUtil}
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
@@ -246,7 +247,7 @@ class ComponentManager extends PrepareForShutdown {
   }
 
   def initializing: Receive = super.receive orElse {
-    case InitializeComponents               => initializeComponents
+    case InitializeComponents               => initializeComponents()
     case ComponentStarted(name)             => componentStarted(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
   }
@@ -385,16 +386,19 @@ class ComponentManager extends PrepareForShutdown {
     * This function needs to block quite a bit because the system requires to load components
     * prior to anything else happening. This function will only be executed once.
     */
-  private def initializeComponents: Unit = {
+  private def initializeComponents(): Unit = {
     val cList = ComponentManager.getComponentPath(config) match {
       case Some(dir) => dir.listFiles.filter(x => x.isDirectory || FileUtil.getExtension(x).equalsIgnoreCase("jar"))
       case None      => Array[File]()
     }
 
-    val libList = if (config.hasPath(HarnessConstants.KeyComponents)) {
-      config.getStringList(HarnessConstants.KeyComponents).asScala
-    } else {
-      // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
+    val libBuffer = ListBuffer[String]()
+    if (config.hasPath(HarnessConstants.KeyComponents)) {
+      libBuffer.addAll(config.getStringList(HarnessConstants.KeyComponents).asScala)
+    }
+
+    // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
+    libBuffer.addAll(
       config
         .root()
         .asScala
@@ -410,8 +414,9 @@ class ComponentManager extends PrepareForShutdown {
           }
         }
         .keys
-    }
+    )
 
+    val libList = libBuffer.toList
     val componentsLoaded = mutable.ListBuffer[String]()
     val compList = cList ++ libList
     if (compList.length > 0) {
