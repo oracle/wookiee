@@ -27,7 +27,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 class LoggingActorSpec
-    extends TestKit(ActorSystem("test", ConfigFactory.parseString("""logging.use-actor=off""")))
+    extends TestKit(ActorSystem("log-test", ConfigFactory.parseString("""logging.use-actor=off""")))
     with AnyWordSpecLike
     with Matchers
     with BeforeAndAfterAll {

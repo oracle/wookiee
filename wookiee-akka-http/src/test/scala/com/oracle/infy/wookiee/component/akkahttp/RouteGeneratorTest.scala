@@ -51,7 +51,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with PredefinedToEntityMarshallers {
 
-  implicit val actorSystem: ActorSystem = ActorSystem("test")
+  implicit val actorSystem: ActorSystem = ActorSystem("route-test")
   implicit val logger: Logger = Logger.getLogger(getClass.getName)
   val responseTo: FiniteDuration = FiniteDuration(10, TimeUnit.MILLISECONDS)
   val toHandler: HttpRequest => HttpResponse = AkkaHttpEndpointRegistration.defaultTimeoutResponse

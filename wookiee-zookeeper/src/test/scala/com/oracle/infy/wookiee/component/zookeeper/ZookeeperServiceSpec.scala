@@ -27,7 +27,7 @@ import scala.concurrent.duration._
 class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll with PatienceConfiguration {
 
   val zkServer = new TestingServer()
-  implicit val system: ActorSystem = ActorSystem("test", loadConfig)
+  implicit val system: ActorSystem = ActorSystem("zk-test", loadConfig)
   val service: ZookeeperAdapterNonActor = MockZookeeper(zkServer.getConnectString)
   val zkActor: ActorRef = ZookeeperService.getZkActor.get
 

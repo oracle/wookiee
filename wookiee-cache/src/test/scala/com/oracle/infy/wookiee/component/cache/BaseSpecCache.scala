@@ -25,7 +25,7 @@ import akka.testkit.{TestActorRef, TestKit}
 import akka.util.Timeout
 import com.oracle.infy.wookiee.component.cache.memory.MemoryManager
 
-class BaseSpecCache extends TestKit(ActorSystem("test")) {
+class BaseSpecCache extends TestKit(ActorSystem("cache-test")) {
   val cacheRef: TestActorRef[MemoryManager] = TestActorRef(Props(classOf[MemoryManager], "test-memory-cache"))
   implicit val timeout: Timeout = Timeout(2, SECONDS)
 

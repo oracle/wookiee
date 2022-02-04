@@ -22,7 +22,7 @@ class DiscoverableServiceSpec extends AnyWordSpecLike with Matchers with BeforeA
   val testServiceName = "TestService"
 
   val zkServer = new TestingServer()
-  implicit val system: ActorSystem = ActorSystem("test", loadConfig)
+  implicit val system: ActorSystem = ActorSystem("discoverable-test", loadConfig)
 
   "The discoverable service" should {
     lazy val zkActor: ActorRef = system.actorOf(ZookeeperActor.props(ZookeeperSettings(system.settings.config)))
