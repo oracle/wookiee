@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.metrics.json
+package com.oracle.infy.wookiee.functional.metrics.json
 
 import com.codahale.metrics._
 import io.circe.{Encoder, _}

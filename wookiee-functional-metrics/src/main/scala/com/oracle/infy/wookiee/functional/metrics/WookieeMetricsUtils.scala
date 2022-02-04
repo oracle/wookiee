@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.metrics
+package com.oracle.infy.wookiee.functional.metrics
 
 import java.net.{InetAddress, InetSocketAddress}
 

@@ -1,14 +1,13 @@
-package com.oracle.infy.wookiee.metrics
-
-import java.lang.management.ManagementFactory
+package com.oracle.infy.wookiee.functional.metrics
 
 import cats.effect.{IO, Resource}
 import com.codahale.metrics.MetricRegistry
 import com.codahale.metrics.jvm._
-import com.oracle.infy.wookiee.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
-import com.oracle.infy.wookiee.metrics.impl.{WookieeMetricsImpl, WookieeMetricsNoOpImpl, WookieeMetricsReporterNoOpImpl}
+import com.oracle.infy.wookiee.functional.metrics.core.{WookieeMetrics, WookieeMetricsReporter}
+import com.oracle.infy.wookiee.functional.metrics.impl.{WookieeMetricsImpl, WookieeMetricsNoOpImpl, WookieeMetricsReporterNoOpImpl}
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
 
+import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters._
 
 object WookieeMetricsService {

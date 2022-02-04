@@ -1,9 +1,9 @@
-package com.oracle.infy.wookiee.metrics.impl
+package com.oracle.infy.wookiee.functional.metrics.impl
 
 import cats.effect.IO
 import com.codahale.metrics.{Metric, MetricRegistry}
-import com.oracle.infy.wookiee.metrics.core.WookieeMetrics
-import com.oracle.infy.wookiee.metrics.json.Serde
+import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
+import com.oracle.infy.wookiee.functional.metrics.json.Serde
 import com.oracle.infy.wookiee.metrics.model._
 import io.circe.Json
 import io.circe.syntax._

@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.metrics.core
+package com.oracle.infy.wookiee.functional.metrics.core
 
 trait WookieeMetricsReporter[F[_]] {
 

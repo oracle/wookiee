@@ -1,16 +1,15 @@
 package com.oracle.infy.wookiee.metrics.tests
 
-import java.util.concurrent.TimeUnit
-
 import cats.effect.IO
 import com.codahale.metrics.MetricRegistry
+import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
+import com.oracle.infy.wookiee.functional.metrics.impl.WookieeMetricsImpl
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
-import com.oracle.infy.wookiee.metrics.core.WookieeMetrics
-import com.oracle.infy.wookiee.metrics.impl.WookieeMetricsImpl
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
 import com.oracle.infy.wookiee.utils.implicits._
 import utest.{Tests, test}
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.{ExecutionContext, Future}
 
 object MetricsTest extends UTestScalaCheck {

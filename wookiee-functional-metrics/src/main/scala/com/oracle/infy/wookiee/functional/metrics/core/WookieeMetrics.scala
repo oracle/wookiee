@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.metrics.core
+package com.oracle.infy.wookiee.functional.metrics.core
 
 import com.oracle.infy.wookiee.metrics.model.{Counter, Gauge, Histogram, Meter, Timer}
 import io.circe.Json
