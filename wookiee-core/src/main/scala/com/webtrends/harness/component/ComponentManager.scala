@@ -297,21 +297,25 @@ class ComponentManager extends PrepareForShutdown {
 
     val libBuffer = ListBuffer[String]()
     if (config.hasPath(HarnessConstants.KeyComponents)) {
-      libBuffer.addAll(config.getStringList(HarnessConstants.KeyComponents).asScala)
+      libBuffer ++= config.getStringList(HarnessConstants.KeyComponents).asScala
     }
 
     // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
-    libBuffer.addAll(config.root().asScala.filter { entry =>
-      try {
-        val c = config.getConfig(entry._1)
-        entry._2.valueType() == ConfigValueType.OBJECT &&
+    libBuffer ++= config
+      .root()
+      .asScala
+      .filter { entry =>
+        try {
+          val c = config.getConfig(entry._1)
+          entry._2.valueType() == ConfigValueType.OBJECT &&
           c.hasPath(HarnessConstants.KeyDynamicComponent) && c.getBoolean(HarnessConstants.KeyDynamicComponent)
-      } catch {
-        case _: ConfigException =>
-          // if this exception occurs we know for sure that it is not a dynamic component
-          false
+        } catch {
+          case _: ConfigException =>
+            // if this exception occurs we know for sure that it is not a dynamic component
+            false
+        }
       }
-    }.keys)
+      .keys
 
     val libList = libBuffer.toList
     val componentsLoaded = mutable.ListBuffer[String]()
