@@ -17,7 +17,6 @@ package com.webtrends.harness.component
 
 import java.io.File
 import java.nio.file.FileSystems
-
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
@@ -30,6 +29,7 @@ import com.webtrends.harness.utils.{ConfigUtil, FileUtil}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
@@ -294,23 +294,25 @@ class ComponentManager extends PrepareForShutdown {
       case None => Array[File]()
     }
 
-    val libList = if (config.hasPath(HarnessConstants.KeyComponents)) {
-      config.getStringList(HarnessConstants.KeyComponents).asScala
-    } else {
-      // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
-      config.root().asScala.filter { entry =>
-        try {
-          val c = config.getConfig(entry._1)
-          entry._2.valueType() == ConfigValueType.OBJECT &&
-            c.hasPath(HarnessConstants.KeyDynamicComponent) && c.getBoolean(HarnessConstants.KeyDynamicComponent)
-        } catch {
-          case _: ConfigException =>
-            // if this exception occurs we know for sure that it is not a dynamic component
-            false
-        }
-      }.keys
+    val libBuffer = ListBuffer[String]()
+    if (config.hasPath(HarnessConstants.KeyComponents)) {
+      libBuffer.addAll(config.getStringList(HarnessConstants.KeyComponents).asScala)
     }
 
+    // try find any dynamically, we may get duplicate entries, but that will be handled during the loading process
+    libBuffer.addAll(config.root().asScala.filter { entry =>
+      try {
+        val c = config.getConfig(entry._1)
+        entry._2.valueType() == ConfigValueType.OBJECT &&
+          c.hasPath(HarnessConstants.KeyDynamicComponent) && c.getBoolean(HarnessConstants.KeyDynamicComponent)
+      } catch {
+        case _: ConfigException =>
+          // if this exception occurs we know for sure that it is not a dynamic component
+          false
+      }
+    }.keys)
+
+    val libList = libBuffer.toList
     val componentsLoaded = mutable.ListBuffer[String]()
     val compList = cList ++ libList
     if (compList.length > 0) {
