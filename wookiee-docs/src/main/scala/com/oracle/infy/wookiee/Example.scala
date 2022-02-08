@@ -7,7 +7,6 @@ import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.model.Host
 import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
