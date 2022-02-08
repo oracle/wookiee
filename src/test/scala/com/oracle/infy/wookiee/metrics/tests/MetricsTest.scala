@@ -6,7 +6,7 @@ import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.functional.metrics.impl.WookieeMetricsImpl
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import utest.{Tests, test}
 
 import java.util.concurrent.TimeUnit

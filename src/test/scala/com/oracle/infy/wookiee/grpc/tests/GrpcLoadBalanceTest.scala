@@ -7,11 +7,10 @@ import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
-import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinWeightedPolicy
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinWeightedPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.concurrent.Queue
 import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
@@ -20,6 +19,7 @@ import utest.{Tests, test}
 
 import java.util.Random
 import cats.data.NonEmptyList
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 
 import java.net.ServerSocket
 import scala.concurrent.duration._

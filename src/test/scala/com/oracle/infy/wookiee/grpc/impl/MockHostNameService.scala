@@ -5,7 +5,7 @@ import cats.effect.{Concurrent, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract._
 import com.oracle.infy.wookiee.grpc.errors.Errors._
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.grpc.model.Host
 import fs2._
 
 class MockHostNameService(stream: CloseableStreamContract[IO, Set[Host], Stream])(implicit c: Concurrent[IO])

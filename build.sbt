@@ -81,14 +81,14 @@ lazy val `wookiee-core` = project
   .in(file("wookiee-core"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.test.all
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
 
 lazy val `wookiee-test` = project
   .in(file("wookiee-test"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.test.all
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
@@ -97,7 +97,7 @@ lazy val `basic-service` = project
   .in(file("examples/basic-service"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.test.all
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
@@ -106,7 +106,7 @@ lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))
   .settings(commonSettings: _*)
   .settings(
-    libraryDependencies ++= Deps.build.all ++ Deps.test.all
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
@@ -131,10 +131,8 @@ lazy val `wookiee-grpc` = project
   .settings(commonSettings: _*)
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.all
+    libraryDependencies ++= Deps.build.wookieeGrpc
   )
-  .dependsOn(`wookiee-core`)
-  .aggregate(`wookiee-core`)
 
 lazy val `wookiee-functional-metrics` = project
   .in(file("wookiee-functional-metrics"))
@@ -142,26 +140,28 @@ lazy val `wookiee-functional-metrics` = project
   .settings(
     libraryDependencies ++= Deps.build.wookieeFuncMetrics
   )
-  .dependsOn(`wookiee-core`)
-  .aggregate(`wookiee-core`)
+  .dependsOn(`wookiee-grpc`)
+  .aggregate(`wookiee-grpc`)
 
 lazy val `wookiee-http` = project
   .in(file("wookiee-http"))
   .settings(commonSettings: _*)
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.all ++ Deps.build.http4s
+    libraryDependencies ++= Deps.build.http4s
   )
+  .dependsOn(`wookiee-grpc`)
+  .dependsOn(`wookiee-grpc`)
 
 lazy val `wookiee-health` = project
   .in(file("wookiee-health"))
   .settings(commonSettings: _*)
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.all
+    libraryDependencies ++= Deps.build.circe
   )
-  .dependsOn(`wookiee-http`, `wookiee-core`)
-  .aggregate(`wookiee-http`, `wookiee-core`)
+  .dependsOn(`wookiee-http`, `wookiee-grpc`)
+  .aggregate(`wookiee-http`, `wookiee-grpc`)
 
 lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))

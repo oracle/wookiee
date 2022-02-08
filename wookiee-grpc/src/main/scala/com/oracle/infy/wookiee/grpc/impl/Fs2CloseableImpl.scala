@@ -6,7 +6,7 @@ import cats.effect.{Concurrent, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.StreamContract.StreamError
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, StreamContract}
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
 
 final protected[grpc] case class Fs2CloseableImpl[T](

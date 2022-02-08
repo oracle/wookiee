@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.utils
+package com.oracle.infy.wookiee.grpc.utils
 
 import cats.Monad
 import cats.data.EitherT
@@ -14,7 +14,9 @@ object implicits {
 
   implicit class MultiversalEquality[T](left: T) {
     def ===(right: T): Boolean = left == right
+
     def /==(right: T): Boolean = left != right
+
     def =/=(right: T): Boolean = left /== right
   }
 
@@ -41,6 +43,7 @@ object implicits {
 
   private def toBuf[T](itr: util.Iterator[T]): scala.collection.mutable.Buffer[T] = {
     val buf = scala.collection.mutable.Buffer[T]()
+
     @tailrec
     def add(): Unit =
       if (itr.hasNext) {
@@ -49,6 +52,7 @@ object implicits {
       } else {
         ()
       }
+
     add()
     buf
   }

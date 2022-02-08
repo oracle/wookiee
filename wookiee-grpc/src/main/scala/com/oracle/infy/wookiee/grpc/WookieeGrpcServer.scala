@@ -5,8 +5,8 @@ import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import org.typelevel.log4cats.Logger
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}

@@ -9,8 +9,8 @@ import com.oracle.infy.wookiee.grpc.errors.Errors
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.model.Host
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.model.Host
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2._
 import org.typelevel.log4cats.Logger
 import org.apache.curator.framework.CuratorFramework

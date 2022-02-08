@@ -1,5 +1,5 @@
 package com.oracle.infy.wookiee.grpc.json
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
 import io.circe.parser.parse
 import io.circe.syntax._

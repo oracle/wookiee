@@ -5,7 +5,7 @@ import cats.effect.{Blocker, ContextShift, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract._
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
-import com.oracle.infy.wookiee.model.Host
+import com.oracle.infy.wookiee.grpc.model.Host
 import fs2._
 import org.typelevel.log4cats.Logger
 

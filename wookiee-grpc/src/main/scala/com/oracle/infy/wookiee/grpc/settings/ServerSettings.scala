@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.grpc.settings
 import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework

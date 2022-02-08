@@ -1,13 +1,13 @@
 package com.oracle.infy.wookiee.grpc.tests
 
 import cats.effect.{Blocker, ContextShift, IO, Timer}
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServerSettings, ServiceAuthSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, ZookeeperUtils}
-import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
+import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework

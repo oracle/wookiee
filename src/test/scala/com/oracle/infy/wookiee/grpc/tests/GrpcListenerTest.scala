@@ -8,9 +8,9 @@ import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
-import com.oracle.infy.wookiee.model.Host
-import com.oracle.infy.wookiee.utils.implicits
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.model.Host
+import com.oracle.infy.wookiee.grpc.utils.implicits
+import implicits._
 import fs2.concurrent.Queue
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll

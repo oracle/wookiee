@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.common
 
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import org.scalacheck.Arbitrary.arbitrary
 import org.scalacheck.{Arbitrary, Gen}
 

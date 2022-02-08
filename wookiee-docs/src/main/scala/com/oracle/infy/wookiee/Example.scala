@@ -2,12 +2,12 @@ package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-
 import cats.effect.{Blocker, ContextShift, IO, Timer}
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
-import com.oracle.infy.wookiee.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.model.Host
 import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService

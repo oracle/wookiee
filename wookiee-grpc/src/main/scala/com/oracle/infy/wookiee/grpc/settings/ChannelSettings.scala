@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.settings
 
-import com.oracle.infy.wookiee.model.LoadBalancers.LoadBalancingPolicy
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.LoadBalancingPolicy
 import org.apache.curator.framework.CuratorFramework
 
 import scala.concurrent.ExecutionContext

@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.grpc
 import com.google.common.base.{MoreObjects, Objects}
 import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, RoundRobinWeightedPicker}
 import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
-import com.oracle.infy.wookiee.utils.implicits.MultiversalEquality
+import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import io.grpc.ConnectivityState._
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
 import io.grpc.util.ForwardingSubchannel

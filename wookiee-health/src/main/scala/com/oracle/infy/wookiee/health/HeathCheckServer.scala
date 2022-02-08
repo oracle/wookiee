@@ -4,7 +4,7 @@ import cats.effect.{IO, _}
 import cats.implicits._
 import com.oracle.infy.wookiee.health.json.Serde
 import com.oracle.infy.wookiee.health.model.{Critical, Degraded, Normal, WookieeHealth}
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
 import com.oracle.infy.wookiee.http.WookieeHttpServer
 import org.http4s.HttpRoutes

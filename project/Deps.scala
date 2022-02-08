@@ -25,9 +25,6 @@ object Deps {
     val slf4jImplVersion = "2.17.1"
     val logbackVersion = "1.2.10"
     val jodaTimeVersion = "2.10.13"
-    val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
-    val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
-    val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val scalaCollectionCompatVersion = "2.3.0"
     val zookeeperVersion = "3.6.2"
     val json4sVersion = "4.0.3"
@@ -50,6 +47,8 @@ object Deps {
       test.curatorTest exclude("org.apache.zookeeper", "zookeeper"),
     )
 
+    val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
+    val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val json4sLibs: Seq[ModuleID] = Seq(
       "org.json4s" %% "json4s-jackson" % json4sVersion,
       "org.json4s" %% "json4s-ext" % json4sVersion,
@@ -64,6 +63,7 @@ object Deps {
       "io.dropwizard.metrics" % "metrics-jmx" % dropwizardVersion
     )
 
+    val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
     val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion
     val akkaStream: ModuleID = "com.typesafe.akka" %% "akka-stream" % akkaVersion
     val akkaHttp: Seq[ModuleID] = Seq(
@@ -107,6 +107,12 @@ object Deps {
     val http4sClient: ModuleID = "org.http4s" %% "http4s-async-http-client" % http4sVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
+
+    val grpc: Seq[ModuleID] = Seq(
+      grpcNetty,
+      grpcProtoBuf,
+      grpcStub
+    )
 
     val http4s: Seq[ModuleID] = Seq(
       http4sServer,
@@ -153,12 +159,20 @@ object Deps {
       upickle
     )
 
+    val wookieeGrpc: Seq[ModuleID] = Seq(
+      curator,
+      scalaCollectionCompat,
+      log4CatsCore,
+      log4CatsSlf4J,
+      fs2
+    ) ++ circe ++ cats ++ grpc
+
     val wookieeCache: Seq[ModuleID] = Seq(
       test.scalatest,
       test.akkaTest
     ) ++ json4sLibs
 
-    val all: Seq[ModuleID] = Seq(
+    val core: Seq[ModuleID] = Seq(
       akka,
       slf4jApi,
       logbackClassic,
@@ -167,12 +181,7 @@ object Deps {
       guava,
       curator,
       scalaCollectionCompat,
-      log4CatsCore,
-      log4CatsSlf4J,
-      fs2,
-      grpcNetty,
-      grpcProtoBuf,
-      grpcStub
+      fs2
     ) ++ circe ++ cats
   }
 
@@ -189,8 +198,8 @@ object Deps {
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
     val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
-    val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion
-    val log4CatsNoop: ModuleID = "org.typelevel" %% "log4cats-noop" % log4CatsVersion
+    val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion % Test
+    val log4CatsNoop: ModuleID = "org.typelevel" %% "log4cats-noop" % log4CatsVersion % Test
 
     val all: Seq[ModuleID] = Seq(
       log4CatsNoop,

@@ -12,9 +12,9 @@ import com.oracle.infy.wookiee.grpc.impl.{
   WookieeNameResolver,
   ZookeeperHostnameService
 }
+import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
-import com.oracle.infy.wookiee.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
-import com.oracle.infy.wookiee.model.{Host, LoadBalancers}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.grpc._

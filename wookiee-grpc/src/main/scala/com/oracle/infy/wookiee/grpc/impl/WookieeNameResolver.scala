@@ -7,8 +7,8 @@ import cats.effect.{Blocker, ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
-import com.oracle.infy.wookiee.model.{Host, HostMetadata}
-import com.oracle.infy.wookiee.utils.implicits._
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2._
 import org.typelevel.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
