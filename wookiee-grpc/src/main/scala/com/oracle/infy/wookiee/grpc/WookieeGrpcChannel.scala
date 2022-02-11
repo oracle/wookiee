@@ -109,7 +109,6 @@ object WookieeGrpcChannel {
   }
 
   // Please see https://github.com/grpc/grpc-java/issues/7133
-  @nowarn
   private def buildChannel(
       path: String,
       eventLoopGroupExecutionContext: ExecutionContext,
