@@ -27,7 +27,6 @@ import org.typelevel.log4cats.Logger
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
-import scala.annotation.nowarn
 import scala.concurrent.ExecutionContext
 import scala.util.Random
 
