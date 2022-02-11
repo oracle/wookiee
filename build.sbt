@@ -36,6 +36,7 @@ val commonScalacOptions =
     "off",
     "-Yrangepos",
     "-Ywarn-dead-code",
+    "-Ywarn-unused",
     "-Ywarn-value-discard",
     "-Xlint:-nullary-unit",
     "-Xfatal-warnings",
