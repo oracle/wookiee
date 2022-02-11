@@ -4,6 +4,7 @@ import cats.data.NonEmptyList
 import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.sun.xml.internal.ws.api.client.ServiceInterceptor
 import fs2.concurrent.Queue
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
@@ -13,19 +14,19 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
 final case class ServerSettings(
-    discoveryPath: String,
-    serverServiceDefinitions: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings])],
-    host: IO[Host],
-    sslServerSettings: Option[SSLServerSettings],
-    bossExecutionContext: ExecutionContext,
-    workerExecutionContext: ExecutionContext,
-    applicationExecutionContext: ExecutionContext,
-    bossThreads: Int,
-    workerThreads: Int,
-    loadUpdateInterval: FiniteDuration,
-    queue: IO[Queue[IO, Int]],
-    quarantined: IO[Ref[IO, Boolean]],
-    curatorFramework: CuratorFramework
+                                 discoveryPath: String,
+                                 serverServiceDefinitions: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServiceInterceptor]])],
+                                 host: IO[Host],
+                                 sslServerSettings: Option[SSLServerSettings],
+                                 bossExecutionContext: ExecutionContext,
+                                 workerExecutionContext: ExecutionContext,
+                                 applicationExecutionContext: ExecutionContext,
+                                 bossThreads: Int,
+                                 workerThreads: Int,
+                                 loadUpdateInterval: FiniteDuration,
+                                 queue: IO[Queue[IO, Int]],
+                                 quarantined: IO[Ref[IO, Boolean]],
+                                 curatorFramework: CuratorFramework
 )
 
 object ServerSettings {

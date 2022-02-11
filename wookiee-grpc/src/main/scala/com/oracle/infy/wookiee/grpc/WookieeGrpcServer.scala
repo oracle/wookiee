@@ -123,7 +123,7 @@ object WookieeGrpcServer {
       builder3 <- serverSettings
         .serverServiceDefinitions
         .foldLeft(builder2) {
-          case (builderIO, (serverServiceDefinition, maybeAuth)) =>
+          case (builderIO, (serverServiceDefinition, maybeAuth, maybeInterceptors)) =>
             maybeAuth
               .map { authSettings =>
                 logger
@@ -133,6 +133,7 @@ object WookieeGrpcServer {
                   .*>(builderIO)
                   .map { builder =>
                     builder.addService(
+                      // TODO Allow us to pass multiple interceptors from service definition, after token auth
                       ServerInterceptors.intercept(serverServiceDefinition, BearerTokenAuthenticator(authSettings))
                     )
                   }
