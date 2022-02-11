@@ -19,7 +19,7 @@ import akka.actor.ActorSystem
 import com.oracle.infy.wookiee.component.ComponentManager
 import com.oracle.infy.wookiee.logging.Logger
 import com.oracle.infy.wookiee.service.ServiceManager
-import com.typesafe.config.{Config, ConfigFactory, ConfigParseOptions, ConfigRenderOptions}
+import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 
 import java.io.InputStream
 import scala.io.Source

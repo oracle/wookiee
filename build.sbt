@@ -36,7 +36,6 @@ val commonScalacOptions =
     "off",
     "-Yrangepos",
     "-Ywarn-dead-code",
-    "-Ywarn-unused",
     "-Ywarn-value-discard",
     "-Xlint:-nullary-unit",
     "-Xfatal-warnings",
@@ -47,7 +46,7 @@ val commonScalacOptions =
     "-language:higherKinds"
   )
 
-val commonSettings: Seq[Setting[_]] = Seq(
+def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   parallelExecution in Test := false,
   concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
   scalaVersion := LatestScalaVersion,
@@ -59,7 +58,17 @@ val commonSettings: Seq[Setting[_]] = Seq(
   addCompilerPlugin(scalafixSemanticdb),
   scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.12",
   scalacOptions := scalaVersion.map {
-    case `LatestScalaVersion` => commonScalacOptions
+    case `LatestScalaVersion` if warnUnused =>
+      commonScalacOptions ++ Seq("-Ywarn-unused")
+    case `LatestScalaVersion` =>
+      commonScalacOptions
+    case _ if warnUnused =>
+      commonScalacOptions ++ Seq(
+        "-Ypartial-unification",
+        "-Xfuture",
+        "-Ywarn-adapted-args",
+        "-Ywarn-unused"
+      )
     case _ =>
       commonScalacOptions ++ Seq(
         "-Ypartial-unification",
@@ -80,14 +89,14 @@ val commonSettings: Seq[Setting[_]] = Seq(
 
 lazy val `wookiee-core` = project
   .in(file("wookiee-core"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
 
 lazy val `wookiee-test` = project
   .in(file("wookiee-test"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
@@ -96,7 +105,7 @@ lazy val `wookiee-test` = project
 
 lazy val `basic-service` = project
   .in(file("examples/basic-service"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
@@ -105,7 +114,7 @@ lazy val `basic-service` = project
 
 lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
@@ -114,7 +123,7 @@ lazy val `basic-extension` = project
 
 lazy val `metrics-example` = project
   .in(file("examples/metrics"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeMetrics
   )
@@ -123,13 +132,13 @@ lazy val `metrics-example` = project
 
 lazy val `caching-example` = project
   .in(file("examples/caching"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .dependsOn(`wookiee-core`, `wookiee-cache-memcache`)
   .aggregate(`wookiee-core`, `wookiee-cache-memcache`)
 
 lazy val `wookiee-grpc` = project
   .in(file("wookiee-grpc"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.wookieeGrpc
@@ -137,7 +146,7 @@ lazy val `wookiee-grpc` = project
 
 lazy val `wookiee-functional-metrics` = project
   .in(file("wookiee-functional-metrics"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(true))
   .settings(
     libraryDependencies ++= Deps.build.wookieeFuncMetrics
   )
@@ -146,7 +155,7 @@ lazy val `wookiee-functional-metrics` = project
 
 lazy val `wookiee-http` = project
   .in(file("wookiee-http"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.http4s
@@ -156,7 +165,7 @@ lazy val `wookiee-http` = project
 
 lazy val `wookiee-health` = project
   .in(file("wookiee-health"))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.circe
@@ -166,7 +175,7 @@ lazy val `wookiee-health` = project
 
 lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
-  .settings(commonSettings)
+  .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
@@ -178,7 +187,7 @@ lazy val `wookiee-grpc-dev` = project
 
 lazy val `wookiee-zookeeper` = project
   .in(file("wookiee-zookeeper"))
-  .settings(commonSettings)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeZk
   )
@@ -187,7 +196,7 @@ lazy val `wookiee-zookeeper` = project
 
 lazy val `wookiee-metrics` = project
   .in(file("wookiee-metrics"))
-  .settings(commonSettings)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeMetrics
   )
@@ -196,7 +205,7 @@ lazy val `wookiee-metrics` = project
 
 lazy val `wookiee-akka-http` = project
   .in(file("wookiee-akka-http"))
-  .settings(commonSettings)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeAkkaHttp
   )
@@ -205,7 +214,7 @@ lazy val `wookiee-akka-http` = project
 
 lazy val `wookiee-cache` = project
   .in(file("wookiee-cache"))
-  .settings(commonSettings)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeCache
   )
@@ -215,7 +224,7 @@ lazy val `wookiee-cache` = project
 
 lazy val `wookiee-cache-memcache` = project
   .in(file("wookiee-cache-memcache"))
-  .settings(commonSettings)
+  .settings(commonSettings(false))
   .settings(
     libraryDependencies ++= Deps.build.wookieeMemcache
   )
@@ -225,7 +234,7 @@ lazy val `wookiee-cache-memcache` = project
 
 lazy val root = project
   .in(file("."))
-  .settings(commonSettings: _*)
+  .settings(commonSettings(false))
   .settings(
     name := "wookiee",
     libraryDependencies ++= Deps.test.all,
@@ -288,7 +297,7 @@ val protoFile = "src/main/protobuf/myService.proto"
 
 lazy val `wookiee-docs` = project
   .in(file("wookiee-docs"))
-  .settings(commonSettings)
+  .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     // NOTE: DO NOT use $ in variable value, otherwise mdoc complains
@@ -313,7 +322,7 @@ lazy val `wookiee-docs` = project
 
 lazy val `wookiee-proto` = project
   .in(file("wookiee-proto"))
-  .settings(commonSettings)
+  .settings(commonSettings(true))
   .settings(
     //scalaPB
     Compile / PB.targets := Seq(
