@@ -249,6 +249,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           _ <- server3
             .enterQuarantine()
             .unsafeToFuture()
+          _ <- Future { Thread.sleep(500L) }
           res3 <- verifyLastServerIsUsed(quarantined = true)
           _ <- server3
             .exitQuarantine()

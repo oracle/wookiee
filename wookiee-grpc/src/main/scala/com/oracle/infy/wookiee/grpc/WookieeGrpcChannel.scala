@@ -6,15 +6,10 @@ import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, scalaToJavaExecutor}
-import com.oracle.infy.wookiee.grpc.impl.{
-  BearerTokenClientProvider,
-  Fs2CloseableImpl,
-  WookieeNameResolver,
-  ZookeeperHostnameService
-}
+import com.oracle.infy.wookiee.grpc.impl.{BearerTokenClientProvider, Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
 import fs2.Stream
 import fs2.concurrent.Queue
 import io.grpc._
@@ -29,6 +24,7 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 import scala.annotation.nowarn
 import scala.concurrent.ExecutionContext
+import scala.util.Random
 
 final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
     implicit cs: ContextShift[IO],
@@ -124,25 +120,29 @@ object WookieeGrpcChannel {
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings]
   )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
-    val nameResolverRegistry = NameResolverRegistry.getDefaultRegistry()
-    nameResolverRegistry.register(
-      new AddressNameLoadingFactory(
-        listenerRef,
-        semaphore,
-        fiberRef,
-        hostnameServiceContract,
-        discoveryPath,
-        maybeSSLClientSettings
-      )
-    )
-
     for {
+      // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
+      randomScheme <- IO { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
+      nameResolverRegistry <- IO { NameResolverRegistry.getDefaultRegistry() }
+      _ <- IO {
+        nameResolverRegistry.register(
+          new AddressNameLoadingFactory(
+            listenerRef,
+            semaphore,
+            fiberRef,
+            hostnameServiceContract,
+            discoveryPath,
+            maybeSSLClientSettings,
+            randomScheme
+          )
+        )
+      }
       channelExecutorJava <- IO { scalaToJavaExecutor(channelExecutionContext) }
       offloadExecutorJava <- IO { scalaToJavaExecutor(offloadExecutionContext) }
 
       builder0 <- IO {
         NettyChannelBuilder
-          .forTarget(s"zookeeper://$path")
+          .forTarget(s"$randomScheme://$path")
           .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
           .defaultLoadBalancingPolicy(lbPolicy match {
             case RoundRobinPolicy                       => "round_robin"
@@ -183,13 +183,14 @@ object WookieeGrpcChannel {
     } yield channel
   }
 
-  class AddressNameLoadingFactory(
+  private class AddressNameLoadingFactory(
       listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
       semaphore: Semaphore[IO],
       fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String,
-      maybeSSLClientSettings: Option[SSLClientSettings]
+      maybeSSLClientSettings: Option[SSLClientSettings],
+      scheme: String
   )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
       extends NameResolverProvider {
 
@@ -206,9 +207,9 @@ object WookieeGrpcChannel {
 
     override def isAvailable = true
 
-    override def priority(): Int = 0
+    override def priority(): Int = 5
 
-    override def getDefaultScheme: String = "zookeeper"
+    override def getDefaultScheme: String = scheme
   }
 
   private def buildSslContext(sslClientSettings: SSLClientSettings): SslContext = {
