@@ -28,11 +28,11 @@ In order to create a component using IntelliJ (12.x or later), you should use th
 
 1. Select "File"->"New Module" or "New Project".
 2. Select the "Maven" module/project type.
-3. On the same screen click the "Create from archetype" checkbox and select our archetype `com.webtrends.archetypes:wookiee-service-archetype`.
-4. If the archetype does not exist in the list, click "Add archetype".  Enter `com.webtrends.archetypes` for the group id, `wookiee-service-archetype` for the artifact id, and some version number (e.g. "1.0-SNAPSHOT") for the version.
+3. On the same screen click the "Create from archetype" checkbox and select our archetype `com.oracle.infy.archetypes:wookiee-service-archetype`.
+4. If the archetype does not exist in the list, click "Add archetype".  Enter `com.oracle.infy.archetypes` for the group id, `wookiee-service-archetype` for the artifact id, and some version number (e.g. "1.0-SNAPSHOT") for the version.
 5. If you needed to add, click OK.
 
-6. Click Next and then insert `com.webtrends.service` for the GroupId and the name of the new service you are creating for ArtifactId
+6. Click Next and then insert `com.oracle.infy` for the GroupId and the name of the new service you are creating for ArtifactId
 7. Click Next.
 8. Click the `+` sign in the properties box and add the following property `service-name` with the value that will equal the name of your new service. (This will be the name of the primary class file)
 9. Click Next.

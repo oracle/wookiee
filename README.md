@@ -9,7 +9,7 @@ Wookiee is Licensed under the Apache 2.0 License, for more information see [LICE
 ## Usage
 
 Wookiee is meant to save you from the endless tedium of creating yet another micro service. 
-It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/com/webtrends/harness/app/HarnessService.scala)) 
+It provides a common Main class ([HarnessService](wookiee-core/src/main/scala/com/oracle/infy/wookiee/app/HarnessService.scala)) 
 and tacks on a ton of out of the box conveniences.
 
 <b>So think of Wookiee when you...</b>
@@ -47,11 +47,11 @@ Add the jfrog repo to your project first:
 </repositories>
 ~~~~
 
-Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee, either Scala 2.11 or 2.12 varietals:
+Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wookiee, either Scala 2.12 or 2.13 varietals:
 ~~~~
 <dependency>
-    <groupId>com.webtrends</groupId>
-    <artifactId>wookiee-core_2.11</artifactId>
+    <groupId>com.oracle.infy</groupId>
+    <artifactId>wookiee-core_2.12</artifactId>
     <version>${wookiee.version}</version>
 </dependency>
 ~~~~
@@ -94,7 +94,7 @@ There is a cluster component which allows for messaging across a cluster. Howeve
 
 ### Health
 Standardized health checks is provided by the library. The ActorHealth trait will apply default health functionality to any actor that leverages the trait. By default, a developer would only have to insert the following code into their actor class
-```java
+```scala
 class ActorClass extends ActorHealth {
 	def receive = health orElse {
 		case Message => "Do something here"
@@ -108,7 +108,7 @@ The above code will give the actor basic health functionality, this will do thre
 * implement the checkHealth function we will get the health of the current actor using the getHealth function above and then execute the request on the child actors and get the health status for them.
 
 Generally a developer would want to override the getHealth function to give customized health check status for the actor. Example:
-```java
+```scala
 	override def getHealth : Future[HealthComponent] = {
 		Future {
 			Math.random.toInt match {
@@ -130,9 +130,9 @@ The file specified in config.file will actually be watched for any changes to it
 will be sent to all HActors (message: ConfigChange()). To hook into this most easily, extend
 the ConfigHelper class like so:
 
-```java
-import com.webtrends.harness.config.ConfigHelper
-import com.webtrends.harness.app.HActor
+```scala
+import com.oracle.infy.wookiee.config.ConfigHelper
+import com.oracle.infy.wookiee.app.HActor
 
 class ConfigWatchingActor extends HActor with ConfigHelper {
     override def renewConfiguration() {
@@ -144,7 +144,7 @@ class ConfigWatchingActor extends HActor with ConfigHelper {
 
 ### Logging
 Standardized logging is provided by the library. This can be applied to any actor using the trait ActorLoggingAdapter. This will give you the "log" variable which will allow you to write info, debug, warn, error and trace messages to the log. If you need to add logging to a non-actor based class, possibly like an object you can use the following code.
-```java
+```scala
 	val externalLogger = LoggerFactory.getLogger(this.getClass)
 ```
 
@@ -160,6 +160,14 @@ section outlines the available functionality and how to best utilize the Wookiee
 The purpose of this section is to aggregate notes and processes in setting up development environment for creating services for Wookiee.
 
 [Instructions](docs/DevSetup.md)
+
+### Increasing Artifact Version
+To bump the version of Wookiee Core/Test simply increase it in the pom file. If you are
+building a branch then it will automatically insert the branch name before SNAPSHOT.
+So for example if the pom has 2.0-SNAPSHOT as a version the final artifact will end up
+as 2.0-$branch-SNAPSHOT. If you create a tagged release in github, or if you change the
+pom to a version that doesn't contain "SNAPSHOT" then the final artifact version will 
+be literally what was in the tag/pom.
 
 ### Creating a service
 As services are what provides functionality to the Wookiee container, this section provides information on how to
@@ -241,5 +249,183 @@ Maven dist.xml
 
 Run command:
 ```
-java -cp *:lib/components/*:lib/thirdparty/* com.webtrends.harness.app.HarnessService
+java -cp *:lib/components/*:lib/thirdparty/* com.oracle.infy.wookiee.app.HarnessService
+```
+
+* [wookiee-grpc](#wookiee-grpc)
+
+# wookiee-grpc
+## Install
+wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
+```sbt
+libraryDependencies += "com.oracle.infy.wookiee" %% "wookiee-grpc" % "1.1.0"
+```
+
+## Setup ScalaPB
+We use [ScalaPB](https://github.com/scalapb/ScalaPB) to generate source code from a `.proto` file. You can use
+other plugins/code generators if you wish. wookiee-grpc will work as long as you have `io.grpc.ServerServiceDefinition`
+for the server and something that accept `io.grpc.ManagedChannel` for the client.
+
+Declare your gRPC service using proto3 syntax and save it in `src/main/protobuf/myService.proto`
+```proto
+syntax = "proto3";
+
+package com.oracle.infy.wookiee;
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string resp = 1;
+}
+
+service MyService {
+  rpc greet(HelloRequest) returns (HelloResponse) {}
+}
+
+```
+
+Add ScalaPB plugin to `plugin.sbt` file
+```sbt
+addSbtPlugin("com.thesamet" % "sbt-protoc" % "0.99.34")
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.10.8"
+
+```
+
+Configure the project in `build.sbt` so that ScalaPB can generate code
+```sbt
+    libraryDependencies ++= Seq(
+      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
+      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+    ),
+    PB.targets in Compile := Seq(
+      scalapb.gen() -> (sourceManaged in Compile).value
+    )
+  )
+
+```
+
+In the sbt shell, type `protocGenerate` to generate scala code based on the `.proto` file. ScalaPB will generate
+code and put it under `target/scala-2.13/src_managed/main`.
+
+## Using wookiee-grpc
+After the code has been generated by ScalaPB, you can use wookiee-grpc for service discoverability and load balancing.
+
+```scala
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
+import cats.effect.IO
+import com.oracle.infy.wookiee.grpc.model.Host
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
+// This is from ScalaPB generated code
+import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
+import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
+import io.grpc.ServerServiceDefinition
+import org.apache.curator.test.TestingServer
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
+
+object Example {
+
+  def main(args: Array[String]): Unit = {
+    val bossThreads = 10
+    val mainECParallelism = 10
+
+    // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
+    // We use cats-effect (https://typelevel.org/cats-effect/) internally.
+    // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
+    // When using `unsafe` methods, you are expected to handle any exceptions
+    val logger = Slf4jLogger.create[IO].unsafeRunSync()
+
+    val uncaughtExceptionHandler = new UncaughtExceptionHandler {
+      override def uncaughtException(t: Thread, e: Throwable): Unit = {
+        logger.error(e)("Got an uncaught exception on thread " ++ t.getName).unsafeRunSync()
+      }
+    }
+
+    val tf = new ThreadFactory {
+      override def newThread(r: Runnable): Thread = {
+        val t = new Thread(r)
+        t.setName("blocking-" ++ t.getId.toString)
+        t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
+        t.setDaemon(true)
+        t
+      }
+    }
+
+    // The blocking execution context must create daemon threads if you want your app to shutdown
+    val blockingEC = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(tf))
+    // This is the execution context used to execute your application specific code
+    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(
+      new ForkJoinPool(
+        mainECParallelism,
+        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+        uncaughtExceptionHandler,
+        true
+      )
+    )
+
+    val zookeeperDiscoveryPath = "/discovery"
+
+    // This is just to demo, use an actual Zookeeper quorum.
+    val zkFake = new TestingServer()
+    val connStr = zkFake.getConnectString
+
+    val ssd: ServerServiceDefinition = MyService.bindService(
+      new MyService {
+        override def greet(request: HelloRequest): Future[HelloResponse] = {
+          println("received request")
+          Future.successful(HelloResponse("Hello " ++ request.name))
+        }
+      },
+      mainEC
+    )
+
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.startUnsafe(
+      zookeeperQuorum = connStr,
+      discoveryPath = zookeeperDiscoveryPath,
+      zookeeperRetryInterval = 3.seconds,
+      zookeeperMaxRetries = 20,
+      serverServiceDefinition = ssd,
+      port = 9091,
+      // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
+      // If you are running this locally, its better to explicitly set the hostname
+      localhost = Host(0, "localhost", 9091, Map.empty),
+      mainExecutionContext = mainEC,
+      blockingExecutionContext = blockingEC,
+      bossThreads = bossThreads,
+      mainExecutionContextThreads = mainECParallelism
+    )
+
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel.unsafeOf(
+      zookeeperQuorum = connStr,
+      serviceDiscoveryPath = zookeeperDiscoveryPath,
+      zookeeperRetryInterval = 3.seconds,
+      zookeeperMaxRetries = 20,
+      grpcChannelThreadLimit = bossThreads,
+      mainExecutionContext = mainEC,
+      blockingExecutionContext = blockingEC
+    )
+
+    val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
+
+    val gRPCResponseF: Future[HelloResponse] = for {
+      server <- serverF
+      resp <- stub.greet(HelloRequest("world!"))
+      _ <- wookieeGrpcChannel.shutdownUnsafe()
+      _ <- server.shutdownUnsafe()
+    } yield resp
+
+    println(Await.result(gRPCResponseF, Duration.Inf))
+    zkFake.close()
+    ()
+  }
+}
+
+Example.main(Array.empty[String])
+// received request
+// HelloResponse(Hello world!,UnknownFieldSet(Map()))
 ```
