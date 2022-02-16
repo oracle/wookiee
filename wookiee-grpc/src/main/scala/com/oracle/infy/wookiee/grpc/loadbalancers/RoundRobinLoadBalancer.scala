@@ -1,10 +1,9 @@
-package com.oracle.infy.wookiee.grpc
-import com.google.common.base.{MoreObjects, Objects}
-import com.oracle.infy.wookiee.grpc.RoundRobinWeightedLoadBalancer.{EmptyPicker, ReadyPicker, RoundRobinWeightedPicker}
-import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
+package com.oracle.infy.wookiee.grpc.loadbalancers
+
+import com.google.common.base.Objects
 import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import io.grpc.ConnectivityState._
-import io.grpc.LoadBalancer.{CreateSubchannelArgs, PickResult, Subchannel, SubchannelPicker}
+import io.grpc.LoadBalancer.{CreateSubchannelArgs, Subchannel}
 import io.grpc.util.ForwardingSubchannel
 import io.grpc.{Attributes, ConnectivityState, ConnectivityStateInfo, EquivalentAddressGroup, LoadBalancer, Status}
 
@@ -13,7 +12,8 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters._
 import scala.util.Random
 
-class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBalancer {
+class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: List[Subchannel] => ReadyPicker)
+    extends LoadBalancer {
 
   private[wookiee] val STATE_INFO: Attributes.Key[AtomicReference[ConnectivityStateInfo]] =
     Attributes.Key.create("state-info")
@@ -156,14 +156,14 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
         // an arbitrary subchannel, otherwise return OK.
         Right(EmptyPicker(aggStatus.get()))
       )
-    } else { // Pick subchannel based on load. Subchannel with smallest load should be run first.
-      updateBalancingState(READY, Left(ReadyPicker(activeList)))
+    } else { // Pick subchannel based on rules of ready picker.
+      updateBalancingState(READY, Left(readyPickerFactory(activeList)))
     }
   }
 
   private def updateBalancingState(state: ConnectivityState, picker: Either[ReadyPicker, EmptyPicker]): Unit = {
     val notEquivalentState: Boolean = state /== currentState.get()
-    val equivalentPicker: Boolean = RoundRobinWeightedPicker.isEquivalentTo(eitherPicker.get, picker)
+    val equivalentPicker: Boolean = RoundRobinLoadBalancer.isEquivalentTo(eitherPicker.get, picker)
     // Only pick a new subchannel if that hasn't already been done (if eitherPicker matches new picker
     // and state hasn't changed no need to select new channel)
     if (notEquivalentState || !equivalentPicker) {
@@ -224,7 +224,7 @@ class RoundRobinWeightedLoadBalancer(helper: LoadBalancer.Helper) extends LoadBa
 
 }
 
-object RoundRobinWeightedLoadBalancer {
+object RoundRobinLoadBalancer {
   sealed trait ConnectionState
   case object IDLE extends ConnectionState
   case object CONNECTING extends ConnectionState
@@ -232,89 +232,30 @@ object RoundRobinWeightedLoadBalancer {
   case object TRANSIENT_FAILURE extends ConnectionState
   val maybeList: AtomicReference[Option[List[Subchannel]]] = new AtomicReference[Option[List[Subchannel]]]()
 
-  object RoundRobinWeightedPicker {
-
-    def apply(
-        list: List[Subchannel]
-    ): ReadyPicker =
-      ReadyPicker(
-        list: List[Subchannel]
-      )
-
-    def apply(status: Option[Status]): EmptyPicker =
-      status match {
-        case Some(someStatus) => EmptyPicker(someStatus)
-        case None             => throw new NullPointerException("status") //scalafix:ok
-      }
-
-    def sortByLoad(attrs: Attributes): Int =
-      attrs
-        .get(WookieeNameResolver.METADATA)
-        .load
-
-    def isEquivalentTo(
-        currentPicker: Either[ReadyPicker, EmptyPicker],
-        picker: Either[ReadyPicker, EmptyPicker]
-    ): Boolean =
-      currentPicker match {
-        case Left(currentReadyPicker) =>
-          picker match {
-            case Left(readyPicker) =>
-              (currentReadyPicker === readyPicker) || (currentReadyPicker
-                .list
-                .size === readyPicker.list.size && new util.HashSet[Subchannel](currentReadyPicker.list.asJava)
-                .containsAll(readyPicker.list.asJava))
-            case Right(_) => false
-          }
-        case Right(currentEmptyPicker) =>
-          picker match {
-            case Left(_) => false
-            case Right(emptyPicker) =>
-              Objects.equal(currentEmptyPicker.status, emptyPicker.status) || (currentEmptyPicker
-                .status
-                .isOk && emptyPicker
-                .status
-                .isOk)
-          }
-      }
-  }
-
-  // There are two cases for a subchannel: either it is in a READY state, or it is in some other state. If it isn't READY, depending
-  // on its state the STATE_INFO will need to be updated. If it is READY, then the ready picker will pick from a list of subchannels
-  // based on which has the smallest load. If the subchannel is not in a READY state, then the empty picker will determine whether
-  // the subchannel is in a non-error state, and if so it will continue normally, otherwise it will throw an exception.
-  case class ReadyPicker(list: List[Subchannel]) extends SubchannelPicker {
-
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult =
-      nextSubchannel match {
-        case Some(subchannel) =>
-          PickResult.withSubchannel(subchannel)
-
-        case None => PickResult.withError(Status.UNKNOWN)
-      }
-
-    override def toString: String =
-      MoreObjects.toStringHelper(classOf[ReadyPicker]).add("list", list).toString
-
-    private def nextSubchannel: Option[Subchannel] = {
-      val validList =
-        list.filter(p => !p.getAttributes.get(WookieeNameResolver.METADATA).quarantined)
-      val sortedList = validList.sortBy(
-        subchannel => RoundRobinWeightedPicker.sortByLoad(subchannel.getAttributes)
-      )
-      sortedList.headOption
+  def isEquivalentTo(
+      currentPicker: Either[ReadyPicker, EmptyPicker],
+      picker: Either[ReadyPicker, EmptyPicker]
+  ): Boolean =
+    currentPicker match {
+      case Left(currentReadyPicker) =>
+        picker match {
+          case Left(readyPicker) =>
+            (currentReadyPicker === readyPicker) || (currentReadyPicker
+              .list
+              .size === readyPicker.list.size && new util.HashSet[Subchannel](currentReadyPicker.list.asJava)
+              .containsAll(readyPicker.list.asJava))
+          case Right(_) => false
+        }
+      case Right(currentEmptyPicker) =>
+        picker match {
+          case Left(_) => false
+          case Right(emptyPicker) =>
+            Objects.equal(currentEmptyPicker.status, emptyPicker.status) || (currentEmptyPicker
+              .status
+              .isOk && emptyPicker
+              .status
+              .isOk)
+        }
     }
 
-    private[wookiee] def getList: List[Subchannel] = list
-  }
-
-  case class EmptyPicker(status: Status) extends SubchannelPicker {
-
-    override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): LoadBalancer.PickResult =
-      if (status.isOk) PickResult.withNoResult
-      else PickResult.withError(status)
-
-    override def toString: String =
-      MoreObjects.toStringHelper(classOf[EmptyPicker]).add("status", status).toString
-  }
 }
