@@ -1,5 +1,5 @@
 package com.oracle.infy.qa
 
-import com.webtrends.harness.service.Service
+import com.oracle.infy.wookiee.service.Service
 
 class BasicService extends Service
