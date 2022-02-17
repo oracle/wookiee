@@ -3,13 +3,13 @@ package com.oracle.infy.wookiee.grpc.tests
 import cats.effect.{Blocker, ContextShift, IO, Timer}
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinWeightedPolicy
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinHashedPolicy
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import io.grpc.ServerServiceDefinition
+import io.grpc._
 import org.apache.curator.framework.CuratorFramework
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
@@ -17,10 +17,11 @@ import utest.{Tests, test}
 import java.net.ServerSocket
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
+import scala.util.hashing.MurmurHash3
 
 object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
-  def loadBalancerTest(
+  def tests(
       blockingEC: ExecutionContext,
       mainECParallelism: Int,
       curator: CuratorFramework
@@ -60,10 +61,6 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       val port2 = getFreePort
       val port3 = getFreePort
 
-      // Hosts for the servers that will be generated later.
-      //      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))
-      //      val host2 = Host(0, "localhost", 9090, Map[String, String](("load", "0")))
-      //      val host3 = Host(0, "localhost", 9091, Map[String, String](("load", "0")))
       val host1 = Host(0, "localhost", port1, HostMetadata(0, quarantined = false))
       val host2 = Host(0, "localhost", port2, HostMetadata(0, quarantined = false))
       val host3 = Host(0, "localhost", port3, HostMetadata(0, quarantined = false))
@@ -111,8 +108,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
             channelExecutionContext = mainEC,
             offloadExecutionContext = blockingEC,
             eventLoopGroupExecutionContextThreads = bossThreads,
-            // todo -- add RoundRobinHashPolicy and use that here
-            lbPolicy = RoundRobinWeightedPolicy,
+            lbPolicy = RoundRobinHashedPolicy,
             curatorFramework = curator,
             sslClientSettings = None,
             clientAuthSettings = None
@@ -122,16 +118,17 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
       val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
 
-      def hashFunc(accountId: String): String = {
-        //todo -- hash account Id into int, mod against list of servers, return hostId (host + port)
-        // replicate the hash logic in the code
-        ???
+      def hashFunc[T](accountId: String, hosts: List[T]): Option[T] = {
+        hosts
+          .lift(
+            MurmurHash3
+              .stringHash(accountId) % hosts.length
+          )
       }
 
       def calculateHostId(host: Host): String = {
         s"${host.address}:${host.port}"
       }
-
 
       // Verifies that the correct server handled the request at least 95% of the time.
       def verifyResponseHandledCorrectly(): Future[Boolean] = {
@@ -145,18 +142,32 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                 val accountId = Random.nextString(10)
 
                 for {
-                  // todo -- append accountId to the request metadata
-                  resp <- stub.greet(HelloRequest("world!"))
+                  resp <- stub
+                    .withInterceptors(new ClientInterceptor {
+                      override def interceptCall[ReqT, RespT](
+                          method: MethodDescriptor[ReqT, RespT],
+                          callOptions: CallOptions,
+                          next: Channel
+                      ): ClientCall[ReqT, RespT] = {
+                        next.newCall(
+                          method,
+                          callOptions.withOption(WookieeGrpcChannel.hashKeyCallOption, accountId)
+                        )
+                      }
+                    })
+                    .greet(HelloRequest("world!"))
+
+                  hostList = List(host1, host2, host3).map(calculateHostId)
 
                   // Verify correct response comes from server based on the hash logic
                   res <- Future(
                     (resp
                       .toString
-                      .contains("Hello1") && hashFunc(accountId) == calculateHostId(host1)) || (resp
-                        .toString
-                        .contains("Hello2") && hashFunc(accountId) == calculateHostId(host2)) || (resp
+                      .contains("Hello1") && hashFunc(accountId, hostList).contains(calculateHostId(host1))) || (resp
                       .toString
-                      .contains("Hello3") && hashFunc(accountId) == calculateHostId(host3))
+                      .contains("Hello2") && hashFunc(accountId, hostList).contains(calculateHostId(host2))) || (resp
+                      .toString
+                      .contains("Hello3") && hashFunc(accountId, hostList).contains(calculateHostId(host3)))
                   )
                 } yield res
               }

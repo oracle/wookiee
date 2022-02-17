@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.grpc.loadbalancers
 
 import com.google.common.base.Objects
+import com.oracle.infy.wookiee.grpc.loadbalancers.Pickers._
 import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import io.grpc.ConnectivityState._
 import io.grpc.LoadBalancer.{CreateSubchannelArgs, Subchannel}
