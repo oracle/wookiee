@@ -40,7 +40,7 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 5
-      val zookeeperDiscoveryPath = "/discovery"
+      val zookeeperDiscoveryPath = "/weighted"
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {

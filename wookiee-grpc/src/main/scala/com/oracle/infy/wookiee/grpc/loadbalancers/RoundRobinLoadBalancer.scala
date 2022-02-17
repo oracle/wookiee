@@ -134,8 +134,8 @@ class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: Li
 
   private def updateBalancingState(): Unit = {
     val activeList: List[LoadBalancer.Subchannel] = filterNonFailingSubchannels(getSubchannels).asScala.toList
-    if (activeList.isEmpty || activeList.size < subChannels
-          .size()) { // No READY subchannels, determine aggregate state and error status
+    // No READY subchannels, determine aggregate state and error status
+    if (activeList.isEmpty || activeList.size < subChannels.size()) {
       val isConnecting: AtomicBoolean = new AtomicBoolean(false)
       val aggStatus: AtomicReference[Status] = new AtomicReference[Status](EMPTY_OK)
       subChannels
@@ -163,11 +163,9 @@ class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: Li
   }
 
   private def updateBalancingState(state: ConnectivityState, picker: Either[ReadyPicker, EmptyPicker]): Unit = {
-    val notEquivalentState: Boolean = state /== currentState.get()
-    val equivalentPicker: Boolean = RoundRobinLoadBalancer.isEquivalentTo(eitherPicker.get, picker)
-    // Only pick a new subchannel if that hasn't already been done (if eitherPicker matches new picker
-    // and state hasn't changed no need to select new channel)
-    if (notEquivalentState || !equivalentPicker) {
+    val isNotCurrentState: Boolean = state /== currentState.get()
+    val isPickerEquivalent: Boolean = RoundRobinLoadBalancer.isEquivalentTo(eitherPicker.get, picker)
+    if (isNotCurrentState || !isPickerEquivalent) {
       currentState.getAndUpdate((t: ConnectivityState) => t)
       picker match {
         case Left(readyPicker) =>

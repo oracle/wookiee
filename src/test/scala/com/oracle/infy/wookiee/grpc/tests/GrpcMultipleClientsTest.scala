@@ -73,8 +73,8 @@ object GrpcMultipleClientsTest extends UTestScalaCheck {
         )
       )
 
-      val zookeeperDiscoveryPath1 = "/multi/discovery"
-      val zookeeperDiscoveryPath2 = "/multi/example"
+      val zookeeperDiscoveryPath1 = "/multi-1"
+      val zookeeperDiscoveryPath2 = "/multi-2"
 
       // This is just to demo, use an actual Zookeeper quorum.
       val zkFake = new TestingServer()

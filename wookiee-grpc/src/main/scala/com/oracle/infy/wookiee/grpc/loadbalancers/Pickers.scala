@@ -61,18 +61,18 @@ object Pickers {
   final case class ConsistentHashingReadyPicker(subchannels: List[Subchannel]) extends ReadyPicker(subchannels) {
 
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
-      val hash =
-        Math.abs(MurmurHash3.stringHash(args.getCallOptions.getOption(WookieeGrpcChannel.hashKeyCallOption)))
+      val hashKeyValue = args.getCallOptions.getOption(WookieeGrpcChannel.hashKeyCallOption)
 
       val validList: List[Subchannel] =
         list
           .filter(s => !s.getAttributes.get(WookieeNameResolver.HOST).metadata.quarantined)
           .sortBy { s =>
             val host = s.getAttributes.get(WookieeNameResolver.HOST)
-            s"${host.address}:${host.port}"
+            val res = s"${host.address}:${host.port}"
+            res
           }
 
-      validList.lift(hash % validList.length) match {
+      validList.lift(Math.abs(MurmurHash3.stringHash(hashKeyValue)) % validList.length) match {
         case Some(subchannel) =>
           PickResult.withSubchannel(subchannel)
 

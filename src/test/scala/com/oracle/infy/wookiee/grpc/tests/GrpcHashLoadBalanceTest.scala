@@ -34,7 +34,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
   ): Tests = {
     val testHashLoadBalancer = {
       val bossThreads = 5
-      val zookeeperDiscoveryPath = "/discovery"
+      val zookeeperDiscoveryPath = "/hash"
 
       val ssd1: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {
@@ -121,8 +121,10 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       def hashFunc[T](accountId: String, hosts: List[T]): Option[T] = {
         hosts
           .lift(
-            MurmurHash3
-              .stringHash(accountId) % hosts.length
+            Math.abs(
+              MurmurHash3
+                .stringHash(accountId)
+            ) % hosts.length
           )
       }
 
@@ -131,7 +133,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       }
 
       // Verifies that the correct server handled the request at least 95% of the time.
-      def verifyResponseHandledCorrectly(): Future[Boolean] = {
+      def verifyResponseHandledCorrectly(hosts: List[Host]): Future[Boolean] = {
         val start = 0
         val finish = 100
         Future
@@ -157,7 +159,9 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
                     })
                     .greet(HelloRequest("world!"))
 
-                  hostList = List(host1, host2, host3).map(calculateHostId)
+                  hostList = hosts
+                    .map(calculateHostId)
+                    .sortBy(identity)
 
                   // Verify correct response comes from server based on the hash logic
                   res <- Future(
@@ -180,7 +184,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         server1 <- serverF1
         server2 <- serverF2
         // If hash of accountId resolves to server 1 ("Hello1") then server1 was given the load.
-        result1 <- verifyResponseHandledCorrectly()
+        result1 <- verifyResponseHandledCorrectly(List(host1, host2))
 
         // Spin up a third server and verify that the hashing logic is still followed
         serverSettings3: ServerSettings = ServerSettings(
@@ -197,7 +201,8 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           curatorFramework = curator
         )
         server3: WookieeGrpcServer <- WookieeGrpcServer.start(serverSettings3).unsafeToFuture()
-        result2 <- verifyResponseHandledCorrectly()
+        _ <- Future { Thread.sleep(500L) }
+        result2 <- verifyResponseHandledCorrectly(List(host1, host2, host3))
 
         _ <- server3.shutdown().unsafeToFuture()
         _ <- server2.shutdown().unsafeToFuture()
