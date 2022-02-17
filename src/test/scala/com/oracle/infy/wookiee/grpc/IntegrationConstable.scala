@@ -10,9 +10,9 @@ import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.tests.{
   GrpcListenerTest,
-  GrpcLoadBalanceTest,
   GrpcMultipleClientsTest,
-  GrpcTLSAuthTest
+  GrpcTLSAuthTest,
+  GrpcWeightedLoadBalanceTest
 }
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
@@ -99,7 +99,7 @@ object IntegrationConstable extends ConstableCommon {
       }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
+    val grpcLoadBalanceTest = GrpcWeightedLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
 
     val result = runTestsAsync(
       List(
