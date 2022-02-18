@@ -204,6 +204,7 @@ class ComponentManager extends PrepareForShutdown {
     case GetComponent(name) => sender ! context.child(name)
     case LoadComponent(name, classPath) => sender ! loadComponentClass(name, classPath)
     case SystemReady =>  context.children.foreach(ref => ref ! SystemReady)
+    case ComponentStarted(name) => componentStarted(name)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
