@@ -11,6 +11,7 @@ import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.grpc._
 import org.apache.curator.framework.CuratorFramework
+import org.scalactic.TolerantNumerics
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
@@ -133,7 +134,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       }
 
       // Verifies that the correct server handled the request at least 95% of the time.
-      def verifyResponseHandledCorrectly(hosts: List[Host]): Future[Boolean] = {
+      def verifyConsistentHashing(hosts: List[Host]): Future[Boolean] = {
         val start = 0
         val finish = 100
         Future
@@ -180,11 +181,50 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           .map(_ > (finish * 0.95))
       }
 
+      // Verifies that the correct server handled the request at least 95% of the time.
+      def verifyRoundRobin(): Future[Boolean] = {
+        val start = 1
+        val finish = 100
+        Future
+          .sequence(
+            (start to finish)
+              .toList
+              .map { _ =>
+                for {
+                  resp <- stub.greet(HelloRequest("world!"))
+
+                  // Verify correct response comes from server based on the hash logic
+                  res <- Future(
+                    if (resp.resp.contains("Hello1")) {
+                      1
+                    } else if (resp.resp.contains("Hello2")) {
+                      2
+                    } else {
+                      3
+                    }
+                  )
+                } yield res
+              }
+          )
+          .map(_.groupBy(identity))
+          .map { m =>
+            val host1ResponseCount = m.getOrElse(1, Nil).length
+            val host2ResponseCount = m.getOrElse(2, Nil).length
+            val host3ResponseCount = m.getOrElse(3, Nil).length
+            val eq = TolerantNumerics.tolerantDoubleEquality(0.10)
+
+            eq.areEquivalent(host1ResponseCount / finish.toDouble, 0.33) &&
+            eq.areEquivalent(host2ResponseCount / finish.toDouble, 0.33) &&
+            eq.areEquivalent(host3ResponseCount / finish.toDouble, 0.33)
+
+          }
+      }
+
       val gRPCResponseF: Future[Boolean] = for {
         server1 <- serverF1
         server2 <- serverF2
         // If hash of accountId resolves to server 1 ("Hello1") then server1 was given the load.
-        result1 <- verifyResponseHandledCorrectly(List(host1, host2))
+        result1 <- verifyConsistentHashing(List(host1, host2))
 
         // Spin up a third server and verify that the hashing logic is still followed
         serverSettings3: ServerSettings = ServerSettings(
@@ -202,7 +242,8 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         )
         server3: WookieeGrpcServer <- WookieeGrpcServer.start(serverSettings3).unsafeToFuture()
         _ <- Future { Thread.sleep(500L) }
-        result2 <- verifyResponseHandledCorrectly(List(host1, host2, host3))
+        result2 <- verifyConsistentHashing(List(host1, host2, host3))
+        result3 <- verifyRoundRobin()
 
         _ <- server3.shutdown().unsafeToFuture()
         _ <- server2.shutdown().unsafeToFuture()
@@ -210,7 +251,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
         _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
       } yield {
-        result1 && result2
+        result1 && result2 && result3
       }
 
       gRPCResponseF

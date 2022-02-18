@@ -6,6 +6,8 @@ import com.oracle.infy.wookiee.grpc.impl.WookieeNameResolver
 import io.grpc.LoadBalancer.{PickResult, Subchannel, SubchannelPicker}
 import io.grpc.{Attributes, LoadBalancer, Status}
 
+import java.util.concurrent.atomic.AtomicInteger
+import scala.util.Random
 import scala.util.hashing.MurmurHash3
 
 object Pickers {
@@ -60,8 +62,10 @@ object Pickers {
 
   final case class ConsistentHashingReadyPicker(subchannels: List[Subchannel]) extends ReadyPicker(subchannels) {
 
+    private val counter = new AtomicInteger(Random.nextInt())
+
     override def pickSubchannel(args: LoadBalancer.PickSubchannelArgs): PickResult = {
-      val hashKeyValue = args.getCallOptions.getOption(WookieeGrpcChannel.hashKeyCallOption)
+      val maybeHashKeyValue = Option(args.getCallOptions.getOption(WookieeGrpcChannel.hashKeyCallOption))
 
       val validList: List[Subchannel] =
         list
@@ -72,12 +76,33 @@ object Pickers {
             res
           }
 
-      validList.lift(Math.abs(MurmurHash3.stringHash(hashKeyValue)) % validList.length) match {
-        case Some(subchannel) =>
-          PickResult.withSubchannel(subchannel)
+      maybeHashKeyValue match {
+        case Some(hashKeyValue) => // ConsistentHashing
+          val validList: List[Subchannel] =
+            list
+              .filter(s => !s.getAttributes.get(WookieeNameResolver.HOST).metadata.quarantined)
+              .sortBy { s =>
+                val host = s.getAttributes.get(WookieeNameResolver.HOST)
+                val res = s"${host.address}:${host.port}"
+                res
+              }
 
-        case None => PickResult.withError(Status.UNKNOWN)
+          validList.lift(Math.abs(MurmurHash3.stringHash(hashKeyValue)) % validList.length) match {
+            case Some(subchannel) =>
+              PickResult.withSubchannel(subchannel)
+
+            case None => PickResult.withError(Status.UNKNOWN)
+          }
+        case None => // RoundRobin
+          val i = Math.abs(counter.getAndIncrement())
+          validList.lift(i % validList.length) match {
+            case Some(subchannel) =>
+              PickResult.withSubchannel(subchannel)
+
+            case None => PickResult.withError(Status.UNKNOWN)
+          }
       }
+
     }
 
     override def toString: String =

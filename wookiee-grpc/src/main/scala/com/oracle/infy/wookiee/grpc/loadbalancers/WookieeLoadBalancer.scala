@@ -13,13 +13,13 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters._
 import scala.util.Random
 
-class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: List[Subchannel] => ReadyPicker)
+final class WookieeLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: List[Subchannel] => ReadyPicker)
     extends LoadBalancer {
 
   private[wookiee] val STATE_INFO: Attributes.Key[AtomicReference[ConnectivityStateInfo]] =
     Attributes.Key.create("state-info")
 
-  val subChannels: util.HashMap[EquivalentAddressGroup, Subchannel] =
+  private val subChannels: util.HashMap[EquivalentAddressGroup, Subchannel] =
     new util.HashMap[EquivalentAddressGroup, Subchannel]()
 
   // The only state that a usable subchannel can be in for this picker is READY. If it isn't ready,
@@ -164,7 +164,7 @@ class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: Li
 
   private def updateBalancingState(state: ConnectivityState, picker: Either[ReadyPicker, EmptyPicker]): Unit = {
     val isNotCurrentState: Boolean = state /== currentState.get()
-    val isPickerEquivalent: Boolean = RoundRobinLoadBalancer.isEquivalentTo(eitherPicker.get, picker)
+    val isPickerEquivalent: Boolean = WookieeLoadBalancer.isEquivalentTo(eitherPicker.get, picker)
     if (isNotCurrentState || !isPickerEquivalent) {
       currentState.getAndUpdate((t: ConnectivityState) => t)
       picker match {
@@ -223,7 +223,7 @@ class RoundRobinLoadBalancer(helper: LoadBalancer.Helper, readyPickerFactory: Li
 
 }
 
-object RoundRobinLoadBalancer {
+object WookieeLoadBalancer {
   sealed trait ConnectionState
   case object IDLE extends ConnectionState
   case object CONNECTING extends ConnectionState

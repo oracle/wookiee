@@ -13,7 +13,7 @@ import com.oracle.infy.wookiee.grpc.impl.{
   ZookeeperHostnameService
 }
 import com.oracle.infy.wookiee.grpc.loadbalancers.Pickers.{ConsistentHashingReadyPicker, WeightedReadyPicker}
-import com.oracle.infy.wookiee.grpc.loadbalancers.RoundRobinLoadBalancer
+import com.oracle.infy.wookiee.grpc.loadbalancers.WookieeLoadBalancer
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
@@ -106,7 +106,7 @@ object WookieeGrpcChannel {
             override def getPolicyName: String = "round_robin_hashed"
 
             override def newLoadBalancer(helper: LoadBalancer.Helper) =
-              new RoundRobinLoadBalancer(helper, list => ConsistentHashingReadyPicker(list))
+              new WookieeLoadBalancer(helper, list => ConsistentHashingReadyPicker(list))
           })
       case LoadBalancers.RoundRobinWeightedPolicy =>
         LoadBalancerRegistry
@@ -119,7 +119,7 @@ object WookieeGrpcChannel {
             override def getPolicyName: String = "round_robin_weighted"
 
             override def newLoadBalancer(helper: LoadBalancer.Helper) =
-              new RoundRobinLoadBalancer(helper, list => WeightedReadyPicker(list))
+              new WookieeLoadBalancer(helper, list => WeightedReadyPicker(list))
           })
     }
   }
