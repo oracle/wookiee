@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
+import io.grpc.{CallOptions, Channel, ClientCall, ClientInterceptor, MethodDescriptor}
 import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
@@ -120,7 +121,20 @@ object Example {
 
     val gRPCResponseF: Future[HelloResponse] = for {
       server <- serverF
-      resp <- stub.greet(HelloRequest("world!"))
+      resp <- stub
+        .withInterceptors(new ClientInterceptor {
+          override def interceptCall[ReqT, RespT](
+              method: MethodDescriptor[ReqT, RespT],
+              callOptions: CallOptions,
+              next: Channel
+          ): ClientCall[ReqT, RespT] = {
+            next.newCall(
+              method,
+              callOptions.withOption(WookieeGrpcChannel.hashKeyCallOption, "some string to hash")
+            )
+          }
+        })
+        .greet(HelloRequest("world!"))
       _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
       _ <- server.shutdown().unsafeToFuture()
     } yield resp
