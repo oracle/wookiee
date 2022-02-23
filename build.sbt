@@ -221,7 +221,6 @@ lazy val `wookiee-cache` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
-
 lazy val `wookiee-cache-memcache` = project
   .in(file("wookiee-cache-memcache"))
   .settings(commonSettings(false))
@@ -230,7 +229,6 @@ lazy val `wookiee-cache-memcache` = project
   )
   .dependsOn(`wookiee-core`, `wookiee-metrics`, `wookiee-cache`)
   .aggregate(`wookiee-core`, `wookiee-metrics`, `wookiee-cache`)
-
 
 lazy val root = project
   .in(file("."))
@@ -294,6 +292,7 @@ def readSection(file: String, section: String): String = {
 }
 
 val protoFile = "src/main/protobuf/myService.proto"
+val exampleFile = "wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala"
 
 lazy val `wookiee-docs` = project
   .in(file("wookiee-docs"))
@@ -306,10 +305,14 @@ lazy val `wookiee-docs` = project
     mdocVariables := Map(
       "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
       "PROTO_FILE" -> protoFile,
-      "PROTO_DEF" -> readF(s"wookiee-proto/"++protoFile, _.mkString),
+      "PROTO_DEF" -> readF(s"wookiee-proto/" ++ protoFile, _.mkString),
       "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
       "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "EXAMPLE" -> readF("wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala", _.drop(2).mkString))
+      "CHANNEL_SETTINGS" -> readSection(exampleFile, "channelSettings"),
+      "GRPC_CALL" -> readSection(exampleFile, "grpcCall"),
+      "CREATE_SERVER" -> readSection(exampleFile, "Creating a Server"),
+      "IMPORTS" -> readSection(exampleFile, "wookiee-grpc imports")
+    )
   )
   .settings(
     libraryDependencies ++= Seq(
