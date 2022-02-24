@@ -4,9 +4,10 @@
 # wookiee-grpc
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
-```sbt
+```scala
 libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "2.2.8"
 ```
+
 
 ## Setup ScalaPB
 We use [ScalaPB](https://github.com/scalapb/ScalaPB) to generate source code from a `.proto` file. You can use
@@ -97,6 +98,7 @@ import io.grpc._
 
 ```
 
+
 ### Creating a Client Channel
 ```sbt
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel
@@ -154,13 +156,14 @@ import io.grpc._
 
 ```
 
+
 ###Setting up load balancing methods in channel settings
 
 There are three load balancing policies that ship with wookiee-grpc.
 The load balancing policies are set up within the gRPC Channel Settings.
 
 * **Round Robin**
-  
+
   A simple round robin policy that alternates between hosts as calls are executed. It's fairly simplistic.
 
 
@@ -171,10 +174,10 @@ The load balancing policies are set up within the gRPC Channel Settings.
 
 
 * **Round Robin Hashed**
-  
+
   Provides "stickiness" for the gRPC host. If you want a particular host to serve the request for all the calls with a
   particular key, you can use this policy. For example, if you want a single server to service all requests that use
-  the key "foo", you can set the `hashKeyCallOption` on every call. This will ensure that all gRPC calls using the same
+  the key "foo", you can set the `WookieeGrpcChannel.hashKeyCallOption` on every call. This will ensure that all gRPC calls using the same
   hash will be executed on the same server.
 
 ```sbt
@@ -206,4 +209,172 @@ The load balancing policies are set up within the gRPC Channel Settings.
 
 ```
 
-  
+## Putting it all together
+
+Here is an example of a complete gRPC solution
+
+```scala
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
+import cats.effect.{Blocker, ContextShift, IO, Timer}
+//wookiee-grpc imports
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.settings._
+import com.oracle.infy.wookiee.grpc._
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers._
+import io.grpc._
+//wookiee-grpc imports
+import org.typelevel.log4cats.Logger
+// This is from ScalaPB generated code
+import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
+import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
+import org.typelevel.log4cats.slf4j.Slf4jLogger
+import io.grpc.ServerServiceDefinition
+import org.apache.curator.test.TestingServer
+
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
+
+object Example {
+
+  def main(args: Array[String]): Unit = {
+    val bossThreads = 10
+    val mainECParallelism = 10
+
+    // wookiee-grpc is written using functional concepts. One key concept is side-effect management/referential transparency
+    // We use cats-effect (https://typelevel.org/cats-effect/) internally.
+    // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
+    // When using `unsafe` methods, you are expected to handle any exceptions
+
+    val uncaughtExceptionHandler = new UncaughtExceptionHandler {
+      override def uncaughtException(t: Thread, e: Throwable): Unit = {
+        System.err.println("Got an uncaught exception on thread " ++ t.getName ++ " " ++ e.toString)
+      }
+    }
+
+    val tf = new ThreadFactory {
+      override def newThread(r: Runnable): Thread = {
+        val t = new Thread(r)
+        t.setName("blocking-" ++ t.getId.toString)
+        t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
+        t.setDaemon(true)
+        t
+      }
+    }
+
+    // The blocking execution context must create daemon threads if you want your app to shutdown
+    val blockingEC = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(tf))
+    // This is the execution context used to execute your application specific code
+    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(
+      new ForkJoinPool(
+        mainECParallelism,
+        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+        uncaughtExceptionHandler,
+        true
+      )
+    )
+
+    // Use a separate execution context for the timer
+    val timerEC = ExecutionContext.fromExecutorService(Executors.newSingleThreadExecutor())
+
+    implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
+    implicit val timer: Timer[IO] = IO.timer(timerEC)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+
+    val zookeeperDiscoveryPath = "/discovery"
+
+    // This is just to demo, use an actual Zookeeper quorum.
+    val zkFake = new TestingServer()
+    val connStr = zkFake.getConnectString
+
+    val curator = WookieeGrpcUtils.createCurator(connStr, 5.seconds, blockingEC).unsafeRunSync()
+    curator.start()
+
+    val ssd: ServerServiceDefinition = MyService.bindService(
+      (request: HelloRequest) => {
+        println("received request")
+        Future.successful(HelloResponse("Hello " ++ request.name))
+      },
+      mainEC
+    )
+
+    //Creating a Server
+    val serverSettingsF: ServerSettings = ServerSettings(
+      discoveryPath = zookeeperDiscoveryPath,
+      serverServiceDefinition = ssd,
+      // This is an optional arg. wookiee-grpc will try to resolve the address automatically.
+      // If you are running this locally, its better to explicitly set the hostname
+      host = Host(0, "localhost", 9091, HostMetadata(0, quarantined = false)),
+      authSettings = None,
+      sslServerSettings = None,
+      bossExecutionContext = mainEC,
+      workerExecutionContext = mainEC,
+      applicationExecutionContext = mainEC,
+      bossThreads = bossThreads,
+      workerThreads = mainECParallelism,
+      curatorFramework = curator
+    )
+
+    val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.start(serverSettingsF).unsafeToFuture()
+    //Creating a Server
+
+    //channelSettings
+    val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel
+      .of(
+        ChannelSettings(
+          serviceDiscoveryPath = zookeeperDiscoveryPath,
+          eventLoopGroupExecutionContext = blockingEC,
+          channelExecutionContext = mainEC,
+          offloadExecutionContext = blockingEC,
+          eventLoopGroupExecutionContextThreads = bossThreads,
+//           Load Balancing Policy
+//             One of:
+//               RoundRobinPolicy
+//               RoundRobinWeightedPolicy
+//               RoundRobinHashedPolicy
+          lbPolicy = RoundRobinPolicy,
+          curatorFramework = curator,
+          sslClientSettings = None,
+          clientAuthSettings = None
+        )
+      )
+      .unsafeRunSync()
+
+    val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
+    //channelSettings
+
+    //grpcCall
+    val gRPCResponseF: Future[HelloResponse] = for {
+      server <- serverF
+      resp <- stub
+        .withInterceptors(new ClientInterceptor {
+          override def interceptCall[ReqT, RespT](
+              method: MethodDescriptor[ReqT, RespT],
+              callOptions: CallOptions,
+              next: Channel
+          ): ClientCall[ReqT, RespT] = {
+            next.newCall(
+              method,
+              // Set the WookieeGrpcChannel.hashKeyCallOption when using RoundRobinHashedPolicy
+              callOptions.withOption(WookieeGrpcChannel.hashKeyCallOption, "Some hash")
+            )
+          }
+        })
+        .greet(HelloRequest("world!"))
+      _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
+      _ <- server.shutdown().unsafeToFuture()
+    } yield resp
+
+    println(Await.result(gRPCResponseF, Duration.Inf))
+    curator.close()
+    zkFake.close()
+    ()
+    //grpcCall
+  }
+}
+
+Example.main(Array.empty[String])
+// received request
+// HelloResponse(Hello world!,UnknownFieldSet(Map()))
+```

@@ -4,9 +4,10 @@
 # wookiee-grpc
 ## Install
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
-```sbt
+```scala
 libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "@VERSION@"
 ```
+
 
 ## Setup ScalaPB
 We use [ScalaPB](https://github.com/scalapb/ScalaPB) to generate source code from a `.proto` file. You can use
@@ -50,6 +51,7 @@ Add the following imports:
 @CREATE_SERVER@
 ```
 
+
 ### Creating a Client Channel
 ```sbt
 @CHANNEL_SETTINGS@
@@ -60,13 +62,14 @@ Add the following imports:
 @GRPC_CALL@
 ```
 
+
 ###Setting up load balancing methods in channel settings
 
 There are three load balancing policies that ship with wookiee-grpc.
 The load balancing policies are set up within the gRPC Channel Settings.
 
 * **Round Robin**
-  
+
   A simple round robin policy that alternates between hosts as calls are executed. It's fairly simplistic.
 
 
@@ -77,14 +80,21 @@ The load balancing policies are set up within the gRPC Channel Settings.
 
 
 * **Round Robin Hashed**
-  
+
   Provides "stickiness" for the gRPC host. If you want a particular host to serve the request for all the calls with a
   particular key, you can use this policy. For example, if you want a single server to service all requests that use
-  the key "foo", you can set the `hashKeyCallOption` on every call. This will ensure that all gRPC calls using the same
+  the key "foo", you can set the `WookieeGrpcChannel.hashKeyCallOption` on every call. This will ensure that all gRPC calls using the same
   hash will be executed on the same server.
 
 ```sbt
 @GRPC_CALL@
 ```
 
-  
+## Putting it all together
+
+Here is an example of a complete gRPC solution
+
+```scala mdoc
+@EXAMPLE@
+Example.main(Array.empty[String])
+```

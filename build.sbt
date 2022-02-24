@@ -311,7 +311,8 @@ lazy val `wookiee-docs` = project
       "CHANNEL_SETTINGS" -> readSection(exampleFile, "channelSettings"),
       "GRPC_CALL" -> readSection(exampleFile, "grpcCall"),
       "CREATE_SERVER" -> readSection(exampleFile, "Creating a Server"),
-      "IMPORTS" -> readSection(exampleFile, "wookiee-grpc imports")
+      "IMPORTS" -> readSection(exampleFile, "wookiee-grpc imports"),
+      "EXAMPLE" -> readF(exampleFile, _.drop(2).mkString)
     )
   )
   .settings(
