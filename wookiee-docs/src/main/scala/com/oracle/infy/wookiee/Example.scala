@@ -3,10 +3,13 @@ package com.oracle.infy.wookiee
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import cats.effect.{Blocker, ContextShift, IO, Timer}
+//wookiee-grpc imports
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
-import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.grpc.settings._
+import com.oracle.infy.wookiee.grpc._
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers._
+import io.grpc._
+//wookiee-grpc imports
 import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
@@ -82,6 +85,7 @@ object Example {
       mainEC
     )
 
+    //Creating a Server
     val serverSettingsF: ServerSettings = ServerSettings(
       discoveryPath = zookeeperDiscoveryPath,
       serverServiceDefinition = ssd,
@@ -99,7 +103,9 @@ object Example {
     )
 
     val serverF: Future[WookieeGrpcServer] = WookieeGrpcServer.start(serverSettingsF).unsafeToFuture()
+    //Creating a Server
 
+    //channelSettings
     val wookieeGrpcChannel: WookieeGrpcChannel = WookieeGrpcChannel
       .of(
         ChannelSettings(
@@ -108,6 +114,11 @@ object Example {
           channelExecutionContext = mainEC,
           offloadExecutionContext = blockingEC,
           eventLoopGroupExecutionContextThreads = bossThreads,
+//           Load Balancing Policy
+//             One of:
+//               RoundRobinPolicy
+//               RoundRobinWeightedPolicy
+//               RoundRobinHashedPolicy
           lbPolicy = RoundRobinPolicy,
           curatorFramework = curator,
           sslClientSettings = None,
@@ -117,10 +128,26 @@ object Example {
       .unsafeRunSync()
 
     val stub: MyServiceGrpc.MyServiceStub = MyServiceGrpc.stub(wookieeGrpcChannel.managedChannel)
+    //channelSettings
 
+    //grpcCall
     val gRPCResponseF: Future[HelloResponse] = for {
       server <- serverF
-      resp <- stub.greet(HelloRequest("world!"))
+      resp <- stub
+        .withInterceptors(new ClientInterceptor {
+          override def interceptCall[ReqT, RespT](
+              method: MethodDescriptor[ReqT, RespT],
+              callOptions: CallOptions,
+              next: Channel
+          ): ClientCall[ReqT, RespT] = {
+            next.newCall(
+              method,
+              // Set the WookieeGrpcChannel.hashKeyCallOption when using RoundRobinHashedPolicy
+              callOptions.withOption(WookieeGrpcChannel.hashKeyCallOption, "Some hash")
+            )
+          }
+        })
+        .greet(HelloRequest("world!"))
       _ <- wookieeGrpcChannel.shutdown().unsafeToFuture()
       _ <- server.shutdown().unsafeToFuture()
     } yield resp
@@ -129,5 +156,6 @@ object Example {
     curator.close()
     zkFake.close()
     ()
+    //grpcCall
   }
 }
