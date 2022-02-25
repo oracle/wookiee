@@ -166,9 +166,12 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
                   // Verify correct response comes from server based on the hash logic
                   res <- Future(
-                    (resp.toString.contains("Hello1") && hashFunc(accountId, hostList).contains(calculateHostId(host1))) ||
-                    (resp.toString.contains("Hello2") && hashFunc(accountId, hostList).contains(calculateHostId(host2))) ||
-                    (resp.toString.contains("Hello3") && hashFunc(accountId, hostList).contains(calculateHostId(host3)))
+                    (resp.toString.contains("Hello1") && hashFunc(accountId, hostList)
+                      .contains(calculateHostId(host1))) ||
+                      (resp.toString.contains("Hello2") && hashFunc(accountId, hostList)
+                        .contains(calculateHostId(host2))) ||
+                      (resp.toString.contains("Hello3") && hashFunc(accountId, hostList)
+                        .contains(calculateHostId(host3)))
                   )
                 } yield res
               }
