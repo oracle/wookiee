@@ -8,19 +8,14 @@ import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.Host
-import com.oracle.infy.wookiee.grpc.tests.{
-  GrpcListenerTest,
-  GrpcLoadBalanceTest,
-  GrpcMultipleClientsTest,
-  GrpcTLSAuthTest
-}
+import com.oracle.infy.wookiee.grpc.tests._
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
 import fs2.concurrent.Queue
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.test.TestingServer
+import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.ExecutionContext
 
@@ -99,10 +94,14 @@ object IntegrationConstable extends ConstableCommon {
       }
 
     val grpcTests = GrpcListenerTest.tests(10, pushMessagesFuncAndListenerFactory)
-    val grpcLoadBalanceTest = GrpcLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
+    val grpcLoadBalanceTest = GrpcWeightedLoadBalanceTest.loadBalancerTest(blockingEC, mainECParallelism, curator)
 
     val result = runTestsAsync(
       List(
+        (
+          GrpcHashLoadBalanceTest.tests(blockingEC, mainECParallelism, curator),
+          "Integration - GrpcHashLoadBalanceTest"
+        ),
         (GrpcTLSAuthTest.tests, "Integration - GrpcTLSAuthTest"),
         (grpcTests, "Integration - GrpcTest"),
         (grpcLoadBalanceTest, "Integration - GrpcLoadBalanceTest"),

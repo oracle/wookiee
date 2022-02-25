@@ -61,7 +61,7 @@ object GrpcTLSAuthTest {
         )
       )
 
-      val zookeeperDiscoveryPath1 = "/multi/discovery"
+      val zookeeperDiscoveryPath1 = "/tls"
 
       val zkFake = new TestingServer()
       val connStr = zkFake.getConnectString

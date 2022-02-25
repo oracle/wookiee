@@ -12,7 +12,9 @@ import com.oracle.infy.wookiee.grpc.impl.{
   WookieeNameResolver,
   ZookeeperHostnameService
 }
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{RoundRobinPolicy, LoadBalancingPolicy => LBPolicy}
+import com.oracle.infy.wookiee.grpc.loadbalancers.Pickers.{ConsistentHashingReadyPicker, WeightedReadyPicker}
+import com.oracle.infy.wookiee.grpc.loadbalancers.WookieeLoadBalancer
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
 import fs2.Stream
@@ -44,6 +46,8 @@ final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
 }
 
 object WookieeGrpcChannel {
+
+  val hashKeyCallOption: CallOptions.Key[String] = CallOptions.Key.create[String]("hash-key")
 
   def of(
       settings: ChannelSettings
@@ -90,7 +94,20 @@ object WookieeGrpcChannel {
 
   private def addLoadBalancer(lbPolicy: LBPolicy): IO[Unit] = IO {
     lbPolicy match {
-      case RoundRobinPolicy => ()
+      case LoadBalancers.RoundRobinPolicy => ()
+      case LoadBalancers.RoundRobinHashedPolicy =>
+        LoadBalancerRegistry
+          .getDefaultRegistry
+          .register(new LoadBalancerProvider {
+            override def isAvailable: Boolean = true
+
+            override def getPriority: Int = 5
+
+            override def getPolicyName: String = "round_robin_hashed"
+
+            override def newLoadBalancer(helper: LoadBalancer.Helper) =
+              new WookieeLoadBalancer(helper, list => ConsistentHashingReadyPicker(list))
+          })
       case LoadBalancers.RoundRobinWeightedPolicy =>
         LoadBalancerRegistry
           .getDefaultRegistry
@@ -102,7 +119,7 @@ object WookieeGrpcChannel {
             override def getPolicyName: String = "round_robin_weighted"
 
             override def newLoadBalancer(helper: LoadBalancer.Helper) =
-              new RoundRobinWeightedLoadBalancer(helper)
+              new WookieeLoadBalancer(helper, list => WeightedReadyPicker(list))
           })
     }
   }
@@ -126,7 +143,7 @@ object WookieeGrpcChannel {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
       randomScheme <- IO { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
-      nameResolverRegistry <- IO { NameResolverRegistry.getDefaultRegistry() }
+      nameResolverRegistry <- IO { NameResolverRegistry.getDefaultRegistry }
       _ <- IO {
         nameResolverRegistry.register(
           new AddressNameLoadingFactory(
@@ -148,7 +165,8 @@ object WookieeGrpcChannel {
           .forTarget(s"$randomScheme://$path")
           .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
           .defaultLoadBalancingPolicy(lbPolicy match {
-            case RoundRobinPolicy                       => "round_robin"
+            case LoadBalancers.RoundRobinPolicy         => "round_robin"
+            case LoadBalancers.RoundRobinHashedPolicy   => "round_robin_hashed"
             case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
           })
           .usePlaintext()

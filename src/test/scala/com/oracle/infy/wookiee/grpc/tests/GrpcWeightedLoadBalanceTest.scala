@@ -25,7 +25,7 @@ import java.net.ServerSocket
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 
-object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
+object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
   def loadBalancerTest(
       blockingEC: ExecutionContext,
@@ -40,7 +40,7 @@ object GrpcLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 5
-      val zookeeperDiscoveryPath = "/discovery"
+      val zookeeperDiscoveryPath = "/weighted"
 
       val ssd: ServerServiceDefinition = MyService.bindService(
         (request: HelloRequest) => {

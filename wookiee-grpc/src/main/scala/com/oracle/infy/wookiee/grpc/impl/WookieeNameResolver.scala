@@ -7,11 +7,11 @@ import cats.effect.{Blocker, ContextShift, Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
-import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2._
-import org.typelevel.log4cats.Logger
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
+import org.typelevel.log4cats.Logger
 
 import java.net.InetSocketAddress
 
@@ -49,7 +49,7 @@ protected[grpc] class WookieeNameResolver(
     IO {
       val addresses = hosts.map { host =>
         val attrBuilder = Attributes.newBuilder()
-        attrBuilder.set(WookieeNameResolver.METADATA, host.metadata)
+        attrBuilder.set(WookieeNameResolver.HOST, host)
         new EquivalentAddressGroup(new InetSocketAddress(host.address, host.port), attrBuilder.build())
       }.toList
 
@@ -84,6 +84,6 @@ protected[grpc] class WookieeNameResolver(
 }
 
 object WookieeNameResolver {
-  protected[grpc] val METADATA: Attributes.Key[HostMetadata] = Attributes.Key.create("metadata")
+  protected[grpc] val HOST: Attributes.Key[Host] = Attributes.Key.create("host")
 
 }
