@@ -6,5 +6,5 @@ addSbtPlugin("net.virtual-void" % "sbt-dependency-graph" % "0.10.0-RC1")
 
 //scalaPB
 addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.8"
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.10"
 //scalaPB
