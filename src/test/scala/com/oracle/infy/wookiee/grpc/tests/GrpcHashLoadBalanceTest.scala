@@ -112,7 +112,8 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
             lbPolicy = RoundRobinHashedPolicy,
             curatorFramework = curator,
             sslClientSettings = None,
-            clientAuthSettings = None
+            clientAuthSettings = None,
+            clientInterceptors = None
           )
         )
         .unsafeRunSync()

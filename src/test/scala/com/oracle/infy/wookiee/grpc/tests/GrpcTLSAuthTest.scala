@@ -1,17 +1,23 @@
 package com.oracle.infy.wookiee.grpc.tests
 
 import cats.effect.{Blocker, ContextShift, IO, Timer}
+import com.oracle.infy.wookiee.grpc.impl.TestInterceptors.{
+  TestClientInterceptor,
+  TestServerInterceptor,
+  clientInterceptorHit,
+  serverInterceptorHit
+}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServerSettings, ServiceAuthSettings}
+import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, ZookeeperUtils}
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
-import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer
+import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import java.lang.Thread.UncaughtExceptionHandler
@@ -80,6 +86,7 @@ object GrpcTLSAuthTest {
       val serverSettings: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath1,
         serverServiceDefinition = ssd,
+        serverInterceptors = Some(List(new TestServerInterceptor())),
         host = Host(0, "localhost", 9098, HostMetadata(0, quarantined = false)),
         sslServerSettings = None,
         authSettings = Some(ServiceAuthSettings(token)),
@@ -103,7 +110,8 @@ object GrpcTLSAuthTest {
           lbPolicy = RoundRobinPolicy,
           curatorFramework = curator,
           sslClientSettings = None,
-          clientAuthSettings = Some(ClientAuthSettings(token))
+          clientAuthSettings = Some(ClientAuthSettings(token)),
+          clientInterceptors = Some(List(new TestClientInterceptor()))
         )
       )
 
@@ -122,7 +130,7 @@ object GrpcTLSAuthTest {
         _ <- server.shutdown()
         _ <- IO(curator.close())
         _ <- IO(zkFake.close())
-      } yield resp.resp === "Hello world!"
+      } yield resp.resp === "Hello world!" && clientInterceptorHit.get() && serverInterceptorHit.get()
 
       gRPCResponseF.unsafeToFuture()
 

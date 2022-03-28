@@ -87,7 +87,8 @@ object WookieeGrpcChannel {
           ),
           settings.serviceDiscoveryPath,
           settings.sslClientSettings,
-          settings.clientAuthSettings
+          settings.clientAuthSettings,
+          settings.clientInterceptors
         )
       )
     } yield new WookieeGrpcChannel(channel)
@@ -138,7 +139,8 @@ object WookieeGrpcChannel {
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
-      maybeClientAuthSettings: Option[ClientAuthSettings]
+      maybeClientAuthSettings: Option[ClientAuthSettings],
+      maybeInterceptors: Option[List[ClientInterceptor]]
   )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
@@ -200,7 +202,9 @@ object WookieeGrpcChannel {
         }
         .getOrElse(builder1.pure[IO])
 
-      channel <- IO { builder2.build() }
+      channel <- IO {
+        builder2.intercept(maybeInterceptors.getOrElse(List()): _*).build()
+      }
     } yield channel
   }
 
