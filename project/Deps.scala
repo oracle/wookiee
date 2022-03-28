@@ -26,7 +26,7 @@ object Deps {
     val logbackVersion = "1.2.10"
     val jodaTimeVersion = "2.10.13"
     val scalaCollectionCompatVersion = "2.3.0"
-    val zookeeperVersion = "3.6.3"
+    val zookeeperVersion = "3.8.0"
     val json4sVersion = "4.0.3"
     val http4sVersion = "0.21.4"
     val dropwizardVersion = "4.2.7"

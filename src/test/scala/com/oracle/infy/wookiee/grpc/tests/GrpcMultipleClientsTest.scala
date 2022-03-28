@@ -141,7 +141,8 @@ object GrpcMultipleClientsTest extends UTestScalaCheck {
           lbPolicy = RoundRobinPolicy,
           curatorFramework = curator,
           sslClientSettings = None,
-          clientAuthSettings = None
+          clientAuthSettings = None,
+          clientInterceptors = None
         )
       )
 

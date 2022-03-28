@@ -97,7 +97,7 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
 
       val serverSettings: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinitions = NonEmptyList(ssd -> None, Nil),
+        serverServiceDefinitions = NonEmptyList((ssd, None, None), Nil),
         host = IO(host1),
         sslServerSettings = None,
         bossExecutionContext = blockingEC,
@@ -117,7 +117,7 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
       // Create a second server.
       val serverSettings2: ServerSettings = ServerSettings(
         discoveryPath = zookeeperDiscoveryPath,
-        serverServiceDefinitions = NonEmptyList(ssd2 -> None, Nil),
+        serverServiceDefinitions = NonEmptyList((ssd2, None, None), Nil),
         host = IO(host2),
         sslServerSettings = None,
         bossExecutionContext = blockingEC,
