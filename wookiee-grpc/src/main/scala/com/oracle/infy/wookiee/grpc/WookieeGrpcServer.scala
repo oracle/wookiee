@@ -123,7 +123,7 @@ object WookieeGrpcServer {
       builder3 <- serverSettings
         .serverServiceDefinitions
         .foldLeft(builder2) {
-          case (builderIO, (serverServiceDefinition, maybeAuth)) =>
+          case (builderIO, (serverServiceDefinition, maybeAuth, maybeInterceptors)) =>
             maybeAuth
               .map { authSettings =>
                 logger
@@ -132,8 +132,12 @@ object WookieeGrpcServer {
                   )
                   .*>(builderIO)
                   .map { builder =>
+                    val interceptors = List(BearerTokenAuthenticator(authSettings)) ++ maybeInterceptors.getOrElse(
+                      List()
+                    )
+
                     builder.addService(
-                      ServerInterceptors.intercept(serverServiceDefinition, BearerTokenAuthenticator(authSettings))
+                      ServerInterceptors.intercept(serverServiceDefinition, interceptors: _*)
                     )
                   }
               }

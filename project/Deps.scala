@@ -4,8 +4,9 @@ object Deps {
 
   object versions {
     val shapelessVersion = "1.2.3"
-    val curatorVersion = "5.1.0"
-    val catsVersion = "2.3.0"
+    val curatorVersion = "5.2.0"
+    val catsVersion = "2.6.1"
+    val catsEffectVersion = "2.5.4"
     val log4CatsVersion = "1.3.1"
     val circeVersion = "0.13.0"
     val µTestVersion = "0.7.2"
@@ -13,11 +14,11 @@ object Deps {
     val fs2Version = "2.4.0"
     val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
 
-    val slf4jVersion = "1.7.5"
-    val slf4jImplVersion = "2.16.0"
-    val scalaCollectionCompatVersion = "2.1.6"
+    val slf4jVersion = "1.7.33"
+    val slf4jImplVersion = "2.17.1"
+    val scalaCollectionCompatVersion = "2.3.0"
     val http4sVersion = "0.21.4"
-    val dropwizardMetricsVersion = "4.1.17"
+    val dropwizardMetricsVersion = "4.2.7"
   }
 
   object build {
@@ -27,7 +28,7 @@ object Deps {
     val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion
 
     val cats: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
-    val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsVersion
+    val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsEffectVersion
 
     val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
     val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion

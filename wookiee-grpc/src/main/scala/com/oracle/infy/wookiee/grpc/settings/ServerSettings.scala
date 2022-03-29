@@ -5,7 +5,7 @@ import cats.effect.concurrent.Ref
 import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
-import io.grpc.ServerServiceDefinition
+import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 
 import java.net.InetAddress
@@ -14,7 +14,9 @@ import scala.concurrent.duration.{FiniteDuration, _}
 
 final case class ServerSettings(
     discoveryPath: String,
-    serverServiceDefinitions: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings])],
+    serverServiceDefinitions: NonEmptyList[
+      (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])
+    ],
     host: IO[Host],
     sslServerSettings: Option[SSLServerSettings],
     bossExecutionContext: ExecutionContext,
@@ -29,6 +31,33 @@ final case class ServerSettings(
 )
 
 object ServerSettings {
+
+  def apply(
+      discoveryPath: String,
+      serverServiceDefinition: ServerServiceDefinition,
+      serverInterceptors: Option[List[ServerInterceptor]],
+      host: Host,
+      sslServerSettings: Option[SSLServerSettings],
+      authSettings: Option[ServiceAuthSettings],
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework
+  )(implicit cs: ContextShift[IO]): ServerSettings =
+    apply(
+      discoveryPath,
+      host,
+      sslServerSettings,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      bossThreads,
+      workerThreads,
+      curatorFramework,
+      (serverServiceDefinition, authSettings, serverInterceptors)
+    )
 
   def apply(
       discoveryPath: String,
@@ -98,7 +127,10 @@ object ServerSettings {
   )(implicit cs: ContextShift[IO]): ServerSettings =
     ServerSettings(
       discoveryPath,
-      NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
+      NonEmptyList(
+        (serverServiceDefinition._1, serverServiceDefinition._2, None),
+        otherServiceDefinitions.map(srv => (srv._1, srv._2, None)).toList
+      ),
       IO(host),
       sslServerSettings,
       bossExecutionContext,
@@ -124,6 +156,63 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
+  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings =
+    apply(
+      discoveryPath = discoveryPath,
+      port = port,
+      sslServerSettings = sslServerSettings,
+      bossExecutionContext = bossExecutionContext,
+      workerExecutionContext = workerExecutionContext,
+      applicationExecutionContext = applicationExecutionContext,
+      bossThreads = bossThreads,
+      workerThreads = workerThreads,
+      curatorFramework = curatorFramework,
+      serverServiceDefinition = (serverServiceDefinition._1, serverServiceDefinition._2, None),
+      otherServiceDefinitions = otherServiceDefinitions.map(srv => (srv._1, srv._2, None)).toList: _*
+    )
+
+  // Use when you'd like to register more than one class to this host and discoveryPath
+  def apply(
+      discoveryPath: String,
+      host: Host,
+      sslServerSettings: Option[SSLServerSettings],
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework,
+      serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]]),
+      otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])*
+  )(implicit cs: ContextShift[IO]): ServerSettings =
+    ServerSettings(
+      discoveryPath,
+      NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
+      IO(host),
+      sslServerSettings,
+      bossExecutionContext,
+      workerExecutionContext,
+      applicationExecutionContext,
+      bossThreads,
+      workerThreads,
+      1.minute,
+      Queue.unbounded[IO, Int],
+      Ref.of[IO, Boolean](false),
+      curatorFramework
+    )
+
+  def apply(
+      discoveryPath: String,
+      port: Int,
+      sslServerSettings: Option[SSLServerSettings],
+      bossExecutionContext: ExecutionContext,
+      workerExecutionContext: ExecutionContext,
+      applicationExecutionContext: ExecutionContext,
+      bossThreads: Int,
+      workerThreads: Int,
+      curatorFramework: CuratorFramework,
+      serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]]),
+      otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])*
   )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
     val host = {
       for {
