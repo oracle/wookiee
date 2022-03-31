@@ -434,10 +434,11 @@ class ComponentManager extends PrepareForShutdown {
             componentsLoaded += componentName
           }
         } catch {
-          case _: NoClassDefFoundError =>
+          case ncd: NoClassDefFoundError =>
             componentLoadFailed(
               cfName,
-              s"Could not load component [$compFolder]. No Class Def. This could be because the JAR for the component was not found in the component-path"
+              s"Could not load component [$compFolder]. No Class Def. This could be because the JAR for the component was not found in the component-path",
+              Some(ncd)
             )
           case e: ClassNotFoundException =>
             componentLoadFailed(
@@ -533,7 +534,7 @@ class ComponentManager extends PrepareForShutdown {
     }
   }
 
-  private def componentLoadFailed(componentName: String, msg: String, ex: Option[Exception] = None): Unit = {
+  private def componentLoadFailed(componentName: String, msg: String, ex: Option[Throwable] = None): Unit = {
     ex match {
       case Some(e) => log.error(msg, e)
       case None    => log.error(msg)
