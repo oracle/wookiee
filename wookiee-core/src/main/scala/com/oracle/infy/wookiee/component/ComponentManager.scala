@@ -448,10 +448,10 @@ class ComponentManager extends PrepareForShutdown {
             )
           case nf: ComponentNotFoundException =>
             // this is the one case were we don't set the component as failed
-            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${nf.getMessage}")
+            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${nf.getMessage}", nf)
           case i: IllegalArgumentException =>
             // this is the one case were we don't set the component as failed
-            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}")
+            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}", i)
           case c: ConfigException =>
             componentLoadFailed(cfName, s"Could not load component [$cfName]. Configuration failure", Some(c))
         }
