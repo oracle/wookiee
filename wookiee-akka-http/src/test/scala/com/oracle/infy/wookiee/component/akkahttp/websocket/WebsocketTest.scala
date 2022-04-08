@@ -6,13 +6,16 @@ import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.testkit.WSProbe
 import akka.stream.Supervision.{Resume, Stop}
+import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
 import com.oracle.infy.wookiee.component.akkahttp.routes.AkkaHttpEndpointRegistration.ErrorHolder
 import com.oracle.infy.wookiee.component.akkahttp.routes.{
   AkkaHttpEndpointRegistration,
   AkkaHttpRequest,
+  EndpointOptions,
   EndpointType,
   ExternalAkkaHttpRouteContainer
 }
+import com.typesafe.config.ConfigFactory
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization._
 
@@ -216,6 +219,53 @@ class WebsocketTest extends WSWrapper {
         }
     }
 
+    AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
+      "cors",
+      EndpointType.EXTERNAL, { _ =>
+        Future.successful(AuthHolder("none"))
+      }, { (_, msg: TextMessage) =>
+        msg.toStrict(5.seconds).map(s => Input(s.getStrictText))
+      },
+      toOutput,
+      toText, { (_: AuthHolder, lh: Option[Input]) =>
+        println("Called onClose")
+        closed = true
+        lastHit = lh
+      },
+      options = EndpointOptions
+        .default
+        .copy(
+          corsSettings =
+            Some(CorsSettings(ConfigFactory.parseString("""akka-http-cors {
+              |allowed-origins = "*"
+              |allow-generic-http-requests = true
+              |allow-credentials = false
+              |allowed-headers = []
+              |allowed-methods = ["OPTIONS","CONNECT","GET","HEAD","PATCH"]
+              |exposed-headers = []
+              |}""".stripMargin)))
+        )
+    )
+
+    "websocket cors support" in {
+      val wsClient = WSProbe()
+
+      WS("/cors", wsClient.flow) ~> routes ~>
+        check {
+          wsClient.sendMessage("abcdef")
+          wsClient.expectMessage("abcdef-output")
+
+          wsClient.sendMessage("abcdef2")
+          wsClient.expectMessage("abcdef2-output")
+
+          wsClient.sendCompletion()
+          wsClient.expectCompletion()
+
+          Thread.sleep(500L)
+          closed mustEqual true
+          lastHit.get mustEqual Input("abcdef2")
+        }
+    }
   }
 
   override def testConfigSource: String =
