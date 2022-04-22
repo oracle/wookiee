@@ -509,7 +509,7 @@ class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with Pr
   }
 
   // Testing timeout behavior requires running tests in full server mode (using ~!>) which is slow/expensive
-  "Timeout behavior" should {
+  /*"Timeout behavior" should {
     "Use specified timeout and timeout handler" in {
       val r = RouteGenerator.makeHttpRoute(
         "toTest",
@@ -530,7 +530,7 @@ class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with Pr
         assert(status == StatusCodes.ImATeapot)
       }
     }
-  }
+  }*/
 
 }
 
