@@ -26,6 +26,7 @@ import scala.util.{Success, Try}
   */
 case class HawkClassLoader(entityName: String, urls: Seq[URL]) extends URLClassLoader(urls.toArray) {
 
+  // TODO invalidateCaches()
   /**
     * This method will perform the same functionality as ClassLoader.loadClass, except that it
     * will only locate and load the class in it's own class loader.

@@ -65,7 +65,7 @@ object ComponentManager extends LoggingAdapter {
     if (groupedMap.size == 1) {
       groupedMap.head._1 == Started
     } else {
-      false
+      components.isEmpty
     }
   }
 
