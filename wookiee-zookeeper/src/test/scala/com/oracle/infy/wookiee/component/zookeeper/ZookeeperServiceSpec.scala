@@ -6,7 +6,11 @@ import akka.testkit.TestKit
 import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor.GetSetWeightInterval
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
-import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService.{MakeDiscoverable, QueryForInstances, UpdateWeight}
+import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService.{
+  MakeDiscoverable,
+  QueryForInstances,
+  UpdateWeight
+}
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener
@@ -39,13 +43,12 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
   def checkForEntry(queue: ConcurrentLinkedQueue[String], path: String): Boolean = {
     val timeout = System.currentTimeMillis() + 5000L
-    while (!queue.contains(path) && System.currentTimeMillis() < timeout) {
-
-    }
+    while (!queue.contains(path) && System.currentTimeMillis() < timeout) {}
     queue.contains(path)
   }
 
   class ZKEventWatcher() extends Actor with ZookeeperEventAdapter {
+
     override def preStart(): Unit = {
       super.preStart()
       register(self, ZookeeperChildEventRegistration(self, "/"))
