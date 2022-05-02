@@ -72,7 +72,7 @@ object WookieeGrpcServer {
     for {
       host <- serverSettings.host
       server <- buildServer(serverSettings, host)
-      _ <- IO.blocking{ server.start() }
+      _ <- IO.blocking { server.start() }
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
       queue <- serverSettings.queue

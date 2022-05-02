@@ -21,8 +21,7 @@ object HeathCheckServer extends Serde {
       healthF: () => IO[WookieeHealth],
       executionContext: ExecutionContext,
       additionalRoutes: Option[HttpRoutes[IO]]
-  )(
-      implicit timer: Temporal[IO]): Stream[IO, ExitCode] = {
+  )(implicit timer: Temporal[IO]): Stream[IO, ExitCode] = {
 
     val routes = additionalRoutes match {
       case Some(r) => healthCheckRoutes(healthF) <+> r
