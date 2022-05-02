@@ -1,22 +1,24 @@
 package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
+import cats.effect.IO
+import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
+
 import java.lang.Thread.UncaughtExceptionHandler
-import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import java.util.concurrent.{Executors, ForkJoinPool, ScheduledThreadPoolExecutor, ThreadFactory}
 //wookiee-grpc imports
-import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
-import com.oracle.infy.wookiee.grpc.settings._
 import com.oracle.infy.wookiee.grpc._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers._
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.settings._
 import io.grpc._
 //wookiee-grpc imports
 import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.test.TestingServer
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -61,11 +63,17 @@ object Example {
     )
 
     // Use a separate execution context for the timer
-    val timerEC = ExecutionContext.fromExecutorService(Executors.newSingleThreadExecutor())
+    val scheduler = new ScheduledThreadPoolExecutor(1, { r: Runnable =>
+      val t = new Thread(r)
+      t.setName("")
+      t.setDaemon(true)
+      t.setPriority(Thread.MAX_PRIORITY)
+      t
+    })
+    scheduler.setRemoveOnCancelPolicy(true)
+    implicit val runtime: IORuntime =
+      IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduler), () => (), IORuntimeConfig())
 
-    implicit val cs: ContextShift[IO] = IO.contextShift(mainEC)
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
-    implicit val timer: Timer[IO] = IO.timer(timerEC)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zookeeperDiscoveryPath = "/discovery"
