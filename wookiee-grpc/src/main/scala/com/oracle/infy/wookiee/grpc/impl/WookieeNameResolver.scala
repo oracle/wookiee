@@ -46,7 +46,7 @@ protected[grpc] class WookieeNameResolver(
   }
 
   def listenerCallback(listener: NameResolver.Listener2): Set[Host] => IO[Unit] = { hosts =>
-    IO {
+    IO.blocking {
       val addresses = hosts.map { host =>
         val attrBuilder = Attributes.newBuilder()
         attrBuilder.set(WookieeNameResolver.HOST, host)

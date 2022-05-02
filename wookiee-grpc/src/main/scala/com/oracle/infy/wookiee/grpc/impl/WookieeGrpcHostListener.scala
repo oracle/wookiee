@@ -23,7 +23,7 @@ protected[grpc] class WookieeGrpcHostListener(
         closableStream
           .stream
           .evalTap(hosts => logger.info(s"Got hosts $hosts on stream"))
-          .evalTap(hosts => listenerCallback(hosts)) //TODO: make sure listener callback runs on the blocking context
+          .evalTap(hosts => listenerCallback(hosts))
           .compile
           .drain
           .map(_.asRight[ListenerError])
