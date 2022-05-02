@@ -1,20 +1,18 @@
 package com.oracle.infy.wookiee.grpc.tests
 
+import com.oracle.infy.wookiee.grpc.utils.implicits
 import cats.Monad
 import cats.data.EitherT
-import cats.effect.{Concurrent, Sync}
+import cats.effect.std.Queue
+import cats.effect.{Concurrent, Deferred, GenConcurrent, Sync}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.model.Host
-import com.oracle.infy.wookiee.grpc.utils.implicits
-import implicits._
-import fs2.concurrent.Queue
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import utest.{Tests, test}
-import cats.effect.Deferred
 
 object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 
@@ -26,7 +24,7 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
         .toEitherT(e => UnknownWookieeGrpcError(e.getMessage))
   }
 
-  def tests[F[_]: Monad: Sync: Concurrent, S[_[_], _]](
+  def tests[F[_]: Monad: Sync: GenConcurrent, S[_[_], _]](
       minSuccessfulRuns: Int,
       factory: (Set[Host] => F[Unit]) => F[(Set[Host] => F[Unit], () => F[Unit], ListenerContract[F, S])]
   )(implicit fToProp: EitherT[F, WookieeGrpcError, Boolean] => Prop): Tests = {
@@ -36,7 +34,7 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
         for {
           queue <- Queue.unbounded[F, Set[Host]].toEitherT
           c <- factory(hostsFromHostStream => {
-            queue.enqueue1(hostsFromHostStream)
+            queue.offer(hostsFromHostStream)
           }).toEitherT
           (sendHosts, cleanup, listener) = c
           _ <- sendHosts(hosts).toEitherT

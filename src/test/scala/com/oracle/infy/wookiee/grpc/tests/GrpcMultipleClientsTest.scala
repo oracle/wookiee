@@ -1,32 +1,32 @@
 package com.oracle.infy.wookiee.grpc.tests
 
 import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
+import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, ZookeeperUtils}
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import com.oracle.infy.wookiee.myService2.MyService2Grpc.MyService2
 import com.oracle.infy.wookiee.myService2.{HelloRequest2, HelloResponse2, MyService2Grpc}
-import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
-import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer
+import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.{ExecutionContext, Future}
-import cats.effect.Temporal
 
 object GrpcMultipleClientsTest extends UTestScalaCheck {
 
   def multipleClientTest(
       implicit implicitEC: ExecutionContext,
-      timer: Temporal[IO],
+      runtime: IORuntime,
       logger: Logger[IO]
   ): Tests = {
 

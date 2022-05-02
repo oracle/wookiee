@@ -1,18 +1,18 @@
 package com.oracle.infy.wookiee.grpc.common
 
-import java.lang.Thread.UncaughtExceptionHandler
-import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import cats.data.EitherT
-import cats.effect.IO
+import cats.effect.unsafe.IORuntime
+import cats.effect.{IO, Temporal}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import org.scalacheck.Prop
 import utest.framework.{Formatter, HTree, Result}
 import utest.ufansi.Str
 import utest.{TestRunner, Tests, ufansi}
 
+import java.lang.Thread.UncaughtExceptionHandler
+import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
-import cats.effect.Temporal
 
 trait ConstableCommon {
 
@@ -45,7 +45,9 @@ trait ConstableCommon {
       )
     )
 
-  implicit def eitherTListenerErrorToProp: EitherT[IO, WookieeGrpcError, Boolean] => Prop = { e =>
+  implicit def eitherTListenerErrorToProp(
+      implicit runtime: IORuntime
+  ): EitherT[IO, WookieeGrpcError, Boolean] => Prop = { e =>
     val result = e
       .value
       .unsafeRunSync()
@@ -93,7 +95,7 @@ trait ConstableCommon {
 
   def runTestsAsync(
       tests: List[(Tests, String)]
-  )(implicit ec: ExecutionContext): List[HTree[String, Result]] =
+  )(implicit ec: ExecutionContext, runtime: IORuntime): List[HTree[String, Result]] =
     IO.fromFuture {
         IO {
           Future

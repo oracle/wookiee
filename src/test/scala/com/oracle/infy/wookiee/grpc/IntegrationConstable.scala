@@ -1,6 +1,8 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.{ConcurrentEffect, IO}
+import cats.effect.std.{Queue, Semaphore}
+import cats.effect.unsafe.implicits.global
+import cats.effect.{Deferred, IO, Ref}
 import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
@@ -10,28 +12,21 @@ import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.tests._
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
-import fs2.concurrent.Queue
 import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.test.TestingServer
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.ExecutionContext
-import cats.effect.{ Deferred, Ref, Temporal }
-import cats.effect.std.Semaphore
 
 object IntegrationConstable extends ConstableCommon {
 
   def main(args: Array[String]): Unit = {
     val mainECParallelism = 100
     implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
-    implicit val cs: ContextShift[IO] = IO.contextShift(ec)
 
-    implicit val concurrent: ConcurrentEffect[IO] = IO.ioConcurrentEffect
     val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
 
-    implicit val timer: Temporal[IO] = IO.timer(blockingEC)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zkFake = new TestingServer()
@@ -55,7 +50,7 @@ object IntegrationConstable extends ConstableCommon {
           curator.start()
           curator
         }
-        semaphore <- Semaphore(1)
+        semaphore <- Semaphore[IO](1)
         cache <- Ref.of[IO, Option[CuratorCache]](None)
 
       } yield {
@@ -76,11 +71,11 @@ object IntegrationConstable extends ConstableCommon {
               curator,
               cache,
               semaphore,
-              Fs2CloseableImpl(queue.dequeue, killSwitch),
-              queue.enqueue1
-            )(blocker, IO.contextShift(ec), concurrent, logger),
+              Fs2CloseableImpl(Stream.repeatEval(queue.take), killSwitch),
+              queue.offer
+            )(global, logger),
             discoveryPath = discoveryPath
-          )(cs, blocker, logger)
+          )(logger)
 
         val cleanup: () => IO[Unit] = () => {
           IO {

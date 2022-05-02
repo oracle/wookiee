@@ -14,15 +14,13 @@ object WookieeGrpcUtils {
       zkQuorumString: String,
       retryInterval: FiniteDuration,
       zookeeperBlockingExecutionContext: ExecutionContext
-  )(implicit): IO[CuratorFramework] =
-    cs.blockOn(blocker) {
+  ): IO[CuratorFramework] =
 //      val _ = Some("foo").asInstanceOf[Option[String]]
-      IO {
-        curatorFramework(
-          zkQuorumString,
-          zookeeperBlockingExecutionContext,
-          new RetryForever(retryInterval.toMillis.toInt)
-        )
-      }
+    IO.blocking {
+      curatorFramework(
+        zkQuorumString,
+        zookeeperBlockingExecutionContext,
+        new RetryForever(retryInterval.toMillis.toInt)
+      )
     }
 }
