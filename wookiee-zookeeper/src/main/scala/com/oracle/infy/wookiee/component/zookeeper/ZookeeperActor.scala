@@ -659,8 +659,8 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     */
   def event(`type`: CuratorCacheListener.Type, oldData: ChildData, data: ChildData): Unit = {
     // Ignore any initialization events
-    if (data != null) {
-      val path = data.getPath
+    if (data != null || oldData != null) {
+      val path = if (data != null) data.getPath else oldData.getPath
       log.debug(s"Zookeeper child event for path $path")
 
       // Cycle through the paths to determine if any start with this change
