@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.grpcdev
 
+import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpcdev.tests.GrpcDevTest
 
