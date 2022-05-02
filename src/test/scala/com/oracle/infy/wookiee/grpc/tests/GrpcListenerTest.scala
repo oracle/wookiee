@@ -2,7 +2,6 @@ package com.oracle.infy.wookiee.grpc.tests
 
 import cats.Monad
 import cats.data.EitherT
-import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, Sync}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
@@ -15,6 +14,7 @@ import fs2.concurrent.Queue
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import utest.{Tests, test}
+import cats.effect.Deferred
 
 object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 

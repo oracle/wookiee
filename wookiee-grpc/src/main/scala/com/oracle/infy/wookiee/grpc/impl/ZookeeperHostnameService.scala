@@ -1,8 +1,7 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Blocker, Concurrent, ContextShift, IO}
+import cats.effect.{Concurrent, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
@@ -18,6 +17,8 @@ import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, Cura
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import cats.effect.Ref
+import cats.effect.std.Semaphore
 
 protected[grpc] object ZookeeperHostnameService {
 

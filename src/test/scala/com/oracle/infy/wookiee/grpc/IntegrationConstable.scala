@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO, Timer}
+import cats.effect.{ConcurrentEffect, IO}
 import com.oracle.infy.wookiee.grpc.ZookeeperUtils._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
@@ -18,6 +17,8 @@ import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.ExecutionContext
+import cats.effect.{ Deferred, Ref, Temporal }
+import cats.effect.std.Semaphore
 
 object IntegrationConstable extends ConstableCommon {
 
@@ -30,7 +31,7 @@ object IntegrationConstable extends ConstableCommon {
     val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
     implicit val blocker: Blocker = Blocker.liftExecutionContext(blockingEC)
 
-    implicit val timer: Timer[IO] = IO.timer(blockingEC)
+    implicit val timer: Temporal[IO] = IO.timer(blockingEC)
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zkFake = new TestingServer()

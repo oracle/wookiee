@@ -1,13 +1,13 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.StreamContract.StreamError
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, StreamContract}
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
+import cats.effect.Deferred
 
 final protected[grpc] case class Fs2CloseableImpl[T](
     strm: Stream[IO, T],

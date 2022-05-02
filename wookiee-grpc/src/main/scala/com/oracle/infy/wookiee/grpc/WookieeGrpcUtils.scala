@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.retry.RetryForever
@@ -14,7 +14,7 @@ object WookieeGrpcUtils {
       zkQuorumString: String,
       retryInterval: FiniteDuration,
       zookeeperBlockingExecutionContext: ExecutionContext
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[CuratorFramework] =
+  )(implicit): IO[CuratorFramework] =
     cs.blockOn(blocker) {
 //      val _ = Some("foo").asInstanceOf[Option[String]]
       IO {
