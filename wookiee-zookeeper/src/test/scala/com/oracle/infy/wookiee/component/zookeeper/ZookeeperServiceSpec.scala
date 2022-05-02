@@ -5,6 +5,7 @@ import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor.GetSetWeightInterval
+import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
 import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService.{
   MakeDiscoverable,
   QueryForInstances,
@@ -12,6 +13,7 @@ import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableServ
 }
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
 import com.typesafe.config.{Config, ConfigFactory}
+import org.apache.curator.framework.recipes.cache.CuratorCacheListener
 import org.apache.curator.test.TestingServer
 import org.apache.curator.x.discovery.{ServiceInstance, UriSpec}
 import org.scalatest.BeforeAndAfterAll
@@ -21,6 +23,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
@@ -30,14 +33,49 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
   implicit val system: ActorSystem = ActorSystem("zk-test", loadConfig)
   val service: ZookeeperAdapterNonActor = MockZookeeper(zkServer.getConnectString)
   val zkActor: ActorRef = ZookeeperService.getZkActor.get
+  val deletedNodes = new ConcurrentLinkedQueue[String]()
+  val createdNodes = new ConcurrentLinkedQueue[String]()
+  val changedNodes = new ConcurrentLinkedQueue[String]()
+  system.actorOf(Props(new ZKEventWatcher()), "zk-event-watcher-test")
 
   implicit val to: Timeout = Timeout(5.seconds)
   val awaitResultTimeout: FiniteDuration = 5000.milliseconds
+
+  def checkForEntry(queue: ConcurrentLinkedQueue[String], path: String): Boolean = {
+    val timeout = System.currentTimeMillis() + 5000L
+    while (!queue.contains(path) && System.currentTimeMillis() < timeout) {}
+    queue.contains(path)
+  }
+
+  class ZKEventWatcher() extends Actor with ZookeeperEventAdapter {
+
+    override def preStart(): Unit = {
+      super.preStart()
+      register(self, ZookeeperChildEventRegistration(self, "/"))
+    }
+
+    override def receive: Receive = {
+      case ZookeeperChildEvent(eventType, oldData, newData) =>
+        eventType match {
+          // /StreamingZMQ/{pod}_01/sapi/streams
+          case CuratorCacheListener.Type.NODE_CREATED =>
+            createdNodes.add(newData.getPath)
+            ()
+          case CuratorCacheListener.Type.NODE_CHANGED =>
+            changedNodes.add(oldData.getPath)
+            ()
+          case CuratorCacheListener.Type.NODE_DELETED =>
+            deletedNodes.add(oldData.getPath)
+            ()
+        }
+    }
+  }
 
   "The zookeeper service" should {
     "allow callers to create a node for a valid path" in {
       val res = Await.result(service.createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
       res shouldEqual "/test"
+      checkForEntry(createdNodes, "/test") shouldEqual true
     }
 
     "allow callers to create a node for a valid namespace and path" in {
@@ -54,6 +92,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       res shouldEqual "/deleteTest"
       val res2 = Await.result(service.deleteNode("/deleteTest"), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
+      checkForEntry(deletedNodes, "/deleteTest") shouldEqual true
     }
 
     "allow callers to delete a node for a valid namespace and path " in {
@@ -97,6 +136,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val res2 = Await.result(service.getChildren("/test", includeData = true), awaitResultTimeout)
       res2.head._1 shouldEqual "child"
       res2.head._2.get shouldEqual "data".getBytes
+      checkForEntry(changedNodes, "/test/child") shouldEqual true
     }
 
     " return an error when getting children for an invalid path " in {
