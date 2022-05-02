@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.grpc
 
 import cats.effect.{Deferred, IO}
 import cats.effect.std.Queue
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract

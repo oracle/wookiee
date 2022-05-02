@@ -1,46 +1,51 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import com.oracle.infy.wookiee.grpc.utils.implicits
-import cats.Monad
 import cats.data.EitherT
 import cats.effect.std.Queue
-import cats.effect.{Concurrent, Deferred, GenConcurrent, Sync}
+import cats.effect.{Concurrent, Deferred, IO}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.common.{HostGenerator, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.errors.Errors.{UnknownWookieeGrpcError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.model.Host
+import com.oracle.infy.wookiee.grpc.utils.implicits.{MultiversalEquality, ToEitherT}
+import fs2._
 import org.scalacheck.Prop
 import org.scalacheck.Prop.forAll
 import utest.{Tests, test}
 
 object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
 
-  implicit private class ToEitherT[A, F[_]: Monad: Sync](lhs: F[A]) {
-
-    def toEitherT: EitherT[F, WookieeGrpcError, A] =
-      implicits
-        .ToEitherT(lhs)
-        .toEitherT(e => UnknownWookieeGrpcError(e.getMessage))
-  }
-
-  def tests[F[_]: Monad: Sync: GenConcurrent, S[_[_], _]](
+  def tests(
       minSuccessfulRuns: Int,
-      factory: (Set[Host] => F[Unit]) => F[(Set[Host] => F[Unit], () => F[Unit], ListenerContract[F, S])]
-  )(implicit fToProp: EitherT[F, WookieeGrpcError, Boolean] => Prop): Tests = {
+      factory: (Set[Host] => IO[Unit]) => IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])]
+  )(implicit fToProp: EitherT[IO, WookieeGrpcError, Boolean] => Prop): Tests = {
 
     val callbackIsInvokedAfterStartListening = {
       forAll { hosts: Set[Host] =>
         for {
-          queue <- Queue.unbounded[F, Set[Host]].toEitherT
+
+          queue <- Queue
+            .unbounded[IO, Set[Host]]
+            .toEitherT(t => (UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError))
+
           c <- factory(hostsFromHostStream => {
             queue.offer(hostsFromHostStream)
-          }).toEitherT
+          }).toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
           (sendHosts, cleanup, listener) = c
-          _ <- sendHosts(hosts).toEitherT
-          bgRef <- Concurrent[F].start(listener.startListening.value).toEitherT
-          result <- queue
-            .dequeue
+
+          _ <- sendHosts(hosts)
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          bgRef <- listener
+            .startListening
+            .value
+            .start
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          result <- Stream
+            .repeatEval(queue.take)
             .collectFirst {
               case hostsFromQueue if hostsFromQueue.size === hosts.size => hostsFromQueue
             }
@@ -50,10 +55,14 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
               case head :: Nil => head === hosts
               case _           => false
             }
-            .toEitherT
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
           _ <- listener.shutdown
-          _ <- bgRef.join.toEitherT
-          _ <- cleanup().toEitherT
+          _ <- bgRef
+            .join
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+          _ <- cleanup()
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
         } yield result
       }
     }
@@ -61,16 +70,38 @@ object GrpcListenerTest extends UTestScalaCheck with HostGenerator {
     val shutdownIsIdempotent = {
       forAll { hosts: Set[Host] =>
         for {
-          promise <- Deferred[F, Unit].toEitherT
-          c <- factory(_ => promise.complete(())).toEitherT
+          promise <- Deferred[IO, Unit]
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          c <- factory(_ => promise.complete(()).as(()))
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
           (sendHosts, cleanup, listener) = c
-          bgRef <- Concurrent[F].start(listener.startListening.value).toEitherT
-          _ <- sendHosts(hosts).toEitherT
-          _ <- promise.get.toEitherT
+          bgRef <- listener
+            .startListening
+            .value
+            .start
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          _ <- sendHosts(hosts)
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          _ <- promise
+            .get
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
           _ <- listener.shutdown
-          result <- true.pure[F].toEitherT
-          _ <- bgRef.join.toEitherT
-          _ <- cleanup().toEitherT
+          result <- true
+            .pure[IO]
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          _ <- bgRef
+            .join
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
+          _ <- cleanup()
+            .toEitherT(t => UnknownWookieeGrpcError(t.getMessage): WookieeGrpcError)
+
         } yield result
       }
     }
