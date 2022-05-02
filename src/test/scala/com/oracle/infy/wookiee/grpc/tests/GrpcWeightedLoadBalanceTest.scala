@@ -1,29 +1,28 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import cats.effect.IO
+import cats.data.NonEmptyList
+import cats.effect.{IO, Ref}
+import cats.effect.std.Queue
+import cats.effect.unsafe.IORuntime
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
-import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinWeightedPolicy
+import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
+import com.oracle.infy.wookiee.grpc.utils.implicits._
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import com.oracle.infy.wookiee.grpc.utils.implicits._
-import fs2.concurrent.Queue
-import org.typelevel.log4cats.Logger
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
+import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
-import java.util.Random
-import cats.data.NonEmptyList
-import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
-
 import java.net.ServerSocket
+import java.util.Random
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
-import cats.effect.{ Ref, Temporal }
 
 object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
@@ -33,7 +32,7 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
       curator: CuratorFramework
   )(
       implicit mainEC: ExecutionContext,
-      timer: Temporal[IO],
+      runtime: IORuntime,
       logger: Logger[IO]
   ): Tests = {
     val testWeightedLoadBalancer = {
@@ -70,14 +69,14 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
       val queue = {
         for {
           queue <- Queue.unbounded[IO, Int]
-          _ = (0 to 5).foreach(f => queue.enqueue1(f))
+          _ = (0 to 5).foreach(f => queue.offer(f))
         } yield queue
       }
 
       val queue2 = {
         for {
           queue2 <- Queue.unbounded[IO, Int]
-          _ = (0 to 5).foreach(f => queue2.enqueue1(f))
+          _ = (0 to 5).foreach(f => queue2.offer(f))
         } yield queue2
       }
 

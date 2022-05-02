@@ -1,11 +1,12 @@
 package com.oracle.infy.wookiee.metrics.tests
 
 import cats.effect.IO
+import cats.effect.unsafe.IORuntime
 import com.oracle.infy.wookiee.functional.metrics.WookieeMetricsService
 import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetricsReporter
 import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
-import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
 import com.oracle.infy.wookiee.grpc.utils.implicits._
+import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
 import utest.{Tests, test}
 
 import java.util.concurrent.TimeUnit
@@ -13,7 +14,7 @@ import scala.concurrent.ExecutionContext
 
 object MetricsServiceTest extends UTestScalaCheck {
 
-  def tests()(implicit executionContext: ExecutionContext): Tests = {
+  def tests()(implicit executionContext: ExecutionContext, runtime: IORuntime): Tests = {
 
     val testReporter = (_: WookieeRegistry) =>
       IO(new WookieeMetricsReporter[IO]() {

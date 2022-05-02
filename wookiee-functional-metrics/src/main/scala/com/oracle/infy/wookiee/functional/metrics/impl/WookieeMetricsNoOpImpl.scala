@@ -53,7 +53,7 @@ class WookieeMetricsNoOpImpl() extends WookieeMetrics[IO] {
     })
 
   override def gauge[A](name: String, f: () => A): IO[Gauge[A]] =
-    IO(new Gauge[A](IO(body = new DWGauge[A]() {
+    IO(new Gauge[A](IO(new DWGauge[A]() {
       override def getValue: A = f()
     })))
 
