@@ -1,8 +1,7 @@
 package com.oracle.infy.wookiee.grpc.settings
 
 import cats.data.NonEmptyList
-import cats.effect.concurrent.Ref
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import fs2.concurrent.Queue
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
@@ -11,6 +10,7 @@ import org.apache.curator.framework.CuratorFramework
 import java.net.InetAddress
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
+import cats.effect.Ref
 
 final case class ServerSettings(
     discoveryPath: String,
@@ -45,7 +45,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     apply(
       discoveryPath,
       host,
@@ -71,7 +71,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     apply(
       discoveryPath,
       host,
@@ -97,7 +97,7 @@ object ServerSettings {
       bossThreads: Int,
       workerThreads: Int,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings =
+  )(implicit): ServerSettings =
     apply(
       discoveryPath,
       port,
@@ -124,7 +124,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     ServerSettings(
       discoveryPath,
       NonEmptyList(
@@ -156,7 +156,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings])*
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+  )(implicit): ServerSettings = {
     apply(
       discoveryPath = discoveryPath,
       port = port,
@@ -185,7 +185,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])*
-  )(implicit cs: ContextShift[IO]): ServerSettings =
+  ): ServerSettings =
     ServerSettings(
       discoveryPath,
       NonEmptyList(serverServiceDefinition, otherServiceDefinitions.toList),
@@ -214,7 +214,7 @@ object ServerSettings {
       curatorFramework: CuratorFramework,
       serverServiceDefinition: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]]),
       otherServiceDefinitions: (ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])*
-  )(implicit cs: ContextShift[IO], blocker: Blocker): ServerSettings = {
+  )(implicit): ServerSettings = {
     val host = {
       for {
         address <- cs.blockOn(blocker)(IO {

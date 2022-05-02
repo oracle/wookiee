@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
+import cats.effect.{Fiber, IO}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
@@ -18,6 +17,7 @@ import org.apache.zookeeper.CreateMode
 
 import java.io.File
 import scala.util.Try
+import cats.effect.{ Ref, Temporal }
 
 final class WookieeGrpcServer(
     private val server: Server,
@@ -66,10 +66,9 @@ final class WookieeGrpcServer(
 object WookieeGrpcServer {
 
   def start(serverSettings: ServerSettings)(
-      implicit cs: ContextShift[IO],
-      blocker: Blocker,
+      implicit
       logger: Logger[IO],
-      timer: Timer[IO]
+      timer: Temporal[IO]
   ): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
@@ -209,7 +208,7 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
+  )(implicit timer: Temporal[IO], logger: Logger[IO]): IO[Unit] = {
     val stream = queue.dequeue
     stream
       .debounce(serverSettings.loadUpdateInterval)
@@ -237,7 +236,7 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+  )(implicit): IO[Unit] =
     cs.blockOn(blocker) {
       IO {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
@@ -253,7 +252,7 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+  )(implicit): IO[Unit] =
     cs.blockOn(blocker) {
       IO {
         val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
@@ -268,7 +267,7 @@ object WookieeGrpcServer {
       discoveryPath: String,
       curator: CuratorFramework,
       host: Host
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
+  )(implicit): IO[Unit] =
     cs.blockOn(blocker)(
       IO {
         if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {

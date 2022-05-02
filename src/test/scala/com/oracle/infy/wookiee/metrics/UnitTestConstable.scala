@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.metrics
 
-import cats.effect.{ContextShift, IO}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.metrics.tests.{MetricsServiceTest, MetricsTest}
 

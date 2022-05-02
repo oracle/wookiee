@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
+import cats.effect.{ConcurrentEffect, Fiber, IO}
 import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -31,6 +30,8 @@ import java.net.URI
 import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext
 import scala.util.Random
+import cats.effect.{ Deferred, Ref }
+import cats.effect.std.Semaphore
 
 final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
     implicit cs: ContextShift[IO],
@@ -52,9 +53,8 @@ object WookieeGrpcChannel {
   def of(
       settings: ChannelSettings
   )(
-      implicit cs: ContextShift[IO],
+      implicit
       concurrent: ConcurrentEffect[IO],
-      blocker: Blocker,
       logger: Logger[IO]
   ): IO[WookieeGrpcChannel] =
     for {
@@ -141,7 +141,7 @@ object WookieeGrpcChannel {
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings],
       maybeInterceptors: Option[List[ClientInterceptor]]
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
+  )(implicit logger: Logger[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
       randomScheme <- IO { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }

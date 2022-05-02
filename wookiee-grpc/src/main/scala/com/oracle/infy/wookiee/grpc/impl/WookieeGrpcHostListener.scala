@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.{Blocker, ContextShift, IO}
+import cats.effect.IO
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract._
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}

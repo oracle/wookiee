@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.Deferred
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, IO}
+import cats.effect.{ConcurrentEffect, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
@@ -13,6 +12,7 @@ import fs2.concurrent.Queue
 import org.typelevel.log4cats.noop.NoOpLogger
 
 import scala.concurrent.ExecutionContext
+import cats.effect.Deferred
 
 object UnitTestConstable extends ConstableCommon {
 

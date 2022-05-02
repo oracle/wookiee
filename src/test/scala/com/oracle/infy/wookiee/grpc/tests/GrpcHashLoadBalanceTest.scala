@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.IO
 import cats.implicits.{catsSyntaxEq => _}
 import com.oracle.infy.wookiee.grpc.common.{ConstableCommon, UTestScalaCheck}
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinHashedPolicy
@@ -19,6 +19,7 @@ import java.net.ServerSocket
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
 import scala.util.hashing.MurmurHash3
+import cats.effect.Temporal
 
 object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
@@ -28,9 +29,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       curator: CuratorFramework
   )(
       implicit mainEC: ExecutionContext,
-      cs: ContextShift[IO],
-      blocker: Blocker,
-      timer: Timer[IO],
+      timer: Temporal[IO],
       logger: Logger[IO]
   ): Tests = {
     val testHashLoadBalancer = {

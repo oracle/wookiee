@@ -2,8 +2,7 @@ package com.oracle.infy.wookiee.grpc.impl
 
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
-import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Blocker, ContextShift, Fiber, IO}
+import cats.effect.{Fiber, IO}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -14,6 +13,8 @@ import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
 import org.typelevel.log4cats.Logger
 
 import java.net.InetSocketAddress
+import cats.effect.Ref
+import cats.effect.std.Semaphore
 
 protected[grpc] class WookieeNameResolver(
     listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],

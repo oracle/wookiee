@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc.tests
 
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.impl.TestInterceptors.{
   TestClientInterceptor,
   TestServerInterceptor,
@@ -23,14 +23,13 @@ import utest.{Tests, test}
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.{ExecutionContext, Future}
+import cats.effect.Temporal
 
 object GrpcTLSAuthTest {
 
   def tests(
       implicit implicitEC: ExecutionContext,
-      cs: ContextShift[IO],
-      blocker: Blocker,
-      timer: Timer[IO],
+      timer: Temporal[IO],
       logger: Logger[IO]
   ): Tests = {
 

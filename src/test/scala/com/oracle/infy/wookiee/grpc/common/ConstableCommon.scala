@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.grpc.common
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import cats.data.EitherT
-import cats.effect.{ContextShift, IO, Timer}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import org.scalacheck.Prop
 import utest.framework.{Formatter, HTree, Result}
@@ -12,6 +12,7 @@ import utest.{TestRunner, Tests, ufansi}
 
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
+import cats.effect.Temporal
 
 trait ConstableCommon {
 
@@ -92,7 +93,7 @@ trait ConstableCommon {
 
   def runTestsAsync(
       tests: List[(Tests, String)]
-  )(implicit ec: ExecutionContext, cs: ContextShift[IO]): List[HTree[String, Result]] =
+  )(implicit ec: ExecutionContext): List[HTree[String, Result]] =
     IO.fromFuture {
         IO {
           Future
@@ -123,7 +124,7 @@ trait ConstableCommon {
       println("\"Laws change, depending on who's making them, but justice is justice.\" - Constable Odo")
     }
 
-  implicit def sleep(implicit timer: Timer[IO]): FiniteDuration => IO[Unit] = { duration: FiniteDuration =>
+  implicit def sleep(implicit timer: Temporal[IO]): FiniteDuration => IO[Unit] = { duration: FiniteDuration =>
     IO.sleep(duration)
   }
 }
