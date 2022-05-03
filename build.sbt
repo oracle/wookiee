@@ -56,7 +56,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   logBuffered in Test := false,
   publishArtifact in (Compile, packageDoc) := false,
   addCompilerPlugin(scalafixSemanticdb),
-  scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.12",
+  scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
   scalacOptions := scalaVersion.map {
     case `LatestScalaVersion` if warnUnused =>
       commonScalacOptions ++ Seq("-Ywarn-unused")
