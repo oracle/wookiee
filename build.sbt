@@ -1,5 +1,4 @@
 import java.io.File
-
 import sbt.Keys.{libraryDependencies, _}
 import sbt._
 
@@ -144,6 +143,23 @@ lazy val `wookiee-grpc` = project
     libraryDependencies ++= Deps.build.wookieeGrpc
   )
 
+lazy val `wookiee-grpc-tests` = project
+  .in(file("wookiee-grpc-tests"))
+  .settings(commonSettings(true))
+  .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
+    libraryDependencies ++= Seq(
+      Deps.build.zookeeper,
+      Deps.test.curatorTest,
+      Deps.test.log4CatsNoop,
+      Deps.test.scalacheck,
+      Deps.test.scalatest,
+      Deps.test.µTest
+    )
+  )
+  .dependsOn(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
+  .aggregate(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
+
 lazy val `wookiee-functional-metrics` = project
   .in(file("wookiee-functional-metrics"))
   .settings(commonSettings(true))
@@ -252,6 +268,7 @@ lazy val root = project
   .dependsOn(
     `wookiee-core`,
     `wookiee-grpc-dev`,
+    `wookiee-grpc-tests`,
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
@@ -268,6 +285,7 @@ lazy val root = project
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
+    `wookiee-grpc-tests`,
     `wookiee-proto`,
     `wookiee-health`,
     `wookiee-akka-http`,

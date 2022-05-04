@@ -1,17 +1,12 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.std.{Queue, Semaphore}
-import cats.effect.{Deferred, FiberIO, IO, Ref, unsafe}
+import cats.effect.std.{Dispatcher, Queue, Semaphore}
+import cats.effect.{Deferred, FiberIO, IO, Ref}
 import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, scalaToJavaExecutor}
-import com.oracle.infy.wookiee.grpc.impl.{
-  BearerTokenClientProvider,
-  Fs2CloseableImpl,
-  WookieeNameResolver,
-  ZookeeperHostnameService
-}
+import com.oracle.infy.wookiee.grpc.impl.{BearerTokenClientProvider, Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
 import com.oracle.infy.wookiee.grpc.loadbalancers.Pickers.{ConsistentHashingReadyPicker, WeightedReadyPicker}
 import com.oracle.infy.wookiee.grpc.loadbalancers.WookieeLoadBalancer
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => LBPolicy}
@@ -50,7 +45,7 @@ object WookieeGrpcChannel {
   )(
       implicit
       logger: Logger[IO],
-      runtime: unsafe.IORuntime
+      dispatcher: Dispatcher[IO]
   ): IO[WookieeGrpcChannel] =
     for {
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
@@ -134,7 +129,7 @@ object WookieeGrpcChannel {
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings],
       maybeInterceptors: Option[List[ClientInterceptor]]
-  )(implicit logger: Logger[IO], runtime: unsafe.IORuntime): IO[ManagedChannel] = {
+  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
       randomScheme <- IO.blocking { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
@@ -209,7 +204,7 @@ object WookieeGrpcChannel {
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       scheme: String
-  )(implicit logger: Logger[IO], runtime: unsafe.IORuntime)
+  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO])
       extends NameResolverProvider {
 
     def newNameResolver(notUsedUri: URI, args: NameResolver.Args): NameResolver = {

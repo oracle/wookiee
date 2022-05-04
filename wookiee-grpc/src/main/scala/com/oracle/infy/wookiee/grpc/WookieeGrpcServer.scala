@@ -40,9 +40,6 @@ final class WookieeGrpcServer(
       _ <- IO.blocking(server.shutdown())
     } yield ()
 
-  def awaitTermination(): IO[Unit] =
-    IO.blocking(server.awaitTermination())
-
   def assignLoad(load: Int): IO[Unit] =
     loadQueue.offer(load)
 
@@ -66,8 +63,7 @@ object WookieeGrpcServer {
 
   def start(serverSettings: ServerSettings)(
       implicit
-      logger: Logger[IO],
-      timer: Temporal[IO]
+      logger: Logger[IO]
   ): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host

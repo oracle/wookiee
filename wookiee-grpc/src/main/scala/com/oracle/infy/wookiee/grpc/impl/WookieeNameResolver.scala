@@ -2,8 +2,8 @@ package com.oracle.infy.wookiee.grpc.impl
 
 import _root_.io.grpc.NameResolver.ResolutionResult
 import cats.data.EitherT
-import cats.effect.std.Semaphore
-import cats.effect.{FiberIO, IO, Ref, unsafe}
+import cats.effect.std.{Dispatcher, Semaphore}
+import cats.effect.{FiberIO, IO, Ref}
 import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -22,7 +22,7 @@ protected[grpc] class WookieeNameResolver(
     hostNameService: HostnameServiceContract[IO, Stream],
     discoveryPath: String,
     serviceAuthority: String
-)(implicit logger: Logger[IO], runtime: unsafe.IORuntime)
+)(implicit logger: Logger[IO], dispatcher: Dispatcher[IO])
     extends NameResolver {
 
   override def getServiceAuthority: String = serviceAuthority
@@ -42,7 +42,7 @@ protected[grpc] class WookieeNameResolver(
       }
     } yield ()
 
-    semaphore.acquire.bracket(_ => computation)(_ => semaphore.release).unsafeRunSync()
+    dispatcher.unsafeRunSync(semaphore.acquire.bracket(_ => computation)(_ => semaphore.release))
   }
 
   def listenerCallback(listener: NameResolver.Listener2): Set[Host] => IO[Unit] = { hosts =>
@@ -77,7 +77,7 @@ protected[grpc] class WookieeNameResolver(
       _ <- logger.info("Running listener in the background")
     } yield ()
 
-    semaphore.acquire.bracket(_ => computation)(_ => semaphore.release).unsafeRunSync()
+    dispatcher.unsafeRunSync(semaphore.acquire.bracket(_ => computation)(_ => semaphore.release))
   }
 
   override def refresh(): Unit = {}
