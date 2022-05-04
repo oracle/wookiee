@@ -110,8 +110,8 @@ object IntegrationConstable extends ConstableCommon {
         )
         IO(result)
       }
+    exitNegativeOnFailure(result.unsafeRunSync())
     curator.close()
     zkFake.stop()
-    exitNegativeOnFailure(result.unsafeRunSync())
   }
 }

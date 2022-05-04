@@ -149,7 +149,6 @@ lazy val `wookiee-grpc-tests` = project
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
-      Deps.build.zookeeper,
       Deps.test.curatorTest,
       Deps.test.log4CatsNoop,
       Deps.test.scalacheck,
