@@ -144,6 +144,16 @@ lazy val `wookiee-grpc` = project
     libraryDependencies ++= Deps.build.wookieeGrpc
   )
 
+lazy val `wookiee-grpc-component` = project
+  .in(file("wookiee-grpc-component"))
+  .settings(commonSettings(true))
+  .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
+    libraryDependencies ++= Deps.build.wookieeGrpc
+  )
+  .dependsOn(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
+  .aggregate(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
+
 lazy val `wookiee-functional-metrics` = project
   .in(file("wookiee-functional-metrics"))
   .settings(commonSettings(true))
