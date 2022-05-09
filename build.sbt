@@ -148,6 +148,13 @@ lazy val `wookiee-grpc-tests` = project
   .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
+    test := {
+      (test in Test).value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
+    },
     libraryDependencies ++= Seq(
       Deps.test.curatorTest,
       Deps.test.log4CatsNoop,
@@ -254,10 +261,6 @@ lazy val root = project
     testFrameworks += new TestFramework("utest.runner.Framework"),
     test := {
       (test in Test).value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
       ((Keys.`package` in Compile) dependsOn (test in Compile)).value
