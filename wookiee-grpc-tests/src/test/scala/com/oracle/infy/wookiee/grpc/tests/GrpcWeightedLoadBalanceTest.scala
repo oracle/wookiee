@@ -247,13 +247,13 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
             server3
               .enterQuarantine()
           )
-          _ <- Future { Thread.sleep(500L) }
+          _ <- dispatcher.unsafeToFuture(IO.sleep(5.seconds))
           res3 <- verifyLastServerIsUsed(quarantined = true)
           _ <- dispatcher.unsafeToFuture(
             server3
               .exitQuarantine()
           )
-          _ <- Future { Thread.sleep(500L) }
+          _ <- dispatcher.unsafeToFuture(IO.sleep(500.millis))
           res4 <- verifyLastServerIsUsed(quarantined = false)
           _ <- dispatcher.unsafeToFuture(server3.shutdown())
         } yield res2 && !res3 && res4
