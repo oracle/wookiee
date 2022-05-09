@@ -6,7 +6,12 @@ import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, scalaToJavaExecutor}
-import com.oracle.infy.wookiee.grpc.impl.{BearerTokenClientProvider, Fs2CloseableImpl, WookieeNameResolver, ZookeeperHostnameService}
+import com.oracle.infy.wookiee.grpc.impl.{
+  BearerTokenClientProvider,
+  Fs2CloseableImpl,
+  WookieeNameResolver,
+  ZookeeperHostnameService
+}
 import com.oracle.infy.wookiee.grpc.loadbalancers.Pickers.{ConsistentHashingReadyPicker, WeightedReadyPicker}
 import com.oracle.infy.wookiee.grpc.loadbalancers.WookieeLoadBalancer
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => LBPolicy}
