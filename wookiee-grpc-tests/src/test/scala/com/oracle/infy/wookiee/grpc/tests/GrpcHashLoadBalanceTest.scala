@@ -17,6 +17,7 @@ import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import java.net.ServerSocket
+import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
 import scala.util.hashing.MurmurHash3
@@ -241,7 +242,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
           curatorFramework = curator
         )
         server3: WookieeGrpcServer <- dispatcher.unsafeToFuture(WookieeGrpcServer.start(serverSettings3))
-        _ <- Future { Thread.sleep(500L) }
+        _ <- dispatcher.unsafeToFuture(IO.sleep(500.millis))
         result2 <- verifyConsistentHashing(List(host1, host2, host3))
         result3 <- verifyRoundRobin()
 
@@ -269,6 +270,6 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
     try {
       socket.setReuseAddress(true)
       socket.getLocalPort
-    } finally if (socket != null) socket.close()
+    } finally if (Option(socket).nonEmpty) socket.close()
   }
 }

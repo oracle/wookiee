@@ -281,6 +281,6 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
     try {
       socket.setReuseAddress(true)
       socket.getLocalPort
-    } finally if (socket != null) socket.close()
+    } finally if (Option(socket).nonEmpty) socket.close()
   }
 }
