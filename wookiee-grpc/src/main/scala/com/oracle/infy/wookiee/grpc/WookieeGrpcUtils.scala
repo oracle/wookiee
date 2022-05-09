@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.{IO, Resource}
+import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.retry.RetryForever
@@ -14,17 +14,12 @@ object WookieeGrpcUtils {
       zkQuorumString: String,
       retryInterval: FiniteDuration,
       zookeeperBlockingExecutionContext: ExecutionContext
-  ): Resource[IO, CuratorFramework] = {
-    Resource.make {
-      IO.blocking {
-        curatorFramework(
-          zkQuorumString,
-          zookeeperBlockingExecutionContext,
-          new RetryForever(retryInterval.toMillis.toInt)
-        )
-      }
-    } { r =>
-      IO.blocking(r.close())
+  ): IO[CuratorFramework] =
+    IO.blocking {
+      curatorFramework(
+        zkQuorumString,
+        zookeeperBlockingExecutionContext,
+        new RetryForever(retryInterval.toMillis.toInt)
+      )
     }
-  }
 }

@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
 import cats.effect.IO
+import cats.effect.std.Dispatcher
 import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 
 import java.lang.Thread.UncaughtExceptionHandler
@@ -73,6 +74,11 @@ object Example {
     scheduler.setRemoveOnCancelPolicy(true)
     implicit val runtime: IORuntime =
       IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduler), () => (), IORuntimeConfig())
+
+    implicit val dispatcher: Dispatcher[IO] = new Dispatcher[IO] {
+      override def unsafeToFutureCancelable[A](fa: IO[A]): (Future[A], () => Future[Unit]) =
+        fa.unsafeToFutureCancelable()
+    }
 
     implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
