@@ -5,7 +5,12 @@ import com.google.protobuf.StringValue
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResponse, GrpcDefinition}
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
-import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{GrpcMockStub, GrpcServiceOne, GrpcServiceThree, GrpcServiceTwo}
+import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{
+  GrpcMockStub,
+  GrpcServiceOne,
+  GrpcServiceThree,
+  GrpcServiceTwo
+}
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.typesafe.config.Config
@@ -21,13 +26,19 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
   override def config: Config = TestModels.conf(zkPort, grpcPort)
 
-  override def servicesMap: Option[Map[String, Class[_ <: Service]]] = Some(Map(
-    "testservice" -> classOf[TestService]
-  ))
+  override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
+    Some(
+      Map(
+        "testservice" -> classOf[TestService]
+      )
+    )
 
-  override def componentMap: Option[Map[String, Class[_ <: Component]]] = Some(Map(
-    "wookiee-grpc-component" -> classOf[GrpcManager]
-  ))
+  override def componentMap: Option[Map[String, Class[_ <: Component]]] =
+    Some(
+      Map(
+        "wookiee-grpc-component" -> classOf[GrpcManager]
+      )
+    )
 
   "gRPC Manager" should {
     "load up fully" in {
@@ -40,11 +51,15 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     }
 
     "register a simple gRPC service" in {
-      GrpcManager.registerGrpcService(system, "manager-spec", List(
-        new GrpcDefinition(new GrpcServiceOne().bindService()),
-        new GrpcDefinition(new GrpcServiceTwo().bindService()),
-        new GrpcDefinition(new GrpcServiceThree().bindService())
-      ))
+      GrpcManager.registerGrpcService(
+        system,
+        "manager-spec",
+        List(
+          new GrpcDefinition(new GrpcServiceOne().bindService()),
+          new GrpcDefinition(new GrpcServiceTwo().bindService()),
+          new GrpcDefinition(new GrpcServiceThree().bindService())
+        )
+      )
       GrpcManager.waitForManager(system, waitForClean = true)
 
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "")

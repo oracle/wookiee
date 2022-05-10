@@ -16,26 +16,35 @@ import scala.util.Try
 trait GrpcServer extends ExtensionHostServices {
 
   def startGrpcServers(
-                        services: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])],
-                        config: Config
-                      )(implicit
-                        ec: ExecutionContext,
-                        blocker: Blocker,
-                        logger: Logger[IO],
-                        timer: Timer[IO],
-                        cs: ContextShift[IO]
-                      ): IO[WookieeGrpcServer] = {
-    val sslSettings: Option[SSLServerSettings] = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.cert-chain-path")).toOption.map({ certPath =>
-      SSLServerSettings(
-        certPath,
-        config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.private-key-path"),
-        Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.passphrase")).toOption,
-        Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.cert-trust-path")).toOption)
-    })
+      services: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])],
+      config: Config
+  )(
+      implicit
+      ec: ExecutionContext,
+      blocker: Blocker,
+      logger: Logger[IO],
+      timer: Timer[IO],
+      cs: ContextShift[IO]
+  ): IO[WookieeGrpcServer] = {
+    val sslSettings: Option[SSLServerSettings] =
+      Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.cert-chain-path"))
+        .toOption
+        .map({ certPath =>
+          SSLServerSettings(
+            certPath,
+            config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.private-key-path"),
+            Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.passphrase")).toOption,
+            Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.cert-trust-path")).toOption
+          )
+        })
 
-    val zkPath = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.zk-discovery-path")).recover { _ =>
-      throw new IllegalArgumentException(s"Need to set config field [${GrpcManager.ComponentName}.grpc.zk-discovery-path]")
-    }.getOrElse("")
+    val zkPath = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.zk-discovery-path"))
+      .recover { _ =>
+        throw new IllegalArgumentException(
+          s"Need to set config field [${GrpcManager.ComponentName}.grpc.zk-discovery-path]"
+        )
+      }
+      .getOrElse("")
     val port = config.getInt(s"${GrpcManager.ComponentName}.grpc.port")
 
     val serverSettings = ServerSettings(
@@ -54,10 +63,11 @@ trait GrpcServer extends ExtensionHostServices {
 
     val hostName = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.server-host-name"))
     val finalServerSettings = hostName
-      .map(hostName =>
-        serverSettings.copy(
-          host = IO(Host(0, hostName, port, HostMetadata(0, quarantined = false)))
-        )
+      .map(
+        hostName =>
+          serverSettings.copy(
+            host = IO(Host(0, hostName, port, HostMetadata(0, quarantined = false)))
+          )
       )
       .getOrElse(serverSettings)
 

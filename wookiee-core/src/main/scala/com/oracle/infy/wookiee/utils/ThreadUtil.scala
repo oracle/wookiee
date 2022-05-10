@@ -8,12 +8,13 @@ import java.util.concurrent.{Executors, ForkJoinPool, ForkJoinWorkerThread, Sche
 import scala.concurrent.ExecutionContext
 
 object ThreadUtil extends LoggingAdapter {
+
   // Be sure threadNames is unique or it could lead to deadlocks
   // If parallelism = None then we'll use a cached thread pool with no size limit, if Some(1) we'll use a single thread pool
   def createEC(
-                threadNames: String,
-                parallelism: Option[Int] = None // scalafix:ok
-              ): ExecutionContext = {
+      threadNames: String,
+      parallelism: Option[Int] = None // scalafix:ok
+  ): ExecutionContext = {
     ExecutionContext
       .fromExecutor(parallelism match {
         case Some(1) =>
@@ -33,9 +34,9 @@ object ThreadUtil extends LoggingAdapter {
   }
 
   def scheduledThreadPoolExecutor(
-                                   prefix: String,
-                                   threads: Int
-                                 ): ScheduledThreadPoolExecutor = {
+      prefix: String,
+      threads: Int
+  ): ScheduledThreadPoolExecutor = {
     val tp = new ScheduledThreadPoolExecutor(
       threads,
       threadFactory(s"$prefix-scheduled")
@@ -45,20 +46,24 @@ object ThreadUtil extends LoggingAdapter {
   }
 
   def uncaughtExceptionHandler: UncaughtExceptionHandler = new UncaughtExceptionHandler {
+
     override def uncaughtException(t: Thread, e: Throwable): Unit = {
       log.error(s"TU400: Got an uncaught exception $e on thread ${t.getName}", e)
     }
   }
 
-  def forkJoinWorkerThreadFactoryFactory(prefix: String): ForkJoinWorkerThreadFactory = new ForkJoinWorkerThreadFactory {
-    override def newThread(pool: ForkJoinPool): ForkJoinWorkerThread = {
-      val worker = ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool)
-      worker.setName(s"$prefix-${worker.getPoolIndex}")
-      worker
+  def forkJoinWorkerThreadFactoryFactory(prefix: String): ForkJoinWorkerThreadFactory =
+    new ForkJoinWorkerThreadFactory {
+
+      override def newThread(pool: ForkJoinPool): ForkJoinWorkerThread = {
+        val worker = ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool)
+        worker.setName(s"$prefix-${worker.getPoolIndex}")
+        worker
+      }
     }
-  }
 
   def threadFactory(prefix: String): ThreadFactory = new ThreadFactory {
+
     override def newThread(r: Runnable): Thread = {
       val t = new Thread(r)
       t.setName(s"$prefix-${t.getId.toString}")

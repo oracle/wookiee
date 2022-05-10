@@ -8,10 +8,8 @@ import io.grpc.stub.{AbstractStub, ServerCalls, StreamObserver}
 import io.grpc.stub.ClientCalls.blockingUnaryCall
 import io.grpc.stub.ServerCalls.asyncUnaryCall
 
-
 object TestModels {
-  def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(
-    s"""
+  def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(s"""
        |wookiee-system {
        |  grpc-config {
        |    boss-threads = 5
@@ -35,13 +33,14 @@ object TestModels {
   trait GrpcMethodHolder {
     import io.grpc.MethodDescriptor
 
-    protected def basicMethod(serviceName: String): MethodDescriptor[StringValue, StringValue] = MethodDescriptor
-      .newBuilder[StringValue, StringValue]
-      .setType(MethodDescriptor.MethodType.UNARY)
-      .setFullMethodName(s"$serviceName/serve")
-      .setRequestMarshaller(ProtoUtils.marshaller(StringValue.getDefaultInstance))
-      .setResponseMarshaller(ProtoUtils.marshaller(StringValue.getDefaultInstance))
-      .build
+    protected def basicMethod(serviceName: String): MethodDescriptor[StringValue, StringValue] =
+      MethodDescriptor
+        .newBuilder[StringValue, StringValue]
+        .setType(MethodDescriptor.MethodType.UNARY)
+        .setFullMethodName(s"$serviceName/serve")
+        .setRequestMarshaller(ProtoUtils.marshaller(StringValue.getDefaultInstance))
+        .setResponseMarshaller(ProtoUtils.marshaller(StringValue.getDefaultInstance))
+        .build
   }
 
   class GrpcMockStub(channel: Channel) extends AbstractStub[GrpcMockStub](channel) with GrpcMethodHolder {
