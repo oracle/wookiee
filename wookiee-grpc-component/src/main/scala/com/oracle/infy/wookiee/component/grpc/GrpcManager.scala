@@ -1,26 +1,110 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import cats.data.EitherT
+import akka.actor.{ActorRef, ActorSystem, PoisonPill}
+import akka.pattern.ask
+import akka.util.Timeout
+import cats.data.{EitherT, NonEmptyList}
 import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
-import com.oracle.infy.wookiee.component.grpc.GrpcManager._
+import com.oracle.infy.wookiee.component.grpc.server.{ExecutionContextHelpers, GrpcServer}
 import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
+import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.settings.ServiceAuthSettings
-import com.oracle.infy.wookiee.grpc.utils.implicits.ToEitherT
-import io.grpc.{ServerServiceDefinition}
+import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.typesafe.config.Config
+import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.typelevel.log4cats.Logger
 
 import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.DurationInt
+import scala.collection.concurrent.TrieMap
+import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
 
-object GrpcManager {
+object GrpcManager extends LoggingAdapter {
+  val ComponentName = "wookiee-grpc-component"
 
-  case class GrpcDefinitions(list: List[(ServerServiceDefinition, Option[ServiceAuthSettings])])
+  // Actor of type GrpcManager
+  // @throws IllegalStateException if manager has not been registered
+  def getGrpcManager(system: ActorSystem): ActorRef = getMediator(system)
+
+  /**
+   * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
+   * @param system Main Wookiee Actor System, should be accessible as system, context.system, or actorSystem in any Actor
+   * @param groupName Name of this group of gRPC services, the value is arbitrary but should be unique for each list of definitions on a server
+   * @param defs The list of GrpcDefinition objects we'll use to know what to register
+   * @throws IllegalStateException If manager actor hasn't started yet, consider calling waitForManager(system) if this happens
+   */
+  def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit = {
+    val manager = getGrpcManager(system)
+    // TODO Fill this in, should be all that's left
+  }
+
+  // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
+  // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
+  def waitForManager(system: ActorSystem, waitForClean: Boolean = false): Unit = {
+    println("Waiting for grpc manager to report clean")
+    implicit val mainEC: ExecutionContext = system.dispatcher
+    implicit val timeout: Timeout = Timeout(15.seconds)
+
+    def cleanCheck(): Boolean = {
+      grpcManagerMap.get(system) match {
+        case Some(grpcManagerActor) =>
+          val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 15.seconds)
+          if (waitForClean) resp.clean else true
+        case None => false
+      }
+    }
+
+    val cleanWaiter = Future {
+      while (!cleanCheck()) {} // scalafix:ok
+    }
+    Await.result(cleanWaiter, 20.seconds)
+    log.info("Grpc Manager is clean and ready to go")
+  }
+
+  private val grpcManagerMap = TrieMap[ActorSystem, ActorRef]()
+
+  private[wookiee] def getMediator(system: ActorSystem): ActorRef = {
+    grpcManagerMap.get(system) match {
+      case Some(zkActor) => zkActor
+      case None => throw new IllegalStateException(s"No gRPC Manager Registered for System: [$system]")
+    }
+  }
+
+  private[wookiee] def registerMediator(actor: ActorRef)(implicit system: ActorSystem) = {
+    log.info(s"Registering gRPC Manager: [${actor.path}], for actor system: [$system]")
+    grpcManagerMap.put(system, actor)
+  }
+
+  private[wookiee] def unregisterMediator(system: ActorSystem): Unit = {
+    if (grpcManagerMap.contains(system)) {
+      log.info(s"Unregistering gRPC Manager for actor system: [$system]")
+      grpcManagerMap.remove(system) foreach(_ ! PoisonPill)
+      ()
+    }
+  }
+
+  class GrpcDefinition(val definition: ServerServiceDefinition,
+                       val authSettings: Option[ServiceAuthSettings] = None,
+                       val interceptors: Option[List[ServerInterceptor]] = None) {
+    def this(definition: ServerServiceDefinition) =
+      this(definition, None, None)
+
+    // Won't break if authSettings == null
+    def this(definition: ServerServiceDefinition, authSettings: ServiceAuthSettings) =
+      this(definition, Option(authSettings), None)
+
+    // Won't break if authSettings or interceptors == null
+    def this(definition: ServerServiceDefinition, authSettings: ServiceAuthSettings, intercepts: java.util.List[ServerInterceptor]) = {
+      this(definition, Option(authSettings), Option(intercepts).map(_.asScala))
+    }
+  }
 
   case class GrpcDefinitionsAck()
 
-  case class GrpcServiceDefinition(name: String, services: GrpcDefinitions)
+  case class GrpcServiceDefinition(name: String, services: java.util.List[GrpcDefinition])
 
   case class InitializeServers()
 
@@ -30,37 +114,54 @@ object GrpcManager {
 }
 
 
-class GrpcManager(name: String) extends Component(name) {
+class GrpcManager(name: String) extends Component(name) with ExecutionContextHelpers with GrpcServer {
+  import GrpcManager._
 
   private val server: AtomicReference[Option[WookieeGrpcServer]] = new AtomicReference(None)
 
   override def preStart(): Unit = {
     super.preStart()
 
-    log.info(s"GRPCM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
+    log.info(s"WGM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
+    // Register this actor so others can access it
+    GrpcManager.registerMediator(self)
     context.become(clean(Map(), None))
   }
 
   override def postStop(): Unit = {
     super.postStop()
 
-    log.info(s"GRPCM400: Stopping the CDR gRPC Manager and shutting down server..")
+    log.info(s"WGM400: Stopping the CDR gRPC Manager and shutting down server..")
+    GrpcManager.unregisterMediator(actorSystem)
     server.get().foreach(_.awaitTermination().unsafeRunAsyncAndForget())
+  }
+
+  def becomeDirty(currentDefs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
+               server: Option[WookieeGrpcServer],
+               groupName: String,
+               newDefs: List[GrpcDefinition],
+               initialize: Boolean = false): Unit = {
+    import context.dispatcher
+
+    log.info(s"WGM101: Entity [$groupName] wants to load ${newDefs.size} gRPC service definitions..")
+    context.become(dirty(currentDefs.updated(groupName, newDefs.map { defin: GrpcDefinition =>
+      (defin.definition, defin.authSettings, defin.interceptors)
+    }), server))
+
+    if (initialize)
+      context.system.scheduler.scheduleOnce(10.seconds, self, InitializeServers())
+
+    sender() ! GrpcDefinitionsAck()
   }
 
   // We will usually be in this state, until we get a GrpcServiceDefinition call which sends us into the dirty state
   def clean(
-             defs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings])]],
+             defs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
              server: Option[WookieeGrpcServer]
            ): Receive =
     super.receive orElse {
       case GrpcServiceDefinition(name, services) =>
-        import context.dispatcher
-
-        log.info(s"GRPCM101: Entity [$name] wants to load ${services.list.size} gRPC service definitions..")
-        context.become(dirty(defs.updated(name, services.list), server))
-        context.system.scheduler.scheduleOnce(10.seconds, self, InitializeServers())
-        sender() ! GrpcDefinitionsAck()
+        becomeDirty(defs, server, name, services.asScala, initialize = true)
 
       case _: InitializeServers => // Do nothing, we've already started gRPC server for all registered defs
       case _: CleanCheck => sender() ! CleanResponse(server.isDefined)
@@ -69,22 +170,20 @@ class GrpcManager(name: String) extends Component(name) {
   // From this state we will wait 5 seconds (to let other definitions roll in) then we'll get an
   // InitializeServers call which will trigger the start of the gRPC server
   def dirty(
-             defs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings])]],
+             defs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
              server: Option[WookieeGrpcServer]
            ): Receive =
     super.receive orElse {
       case GrpcServiceDefinition(name, services) =>
-        log.info(s"GRPCM102: Entity [$name] wants to load ${services.list.size} gRPC service definitions..")
-        context.become(dirty(defs.updated(name, services.list), server))
-        sender() ! GrpcDefinitionsAck()
+        becomeDirty(defs, server, name, services.asScala)
 
       case _: InitializeServers =>
-        log.info(s"GRPCM103: Got message to start gRPC for ${defs.values.flatten.size} gRPC service definitions..")
+        log.info(s"WGM103: Got message to start gRPC for ${defs.values.flatten.size} gRPC service definitions..")
         val newServer = startGrpc(defs, server)
         if (newServer.isDefined)
-          log.info(s"GRPCM104: Successfully started gRPC Manager's services")
+          log.info(s"WGM104: Successfully started gRPC Manager's services")
         else
-          log.warn(s"GRPCM105: Failed to start gRPC Manager's services, check logs above")
+          log.warn(s"WGM105: Failed to start gRPC Manager's services, check logs above")
 
         this.server.set(newServer)
         context.become(clean(defs, newServer))
@@ -92,62 +191,61 @@ class GrpcManager(name: String) extends Component(name) {
       case _: CleanCheck => sender() ! CleanResponse(false)
     }
 
-  private def shutdownCurrent(currentServer: Option[WookieeGrpcServer]): EitherT[IO, CdrError, Unit] = {
+  private def shutdownCurrent(currentServer: Option[WookieeGrpcServer]): EitherT[IO, WookieeGrpcError, Unit] = {
     (currentServer match {
       case Some(server) => server.shutdown()
       case _ => IO.unit
-    }).toEitherT
+    }).toEitherT(err => UnknownShutdownError(err.getMessage))
   }
 
   private def startGrpc(
-                         definitions: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings])]],
+                         definitions: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
                          currentServer: Option[WookieeGrpcServer]
                        ): Option[WookieeGrpcServer] = try {
-    implicit val configSource: ConfigObjectSource = ConfigSource.fromConfig(config)
+    implicit val conf: Config = config
     implicit val cs: ContextShift[IO] = IO.contextShift(context.dispatcher)
 
     (for {
-      implicit0(config: CdrConfig) <- parseConfig(configSource)
-      implicit0(blocker: Blocker) <- IO(createEC("grpc-manager-blocking")).toEitherT.map(Blocker.liftExecutionContext)
+      implicit0(blocker: Blocker) <- IO(createEC("grpc-manager-blocking"))
+        .map(Blocker.liftExecutionContext).toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
       implicit0(logger: Logger[IO]) <- appLogger
       scheduledExecutor <- scheduledThreadPoolExecutor("grpc-manager")
-      dispatcherExecutorContext <- IO(createEC("grpc-manager-dispatcher")).toEitherT
-      implicit0(mainEC: ExecutionContext) <- IO(createEC("grpc-manager-main")).toEitherT
+      dispatcherEC <- IO(createEC("grpc-manager-dispatcher"))
+        .toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
 
-      implicit0(timer: Timer[IO]) = IO.timer(dispatcherExecutorContext, scheduledExecutor)
+      implicit0(timer: Timer[IO]) = IO.timer(dispatcherEC, scheduledExecutor)
       defs = definitions.values.flatten.toList
       // Shutdown existing server if present
       _ <- shutdownCurrent(currentServer)
       server <-
         defs.headOption match {
           case Some(first) =>
+            implicit val mainEC: ExecutionContext = createEC("grpc-manager-main")
             val someStart = startGrpcServers(NonEmptyList(first, defs.drop(1)), config)
               .map(srv => Some(srv): Option[WookieeGrpcServer])
-            someStart.attemptT.leftMap(t => FailedToStartGrpcServerError(t.getMessage, t): CdrError)
+            someStart.attemptT.leftMap(t => FailedToStartGrpcServerError(t.getMessage): WookieeGrpcError)
           case None =>
-            log.info("GRPCM203: No Service Definitions Provided, Not Starting Server")
-            (None: Option[WookieeGrpcServer]).asRight[CdrError].toEitherT[IO]
+            log.info("WGM203: No Service Definitions Provided, Not Starting Server")
+            (None: Option[WookieeGrpcServer]).asRight[WookieeGrpcError].toEitherT[IO]
         }
     } yield server)
       .value
       .unsafeRunSync() match {
       case Left(err) =>
         err match {
-          case confErr: UnableToParseConfigError =>
-            writeError(s"GRPCM204: Unable to load config when starting gRPC: '${confErr.msg}'")
           case startFail: FailedToStartGrpcServerError =>
-            writeError(s"GRPCM205: Unable to start gRPC: '${startFail.msg}'", Some(startFail.err))
-          case cdrErr: CdrError =>
-            writeError(s"GRPCM206: Unknown error when starting gRPC: '$cdrErr'")
+            writeError(s"WGM205: Unable to start gRPC: '${startFail.err}'")
+          case cdrErr: WookieeGrpcError =>
+            writeError(s"WGM206: Unknown error when starting gRPC: '$cdrErr'")
         }
 
       case Right(server) => server
     }
   } catch {
     case initializerError: ExceptionInInitializerError =>
-      writeError(s"GRPCM210: Failed to start gRPC Service due to below error", Some(initializerError))
+      writeError(s"WGM210: Failed to start gRPC Service due to below error", Some(initializerError))
     case ex: Throwable =>
-      writeError(s"GRPCM211: Unexpected error when starting gRPC Service", Some(ex))
+      writeError(s"WGM211: Unexpected error when starting gRPC Service", Some(ex))
   }
 
   private def writeError(msg: String): Option[WookieeGrpcServer] = writeError(msg, None)
@@ -159,4 +257,6 @@ class GrpcManager(name: String) extends Component(name) {
     }
     None
   }
+
+  override def hostConfig: Config = config
 }

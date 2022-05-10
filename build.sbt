@@ -149,7 +149,10 @@ lazy val `wookiee-grpc-component` = project
   .settings(commonSettings(true))
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.wookieeGrpc
+    libraryDependencies ++= Deps.build.wookieeGrpc ++ Seq(
+      Deps.test.akkaTest, Deps.test.curatorTest, Deps.test.scalatest
+    ),
+    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
   )
   .dependsOn(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)

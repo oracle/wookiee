@@ -10,5 +10,5 @@ object Errors {
   final case class UnknownCuratorShutdownError(err: String) extends WookieeGrpcError
   final case class UnknownShutdownError(err: String) extends WookieeGrpcError
   final case class UnknownHostStreamError(err: String) extends WookieeGrpcError
-
+  final case class FailedToStartGrpcServerError(err: String) extends WookieeGrpcError
 }

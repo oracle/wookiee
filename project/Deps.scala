@@ -6,7 +6,7 @@ object Deps {
     val akkaVersion = "2.6.18"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.2.3"
-    val curatorVersion = "5.2.0"
+    val curatorVersion = "5.2.1"
     val catsVersion = "2.6.1"
     val catsEffectVersion = "2.5.4"
     val log4CatsVersion = "1.3.1"
