@@ -8,14 +8,18 @@ import cats.effect.{Blocker, ContextShift, IO, Timer}
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.{ExecutionContextHelpers, GrpcServer}
-import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.grpc.errors.Errors._
-import com.oracle.infy.wookiee.grpc.settings.ServiceAuthSettings
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServiceAuthSettings}
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
+import org.apache.curator.framework.CuratorFramework
 import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.collection.concurrent.TrieMap
@@ -37,8 +41,12 @@ object GrpcManager extends LoggingAdapter {
    * @throws IllegalStateException If manager actor hasn't started yet, consider calling waitForManager(system) if this happens
    */
   def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit = {
+    registerGrpcService(system, groupName, defs.asScala)
+  }
+
+  def registerGrpcService(system: ActorSystem, groupName: String, defs: List[GrpcDefinition]): Unit = {
     val manager = getGrpcManager(system)
-    // TODO Fill this in, should be all that's left
+    manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
@@ -62,6 +70,47 @@ object GrpcManager extends LoggingAdapter {
     }
     Await.result(cleanWaiter, 20.seconds)
     log.info("Grpc Manager is clean and ready to go")
+  }
+
+  /**
+   * Useful method for creating a gRPC channel to an existing gRPC service,
+   * such as the ones GrpcManager is capable of starting
+   *
+   * @param zkPath Config at 'wookiee-grpc-component.grpc.zk-discovery-path'
+   * @param zkConnect Zookeeper connect string, e.g. 'localhost:2121'
+   * @param bearerToken Optional bearer token if one is setup on the server, null or empty string otherwise
+   * @return A WookieeGrpcChannel that has a field .managedChannel() that can be put into stubs
+   */
+  def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel = {
+    val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
+    implicit val blocker: Blocker = Blocker.liftExecutionContext(ec)
+    implicit val cs: ContextShift[IO] = IO.contextShift(ec)
+    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+
+    def channelSettings(curatorFramework: CuratorFramework) = ChannelSettings(
+      serviceDiscoveryPath = zkPath,
+      eventLoopGroupExecutionContext = blocker.blockingContext,
+      channelExecutionContext = ec,
+      offloadExecutionContext = blocker.blockingContext,
+      eventLoopGroupExecutionContextThreads = 4,
+      lbPolicy = RoundRobinPolicy,
+      curatorFramework = curatorFramework,
+      sslClientSettings = None,
+      clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
+    )
+
+    (for {
+      curator <- WookieeGrpcUtils
+        .createCurator(
+          zkConnect,
+          5.seconds,
+          blocker.blockingContext
+        )
+      _ <- IO(curator.start())
+      channel <- WookieeGrpcChannel.of(channelSettings(curator))
+    } yield {
+      channel
+    }).unsafeRunSync()
   }
 
   private val grpcManagerMap = TrieMap[ActorSystem, ActorRef]()
@@ -136,24 +185,6 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
     server.get().foreach(_.awaitTermination().unsafeRunAsyncAndForget())
   }
 
-  def becomeDirty(currentDefs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
-               server: Option[WookieeGrpcServer],
-               groupName: String,
-               newDefs: List[GrpcDefinition],
-               initialize: Boolean = false): Unit = {
-    import context.dispatcher
-
-    log.info(s"WGM101: Entity [$groupName] wants to load ${newDefs.size} gRPC service definitions..")
-    context.become(dirty(currentDefs.updated(groupName, newDefs.map { defin: GrpcDefinition =>
-      (defin.definition, defin.authSettings, defin.interceptors)
-    }), server))
-
-    if (initialize)
-      context.system.scheduler.scheduleOnce(10.seconds, self, InitializeServers())
-
-    sender() ! GrpcDefinitionsAck()
-  }
-
   // We will usually be in this state, until we get a GrpcServiceDefinition call which sends us into the dirty state
   def clean(
              defs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
@@ -196,6 +227,24 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
       case Some(server) => server.shutdown()
       case _ => IO.unit
     }).toEitherT(err => UnknownShutdownError(err.getMessage))
+  }
+
+  private def becomeDirty(currentDefs: Map[String, List[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])]],
+                  server: Option[WookieeGrpcServer],
+                  groupName: String,
+                  newDefs: List[GrpcDefinition],
+                  initialize: Boolean = false): Unit = {
+    import context.dispatcher
+
+    log.info(s"WGM101: Entity [$groupName] wants to load ${newDefs.size} gRPC service definitions..")
+    context.become(dirty(currentDefs.updated(groupName, newDefs.map { defin: GrpcDefinition =>
+      (defin.definition, defin.authSettings, defin.interceptors)
+    }), server))
+
+    if (initialize)
+      context.system.scheduler.scheduleOnce(10.seconds, self, InitializeServers())
+
+    sender() ! GrpcDefinitionsAck()
   }
 
   private def startGrpc(

@@ -10,7 +10,7 @@ import io.grpc.stub.ServerCalls.asyncUnaryCall
 
 
 object TestModels {
-  def conf(zkPort: Int): Config = ConfigFactory.parseString(
+  def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(
     s"""
        |wookiee-system {
        |  grpc-config {
@@ -20,6 +20,14 @@ object TestModels {
        |
        |  zookeeper-config {
        |    connect-string = "localhost:$zkPort"
+       |  }
+       |
+       |  wookiee-grpc-component {
+       |    grpc {
+       |      port = $grpcPort
+       |      zk-discovery-path = "/grpc/local_dev"
+       |      server-host-name = "localhost"
+       |    }
        |  }
        |}
        |""".stripMargin)

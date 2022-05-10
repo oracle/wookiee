@@ -51,7 +51,7 @@ trait ExecutionContextHelpers extends LoggingAdapter {
     IO {
       val tp = new ScheduledThreadPoolExecutor(
         config.getInt(s"${GrpcManager.ComponentName}.dispatcher-threads"),
-        threadFactory(s"${config.getInt(s"${GrpcManager.ComponentName}.thread-prefix")}-$prefix-scheduled")
+        threadFactory(s"${config.getString(s"${GrpcManager.ComponentName}.thread-prefix")}-$prefix-scheduled")
       )
       tp.setRemoveOnCancelPolicy(true)
       tp
