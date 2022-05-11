@@ -39,10 +39,11 @@ trait GrpcServer extends ExtensionHostServices {
         })
 
     val zkPath = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.zk-discovery-path"))
-      .recover { _ =>
-        throw new IllegalArgumentException( //scalafix:ok
-          s"Need to set config field [${GrpcManager.ComponentName}.grpc.zk-discovery-path]"
-        )
+      .recover {
+        case _: Throwable =>
+          throw new IllegalArgumentException( //scalafix:ok
+            s"Need to set config field [${GrpcManager.ComponentName}.grpc.zk-discovery-path]"
+          )
       }
       .getOrElse("")
     val port = config.getInt(s"${GrpcManager.ComponentName}.grpc.port")
@@ -64,9 +65,9 @@ trait GrpcServer extends ExtensionHostServices {
     val hostName = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.server-host-name"))
     val finalServerSettings = hostName
       .map(
-        hostName =>
+        hName =>
           serverSettings.copy(
-            host = IO(Host(0, hostName, port, HostMetadata(0, quarantined = false)))
+            host = IO(Host(0, hName, port, HostMetadata(0, quarantined = false)))
           )
       )
       .getOrElse(serverSettings)
