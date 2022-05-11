@@ -46,7 +46,7 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val testComp = testWookiee.getComponent("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      probe.send(testComp.get, CleanCheck())
+      testComp.foreach(comp => probe.send(comp, CleanCheck()))
       CleanResponse(false) shouldEqual probe.expectMsgType[CleanResponse]
     }
 

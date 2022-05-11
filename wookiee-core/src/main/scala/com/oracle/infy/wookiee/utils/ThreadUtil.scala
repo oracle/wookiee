@@ -11,9 +11,11 @@ object ThreadUtil extends LoggingAdapter {
 
   // Be sure threadNames is unique or it could lead to deadlocks
   // If parallelism = None then we'll use a cached thread pool with no size limit, if Some(1) we'll use a single thread pool
+  def createEC(threadNames: String): ExecutionContext = createEC(threadNames, None)
+
   def createEC(
       threadNames: String,
-      parallelism: Option[Int] = None // scalafix:ok
+      parallelism: Option[Int]
   ): ExecutionContext = {
     ExecutionContext
       .fromExecutor(parallelism match {
