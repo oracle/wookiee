@@ -68,7 +68,7 @@ object HarnessActorSystem {
 
       readRefConf() match {
         case Some(conf) =>
-          sysConfig = conf.withFallback(sysConfig)
+          sysConfig = sysConfig.withFallback(conf)
         case None =>
           externalLogger.warn(s"Didn't find 'reference.conf' in jar file '${child.urls.head.getPath}'")
       }
