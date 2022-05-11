@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.component.grpc.server
 
 import cats.effect.{Blocker, ContextShift, IO}
+import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.typesafe.config.Config
@@ -11,8 +12,11 @@ import scala.concurrent.duration._
 import scala.util.Try
 
 trait ExtensionHostServices extends ExecutionContextHelpers with LoggingAdapter {
-  lazy val bossThreads: Int = getConfigAtEitherLevel("grpc-config.boss-threads", hostConfig.getInt) // scalafix:ok
-  lazy val workerThreads: Int = getConfigAtEitherLevel("grpc-config.worker-threads", hostConfig.getInt) // scalafix:ok
+
+  lazy val bossThreads: Int =
+    getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.boss-threads", hostConfig.getInt) // scalafix:ok
+  lazy val workerThreads: Int =
+    getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.worker-threads", hostConfig.getInt) // scalafix:ok
   private lazy val mainEC: ExecutionContext = createEC(getClass.getSimpleName + "-main") // scalafix:ok
   private lazy val blockingEC: ExecutionContext = createEC(getClass.getSimpleName + "-blocking") // scalafix:ok
 

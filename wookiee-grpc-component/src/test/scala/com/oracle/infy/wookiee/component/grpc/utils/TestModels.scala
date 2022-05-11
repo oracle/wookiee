@@ -11,13 +11,8 @@ import io.grpc.stub.ServerCalls.asyncUnaryCall
 object TestModels {
   def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(s"""
        |wookiee-system {
-       |  grpc-config {
-       |    boss-threads = 5
-       |    worker-threads = 10
-       |  }
-       |
-       |  zookeeper-config {
-       |    connect-string = "localhost:$zkPort"
+       |  wookiee-zookeeper {
+       |    quorum = "localhost:$zkPort"
        |  }
        |
        |  wookiee-grpc-component {
