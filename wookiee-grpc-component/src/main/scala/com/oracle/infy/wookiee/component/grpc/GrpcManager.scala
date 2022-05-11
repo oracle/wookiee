@@ -49,9 +49,12 @@ object GrpcManager extends LoggingAdapter {
     manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
+  def waitForManager(system: ActorSystem): Unit =
+    waitForManager(system, waitForClean = false)
+
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
-  def waitForManager(system: ActorSystem, waitForClean: Boolean = false): Unit = {
+  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit = {
     println("Waiting for grpc manager to report clean")
     implicit val mainEC: ExecutionContext = system.dispatcher
     implicit val timeout: Timeout = Timeout(15.seconds)
@@ -118,7 +121,8 @@ object GrpcManager extends LoggingAdapter {
   private[wookiee] def getMediator(system: ActorSystem): ActorRef = {
     grpcManagerMap.get(system) match {
       case Some(zkActor) => zkActor
-      case None          => throw new IllegalStateException(s"No gRPC Manager Registered for System: [$system]")
+      case None =>
+        throw new IllegalStateException(s"No gRPC Manager Registered for System: [$system]") //scalafix:ok
     }
   }
 
@@ -211,7 +215,7 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
   ): Receive =
     super.receive orElse {
       case GrpcServiceDefinition(name, services) =>
-        becomeDirty(defs, server, name, services.asScala)
+        becomeDirty(defs, server, name, services.asScala, initialize = false)
 
       case _: InitializeServers =>
         log.info(s"WGM103: Got message to start gRPC for ${defs.values.flatten.size} gRPC service definitions..")
@@ -241,7 +245,7 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
       server: Option[WookieeGrpcServer],
       groupName: String,
       newDefs: List[GrpcDefinition],
-      initialize: Boolean = false
+      initialize: Boolean
   ): Unit = {
     import context.dispatcher
 

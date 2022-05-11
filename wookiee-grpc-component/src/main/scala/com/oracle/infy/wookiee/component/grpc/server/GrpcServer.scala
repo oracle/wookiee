@@ -40,7 +40,7 @@ trait GrpcServer extends ExtensionHostServices {
 
     val zkPath = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.zk-discovery-path"))
       .recover { _ =>
-        throw new IllegalArgumentException(
+        throw new IllegalArgumentException( //scalafix:ok
           s"Need to set config field [${GrpcManager.ComponentName}.grpc.zk-discovery-path]"
         )
       }
