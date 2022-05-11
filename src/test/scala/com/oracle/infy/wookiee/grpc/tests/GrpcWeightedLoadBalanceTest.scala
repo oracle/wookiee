@@ -20,6 +20,7 @@ import utest.{Tests, test}
 import java.util.Random
 import cats.data.NonEmptyList
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
+import com.oracle.infy.wookiee.test.TestHarness
 
 import java.net.ServerSocket
 import scala.concurrent.duration._
@@ -83,9 +84,9 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
         } yield queue2
       }
 
-      val port1 = getFreePort
-      val port2 = getFreePort
-      val port3 = getFreePort
+      val port1 = TestHarness.getFreePort
+      val port2 = TestHarness.getFreePort
+      val port3 = TestHarness.getFreePort
 
       // Hosts for the servers that will be generated later.
 //      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))
@@ -275,13 +276,5 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
         testWeightedLoadBalancer.map(assert)
       }
     }
-  }
-
-  def getFreePort: Int = {
-    val socket = new ServerSocket(0)
-    try {
-      socket.setReuseAddress(true)
-      socket.getLocalPort
-    } finally if (socket != null) socket.close()
   }
 }
