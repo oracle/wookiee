@@ -13,8 +13,8 @@ val buildVersion = Try {
 
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
-val LatestScalaVersion = "2.13.3"
-val Scala212 = "2.12.12"
+val LatestScalaVersion = "2.13.8"
+val Scala212 = "2.12.15"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
 lazy val ciBuild = taskKey[Unit]("prepare final builds")
@@ -347,8 +347,5 @@ lazy val `wookiee-proto` = project
     Compile / PB.targets := Seq(
       scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
     ),
-    libraryDependencies ++= Seq(
-      "io.grpc" % "grpc-netty" % scalapb.compiler.Version.grpcJavaVersion,
-      "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-    )
+    libraryDependencies ++= Deps.build.wookieeProto
   )

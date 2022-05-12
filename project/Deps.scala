@@ -19,20 +19,23 @@ object Deps {
     val guavaVersion = "31.0.1-jre"
     val finagleVersion = "22.1.0"
     val upickleVersion = "1.5.0"
-    val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
+    val grpcVersion: String = "1.46.0"
+    val nettyVersion: String = "4.1.77.Final"
+    val scalaPbRuntimeVersion: String = "0.11.10"
 
-    val slf4jVersion = "1.7.33"
+    val slf4jVersion = "1.7.36"
     val slf4jImplVersion = "2.17.1"
-    val logbackVersion = "1.2.10"
+    val logbackVersion = "1.2.11"
     val jodaTimeVersion = "2.10.13"
-    val scalaCollectionCompatVersion = "2.3.0"
+    val scalaCollectionCompatVersion = "2.4.4"
     val zookeeperVersion = "3.8.0"
-    val json4sVersion = "4.0.3"
+    val json4sVersion = "4.0.5"
+    val jacksonVersion = "2.13.2.2"
     val http4sVersion = "0.21.4"
-    val dropwizardVersion = "4.2.7"
-    val akkaHttpVersion = "10.2.7"
+    val dropwizardVersion = "4.2.9"
+    val akkaHttpVersion = "10.2.9"
     val akkaHttpJson4sVersion = "1.39.2"
-    val akkaHttpCorsVersion = "1.1.2"
+    val akkaHttpCorsVersion = "1.1.3"
   }
 
   object build {
@@ -47,12 +50,15 @@ object Deps {
       test.curatorTest exclude("org.apache.zookeeper", "zookeeper"),
     )
 
+    val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
+
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val json4sLibs: Seq[ModuleID] = Seq(
       "org.json4s" %% "json4s-jackson" % json4sVersion,
       "org.json4s" %% "json4s-ext" % json4sVersion,
-      "org.json4s" %% "json4s-core" % json4sVersion
+      "org.json4s" %% "json4s-core" % json4sVersion,
+      "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion
     )
 
     val dropWizardLibs: Seq[ModuleID] = Seq(
@@ -102,6 +108,7 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
+    val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sVersion
     val http4sClient: ModuleID = "org.http4s" %% "http4s-async-http-client" % http4sVersion
@@ -148,6 +155,7 @@ object Deps {
     val wookieeZk: Seq[ModuleID] = Seq(
       zookeeper,
       guava,
+      nettyAll,
       test.scalatest,
       test.curatorTest,
       test.akkaTest
@@ -161,6 +169,8 @@ object Deps {
 
     val wookieeGrpc: Seq[ModuleID] = Seq(
       curator,
+      zookeeper,
+      nettyAll,
       scalaCollectionCompat,
       log4CatsCore,
       log4CatsSlf4J,
@@ -172,6 +182,11 @@ object Deps {
       test.akkaTest
     ) ++ json4sLibs
 
+    val wookieeProto: Seq[ModuleID] = Seq(
+      nettyAll,
+      scalaPbRuntime
+    )
+
     val core: Seq[ModuleID] = Seq(
       akka,
       slf4jApi,
@@ -179,6 +194,8 @@ object Deps {
       jodaTime,
       scalaStm,
       guava,
+      zookeeper,
+      nettyAll,
       curator,
       scalaCollectionCompat,
       fs2
