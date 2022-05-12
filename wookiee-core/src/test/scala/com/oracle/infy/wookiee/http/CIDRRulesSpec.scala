@@ -28,32 +28,32 @@ class CIDRRulesSpec extends AnyWordSpecLike with Matchers {
   "CIDRRules " should {
     "allow ipv4 requests through localhost" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
-      rules.checkCidrRules(InetAddress.getByName("localhost")) equals true
+      rules.checkCidrRules(InetAddress.getByName("localhost")) shouldEqual true
     }
 
     "allow ipv4 requests through" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
-      rules.checkCidrRules(InetAddress.getByName("127.0.0.1")) equals true
+      rules.checkCidrRules(InetAddress.getByName("127.0.0.1")) shouldEqual true
     }
 
     "deny ipv4 requests on wrong address" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq())
-      rules.checkCidrRules(InetAddress.getByName("15.12.13.12")) equals false
+      rules.checkCidrRules(InetAddress.getByName("15.12.13.12")) shouldEqual false
     }
 
     "deny ipv4 requests in the deny subnet" in {
       val rules = CIDRRules(Seq("127.0.0.1/30"), Seq("127.10.0.1/30"))
-      rules.checkCidrRules(InetAddress.getByName("127.10.0.1")) equals false
+      rules.checkCidrRules(InetAddress.getByName("127.10.0.1")) shouldEqual false
     }
 
     "allow ipv6 requests through" in {
       val rules = CIDRRules(Seq("1:0:0:0:0:0:0:1"), Seq())
-      rules.checkCidrRules(InetAddress.getByName("1:0:0:0:0:0:0:1")) equals true
+      rules.checkCidrRules(InetAddress.getByName("1:0:0:0:0:0:0:1")) shouldEqual true
     }
 
     "deny ipv6 requests in the deny subnet" in {
       val rules = CIDRRules(Seq("1:0:0:0:0:0:0:1"), Seq("1:0:0:0:0:5:0:1"))
-      rules.checkCidrRules(InetAddress.getByName("1:0:0:0:0:5:0:1")) equals false
+      rules.checkCidrRules(InetAddress.getByName("1:0:0:0:0:5:0:1")) shouldEqual false
     }
   }
 }

@@ -7,12 +7,12 @@ import cats.data.{EitherT, NonEmptyList}
 import cats.effect.{Blocker, ContextShift, IO, Timer}
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
-import com.oracle.infy.wookiee.component.grpc.server.{ExecutionContextHelpers, GrpcServer}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
+import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServiceAuthSettings}
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
@@ -172,7 +172,7 @@ object GrpcManager extends LoggingAdapter {
   case class CleanResponse(clean: Boolean)
 }
 
-class GrpcManager(name: String) extends Component(name) with ExecutionContextHelpers with GrpcServer {
+class GrpcManager(name: String) extends Component(name) with GrpcServer {
   import GrpcManager._
 
   private val server: AtomicReference[Option[WookieeGrpcServer]] = new AtomicReference(None)
@@ -267,27 +267,33 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
       currentServer: Option[WookieeGrpcServer]
   ): Option[WookieeGrpcServer] =
     try {
-      implicit val conf: Config = config
       implicit val cs: ContextShift[IO] = IO.contextShift(context.dispatcher)
+      val dispatcherEC: ExecutionContext = ThreadUtil.createEC("grpc-manager-dispatcher")
+      val scheduledExecutor = ThreadUtil.scheduledThreadPoolExecutor(
+        config.getString(s"${GrpcManager.ComponentName}.thread-prefix"),
+        config.getInt(s"${GrpcManager.ComponentName}.dispatcher-threads")
+      )
+      implicit val timer: Timer[IO] = IO.timer(dispatcherEC, scheduledExecutor)
 
       (for {
-        implicit0(blocker: Blocker) <- IO(createEC("grpc-manager-blocking"))
+        blocker: Blocker <- IO(ThreadUtil.createEC("grpc-manager-blocking"))
           .map(Blocker.liftExecutionContext)
           .toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
-        implicit0(logger: Logger[IO]) <- appLogger
-        scheduledExecutor <- scheduledThreadPoolExecutor("grpc-manager")
-        dispatcherEC <- IO(createEC("grpc-manager-dispatcher"))
-          .toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
+        logger: Logger[IO] <- Slf4jLogger
+          .create[IO]
+          .map(l => l: Logger[IO])
+          .toEitherT(err => UnknownWookieeGrpcError(err.getMessage))
 
-        implicit0(timer: Timer[IO]) <- IO.timer(dispatcherEC, scheduledExecutor)
         defs = definitions.values.flatten.toList
         // Shutdown existing server if present
         _ <- shutdownCurrent(currentServer)
         server <- defs.headOption match {
           case Some(first) =>
-            implicit val mainEC: ExecutionContext = createEC("grpc-manager-main")
-            val someStart = startGrpcServers(NonEmptyList(first, defs.drop(1)), config)
+            implicit val mainEC: ExecutionContext = ThreadUtil.createEC("grpc-manager-main")
+            val someStart = startGrpcServers(NonEmptyList(first, defs.drop(1)),
+              config)(mainEC, blocker, logger, timer, cs)
               .map(srv => Some(srv): Option[WookieeGrpcServer])
+
             someStart.attemptT.leftMap(t => FailedToStartGrpcServerError(t.getMessage): WookieeGrpcError)
           case None =>
             log.info("WGM203: No Service Definitions Provided, Not Starting Server")

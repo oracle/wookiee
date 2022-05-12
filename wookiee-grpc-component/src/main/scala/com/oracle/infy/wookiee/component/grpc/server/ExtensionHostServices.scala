@@ -4,6 +4,7 @@ import cats.effect.{Blocker, ContextShift, IO}
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.utils.{ConfigUtil, ThreadUtil}
 import com.typesafe.config.Config
 import org.apache.curator.framework.CuratorFramework
 
@@ -11,18 +12,18 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.Try
 
-trait ExtensionHostServices extends ExecutionContextHelpers with LoggingAdapter {
+trait ExtensionHostServices extends LoggingAdapter {
 
   lazy val bossThreads: Int =
-    getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.boss-threads", hostConfig.getInt) // scalafix:ok
+    ConfigUtil.getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.boss-threads", hostConfig.getInt) // scalafix:ok
   lazy val workerThreads: Int =
-    getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.worker-threads", hostConfig.getInt) // scalafix:ok
-  private lazy val mainEC: ExecutionContext = createEC(getClass.getSimpleName + "-main") // scalafix:ok
-  private lazy val blockingEC: ExecutionContext = createEC(getClass.getSimpleName + "-blocking") // scalafix:ok
+    ConfigUtil.getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.worker-threads", hostConfig.getInt) // scalafix:ok
+  private lazy val mainEC: ExecutionContext = ThreadUtil.createEC(getClass.getSimpleName + "-main") // scalafix:ok
+  private lazy val blockingEC: ExecutionContext = ThreadUtil.createEC(getClass.getSimpleName + "-blocking") // scalafix:ok
 
   private lazy val curatorConnectString: String =
-    Try(getConfigAtEitherLevel("zookeeper-config.connect-string", hostConfig.getString)).getOrElse(
-      getConfigAtEitherLevel("wookiee-zookeeper.quorum", hostConfig.getString)
+    Try(ConfigUtil.getConfigAtEitherLevel("zookeeper-config.connect-string", hostConfig.getString)).getOrElse(
+      ConfigUtil.getConfigAtEitherLevel("wookiee-zookeeper.quorum", hostConfig.getString)
     ) // scalafix:ok
   private lazy val curator: CuratorFramework =
     createCurator(curatorConnectString, mainEC, blockingEC) // scalafix:ok
@@ -56,11 +57,5 @@ trait ExtensionHostServices extends ExecutionContextHelpers with LoggingAdapter 
     } yield curator
 
     curatorIO.unsafeRunSync()
-  }
-
-  // Will check at wookiee-system.{path} and {path} in case the config shows up in only one place
-  def getConfigAtEitherLevel[T](configPath: String, configMethod: String => T): T = {
-    Try(configMethod(s"wookiee-system.$configPath"))
-      .getOrElse(configMethod(configPath))
   }
 }

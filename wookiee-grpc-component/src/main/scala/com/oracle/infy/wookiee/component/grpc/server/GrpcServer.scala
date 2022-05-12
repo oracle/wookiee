@@ -6,6 +6,7 @@ import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings, ServiceAuthSettings}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.typelevel.log4cats.Logger
@@ -52,8 +53,8 @@ trait GrpcServer extends ExtensionHostServices {
       discoveryPath = zkPath,
       port = port,
       sslServerSettings = sslSettings,
-      bossExecutionContext = createEC(s"${getClass.getSimpleName}-grpc-boss"),
-      workerExecutionContext = createEC(s"${getClass.getSimpleName}-grpc-worker"),
+      bossExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-boss"),
+      workerExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-worker"),
       applicationExecutionContext = ec,
       bossThreads = bossThreads,
       workerThreads = workerThreads,
