@@ -279,7 +279,7 @@ class GrpcManager(name: String) extends Component(name) with ExecutionContextHel
         dispatcherEC <- IO(createEC("grpc-manager-dispatcher"))
           .toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
 
-        implicit0(timer: Timer[IO]) = IO.timer(dispatcherEC, scheduledExecutor)
+        implicit0(timer: Timer[IO]) <- IO.timer(dispatcherEC, scheduledExecutor)
         defs = definitions.values.flatten.toList
         // Shutdown existing server if present
         _ <- shutdownCurrent(currentServer)
