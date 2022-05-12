@@ -22,6 +22,7 @@ object Deps {
     val grpcVersion: String = "1.46.0"
     val nettyVersion: String = "4.1.77.Final"
     val scalaPbRuntimeVersion: String = "0.11.10"
+    val semanticDBVersion: String = "4.5.6"
 
     val slf4jVersion = "1.7.36"
     val slf4jImplVersion = "2.17.1"
