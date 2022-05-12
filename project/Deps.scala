@@ -43,15 +43,17 @@ object Deps {
 
     import versions._
 
-    val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion
+    val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
+    val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude("org.apache.zookeeper", "zookeeper")
+    val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val curatorLibs: Seq[ModuleID] = Seq(
-      curator exclude("org.apache.zookeeper", "zookeeper"),
+      nettyAll,
+      curator,
+      zookeeper,
       "org.apache.curator" % "curator-framework" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
       "org.apache.curator" % "curator-x-discovery" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
       test.curatorTest exclude("org.apache.zookeeper", "zookeeper"),
     )
-
-    val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
 
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
@@ -94,8 +96,6 @@ object Deps {
     )
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
-    val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
-
     val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
     val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
 
@@ -154,11 +154,8 @@ object Deps {
     ) ++ json4sLibs ++ dropWizardLibs
 
     val wookieeZk: Seq[ModuleID] = Seq(
-      zookeeper,
       guava,
-      nettyAll,
       test.scalatest,
-      test.curatorTest,
       test.akkaTest
     ) ++ json4sLibs ++ curatorLibs
 
@@ -169,14 +166,11 @@ object Deps {
     )
 
     val wookieeGrpc: Seq[ModuleID] = Seq(
-      curator,
-      zookeeper,
-      nettyAll,
       scalaCollectionCompat,
       log4CatsCore,
       log4CatsSlf4J,
       fs2
-    ) ++ circe ++ cats ++ grpc
+    ) ++ curatorLibs ++ circe ++ cats ++ grpc
 
     val wookieeCache: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -188,16 +182,13 @@ object Deps {
       scalaPbRuntime
     )
 
-    val core: Seq[ModuleID] = Seq(
+    val core: Seq[ModuleID] = curatorLibs ++ Seq(
       akka,
       slf4jApi,
       logbackClassic,
       jodaTime,
       scalaStm,
       guava,
-      zookeeper,
-      nettyAll,
-      curator,
       scalaCollectionCompat,
       fs2
     ) ++ circe ++ cats
