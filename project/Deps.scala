@@ -104,7 +104,6 @@ object Deps {
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sVersion
-    val http4sClient: ModuleID = "org.http4s" %% "http4s-async-http-client" % http4sVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
 
@@ -116,7 +115,6 @@ object Deps {
 
     val http4s: Seq[ModuleID] = Seq(
       http4sServer,
-      http4sClient,
       http4sDsl,
       htt4sCirce
     )
