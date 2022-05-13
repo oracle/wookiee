@@ -143,6 +143,19 @@ lazy val `wookiee-grpc` = project
     libraryDependencies ++= Deps.build.wookieeGrpc
   )
 
+lazy val `wookiee-grpc-component` = project
+  .in(file("wookiee-grpc-component"))
+  .settings(commonSettings(true))
+  .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
+    libraryDependencies ++= Deps.build.wookieeGrpc ++ Seq(
+      Deps.test.akkaTest, Deps.test.curatorTest, Deps.test.scalatest
+    ),
+    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
+  )
+  .dependsOn(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
+  .aggregate(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
+
 lazy val `wookiee-grpc-tests` = project
   .in(file("wookiee-grpc-tests"))
   .settings(commonSettings(true))
@@ -277,6 +290,7 @@ lazy val root = project
     `wookiee-health`,
     `wookiee-test`,
     `wookiee-zookeeper`,
+    `wookiee-grpc-component`,
     `wookiee-metrics`,
     `wookiee-akka-http`,
     `wookiee-cache`,
@@ -293,6 +307,7 @@ lazy val root = project
     `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,
+    `wookiee-grpc-component`,
     `wookiee-metrics`,
     `wookiee-http`,
     `wookiee-cache`,

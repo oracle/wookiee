@@ -16,7 +16,6 @@ import org.scalactic.TolerantNumerics
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
-import java.net.ServerSocket
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
@@ -263,13 +262,5 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         testHashLoadBalancer.map(assert)
       }
     }
-  }
-
-  def getFreePort: Int = {
-    val socket = new ServerSocket(0)
-    try {
-      socket.setReuseAddress(true)
-      socket.getLocalPort
-    } finally if (Option(socket).nonEmpty) socket.close()
   }
 }

@@ -11,6 +11,7 @@ import utest.ufansi.Str
 import utest.{TestRunner, Tests, ufansi}
 
 import java.lang.Thread.UncaughtExceptionHandler
+import java.net.ServerSocket
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
@@ -45,6 +46,14 @@ trait ConstableCommon {
         blockingThreadFactory(prefix)
       )
     )
+
+  def getFreePort: Int = {
+    val socket = new ServerSocket(0)
+    try {
+      socket.setReuseAddress(true)
+      socket.getLocalPort
+    } finally if (Option(socket).nonEmpty) socket.close()
+  }
 
   implicit def eitherTListenerErrorToProp(
       implicit runtime: IORuntime

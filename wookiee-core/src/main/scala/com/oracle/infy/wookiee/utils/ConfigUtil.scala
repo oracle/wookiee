@@ -4,6 +4,7 @@ import akka.util.Timeout
 import com.typesafe.config.{Config, ConfigException, ConfigFactory}
 
 import java.util.concurrent.TimeUnit
+import scala.util.Try
 
 object ConfigUtil {
 
@@ -55,5 +56,11 @@ object ConfigUtil {
     } else {
       default
     }
+  }
+
+  // Will check at wookiee-system.{path} and {path} in case the config shows up in only one place
+  def getConfigAtEitherLevel[T](configPath: String, configMethod: String => T): T = {
+    Try(configMethod(s"wookiee-system.$configPath"))
+      .getOrElse(configMethod(configPath))
   }
 }

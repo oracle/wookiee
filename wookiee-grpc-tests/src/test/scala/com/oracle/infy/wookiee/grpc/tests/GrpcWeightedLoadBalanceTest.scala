@@ -18,7 +18,6 @@ import org.apache.curator.framework.CuratorFramework
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
-import java.net.ServerSocket
 import java.util.Random
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -274,13 +273,5 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
         testWeightedLoadBalancer.map(assert)
       }
     }
-  }
-
-  def getFreePort: Int = {
-    val socket = new ServerSocket(0)
-    try {
-      socket.setReuseAddress(true)
-      socket.getLocalPort
-    } finally if (Option(socket).nonEmpty) socket.close()
   }
 }

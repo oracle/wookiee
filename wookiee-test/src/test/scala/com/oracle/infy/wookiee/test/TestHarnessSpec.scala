@@ -154,10 +154,11 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
       probe2.send(testComponent2.get, RegisterShutdownListener(probe2.ref))
 
       sys.stop()(actorSystem)
-      sys2.stop()(actorSystem2)
-
       val results = probe1.receiveN(2, timeout.duration)
+
+      sys2.stop()(actorSystem2)
       val results2 = probe2.receiveN(2, timeout.duration)
+
       TestHarness.log.debug(s"Results $results,  $results2")
       results should have size 2
       results should contain("GotShutdown")

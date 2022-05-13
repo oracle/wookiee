@@ -29,6 +29,7 @@ import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.LoadService
 import com.typesafe.config.{Config, ConfigFactory}
 
+import java.net.ServerSocket
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
 
@@ -52,6 +53,14 @@ object TestHarness {
     val harness = new TestHarness(config, serviceMap, componentMap, logLevel, timeToWait)
     harnessMap = harnessMap.updated(harness.system, harness)
     harness
+  }
+
+  def getFreePort: Int = {
+    val socket = new ServerSocket(0)
+    try {
+      socket.setReuseAddress(true)
+      socket.getLocalPort
+    } finally if (Option(socket).nonEmpty) socket.close()
   }
 
   def log: Logger = Harness.getLogger
