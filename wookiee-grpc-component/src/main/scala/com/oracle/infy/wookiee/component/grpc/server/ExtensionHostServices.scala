@@ -32,7 +32,7 @@ trait ExtensionHostServices extends LoggingAdapter {
   private lazy val curator: CuratorFramework = createCurator(curatorConnectString) // scalafix:ok
 
   implicit lazy val runtime: IORuntime =
-    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduledExecutor), () => (), IORuntimeConfig())
+    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduledExecutor), () => (), IORuntimeConfig()) // scalafix:ok
 
   def hostConfig: Config
 
