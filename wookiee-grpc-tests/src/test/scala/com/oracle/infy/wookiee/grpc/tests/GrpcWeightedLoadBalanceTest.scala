@@ -18,11 +18,9 @@ import org.apache.curator.framework.CuratorFramework
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
-import java.net.ServerSocket
 import java.util.Random
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
-import com.oracle.infy.wookiee.test.TestHarness
 
 object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
 
@@ -80,9 +78,9 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
         } yield queue2
       }
 
-      val port1 = TestHarness.getFreePort
-      val port2 = TestHarness.getFreePort
-      val port3 = TestHarness.getFreePort
+      val port1 = getFreePort
+      val port2 = getFreePort
+      val port3 = getFreePort
 
       // Hosts for the servers that will be generated later.
 //      val host1 = Host(0, "localhost", 8080, Map[String, String](("load", "0"), ("quarantined", "false")))

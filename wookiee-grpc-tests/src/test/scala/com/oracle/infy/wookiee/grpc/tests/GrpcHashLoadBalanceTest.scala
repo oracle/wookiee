@@ -10,14 +10,12 @@ import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ServerSettings}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
-import com.oracle.infy.wookiee.test.TestHarness
 import io.grpc._
 import org.apache.curator.framework.CuratorFramework
 import org.scalactic.TolerantNumerics
 import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
-import java.net.ServerSocket
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
@@ -59,9 +57,9 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         mainEC
       )
 
-      val port1 = TestHarness.getFreePort
-      val port2 = TestHarness.getFreePort
-      val port3 = TestHarness.getFreePort
+      val port1 = getFreePort
+      val port2 = getFreePort
+      val port3 = getFreePort
 
       val host1 = Host(0, "localhost", port1, HostMetadata(0, quarantined = false))
       val host2 = Host(0, "localhost", port2, HostMetadata(0, quarantined = false))
