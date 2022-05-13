@@ -1,11 +1,14 @@
 package com.oracle.infy.wookiee.utils
 
+import cats.effect.IO
+import cats.effect.std.Dispatcher
+import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
-import java.util.concurrent.{Executors, ForkJoinPool, ForkJoinWorkerThread, ScheduledThreadPoolExecutor, ThreadFactory}
-import scala.concurrent.ExecutionContext
+import java.util.concurrent._
+import scala.concurrent.{ExecutionContext, Future}
 
 object ThreadUtil extends LoggingAdapter {
 
@@ -45,6 +48,12 @@ object ThreadUtil extends LoggingAdapter {
     )
     tp.setRemoveOnCancelPolicy(true)
     tp
+  }
+
+  def dispatcherIO(): Dispatcher[IO] = new Dispatcher[IO] {
+
+    override def unsafeToFutureCancelable[A](fa: IO[A]): (Future[A], () => Future[Unit]) =
+      fa.unsafeToFutureCancelable()
   }
 
   def uncaughtExceptionHandler: UncaughtExceptionHandler = new UncaughtExceptionHandler {

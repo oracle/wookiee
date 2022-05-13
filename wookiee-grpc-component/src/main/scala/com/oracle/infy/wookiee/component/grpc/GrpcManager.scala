@@ -4,7 +4,9 @@ import akka.actor.{ActorRef, ActorSystem, PoisonPill}
 import akka.pattern.ask
 import akka.util.Timeout
 import cats.data.{EitherT, NonEmptyList}
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.IO
+import cats.effect.std.Dispatcher
+import cats.effect.unsafe.implicits.global
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
@@ -86,15 +88,14 @@ object GrpcManager extends LoggingAdapter {
     */
   def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel = {
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
-    implicit val blocker: Blocker = Blocker.liftExecutionContext(ec)
-    implicit val cs: ContextShift[IO] = IO.contextShift(ec)
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
+    val blockingEC: ExecutionContext = ThreadUtil.createEC(s"grpc-blocking-${System.currentTimeMillis()}")
+    implicit val dispatcher: Dispatcher[IO] = ThreadUtil.dispatcherIO()
 
     def channelSettings(curatorFramework: CuratorFramework) = ChannelSettings(
       serviceDiscoveryPath = zkPath,
-      eventLoopGroupExecutionContext = blocker.blockingContext,
+      eventLoopGroupExecutionContext = blockingEC,
       channelExecutionContext = ec,
-      offloadExecutionContext = blocker.blockingContext,
+      offloadExecutionContext = blockingEC,
       eventLoopGroupExecutionContextThreads = 4,
       lbPolicy = RoundRobinPolicy,
       curatorFramework = curatorFramework,
@@ -103,11 +104,12 @@ object GrpcManager extends LoggingAdapter {
     )
 
     (for {
+      implicit0(logger: Logger[IO]) <- Slf4jLogger.create[IO]
       curator <- WookieeGrpcUtils
         .createCurator(
           zkConnect,
           5.seconds,
-          blocker.blockingContext
+          blockingEC
         )
       _ <- IO(curator.start())
       channel <- WookieeGrpcChannel.of(channelSettings(curator))
@@ -191,7 +193,7 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
 
     log.info(s"WGM400: Stopping the CDR gRPC Manager and shutting down server..")
     GrpcManager.unregisterMediator(actorSystem)
-    server.get().foreach(_.awaitTermination().unsafeRunAsyncAndForget())
+    server.get().foreach(_.shutdown().unsafeRunAndForget())
   }
 
   // We will usually be in this state, until we get a GrpcServiceDefinition call which sends us into the dirty state
@@ -267,32 +269,15 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
       currentServer: Option[WookieeGrpcServer]
   ): Option[WookieeGrpcServer] =
     try {
-      implicit val cs: ContextShift[IO] = IO.contextShift(context.dispatcher)
-      val dispatcherEC: ExecutionContext = ThreadUtil.createEC("grpc-manager-dispatcher")
-      val scheduledExecutor = ThreadUtil.scheduledThreadPoolExecutor(
-        config.getString(s"${GrpcManager.ComponentName}.thread-prefix"),
-        config.getInt(s"${GrpcManager.ComponentName}.dispatcher-threads")
-      )
-      implicit val timer: Timer[IO] = IO.timer(dispatcherEC, scheduledExecutor)
-
       (for {
-        blocker: Blocker <- IO(ThreadUtil.createEC("grpc-manager-blocking"))
-          .map(Blocker.liftExecutionContext)
-          .toEitherT(err => FailedToStartGrpcServerError(err.getMessage))
-        logger: Logger[IO] <- Slf4jLogger
-          .create[IO]
-          .map(l => l: Logger[IO])
-          .toEitherT(err => UnknownWookieeGrpcError(err.getMessage))
-
-        defs = definitions.values.flatten.toList
         // Shutdown existing server if present
         _ <- shutdownCurrent(currentServer)
+
+        defs = definitions.values.flatten.toList
         server <- defs.headOption match {
           case Some(first) =>
-            implicit val mainEC: ExecutionContext = ThreadUtil.createEC("grpc-manager-main")
-            val someStart =
-              startGrpcServers(NonEmptyList(first, defs.drop(1)), config)(mainEC, blocker, logger, timer, cs)
-                .map(srv => Some(srv): Option[WookieeGrpcServer])
+            val someStart = startGrpcServers(NonEmptyList(first, defs.drop(1)), config)
+              .map(srv => Some(srv): Option[WookieeGrpcServer])
 
             someStart.attemptT.leftMap(t => FailedToStartGrpcServerError(t.getMessage): WookieeGrpcError)
           case None =>

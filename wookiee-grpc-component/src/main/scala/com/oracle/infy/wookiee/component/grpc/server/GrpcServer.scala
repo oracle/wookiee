@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.component.grpc.server
 
 import cats.data.NonEmptyList
-import cats.effect.{Blocker, ContextShift, IO, Timer}
+import cats.effect.IO
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
@@ -10,8 +10,8 @@ import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.typelevel.log4cats.Logger
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 
-import scala.concurrent.ExecutionContext
 import scala.util.Try
 
 trait GrpcServer extends ExtensionHostServices {
@@ -19,13 +19,6 @@ trait GrpcServer extends ExtensionHostServices {
   def startGrpcServers(
       services: NonEmptyList[(ServerServiceDefinition, Option[ServiceAuthSettings], Option[List[ServerInterceptor]])],
       config: Config
-  )(
-      implicit
-      ec: ExecutionContext,
-      blocker: Blocker,
-      logger: Logger[IO],
-      timer: Timer[IO],
-      cs: ContextShift[IO]
   ): IO[WookieeGrpcServer] = {
     val sslSettings: Option[SSLServerSettings] =
       Try(config.getString(s"${GrpcManager.ComponentName}.grpc.ssl.cert-chain-path"))
@@ -55,7 +48,7 @@ trait GrpcServer extends ExtensionHostServices {
       sslServerSettings = sslSettings,
       bossExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-boss"),
       workerExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-worker"),
-      applicationExecutionContext = ec,
+      applicationExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-application"),
       bossThreads = bossThreads,
       workerThreads = workerThreads,
       curatorFramework = getCurator,
@@ -78,6 +71,12 @@ trait GrpcServer extends ExtensionHostServices {
         s"$port], ZK Path = [$zkPath]"
     )
 
-    WookieeGrpcServer.start(finalServerSettings)
+    for {
+      implicit0(logger: Logger[IO]) <- Slf4jLogger
+        .create[IO]
+        .map(l => l: Logger[IO])
+
+      server <- WookieeGrpcServer.start(finalServerSettings)
+    } yield server
   }
 }
