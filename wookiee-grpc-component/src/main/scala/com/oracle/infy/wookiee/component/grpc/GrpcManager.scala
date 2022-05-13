@@ -6,7 +6,6 @@ import akka.util.Timeout
 import cats.data.{EitherT, NonEmptyList}
 import cats.effect.IO
 import cats.effect.std.Dispatcher
-import cats.effect.unsafe.implicits.global
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
@@ -87,6 +86,8 @@ object GrpcManager extends LoggingAdapter {
     * @return A WookieeGrpcChannel that has a field .managedChannel() that can be put into stubs
     */
   def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel = {
+    import cats.effect.unsafe.implicits.global
+
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
     val blockingEC: ExecutionContext = ThreadUtil.createEC(s"grpc-blocking-${System.currentTimeMillis()}")
     implicit val dispatcher: Dispatcher[IO] = ThreadUtil.dispatcherIO()

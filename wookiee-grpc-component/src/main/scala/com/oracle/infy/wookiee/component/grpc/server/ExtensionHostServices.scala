@@ -31,6 +31,9 @@ trait ExtensionHostServices extends LoggingAdapter {
     ) // scalafix:ok
   private lazy val curator: CuratorFramework = createCurator(curatorConnectString) // scalafix:ok
 
+  implicit lazy val runtime: IORuntime =
+    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduledExecutor), () => (), IORuntimeConfig())
+
   def hostConfig: Config
 
   def getCurator: CuratorFramework = curator
@@ -39,8 +42,6 @@ trait ExtensionHostServices extends LoggingAdapter {
       connectionString: String
   ): CuratorFramework = {
     log.info("Creating and starting curator framework")
-    implicit val runtime: IORuntime =
-      IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduledExecutor), () => (), IORuntimeConfig())
 
     val curatorIO = for {
       curator <- WookieeGrpcUtils
