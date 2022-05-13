@@ -19,7 +19,8 @@ trait ExtensionHostServices extends LoggingAdapter {
   lazy val workerThreads: Int =
     ConfigUtil.getConfigAtEitherLevel(s"${GrpcManager.ComponentName}.grpc.worker-threads", hostConfig.getInt) // scalafix:ok
   private lazy val mainEC: ExecutionContext = ThreadUtil.createEC(getClass.getSimpleName + "-main") // scalafix:ok
-  private lazy val blockingEC: ExecutionContext = ThreadUtil.createEC(getClass.getSimpleName + "-blocking") // scalafix:ok
+  private lazy val blockingEC
+      : ExecutionContext = ThreadUtil.createEC(getClass.getSimpleName + "-blocking") // scalafix:ok
 
   private lazy val curatorConnectString: String =
     Try(ConfigUtil.getConfigAtEitherLevel("zookeeper-config.connect-string", hostConfig.getString)).getOrElse(

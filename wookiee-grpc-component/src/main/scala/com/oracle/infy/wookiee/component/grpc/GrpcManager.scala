@@ -290,9 +290,9 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
         server <- defs.headOption match {
           case Some(first) =>
             implicit val mainEC: ExecutionContext = ThreadUtil.createEC("grpc-manager-main")
-            val someStart = startGrpcServers(NonEmptyList(first, defs.drop(1)),
-              config)(mainEC, blocker, logger, timer, cs)
-              .map(srv => Some(srv): Option[WookieeGrpcServer])
+            val someStart =
+              startGrpcServers(NonEmptyList(first, defs.drop(1)), config)(mainEC, blocker, logger, timer, cs)
+                .map(srv => Some(srv): Option[WookieeGrpcServer])
 
             someStart.attemptT.leftMap(t => FailedToStartGrpcServerError(t.getMessage): WookieeGrpcError)
           case None =>
