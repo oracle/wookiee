@@ -5,16 +5,16 @@ object Deps {
   object versions {
     val akkaVersion = "2.6.18"
     val scalaStmVersion = "0.11.1"
-    val shapelessVersion = "1.2.3"
+    val shapelessVersion = "1.3.0"
     val curatorVersion = "5.2.1"
-    val catsVersion = "2.6.1"
-    val catsEffectVersion = "2.5.4"
-    val log4CatsVersion = "1.3.1"
-    val circeVersion = "0.13.0"
+    val catsVersion = "2.7.0"
+    val catsEffectVersion = "3.3.11"
+    val log4CatsVersion = "2.3.0"
+    val circeVersion = "0.14.1"
     val µTestVersion = "0.7.2"
     val scalacheckVersion = "1.15.4"
     val scalatestVersion = "3.2.9"
-    val fs2Version = "2.4.0"
+    val fs2Version = "3.2.7"
     val junitVersion = "4.13.2"
     val guavaVersion = "31.0.1-jre"
     val finagleVersion = "22.1.0"
@@ -32,7 +32,7 @@ object Deps {
     val zookeeperVersion = "3.8.0"
     val json4sVersion = "4.0.5"
     val jacksonVersion = "2.13.2.2"
-    val http4sVersion = "0.21.4"
+    val http4sVersion = "0.23.11"
     val dropwizardVersion = "4.2.9"
     val akkaHttpVersion = "10.2.9"
     val akkaHttpJson4sVersion = "1.39.2"
@@ -112,7 +112,6 @@ object Deps {
     val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sVersion
-    val http4sClient: ModuleID = "org.http4s" %% "http4s-async-http-client" % http4sVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
 
@@ -124,7 +123,6 @@ object Deps {
 
     val http4s: Seq[ModuleID] = Seq(
       http4sServer,
-      http4sClient,
       http4sDsl,
       htt4sCirce
     )
@@ -153,11 +151,11 @@ object Deps {
       test.akkaTest
     ) ++ json4sLibs ++ dropWizardLibs
 
-    val wookieeZk: Seq[ModuleID] = Seq(
+    val wookieeZk: Seq[ModuleID] = curatorLibs ++ Seq(
       guava,
       test.scalatest,
       test.akkaTest
-    ) ++ json4sLibs ++ curatorLibs
+    ) ++ json4sLibs
 
     val wookieeMemcache: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -165,12 +163,12 @@ object Deps {
       upickle
     )
 
-    val wookieeGrpc: Seq[ModuleID] = Seq(
+    val wookieeGrpc: Seq[ModuleID] = curatorLibs ++ Seq(
       scalaCollectionCompat,
       log4CatsCore,
       log4CatsSlf4J,
       fs2
-    ) ++ curatorLibs ++ circe ++ cats ++ grpc
+    ) ++ circe ++ cats ++ grpc
 
     val wookieeCache: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -203,7 +201,7 @@ object Deps {
     val akkaTest: ModuleID = "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test
     val junit: ModuleID = "junit" % "junit" % junitVersion % Test
     val µTest: ModuleID = "com.lihaoyi" %% "utest" % µTestVersion % Test
-    val shapeless: ModuleID = "com.github.alexarchambault" %% "scalacheck-shapeless_1.14" % shapelessVersion % Test
+    val shapeless: ModuleID = "com.github.alexarchambault" %% "scalacheck-shapeless_1.15" % shapelessVersion % Test
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
     val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 

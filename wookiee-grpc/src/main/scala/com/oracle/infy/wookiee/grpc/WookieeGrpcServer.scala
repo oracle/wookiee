@@ -1,20 +1,20 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.Ref
-import cats.effect.{Blocker, ContextShift, Fiber, IO, Timer}
+import cats.effect.std.Queue
+import cats.effect.{FiberIO, IO, Ref, Temporal}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
-import fs2.concurrent.Queue
-import org.typelevel.log4cats.Logger
+import fs2._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslContextBuilder, SslProvider}
 import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
+import org.typelevel.log4cats.Logger
 
 import java.io.File
 import scala.util.Try
@@ -22,15 +22,14 @@ import scala.util.Try
 final class WookieeGrpcServer(
     private val server: Server,
     private val curatorFramework: CuratorFramework,
-    private val fiber: Fiber[IO, Unit],
+    private val fiber: FiberIO[Unit],
     private val loadQueue: Queue[IO, Int],
     private val host: Host,
     private val discoveryPath: String,
     private val quarantined: Ref[IO, Boolean]
 )(
-    implicit cs: ContextShift[IO],
-    logger: Logger[IO],
-    blocker: Blocker
+    implicit
+    logger: Logger[IO]
 ) {
 
   def shutdown(): IO[Unit] =
@@ -38,14 +37,11 @@ final class WookieeGrpcServer(
       _ <- logger.info("Stopping load writing process...")
       _ <- fiber.cancel
       _ <- logger.info("Shutting down gRPC server...")
-      _ <- cs.blockOn(blocker)(IO(server.shutdown()))
+      _ <- IO.blocking(server.shutdown())
     } yield ()
 
-  def awaitTermination(): IO[Unit] =
-    cs.blockOn(blocker)(IO(server.awaitTermination()))
-
   def assignLoad(load: Int): IO[Unit] =
-    loadQueue.enqueue1(load)
+    loadQueue.offer(load)
 
   def enterQuarantine(): IO[Unit] =
     quarantined
@@ -66,15 +62,13 @@ final class WookieeGrpcServer(
 object WookieeGrpcServer {
 
   def start(serverSettings: ServerSettings)(
-      implicit cs: ContextShift[IO],
-      blocker: Blocker,
-      logger: Logger[IO],
-      timer: Timer[IO]
+      implicit
+      logger: Logger[IO]
   ): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
-      server <- cs.blockOn(blocker)(buildServer(serverSettings, host))
-      _ <- cs.blockOn(blocker)(IO { server.start() })
+      server <- buildServer(serverSettings, host)
+      _ <- IO.blocking { server.start() }
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
       queue <- serverSettings.queue
@@ -162,7 +156,7 @@ object WookieeGrpcServer {
   )(implicit logger: Logger[IO]): IO[SslContext] =
     for {
 
-      sslClientContextBuilder0 <- IO {
+      sslClientContextBuilder0 <- IO.blocking {
         sslServerSettings
           .sslPassphrase
           .map { passphrase =>
@@ -197,7 +191,7 @@ object WookieeGrpcServer {
             .as(sslClientContextBuilder0)
         )
 
-      sslContext <- IO {
+      sslContext <- IO.blocking {
         GrpcSslContexts.configure(sslContextBuilder1, SslProvider.OPENSSL).build()
       }
     } yield sslContext
@@ -209,8 +203,8 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Timer[IO], cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[Unit] = {
-    val stream = queue.dequeue
+  )(implicit timer: Temporal[IO], logger: Logger[IO]): IO[Unit] = {
+    val stream = Stream.repeatEval(queue.take)
     stream
       .debounce(serverSettings.loadUpdateInterval)
       .evalTap { load: Int =>
@@ -237,15 +231,13 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker) {
-      IO {
-        val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
-        curatorFramework
-          .setData()
-          .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-        ()
-      }
+  ): IO[Unit] =
+    IO.blocking {
+      val newHost = Host(host.version, host.address, host.port, HostMetadata(load, host.metadata.quarantined))
+      curatorFramework
+        .setData()
+        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+      ()
     }
 
   private def assignQuarantine(
@@ -253,47 +245,43 @@ object WookieeGrpcServer {
       host: Host,
       discoveryPath: String,
       curatorFramework: CuratorFramework
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker) {
-      IO {
-        val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
-        curatorFramework
-          .setData()
-          .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
-        ()
-      }
+  ): IO[Unit] =
+    IO.blocking {
+      val newHost = Host(host.version, host.address, host.port, HostMetadata(host.metadata.load, isQuarantined))
+      curatorFramework
+        .setData()
+        .forPath(s"$discoveryPath/${host.address}:${host.port}", HostSerde.serialize(newHost))
+      ()
     }
 
   private def registerInZookeeper(
       discoveryPath: String,
       curator: CuratorFramework,
       host: Host
-  )(implicit cs: ContextShift[IO], blocker: Blocker): IO[Unit] =
-    cs.blockOn(blocker)(
-      IO {
-        if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
-          curator
-            .create()
-            .orSetData()
-            .creatingParentsIfNeeded()
-            .forPath(discoveryPath)
-        }
-
-        val path = s"$discoveryPath/${host.address}:${host.port}"
-
-        // Remove any nodes attached to old sessions first (if they exists)
-        Try {
-          curator
-            .delete()
-            .forPath(path)
-        }
-
+  ): IO[Unit] =
+    IO.blocking {
+      if (Option(curator.checkExists().forPath(discoveryPath)).isEmpty) {
         curator
-          .create
+          .create()
           .orSetData()
-          .withMode(CreateMode.EPHEMERAL)
-          .forPath(path, HostSerde.serialize(host))
-        ()
+          .creatingParentsIfNeeded()
+          .forPath(discoveryPath)
       }
-    )
+
+      val path = s"$discoveryPath/${host.address}:${host.port}"
+
+      // Remove any nodes attached to old sessions first (if they exists)
+      Try {
+        curator
+          .delete()
+          .forPath(path)
+      }
+
+      curator
+        .create
+        .orSetData()
+        .withMode(CreateMode.EPHEMERAL)
+        .forPath(path, HostSerde.serialize(host))
+      ()
+    }
 }

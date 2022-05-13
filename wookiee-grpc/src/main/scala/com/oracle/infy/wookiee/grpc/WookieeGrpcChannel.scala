@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 
-import cats.effect.concurrent.{Deferred, Ref, Semaphore}
-import cats.effect.{Blocker, ConcurrentEffect, ContextShift, Fiber, IO}
+import cats.effect.std.{Dispatcher, Queue, Semaphore}
+import cats.effect.{Deferred, FiberIO, IO, Ref}
 import cats.implicits.catsSyntaxApplicativeId
 import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
@@ -18,7 +18,6 @@ import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => 
 import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
 import fs2.Stream
-import fs2.concurrent.Queue
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
@@ -32,16 +31,13 @@ import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext
 import scala.util.Random
 
-final class WookieeGrpcChannel(val managedChannel: ManagedChannel)(
-    implicit cs: ContextShift[IO],
-    blocker: Blocker
-) {
+final class WookieeGrpcChannel(val managedChannel: ManagedChannel) {
 
   def shutdown(): IO[Unit] =
-    cs.blockOn(blocker)(IO({
+    IO.blocking({
       managedChannel.shutdown()
       ()
-    }))
+    })
 
 }
 
@@ -52,44 +48,41 @@ object WookieeGrpcChannel {
   def of(
       settings: ChannelSettings
   )(
-      implicit cs: ContextShift[IO],
-      concurrent: ConcurrentEffect[IO],
-      blocker: Blocker,
-      logger: Logger[IO]
+      implicit
+      logger: Logger[IO],
+      dispatcher: Dispatcher[IO]
   ): IO[WookieeGrpcChannel] =
     for {
       listener <- Ref.of[IO, Option[ListenerContract[IO, Stream]]](None)
-      fiberRef <- Ref.of[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]](None)
+      fiberRef <- Ref.of[IO, Option[FiberIO[Either[WookieeGrpcError, Unit]]]](None)
 
-      hostnameServiceSemaphore <- Semaphore(1)
-      nameResolverSemaphore <- Semaphore(1)
+      hostnameServiceSemaphore <- Semaphore[IO](1)
+      nameResolverSemaphore <- Semaphore[IO](1)
       queue <- Queue.unbounded[IO, Set[Host]]
       killSwitch <- Deferred[IO, Either[Throwable, Unit]]
       cache <- Ref.of[IO, Option[CuratorCache]](None)
       _ <- addLoadBalancer(settings.lbPolicy)
-      channel <- cs.blockOn(blocker)(
-        buildChannel(
-          settings.serviceDiscoveryPath,
-          settings.eventLoopGroupExecutionContext,
-          settings.channelExecutionContext,
-          settings.offloadExecutionContext,
-          settings.eventLoopGroupExecutionContextThreads,
-          settings.lbPolicy,
-          listener,
-          nameResolverSemaphore,
-          fiberRef,
-          new ZookeeperHostnameService(
-            settings.curatorFramework,
-            cache,
-            hostnameServiceSemaphore,
-            Fs2CloseableImpl(queue.dequeue, killSwitch),
-            queue.enqueue1
-          ),
-          settings.serviceDiscoveryPath,
-          settings.sslClientSettings,
-          settings.clientAuthSettings,
-          settings.clientInterceptors
-        )
+      channel <- buildChannel(
+        settings.serviceDiscoveryPath,
+        settings.eventLoopGroupExecutionContext,
+        settings.channelExecutionContext,
+        settings.offloadExecutionContext,
+        settings.eventLoopGroupExecutionContextThreads,
+        settings.lbPolicy,
+        listener,
+        nameResolverSemaphore,
+        fiberRef,
+        new ZookeeperHostnameService(
+          settings.curatorFramework,
+          cache,
+          hostnameServiceSemaphore,
+          Fs2CloseableImpl(Stream.repeatEval(queue.take), killSwitch),
+          queue.offer
+        ),
+        settings.serviceDiscoveryPath,
+        settings.sslClientSettings,
+        settings.clientAuthSettings,
+        settings.clientInterceptors
       )
     } yield new WookieeGrpcChannel(channel)
 
@@ -135,18 +128,18 @@ object WookieeGrpcChannel {
       lbPolicy: LBPolicy,
       listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
       semaphore: Semaphore[IO],
-      fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
+      fiberRef: Ref[IO, Option[FiberIO[Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings],
       maybeInterceptors: Option[List[ClientInterceptor]]
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO]): IO[ManagedChannel] = {
+  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
-      randomScheme <- IO { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
-      nameResolverRegistry <- IO { NameResolverRegistry.getDefaultRegistry }
-      _ <- IO {
+      randomScheme <- IO.blocking { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
+      nameResolverRegistry <- IO.blocking { NameResolverRegistry.getDefaultRegistry }
+      _ <- IO.blocking {
         nameResolverRegistry.register(
           new AddressNameLoadingFactory(
             listenerRef,
@@ -159,10 +152,10 @@ object WookieeGrpcChannel {
           )
         )
       }
-      channelExecutorJava <- IO { scalaToJavaExecutor(channelExecutionContext) }
-      offloadExecutorJava <- IO { scalaToJavaExecutor(offloadExecutionContext) }
+      channelExecutorJava <- IO.blocking { scalaToJavaExecutor(channelExecutionContext) }
+      offloadExecutorJava <- IO.blocking { scalaToJavaExecutor(offloadExecutionContext) }
 
-      builder0 <- IO {
+      builder0 <- IO.blocking {
         NettyChannelBuilder
           .forTarget(s"$randomScheme://$path")
           .idleTimeout(Long.MaxValue, TimeUnit.DAYS)
@@ -202,7 +195,7 @@ object WookieeGrpcChannel {
         }
         .getOrElse(builder1.pure[IO])
 
-      channel <- IO {
+      channel <- IO.blocking {
         builder2.intercept(maybeInterceptors.getOrElse(List()): _*).build()
       }
     } yield channel
@@ -211,12 +204,12 @@ object WookieeGrpcChannel {
   private class AddressNameLoadingFactory(
       listenerRef: Ref[IO, Option[ListenerContract[IO, Stream]]],
       semaphore: Semaphore[IO],
-      fiberRef: Ref[IO, Option[Fiber[IO, Either[WookieeGrpcError, Unit]]]],
+      fiberRef: Ref[IO, Option[FiberIO[Either[WookieeGrpcError, Unit]]]],
       hostnameServiceContract: HostnameServiceContract[IO, Stream],
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       scheme: String
-  )(implicit cs: ContextShift[IO], blocker: Blocker, logger: Logger[IO])
+  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO])
       extends NameResolverProvider {
 
     def newNameResolver(notUsedUri: URI, args: NameResolver.Args): NameResolver = {
