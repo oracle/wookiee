@@ -1,8 +1,8 @@
 package com.oracle.infy.wookiee.grpc.impl
 
 import cats.data.EitherT
-import cats.effect.concurrent.{Ref, Semaphore}
-import cats.effect.{Blocker, Concurrent, ContextShift, IO}
+import cats.effect.std.{Dispatcher, Semaphore}
+import cats.effect.{IO, Ref}
 import cats.implicits.{catsSyntaxEq => _, _}
 import com.oracle.infy.wookiee.grpc.contract.{CloseableStreamContract, HostnameServiceContract}
 import com.oracle.infy.wookiee.grpc.errors.Errors
@@ -12,9 +12,9 @@ import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2._
-import org.typelevel.log4cats.Logger
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
+import org.typelevel.log4cats.Logger
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -37,13 +37,13 @@ protected[grpc] class ZookeeperHostnameService(
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
     pushHosts: Set[Host] => IO[Unit]
-)(implicit blocker: Blocker, cs: ContextShift[IO], concurrent: Concurrent[IO], logger: Logger[IO])
+)(implicit dispatcher: Dispatcher[IO], logger: Logger[IO])
     extends HostnameServiceContract[IO, Stream] {
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
       cache <- cacheRef.get
-      _ <- cs.blockOn(blocker)(IO(cache.map(_.close()).getOrElse(())))
+      _ <- IO.blocking(cache.map(_.close()).getOrElse(()))
     } yield ())
       .toEitherT(t => UnknownCuratorShutdownError(t.stackTrace): WookieeGrpcError)
 
@@ -69,21 +69,17 @@ protected[grpc] class ZookeeperHostnameService(
 
     val computation = for {
       _ <- logger.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
-      cache <- cs.blockOn(blocker)(
-        IO(
-          CuratorCache
-            .build(curator, rootPath)
-        )
+      cache <- IO.blocking(
+        CuratorCache
+          .build(curator, rootPath)
       )
-      _ <- cs.blockOn(blocker)(
-        IO(
-          cache
-            .listenable()
-            .addListener(cacheListener(lock, hasInitialized, state, pushHosts, rootPath))
-        )
+      _ <- IO.blocking(
+        cache
+          .listenable()
+          .addListener(cacheListener(lock, hasInitialized, state, pushHosts, rootPath))
       )
       _ <- cacheRef.set(Some(cache))
-      _ <- cs.blockOn(blocker)(IO(cache.start()))
+      _ <- IO.blocking(cache.start())
       _ <- logger.info("GRPC Service Discovery curator cache has started")
     } yield {
       closableStream
@@ -131,11 +127,12 @@ protected[grpc] class ZookeeperHostnameService(
       })
       .forInitialized(() => {
         lock.synchronized {
-          logger
-            .info(
-              s"State has been initialized. All nodes read in from zookeeper: ${toHostList(state)}"
-            )
-            .unsafeRunSync()
+          dispatcher.unsafeRunSync(
+            logger
+              .info(
+                s"State has been initialized. All nodes read in from zookeeper: ${toHostList(state)}"
+              )
+          )
           hasInitialized.set(true)
           sendHosts(pushHosts, state)
         }
@@ -146,8 +143,8 @@ protected[grpc] class ZookeeperHostnameService(
       pushHosts: Set[Host] => IO[Unit],
       state: ConcurrentHashMap[String, CachedNodeReference]
   ): Unit = {
-    logger.info(s"Sending hosts on stream: $state").unsafeRunSync()
-    pushHosts(toHostList(state)).unsafeRunSync()
+    dispatcher.unsafeRunSync(logger.info(s"Sending hosts on stream: $state"))
+    dispatcher.unsafeRunSync(pushHosts(toHostList(state)))
   }
 
   private def toHostList(state: ConcurrentHashMap[String, CachedNodeReference]): Set[Host] =
@@ -165,16 +162,17 @@ protected[grpc] class ZookeeperHostnameService(
     if (zkData.getPath =/= rootPath) {
       HostSerde.deserialize(zkData.getData) match {
         // TODO: Healthcheck should go into degraded state
-        case Left(err) => logger.error(s"Unable to parse host data from zookeeper: $err").unsafeRunSync()
+        case Left(err) =>
+          dispatcher.unsafeRunSync(logger.error(s"Unable to parse host data from zookeeper: $err"))
         case Right(host) =>
           Option(state.get(zkData.getPath)) match {
             case Some(cachedData) =>
               if (zkData.getStat.getMzxid > cachedData.mzxid) {
-                logger.info(s"Replacing cached node data $cachedData with new host: $host").unsafeRunSync()
+                dispatcher.unsafeRunSync(logger.info(s"Replacing cached node data $cachedData with new host: $host"))
                 state.put(zkData.getPath, NodeData(host, zkData.getStat.getMzxid))
               }
             case None =>
-              logger.info(s"Storing new host in map: $host").unsafeRunSync()
+              dispatcher.unsafeRunSync(logger.info(s"Storing new host in map: $host"))
               state.put(zkData.getPath, NodeData(host, zkData.getStat.getMzxid))
           }
       }
@@ -191,13 +189,13 @@ protected[grpc] class ZookeeperHostnameService(
 
       Option(state.get(zkData.getPath)) match {
         case Some(cachedData) =>
-          logger.info(s"Putting tombstone in place of: $cachedData").unsafeRunSync()
+          dispatcher.unsafeRunSync(logger.info(s"Putting tombstone in place of: $cachedData"))
           // must check greater than or equal on deletes because zxid of delete event is not stored on ChildData
           if (zkData.getStat.getMzxid >= cachedData.mzxid) {
             state.put(zkData.getPath, Tombstone(zkData.getStat.getMzxid))
           }
         case None =>
-          logger.info(s"Putting tombstone on path ${zkData.getPath}").unsafeRunSync()
+          dispatcher.unsafeRunSync(logger.info(s"Putting tombstone on path ${zkData.getPath}"))
           state.put(zkData.getPath, Tombstone(zkData.getStat.getMzxid))
       }
     }

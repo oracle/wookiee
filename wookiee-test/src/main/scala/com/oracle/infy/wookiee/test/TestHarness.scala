@@ -60,7 +60,7 @@ object TestHarness {
     try {
       socket.setReuseAddress(true)
       socket.getLocalPort
-    } finally if (socket != null) socket.close()
+    } finally if (Option(socket).nonEmpty) socket.close()
   }
 
   def log: Logger = Harness.getLogger

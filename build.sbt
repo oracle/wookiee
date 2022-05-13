@@ -1,5 +1,4 @@
 import java.io.File
-
 import sbt.Keys.{libraryDependencies, _}
 import sbt._
 
@@ -56,7 +55,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   logBuffered in Test := false,
   publishArtifact in (Compile, packageDoc) := false,
   addCompilerPlugin(scalafixSemanticdb),
-  scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.12",
+  scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
   scalacOptions := scalaVersion.map {
     case `LatestScalaVersion` if warnUnused =>
       commonScalacOptions ++ Seq("-Ywarn-unused")
@@ -157,6 +156,29 @@ lazy val `wookiee-grpc-component` = project
   .dependsOn(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
 
+lazy val `wookiee-grpc-tests` = project
+  .in(file("wookiee-grpc-tests"))
+  .settings(commonSettings(true))
+  .settings(
+    scalafixConfig := Some(file(".scalafix_strict.conf")),
+    test := {
+      (test in Test).value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
+    },
+    libraryDependencies ++= Seq(
+      Deps.test.curatorTest,
+      Deps.test.log4CatsNoop,
+      Deps.test.scalacheck,
+      Deps.test.scalatest,
+      Deps.test.µTest
+    )
+  )
+  .dependsOn(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
+  .aggregate(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
+
 lazy val `wookiee-functional-metrics` = project
   .in(file("wookiee-functional-metrics"))
   .settings(commonSettings(true))
@@ -252,10 +274,6 @@ lazy val root = project
     testFrameworks += new TestFramework("utest.runner.Framework"),
     test := {
       (test in Test).value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     ciBuild := {
       ((Keys.`package` in Compile) dependsOn (test in Compile)).value
@@ -265,6 +283,7 @@ lazy val root = project
   .dependsOn(
     `wookiee-core`,
     `wookiee-grpc-dev`,
+    `wookiee-grpc-tests`,
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
@@ -282,6 +301,7 @@ lazy val root = project
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
+    `wookiee-grpc-tests`,
     `wookiee-proto`,
     `wookiee-health`,
     `wookiee-akka-http`,

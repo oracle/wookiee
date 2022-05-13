@@ -11,6 +11,7 @@ import org.http4s.HttpRoutes
 import org.http4s.dsl.io._
 
 import scala.concurrent.ExecutionContext
+import cats.effect.Temporal
 
 object HeathCheckServer extends Serde {
 
@@ -20,10 +21,7 @@ object HeathCheckServer extends Serde {
       healthF: () => IO[WookieeHealth],
       executionContext: ExecutionContext,
       additionalRoutes: Option[HttpRoutes[IO]]
-  )(
-      implicit timer: Timer[IO],
-      cs: ContextShift[IO]
-  ): Stream[IO, ExitCode] = {
+  )(implicit timer: Temporal[IO]): Stream[IO, ExitCode] = {
 
     val routes = additionalRoutes match {
       case Some(r) => healthCheckRoutes(healthF) <+> r
