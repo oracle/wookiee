@@ -29,6 +29,7 @@ import com.oracle.infy.wookiee.component.akkahttp.routes.{
 import com.oracle.infy.wookiee.component.akkahttp.websocket.AkkaHttpWebsocket.WSFailure
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
+import scala.concurrent.duration._
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
@@ -63,6 +64,14 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
             tryWrap(textToInput(authHolder, TextMessage(tm.getStrictText)))
           case bm: BinaryMessage if bm.isStrict =>
             tryWrap(textToInput(authHolder, TextMessage(bm.getStrictData.utf8String)))
+          case m: TextMessage =>
+            m.toStrict(15.seconds).flatMap { tm =>
+              tryWrap(textToInput(authHolder, TextMessage(tm.getStrictText)))
+            }
+          case bm: BinaryMessage =>
+            bm.toStrict(15.seconds).flatMap { bmt =>
+              tryWrap(textToInput(authHolder, TextMessage(bmt.getStrictData.utf8String)))
+            }
         }
         .to(Sink.actorRef(sActor, CloseSocket(), { err: Throwable =>
           WSFailure(err)
