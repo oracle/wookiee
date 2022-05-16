@@ -53,9 +53,9 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   version := projectVersion,
   organization := org,
   Test / logBuffered := false,
-  publishArtifact in (Compile, packageDoc) := false,
+  Compile / packageDoc / publishArtifact := false,
   addCompilerPlugin(scalafixSemanticdb),
-  scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
+  ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
   scalacOptions := scalaVersion.map {
     case `LatestScalaVersion` if warnUnused =>
       commonScalacOptions ++ Seq("-Ywarn-unused")
@@ -75,13 +75,13 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
         "-Ywarn-adapted-args"
       )
   }.value,
-  compile := ((compile in Compile) dependsOn (compile in Test)).value,
+  compile := ((Compile / compile) dependsOn (Test / compile)).value,
   ciBuild := {
-    ((Keys.`packageSrc` in Compile) dependsOn (test in Test)).value
+    ((Compile / Keys.`packageSrc`) dependsOn (Test / test)).value
     makePom.value
   },
   ciBuildNoTest := {
-    (Keys.`package` in Compile).value
+    (Compile / Keys.`package`).value
     makePom.value
   }
 )
@@ -162,11 +162,11 @@ lazy val `wookiee-grpc-tests` = project
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     test := {
-      (test in Test).value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
-      (runMain in Test).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
+      (Test / test).value
+      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
+      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
+      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
+      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
     },
     libraryDependencies ++= Seq(
       Deps.test.curatorTest,
@@ -273,10 +273,10 @@ lazy val root = project
     libraryDependencies ++= Deps.test.all,
     testFrameworks += new TestFramework("utest.runner.Framework"),
     test := {
-      (test in Test).value
+      (Test / test).value
     },
     ciBuild := {
-      ((Keys.`package` in Compile) dependsOn (test in Compile)).value
+      ((Compile / Keys.`package`) dependsOn (Compile / test)).value
       makePom.value
     }
   )
