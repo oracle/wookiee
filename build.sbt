@@ -54,7 +54,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   organization := org,
   logBuffered in Test := false,
   semanticdbEnabled := true, // enable SemanticDB
-  semanticdbVersion := Deps.versions.semanticDBVersion,
+  semanticdbVersion := scalafixSemanticdb.revision,
   publishArtifact in (Compile, packageDoc) := false,
   addCompilerPlugin(scalafixSemanticdb),
   scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
