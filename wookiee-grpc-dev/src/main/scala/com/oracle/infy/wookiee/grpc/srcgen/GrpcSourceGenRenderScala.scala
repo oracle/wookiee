@@ -299,7 +299,7 @@ object GrpcSourceGenRenderScala {
             .map { paramModel =>
               val paramTypeStr = paramModel.param.decltpe match {
                 case Some(Type.Name(value)) => value
-                case Some(value)            => "Unknown"
+                case Some(_)                => "Unknown"
                 case None                   => "Unknown"
               }
               val childTerm = Term.Name(paramTypeStr)
@@ -340,7 +340,7 @@ object GrpcSourceGenRenderScala {
               .map { paramModel =>
                 val paramTypeStr = paramModel.param.decltpe match {
                   case Some(Type.Name(value)) => value
-                  case Some(value)            => "Unknown"
+                  case Some(_)                => "Unknown"
                   case None                   => "Unknown"
                 }
                 val childTerm = Term.Name(paramTypeStr)
