@@ -46,15 +46,13 @@ val commonScalacOptions =
   )
 
 def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
-  parallelExecution in Test := false,
+  Test / parallelExecution := false,
   concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
   scalaVersion := LatestScalaVersion,
   crossScalaVersions := ScalaVersions,
   version := projectVersion,
   organization := org,
-  logBuffered in Test := false,
-  semanticdbEnabled := true, // enable SemanticDB
-  semanticdbVersion := scalafixSemanticdb.revision,
+  Test / logBuffered := false,
   publishArtifact in (Compile, packageDoc) := false,
   addCompilerPlugin(scalafixSemanticdb),
   scalafixDependencies in ThisBuild += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
