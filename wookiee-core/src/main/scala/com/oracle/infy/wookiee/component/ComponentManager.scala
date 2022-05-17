@@ -494,7 +494,11 @@ class ComponentManager extends PrepareForShutdown {
       case c if classOf[Component].isAssignableFrom(c) =>
         component = initComponentActor(componentName, clazz)
       case _ =>
-        log.warning(s"Could not load component [$componentName]. Not an instance of Component")
+        log.warning(
+          s"Could not load manager [${clazz.getName}] with superclass " +
+            s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
+            s"for [$componentName]. Not an instance of Component"
+        )
     }
     component
   }
