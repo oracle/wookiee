@@ -2,10 +2,8 @@ package com.oracle.infy.wookiee
 // NOTE: Do not use string interpolation in this example file because mdoc will fail on `$` char
 import cats.effect.IO
 import cats.effect.std.Dispatcher
-import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
-
-import java.lang.Thread.UncaughtExceptionHandler
-import java.util.concurrent.{Executors, ForkJoinPool, ScheduledThreadPoolExecutor, ThreadFactory}
+import cats.effect.unsafe.IORuntime
+import com.oracle.infy.wookiee.utils.ThreadUtil
 //wookiee-grpc imports
 import com.oracle.infy.wookiee.grpc._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers._
@@ -35,45 +33,14 @@ object Example {
     // If you want to use cats-effect, you can use the methods that return IO[_]. Otherwise, use the methods prefixed with `unsafe`.
     // When using `unsafe` methods, you are expected to handle any exceptions
 
-    val uncaughtExceptionHandler = new UncaughtExceptionHandler {
-      override def uncaughtException(t: Thread, e: Throwable): Unit = {
-        System.err.println("Got an uncaught exception on thread " ++ t.getName ++ " " ++ e.toString)
-      }
-    }
-
-    val tf = new ThreadFactory {
-      override def newThread(r: Runnable): Thread = {
-        val t = new Thread(r)
-        t.setName("blocking-" ++ t.getId.toString)
-        t.setUncaughtExceptionHandler(uncaughtExceptionHandler)
-        t.setDaemon(true)
-        t
-      }
-    }
-
     // The blocking execution context must create daemon threads if you want your app to shutdown
-    val blockingEC = ExecutionContext.fromExecutorService(Executors.newCachedThreadPool(tf))
+    val blockingEC = ThreadUtil.createEC("example-blocking")
     // This is the execution context used to execute your application specific code
-    implicit val mainEC: ExecutionContext = ExecutionContext.fromExecutor(
-      new ForkJoinPool(
-        mainECParallelism,
-        ForkJoinPool.defaultForkJoinWorkerThreadFactory,
-        uncaughtExceptionHandler,
-        true
-      )
-    )
+    implicit val mainEC: ExecutionContext = ThreadUtil.createEC("example-main", Some(mainECParallelism))
 
     // Use a separate execution context for the timer
-    val scheduler = new ScheduledThreadPoolExecutor(1, { r: Runnable =>
-      val t = new Thread(r)
-      t.setName("")
-      t.setDaemon(true)
-      t.setPriority(Thread.MAX_PRIORITY)
-      t
-    })
-    scheduler.setRemoveOnCancelPolicy(true)
-    implicit val runtime: IORuntime =
-      IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduler), () => (), IORuntimeConfig())
+    val scheduler = ThreadUtil.scheduledThreadPoolExecutor("example", 3)
+    implicit val runtime: IORuntime = ThreadUtil.ioRuntime(mainEC, blockingEC, scheduler)
 
     implicit val dispatcher: Dispatcher[IO] = new Dispatcher[IO] {
       override def unsafeToFutureCancelable[A](fa: IO[A]): (Future[A], () => Future[Unit]) =

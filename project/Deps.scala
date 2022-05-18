@@ -3,7 +3,7 @@ import sbt._
 object Deps {
 
   object versions {
-    val akkaVersion = "2.6.18"
+    val akkaVersion = "2.6.19"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val curatorVersion = "5.2.1"
@@ -11,9 +11,9 @@ object Deps {
     val catsEffectVersion = "3.3.11"
     val log4CatsVersion = "2.3.0"
     val circeVersion = "0.14.1"
-    val µTestVersion = "0.7.2"
-    val scalacheckVersion = "1.15.4"
-    val scalatestVersion = "3.2.9"
+    val µTestVersion = "0.7.11"
+    val scalacheckVersion = "1.16.0"
+    val scalatestVersion = "3.2.12"
     val fs2Version = "3.2.7"
     val junitVersion = "4.13.2"
     val guavaVersion = "31.0.1-jre"
@@ -24,13 +24,13 @@ object Deps {
     val scalaPbRuntimeVersion: String = "0.11.10"
 
     val slf4jVersion = "1.7.36"
-    val slf4jImplVersion = "2.17.1"
+    val slf4jImplVersion = "2.17.2"
     val logbackVersion = "1.2.11"
-    val jodaTimeVersion = "2.10.13"
+    val jodaTimeVersion = "2.10.14"
     val scalaCollectionCompatVersion = "2.4.4"
     val zookeeperVersion = "3.8.0"
     val json4sVersion = "4.0.5"
-    val jacksonVersion = "2.13.2.2"
+    val jacksonVersion = "2.13.3"
     val http4sVersion = "0.23.11"
     val dropwizardVersion = "4.2.9"
     val akkaHttpVersion = "10.2.9"
