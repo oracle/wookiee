@@ -41,7 +41,7 @@ object ThreadUtil extends LoggingAdapter {
 
   def ioRuntime(mainEC: ExecutionContext, prefix: String): IORuntime = {
     val blockingEC = createEC(s"$prefix-blocking")
-    ioRuntime(mainEC, blockingEC, prefix) // scalafix:ok
+    ioRuntime(mainEC, blockingEC, prefix)
   }
 
   def ioRuntime(mainEC: ExecutionContext, blockingEC: ExecutionContext, prefix: String): IORuntime = {
@@ -54,7 +54,7 @@ object ThreadUtil extends LoggingAdapter {
       blockingEC: ExecutionContext,
       scheduled: ScheduledThreadPoolExecutor
   ): IORuntime =
-    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduled), () => (), IORuntimeConfig()) // scalafix:ok
+    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduled), () => (), IORuntimeConfig())
 
   def scheduledThreadPoolExecutor(
       prefix: String,
