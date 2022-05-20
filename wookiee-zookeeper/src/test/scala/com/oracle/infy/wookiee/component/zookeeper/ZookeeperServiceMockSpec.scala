@@ -28,6 +28,7 @@ class ZookeeperServiceMockSpec
       |  mock-port = 59595
       |  base-path = "/test_path"
       |  register-self = false
+      |  host-fqdn = "localhost"
       |}
     """.stripMargin))
   override implicit val zkActorSystem: ActorSystem = testHarness.system
@@ -41,6 +42,7 @@ class ZookeeperServiceMockSpec
         Await.result((getMediator(zkActorSystem) ? GetRegistrationPath()).mapTo[String], awaitResultTimeout)
       try {
         val res = Await.result(getData(startPath, None), awaitResultTimeout)
+        startPath shouldEqual "localhost"
         new String(res) shouldEqual "should not be set"
       } catch {
         case _: NoNodeException =>

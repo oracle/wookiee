@@ -55,7 +55,7 @@ object NodeRegistration {
 
     if (!Zookeeper.isMock(system.settings.config) &&
         (addrHost.equalsIgnoreCase("localhost") || addrHost.equals("127.0.0.1"))) {
-      InetAddress.getLocalHost.getCanonicalHostName
+      SystemExtension.getLocalHost(system)
     } else {
       addrHost
     }
