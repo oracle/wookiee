@@ -21,6 +21,7 @@ object Deps {
     val upickleVersion = "1.5.0"
     val grpcVersion: String = "1.46.0"
     val nettyVersion: String = "4.1.77.Final"
+    val nettyTCVersion: String = "2.0.52.Final"
     val scalaPbRuntimeVersion: String = "0.11.10"
 
     val slf4jVersion = "1.7.36"
@@ -45,8 +46,10 @@ object Deps {
     val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
     val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude("org.apache.zookeeper", "zookeeper")
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
+    val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
     val curatorLibs: Seq[ModuleID] = Seq(
       nettyAll,
+      nettyTC,
       curator,
       zookeeper,
       "org.apache.curator" % "curator-framework" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
@@ -56,11 +59,12 @@ object Deps {
 
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
+    val jacksonDatabind: ModuleID = "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion
     val json4sLibs: Seq[ModuleID] = Seq(
       "org.json4s" %% "json4s-jackson" % json4sVersion,
       "org.json4s" %% "json4s-ext" % json4sVersion,
       "org.json4s" %% "json4s-core" % json4sVersion,
-      "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion
+      jacksonDatabind
     )
 
     val dropWizardLibs: Seq[ModuleID] = Seq(
@@ -166,7 +170,8 @@ object Deps {
       scalaCollectionCompat,
       log4CatsCore,
       log4CatsSlf4J,
-      fs2
+      fs2,
+      jacksonDatabind
     ) ++ circe ++ cats ++ grpc
 
     val wookieeCache: Seq[ModuleID] = Seq(
@@ -176,6 +181,7 @@ object Deps {
 
     val wookieeProto: Seq[ModuleID] = Seq(
       nettyAll,
+      nettyTC,
       scalaPbRuntime
     )
 
@@ -187,7 +193,8 @@ object Deps {
       scalaStm,
       guava,
       scalaCollectionCompat,
-      fs2
+      fs2,
+      jacksonDatabind
     ) ++ circe ++ cats
   }
 

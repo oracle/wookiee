@@ -18,6 +18,7 @@ import scala.reflect.ClassTag
   * @tparam A Type of supplied Auth to the websocket
   */
 class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
+    socketActor: ActorRef,
     callbactor: ActorRef,
     val authInfo: A,
     val lastInput: Option[I],
@@ -26,14 +27,14 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
 ) extends LoggingAdapter {
 
   /**
-    * Main method to send an up to the websocket client,
+    * Main method to send an message up to the websocket client,
     * any calls on this will bubble up one event, can be called many times
     * @param output Event to be bubbled up, will be converted to TextMessage via 'outputToText'
     */
   def reply(output: O): Unit = {
     try {
       val text = outputToText(output)
-      callbactor ! text
+      callbactor.tell(text, socketActor)
     } catch {
       case err: Throwable if errorHandler.isDefinedAt(err) =>
         reactToError(errorHandler(err))
