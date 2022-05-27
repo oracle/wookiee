@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.component.grpc.server
 
-import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
+import cats.effect.unsafe.IORuntime
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils
 import com.oracle.infy.wookiee.logging.LoggingAdapter
@@ -31,8 +31,7 @@ trait ExtensionHostServices extends LoggingAdapter {
     ) // scalafix:ok
   private lazy val curator: CuratorFramework = createCurator(curatorConnectString) // scalafix:ok
 
-  implicit lazy val runtime: IORuntime =
-    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduledExecutor), () => (), IORuntimeConfig()) // scalafix:ok
+  implicit lazy val runtime: IORuntime = ThreadUtil.ioRuntime(mainEC, blockingEC, scheduledExecutor) // scalafix:ok
 
   def hostConfig: Config
 

@@ -216,7 +216,7 @@ object ComponentManager extends LoggingAdapter {
         if (config.hasPath(s"$fn")) {
           fn
         } else {
-          throw new ComponentNotFoundException("ComponentManager", s"$fn component not found")
+          throw new ComponentNotFoundException("ComponentManager", s"'$fn...' path not found in config")
         }
       }
     }
@@ -332,7 +332,7 @@ class ComponentManager extends PrepareForShutdown {
     // first check to see if
     context.child(name) match {
       case Some(ref) => ref ! msg
-      case None      => log.error(s"$name component not found")
+      case None      => log.error(s"Didn't find component $name for messaging")
     }
   }
 
@@ -350,7 +350,7 @@ class ComponentManager extends PrepareForShutdown {
           case Success(resp) => p success resp
           case Failure(f)    => p failure f
         }
-      case None => p failure ComponentNotFoundException("ComponentManager", s"$name component not found")
+      case None => p failure ComponentNotFoundException("ComponentManager", s"Didn't find component $name for requests")
     }
     p.future
   }
@@ -494,7 +494,11 @@ class ComponentManager extends PrepareForShutdown {
       case c if classOf[Component].isAssignableFrom(c) =>
         component = initComponentActor(componentName, clazz)
       case _ =>
-        log.warning(s"Could not load component [$componentName]. Not an instance of Component")
+        log.warning(
+          s"Could not load manager [${clazz.getName}] with superclass " +
+            s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
+            s"for [$componentName]. Not an instance of Component"
+        )
     }
     component
   }
@@ -547,7 +551,7 @@ class ComponentManager extends PrepareForShutdown {
     if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
       log.info(s"Component $componentName not enabled, won't be started.")
     } else {
-      require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found.")
+      require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found in config.")
       val className = compConfig.getString(ComponentManager.KeyManagerClass)
       loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
     }

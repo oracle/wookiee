@@ -3,7 +3,7 @@ import sbt._
 object Deps {
 
   object versions {
-    val akkaVersion = "2.6.18"
+    val akkaVersion = "2.6.19"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val curatorVersion = "5.2.1"
@@ -11,37 +11,47 @@ object Deps {
     val catsEffectVersion = "3.3.11"
     val log4CatsVersion = "2.3.0"
     val circeVersion = "0.14.1"
-    val µTestVersion = "0.7.2"
-    val scalacheckVersion = "1.15.4"
-    val scalatestVersion = "3.2.9"
+    val µTestVersion = "0.7.11"
+    val scalacheckVersion = "1.16.0"
+    val scalatestVersion = "3.2.12"
     val fs2Version = "3.2.7"
     val junitVersion = "4.13.2"
     val guavaVersion = "31.0.1-jre"
     val finagleVersion = "22.1.0"
     val upickleVersion = "1.5.0"
-    val grpcVersion: String = scalapb.compiler.Version.grpcJavaVersion
+    val grpcVersion: String = "1.46.0"
+    val nettyVersion: String = "4.1.77.Final"
+    val nettyTCVersion: String = "2.0.52.Final"
+    val scalaPbRuntimeVersion: String = "0.11.10"
 
-    val slf4jVersion = "1.7.33"
-    val slf4jImplVersion = "2.17.1"
-    val logbackVersion = "1.2.10"
-    val jodaTimeVersion = "2.10.13"
-    val scalaCollectionCompatVersion = "2.3.0"
+    val slf4jVersion = "1.7.36"
+    val slf4jImplVersion = "2.17.2"
+    val logbackVersion = "1.2.11"
+    val jodaTimeVersion = "2.10.14"
+    val scalaCollectionCompatVersion = "2.4.4"
     val zookeeperVersion = "3.8.0"
-    val json4sVersion = "4.0.3"
+    val json4sVersion = "4.0.5"
+    val jacksonVersion = "2.13.3"
     val http4sVersion = "0.23.11"
-    val dropwizardVersion = "4.2.7"
-    val akkaHttpVersion = "10.2.7"
+    val dropwizardVersion = "4.2.9"
+    val akkaHttpVersion = "10.2.9"
     val akkaHttpJson4sVersion = "1.39.2"
-    val akkaHttpCorsVersion = "1.1.2"
+    val akkaHttpCorsVersion = "1.1.3"
   }
 
   object build {
 
     import versions._
 
-    val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion
+    val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
+    val curator: ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude("org.apache.zookeeper", "zookeeper")
+    val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
+    val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
     val curatorLibs: Seq[ModuleID] = Seq(
-      curator exclude("org.apache.zookeeper", "zookeeper"),
+      nettyAll,
+      nettyTC,
+      curator,
+      zookeeper,
       "org.apache.curator" % "curator-framework" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
       "org.apache.curator" % "curator-x-discovery" % curatorVersion exclude("org.apache.zookeeper", "zookeeper"),
       test.curatorTest exclude("org.apache.zookeeper", "zookeeper"),
@@ -49,10 +59,12 @@ object Deps {
 
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
+    val jacksonDatabind: ModuleID = "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion
     val json4sLibs: Seq[ModuleID] = Seq(
       "org.json4s" %% "json4s-jackson" % json4sVersion,
       "org.json4s" %% "json4s-ext" % json4sVersion,
-      "org.json4s" %% "json4s-core" % json4sVersion
+      "org.json4s" %% "json4s-core" % json4sVersion,
+      jacksonDatabind
     )
 
     val dropWizardLibs: Seq[ModuleID] = Seq(
@@ -87,8 +99,6 @@ object Deps {
     )
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
-    val zookeeper: ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude("org.slf4j", "slf4j-log4j12")
-
     val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
     val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
 
@@ -102,6 +112,7 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
+    val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
@@ -143,13 +154,11 @@ object Deps {
       test.akkaTest
     ) ++ json4sLibs ++ dropWizardLibs
 
-    val wookieeZk: Seq[ModuleID] = Seq(
-      zookeeper,
+    val wookieeZk: Seq[ModuleID] = curatorLibs ++ Seq(
       guava,
       test.scalatest,
-      test.curatorTest,
       test.akkaTest
-    ) ++ json4sLibs ++ curatorLibs
+    ) ++ json4sLibs
 
     val wookieeMemcache: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -157,12 +166,12 @@ object Deps {
       upickle
     )
 
-    val wookieeGrpc: Seq[ModuleID] = Seq(
-      curator,
+    val wookieeGrpc: Seq[ModuleID] = curatorLibs ++ Seq(
       scalaCollectionCompat,
       log4CatsCore,
       log4CatsSlf4J,
-      fs2
+      fs2,
+      jacksonDatabind
     ) ++ circe ++ cats ++ grpc
 
     val wookieeCache: Seq[ModuleID] = Seq(
@@ -170,16 +179,22 @@ object Deps {
       test.akkaTest
     ) ++ json4sLibs
 
-    val core: Seq[ModuleID] = Seq(
+    val wookieeProto: Seq[ModuleID] = Seq(
+      nettyAll,
+      nettyTC,
+      scalaPbRuntime
+    )
+
+    val core: Seq[ModuleID] = curatorLibs ++ Seq(
       akka,
       slf4jApi,
       logbackClassic,
       jodaTime,
       scalaStm,
       guava,
-      curator,
       scalaCollectionCompat,
-      fs2
+      fs2,
+      jacksonDatabind
     ) ++ circe ++ cats
   }
 

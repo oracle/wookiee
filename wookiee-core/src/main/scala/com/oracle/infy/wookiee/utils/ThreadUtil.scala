@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.utils
 
 import cats.effect.IO
 import cats.effect.std.Dispatcher
+import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
@@ -37,6 +38,23 @@ object ThreadUtil extends LoggingAdapter {
           Executors.newCachedThreadPool(threadFactory(s"$threadNames-cached"))
       })
   }
+
+  def ioRuntime(mainEC: ExecutionContext, prefix: String): IORuntime = {
+    val blockingEC = createEC(s"$prefix-blocking")
+    ioRuntime(mainEC, blockingEC, prefix)
+  }
+
+  def ioRuntime(mainEC: ExecutionContext, blockingEC: ExecutionContext, prefix: String): IORuntime = {
+    val scheduled = scheduledThreadPoolExecutor(prefix, 5)
+    ioRuntime(mainEC, blockingEC, scheduled)
+  }
+
+  def ioRuntime(
+      mainEC: ExecutionContext,
+      blockingEC: ExecutionContext,
+      scheduled: ScheduledThreadPoolExecutor
+  ): IORuntime =
+    IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduled), () => (), IORuntimeConfig())
 
   def scheduledThreadPoolExecutor(
       prefix: String,
