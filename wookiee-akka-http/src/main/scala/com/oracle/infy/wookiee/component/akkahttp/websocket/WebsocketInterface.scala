@@ -1,9 +1,9 @@
 package com.oracle.infy.wookiee.component.akkahttp.websocket
 
-import akka.actor.{ActorRef, PoisonPill}
+import akka.actor.{ActorRef, Status}
 import akka.http.scaladsl.model.ws.TextMessage
-import akka.stream.Supervision
 import akka.stream.Supervision.Directive
+import akka.stream.{CompletionStrategy, Supervision}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import scala.reflect.ClassTag
@@ -48,7 +48,7 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
     * Call this to manually stop when done with this websocket, will automatically be called if connection is severed
     */
   def stop(): Unit = {
-    outgoingActor ! PoisonPill
+    outgoingActor ! Status.Success(CompletionStrategy.immediately)
   }
 
   private def reactToError: PartialFunction[Directive, Unit] = {

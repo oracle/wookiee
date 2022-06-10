@@ -79,7 +79,12 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
 
     val source: Source[Message, Unit] =
       Source
-        .actorRef[Message](completionStrategy, failureStrategy, 30, OverflowStrategy.dropHead)
+        .actorRef[Message](
+          completionStrategy,
+          failureStrategy,
+          options.websocketBufferSize.getOrElse(1000000),
+          OverflowStrategy.dropHead
+        )
         .mapMaterializedValue { outgoingActor =>
           socketActor ! Connect(outgoingActor)
         }
@@ -94,9 +99,12 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
       onClose(authHolder, lastInput)
 
   private def completionStrategy: PartialFunction[Any, CompletionStrategy] = {
-    case Status.Success(s: CompletionStrategy) => s
-    case Status.Success(_)                     => CompletionStrategy.immediately
-    case Status.Success                        => CompletionStrategy.immediately
+    case Status.Success(s: CompletionStrategy) =>
+      log.debug(s"Stopping websocket with strategy [$s]")
+      s
+    case Status.Success(_) =>
+      log.debug(s"Stopping websocket immediately")
+      CompletionStrategy.immediately
   }
 
   private def failureStrategy: PartialFunction[Any, Throwable] = {
@@ -129,7 +137,12 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
 
     def starting: Receive = {
       case Connect(outgoingActor) =>
-        context.become(open(outgoingActor, new WebsocketInterface[I, O, A](self, outgoingActor, authHolder, lastInput, outputToText, errorHandler))) // Set callback actor
+        context.become(
+          open(
+            outgoingActor,
+            new WebsocketInterface[I, O, A](self, outgoingActor, authHolder, lastInput, outputToText, errorHandler)
+          )
+        ) // Set callback actor
         context.watch(outgoingActor)
         ()
       case _: CloseSocket =>
@@ -160,6 +173,7 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
         }
 
       case _: CloseSocket =>
+        log.debug("CloseSocket message received")
         context.stop(self)
 
       case WSFailure(err) =>

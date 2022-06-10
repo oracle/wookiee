@@ -8,7 +8,13 @@ import akka.http.scaladsl.testkit.WSProbe
 import akka.stream.Supervision.{Resume, Stop}
 import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
 import com.oracle.infy.wookiee.component.akkahttp.routes.AkkaHttpEndpointRegistration.ErrorHolder
-import com.oracle.infy.wookiee.component.akkahttp.routes.{AkkaHttpEndpointRegistration, AkkaHttpRequest, EndpointOptions, EndpointType, ExternalAkkaHttpRouteContainer}
+import com.oracle.infy.wookiee.component.akkahttp.routes.{
+  AkkaHttpEndpointRegistration,
+  AkkaHttpRequest,
+  EndpointOptions,
+  EndpointType,
+  ExternalAkkaHttpRouteContainer
+}
 import com.typesafe.config.ConfigFactory
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization._
@@ -214,7 +220,7 @@ class WebsocketTest extends WSWrapper {
         }
     }
 
-    val events = 10
+    val events = 100000
     AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
       "perf",
       EndpointType.EXTERNAL, { _ =>
