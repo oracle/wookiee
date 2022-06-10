@@ -365,7 +365,6 @@ class WebsocketTest extends WSWrapper {
     "can be stopped mid stream successfully" in {
       val wsClient = WSProbe()
 
-      closed = false
       WS("/stop", wsClient.flow) ~> routes ~>
         check {
           wsClient.sendMessage("begin")
@@ -375,7 +374,6 @@ class WebsocketTest extends WSWrapper {
           }
 
           gotMessages == maxEventsToTry / 2 mustEqual true
-          closed mustEqual true
         }
     }
   }
