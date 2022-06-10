@@ -228,11 +228,20 @@ class WebsocketTest extends WSWrapper {
         check {
           wsClient.sendMessage("first")
           wsClient.sendMessage("second")
-          val outputs = 1.to(6).map { _ =>
-            wsClient.expectMessage().asTextMessage.getStrictText
-          }.toList
-          val exp = List("first-output1", "first-output2", "first-output3",
-            "second-output1", "second-output2", "second-output3")
+          val outputs = 1
+            .to(6)
+            .map { _ =>
+              wsClient.expectMessage().asTextMessage.getStrictText
+            }
+            .toList
+          val exp = List(
+            "first-output1",
+            "first-output2",
+            "first-output3",
+            "second-output1",
+            "second-output2",
+            "second-output3"
+          )
 
           outputs.intersect(exp).size mustEqual 6
 
