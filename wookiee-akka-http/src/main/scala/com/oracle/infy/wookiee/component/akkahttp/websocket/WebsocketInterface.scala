@@ -19,7 +19,7 @@ import scala.reflect.ClassTag
   */
 class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
     socketActor: ActorRef,
-    callbactor: ActorRef,
+    outgoingActor: ActorRef,
     val authInfo: A,
     val lastInput: Option[I],
     outputToText: O => TextMessage,
@@ -34,7 +34,7 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
   def reply(output: O): Unit = {
     try {
       val text = outputToText(output)
-      callbactor.tell(text, socketActor)
+      outgoingActor.tell(text, socketActor)
     } catch {
       case err: Throwable if errorHandler.isDefinedAt(err) =>
         reactToError(errorHandler(err))
@@ -48,7 +48,7 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
     * Call this to manually stop when done with this websocket, will automatically be called if connection is severed
     */
   def stop(): Unit = {
-    callbactor ! PoisonPill
+    outgoingActor ! PoisonPill
   }
 
   private def reactToError: PartialFunction[Directive, Unit] = {

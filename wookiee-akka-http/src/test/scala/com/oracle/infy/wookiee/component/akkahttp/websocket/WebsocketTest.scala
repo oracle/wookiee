@@ -8,17 +8,12 @@ import akka.http.scaladsl.testkit.WSProbe
 import akka.stream.Supervision.{Resume, Stop}
 import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
 import com.oracle.infy.wookiee.component.akkahttp.routes.AkkaHttpEndpointRegistration.ErrorHolder
-import com.oracle.infy.wookiee.component.akkahttp.routes.{
-  AkkaHttpEndpointRegistration,
-  AkkaHttpRequest,
-  EndpointOptions,
-  EndpointType,
-  ExternalAkkaHttpRouteContainer
-}
+import com.oracle.infy.wookiee.component.akkahttp.routes.{AkkaHttpEndpointRegistration, AkkaHttpRequest, EndpointOptions, EndpointType, ExternalAkkaHttpRouteContainer}
 import com.typesafe.config.ConfigFactory
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization._
 
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 
@@ -213,6 +208,48 @@ class WebsocketTest extends WSWrapper {
           wsClient.expectMessage("abcdef-output1")
           wsClient.expectMessage("abcdef-output2")
           wsClient.expectMessage("abcdef-output3")
+
+          wsClient.sendCompletion()
+          wsClient.expectCompletion()
+        }
+    }
+
+    val events = 10
+    AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
+      "perf",
+      EndpointType.EXTERNAL, { _ =>
+        Future.successful(AuthHolder("none"))
+      }, { (_, msg: TextMessage) =>
+        msg.toStrict(5.seconds).map(s => Input(s.getStrictText))
+      }, { (input: Input, inter: WebsocketInterface[Input, Output, _]) =>
+        println(s"got perf input '${input.value}', sending [$events] events")
+        1.to(events).foreach { i =>
+          inter.reply(Output(input.value + s"-output$i"))
+        }
+      },
+      toText, { (_: AuthHolder, _: Option[Input]) =>
+        println("Called onClose")
+        closed = true
+      }
+    )
+
+    "can send high volume and get all events" in {
+      val wsClient = WSProbe()
+
+      WS("/perf", wsClient.flow) ~> routes ~>
+        check {
+          wsClient.sendMessage("begin")
+          val expect = 1.to(events).map(i => s"begin-output$i").toList
+          val result = ListBuffer[String]()
+          try {
+            1.to(events).foreach { _ =>
+              result += wsClient.expectMessage().asTextMessage.getStrictText
+            }
+          } catch {
+            case _: AssertionError =>
+          }
+
+          expect.intersect(result).size mustEqual expect.size
 
           wsClient.sendCompletion()
           wsClient.expectCompletion()
