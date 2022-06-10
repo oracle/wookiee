@@ -6,6 +6,7 @@ import akka.stream.Supervision.Directive
 import akka.stream.{CompletionStrategy, Supervision}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
+import java.util.concurrent.ArrayBlockingQueue
 import scala.reflect.ClassTag
 
 /**
@@ -18,12 +19,12 @@ import scala.reflect.ClassTag
   * @tparam A Type of supplied Auth to the websocket
   */
 class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
-    socketActor: ActorRef,
     outgoingActor: ActorRef,
     val authInfo: A,
     val lastInput: Option[I],
     outputToText: O => TextMessage,
-    errorHandler: PartialFunction[Throwable, Directive]
+    errorHandler: PartialFunction[Throwable, Directive],
+    blockingQueue: ArrayBlockingQueue[TextMessage]
 ) extends LoggingAdapter {
 
   /**
@@ -34,7 +35,8 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
   def reply(output: O): Unit = {
     try {
       val text = outputToText(output)
-      outgoingActor.tell(text, socketActor)
+      // Note that this blocks until the queue has space
+      blockingQueue.put(text)
     } catch {
       case err: Throwable if errorHandler.isDefinedAt(err) =>
         reactToError(errorHandler(err))
