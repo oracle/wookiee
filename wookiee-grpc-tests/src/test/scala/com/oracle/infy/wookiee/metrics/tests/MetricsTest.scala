@@ -5,10 +5,9 @@ import cats.effect.unsafe.IORuntime
 import com.codahale.metrics.MetricRegistry
 import com.oracle.infy.wookiee.functional.metrics.core.WookieeMetrics
 import com.oracle.infy.wookiee.functional.metrics.impl.WookieeMetricsImpl
+import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
 import com.oracle.infy.wookiee.grpc.utils.implicits._
 import com.oracle.infy.wookiee.metrics.model.WookieeRegistry
-import com.oracle.infy.wookiee.grpc.common.UTestScalaCheck
-
 import utest.{Tests, test}
 
 import java.util.concurrent.TimeUnit
@@ -63,10 +62,9 @@ object MetricsTest extends UTestScalaCheck {
 
     def gaugeCheck(): Future[Boolean] =
       (for {
-        gauge <- wookieeMetrics.gauge(gaugeName, () => "foo")
-        gValue <- gauge.getValue
+        _ <- wookieeMetrics.gauge[String](gaugeName)
       } yield {
-        registry.getGauges.containsKey(gaugeName) && gValue === "foo"
+        registry.getGauges.containsKey(gaugeName)
       }).unsafeToFuture()
 
     def removeMetricCheck(): Future[Boolean] =
@@ -79,7 +77,7 @@ object MetricsTest extends UTestScalaCheck {
 
       }).unsafeToFuture()
 
-    def getMetricsCheck(): Future[Boolean] =
+    def getMetricsCheck: Future[Boolean] =
       (for {
         timer <- wookieeMetrics.timer("timer")
         _ <- timer.update(1000, TimeUnit.NANOSECONDS)
@@ -113,7 +111,7 @@ object MetricsTest extends UTestScalaCheck {
         removeMetricCheck().map(assert)
       }
       test("able to get metrics details in json format") {
-        getMetricsCheck().map(assert)
+        getMetricsCheck.map(assert)
       }
 
     }
