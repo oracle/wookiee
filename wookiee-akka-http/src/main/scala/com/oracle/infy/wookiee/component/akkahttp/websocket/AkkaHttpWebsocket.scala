@@ -128,7 +128,7 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
   class SocketActor() extends Actor {
     private[websocket] var lastInput: Option[I] = None //scalafix:ok
     val blockingQueue: ArrayBlockingQueue[TextMessage] =
-      new ArrayBlockingQueue[TextMessage](options.websocketBufferSize.getOrElse(100000))
+      new ArrayBlockingQueue[TextMessage](100000)
 
     override def postStop(): Unit = {
       blockingQueue.clear()

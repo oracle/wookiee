@@ -57,8 +57,7 @@ case class EndpointOptions(
     routeTimerLabel: Option[String] = None,
     requestHandlerTimerLabel: Option[String] = None,
     businessLogicTimerLabel: Option[String] = None,
-    responseHandlerTimerLabel: Option[String] = None,
-    websocketBufferSize: Option[Int] = Some(100000) // How many events the websocket can hold in memory before dropping
+    responseHandlerTimerLabel: Option[String] = None
 )
 
 object EndpointOptions {
