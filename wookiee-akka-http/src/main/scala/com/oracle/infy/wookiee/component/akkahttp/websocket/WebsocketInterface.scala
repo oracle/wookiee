@@ -1,11 +1,12 @@
 package com.oracle.infy.wookiee.component.akkahttp.websocket
 
-import akka.actor.{ActorRef, PoisonPill}
+import akka.actor.{ActorRef, Status}
 import akka.http.scaladsl.model.ws.TextMessage
-import akka.stream.Supervision
 import akka.stream.Supervision.Directive
+import akka.stream.{CompletionStrategy, Supervision}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
+import java.util.concurrent.ArrayBlockingQueue
 import scala.reflect.ClassTag
 
 /**
@@ -18,12 +19,12 @@ import scala.reflect.ClassTag
   * @tparam A Type of supplied Auth to the websocket
   */
 class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
-    socketActor: ActorRef,
-    callbactor: ActorRef,
+    outgoingActor: ActorRef,
     val authInfo: A,
     val lastInput: Option[I],
     outputToText: O => TextMessage,
-    errorHandler: PartialFunction[Throwable, Directive]
+    errorHandler: PartialFunction[Throwable, Directive],
+    blockingQueue: ArrayBlockingQueue[TextMessage]
 ) extends LoggingAdapter {
 
   /**
@@ -34,7 +35,8 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
   def reply(output: O): Unit = {
     try {
       val text = outputToText(output)
-      callbactor.tell(text, socketActor)
+      // Note that this blocks until the queue has space
+      blockingQueue.put(text)
     } catch {
       case err: Throwable if errorHandler.isDefinedAt(err) =>
         reactToError(errorHandler(err))
@@ -48,7 +50,7 @@ class WebsocketInterface[I: ClassTag, O <: Product: ClassTag, A <: Product: Clas
     * Call this to manually stop when done with this websocket, will automatically be called if connection is severed
     */
   def stop(): Unit = {
-    callbactor ! PoisonPill
+    outgoingActor ! Status.Success(CompletionStrategy.immediately)
   }
 
   private def reactToError: PartialFunction[Directive, Unit] = {

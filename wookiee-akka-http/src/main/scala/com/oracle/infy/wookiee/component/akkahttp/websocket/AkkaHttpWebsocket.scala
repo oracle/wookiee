@@ -20,7 +20,7 @@ import akka.actor.{Actor, ActorRef, Props, Status, Terminated}
 import akka.http.scaladsl.model.ws.{BinaryMessage, Message, TextMessage}
 import akka.stream.Supervision.Directive
 import akka.stream.scaladsl.{Flow, Sink, Source}
-import akka.stream.{CompletionStrategy, Materializer, OverflowStrategy, Supervision}
+import akka.stream.{CompletionStrategy, Materializer, Supervision}
 import com.oracle.infy.wookiee.component.akkahttp.routes.{
   AkkaHttpEndpointRegistration,
   AkkaHttpRequest,
@@ -29,8 +29,9 @@ import com.oracle.infy.wookiee.component.akkahttp.routes.{
 import com.oracle.infy.wookiee.component.akkahttp.websocket.AkkaHttpWebsocket.WSFailure
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
-import scala.concurrent.duration._
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.util.Try
@@ -56,7 +57,7 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
   // This the the main method to route WS messages
   def websocketHandler(req: AkkaHttpRequest): Flow[Message, Message, Any] = {
 
-    val sActor = mat.system.actorOf(callbackActor())
+    val socketActor = mat.system.actorOf(socketActorProps())
     val sink =
       Flow[Message]
         .mapAsync(1) {
@@ -73,30 +74,37 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
               tryWrap(textToInput(authHolder, TextMessage(bmt.getStrictData.utf8String)))
             }
         }
-        .to(Sink.actorRefWithBackpressure(sActor, OpenSocket(), CloseSocket(), { err: Throwable =>
+        .to(Sink.actorRef(socketActor, CloseSocket(), { err: Throwable =>
           WSFailure(err)
         }))
 
     val source: Source[Message, Unit] =
       Source
-        .actorRef[Message](completionStrategy, failureStrategy, 30, OverflowStrategy.dropHead)
+        .actorRefWithBackpressure[Message](
+          MessageAck(),
+          completionStrategy,
+          failureStrategy
+        )
         .mapMaterializedValue { outgoingActor =>
-          sActor ! Connect(outgoingActor)
+          socketActor ! Connect(outgoingActor)
         }
 
     Flow.fromSinkAndSourceCoupled(sink, source)
   }
 
-  protected def callbackActor(): Props = Props(new SocketActor())
+  protected def socketActorProps(): Props = Props(new SocketActor())
 
   private def close(lastInput: Option[I]): Unit =
     if (!closed.getAndSet(true))
       onClose(authHolder, lastInput)
 
   private def completionStrategy: PartialFunction[Any, CompletionStrategy] = {
-    case Status.Success(s: CompletionStrategy) => s
-    case Status.Success(_)                     => CompletionStrategy.immediately
-    case Status.Success                        => CompletionStrategy.immediately
+    case Status.Success(s: CompletionStrategy) =>
+      log.debug(s"Stopping websocket with strategy [$s]")
+      s
+    case Status.Success(_) =>
+      log.debug(s"Stopping websocket immediately")
+      CompletionStrategy.immediately
   }
 
   private def failureStrategy: PartialFunction[Any, Throwable] = {
@@ -113,14 +121,17 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
 
   case class CloseSocket() // We get this when websocket closes
   case class Connect(actorRef: ActorRef) // Initial connection
-  case class OpenSocket() // Initial message to actor
   case class MessageAck() // Arbitrary class we send back after each message to enable backpressure
+  case class SendNext()
 
   // Actor that exists per each open websocket and closes when the WS closes, also routes back return messages
   class SocketActor() extends Actor {
-    private[websocket] var lastInput: Option[I] = None
+    private[websocket] var lastInput: Option[I] = None //scalafix:ok
+    val blockingQueue: ArrayBlockingQueue[TextMessage] =
+      new ArrayBlockingQueue[TextMessage](100000)
 
     override def postStop(): Unit = {
+      blockingQueue.clear()
       close(lastInput)
       super.postStop()
     }
@@ -128,9 +139,22 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
     def receive: Receive = starting
 
     def starting: Receive = {
-      case Connect(actor) =>
-        context.become(open(actor)) // Set callback actor
-        context.watch(actor)
+      case Connect(outgoingActor) =>
+        context.become(
+          open(
+            outgoingActor,
+            new WebsocketInterface[I, O, A](
+              outgoingActor,
+              authHolder,
+              lastInput,
+              outputToText,
+              errorHandler,
+              blockingQueue
+            )
+          )
+        ) // Set callback actor
+        context.watch(outgoingActor)
+        self ! SendNext()
         ()
       case _: CloseSocket =>
         context.stop(self)
@@ -139,27 +163,29 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
         context.stop(self)
     }
 
-    // When becoming this, callbactor should already be set
-    def open(callbactor: ActorRef): Receive = {
+    // When becoming this, outgoingActor should already be set
+    def open(outgoingActor: ActorRef, interface: WebsocketInterface[I, O, A]): Receive = {
       case input: I =>
-        handleInMessage(
-          input,
-          new WebsocketInterface[I, O, A](self, callbactor, authHolder, lastInput, outputToText, errorHandler)
-        )
         lastInput = Some(input)
-        sender() ! MessageAck()
+        Future { // Don't block so we can get other messages
+          handleInMessage(
+            input,
+            interface
+          )
+        }
+        ()
 
-      case _: OpenSocket =>
-        log.debug("Websocket opened..")
-        sender() ! MessageAck()
+      case SendNext() | MessageAck() =>
+        sendNext(outgoingActor)
 
       case Terminated(actor) =>
-        if (callbactor.path.equals(actor.path)) {
-          log.debug(s"Linked callback actor terminated ${actor.path.name}, closing down websocket")
+        if (outgoingActor.path.equals(actor.path)) {
+          log.debug(s"Linked outgoing actor terminated ${actor.path.name}, closing down websocket")
           context.stop(self)
         }
 
       case _: CloseSocket =>
+        log.debug("CloseSocket message received")
         context.stop(self)
 
       case WSFailure(err) =>
@@ -169,7 +195,6 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
               log.info("Stopping Stream due to error that directed us to Supervision.Stop")
               context.stop(self)
             case Supervision.Resume => // Skip this event
-              sender() ! MessageAck()
             case Supervision.Restart => // Treat like Resume
               log.info("No support for Supervision.Restart yet, use either Resume or Stop")
           }
@@ -178,6 +203,15 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
           context.stop(self)
         }
       case _ => // Mainly for eating the keep alive
+    }
+
+    def sendNext(outgoingActor: ActorRef): Unit = Option(blockingQueue.poll()) match {
+      case Some(nextMessage) =>
+        outgoingActor ! nextMessage
+
+      case None =>
+        context.system.scheduler.scheduleOnce(50.millis, self, SendNext())
+        ()
     }
   }
 }

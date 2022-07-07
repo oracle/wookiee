@@ -19,8 +19,10 @@ import com.typesafe.config.ConfigFactory
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization._
 
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.Try
 
 class WebsocketTest extends WSWrapper {
   case class AuthHolder(value: String)
@@ -219,6 +221,77 @@ class WebsocketTest extends WSWrapper {
         }
     }
 
+    "can send multiple inputs in a row" in {
+      val wsClient = WSProbe()
+
+      WS("/multi", wsClient.flow) ~> routes ~>
+        check {
+          wsClient.sendMessage("first")
+          wsClient.sendMessage("second")
+          val outputs = 1
+            .to(6)
+            .map { _ =>
+              wsClient.expectMessage().asTextMessage.getStrictText
+            }
+            .toList
+          val exp = List(
+            "first-output1",
+            "first-output2",
+            "first-output3",
+            "second-output1",
+            "second-output2",
+            "second-output3"
+          )
+
+          outputs.intersect(exp).size mustEqual 6
+
+          wsClient.sendCompletion()
+          wsClient.expectCompletion()
+        }
+    }
+
+    val events = 100000
+    AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
+      "perf",
+      EndpointType.EXTERNAL, { _ =>
+        Future.successful(AuthHolder("none"))
+      }, { (_, msg: TextMessage) =>
+        msg.toStrict(5.seconds).map(s => Input(s.getStrictText))
+      }, { (input: Input, inter: WebsocketInterface[Input, Output, _]) =>
+        println(s"got perf input '${input.value}', sending [$events] events")
+        1.to(events).foreach { i =>
+          inter.reply(Output(input.value + s"-output$i"))
+        }
+      },
+      toText, { (_: AuthHolder, _: Option[Input]) =>
+        println("Called onClose")
+        closed = true
+      }
+    )
+
+    "can send high volume and get all events" in {
+      val wsClient = WSProbe()
+
+      WS("/perf", wsClient.flow) ~> routes ~>
+        check {
+          wsClient.sendMessage("begin")
+          val expect = 1.to(events).map(i => s"begin-output$i").toList
+          val result = ListBuffer[String]()
+          try {
+            1.to(events).foreach { _ =>
+              result += wsClient.expectMessage().asTextMessage.getStrictText
+            }
+          } catch {
+            case _: AssertionError =>
+          }
+
+          expect.intersect(result).size mustEqual expect.size
+
+          wsClient.sendCompletion()
+          wsClient.expectCompletion()
+        }
+    }
+
     AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
       "cors",
       EndpointType.EXTERNAL, { _ =>
@@ -264,6 +337,43 @@ class WebsocketTest extends WSWrapper {
           Thread.sleep(500L)
           closed mustEqual true
           lastHit.get mustEqual Input("abcdef2")
+        }
+    }
+
+    val maxEventsToTry = 100
+    AkkaHttpEndpointRegistration.addAkkaWebsocketEndpoint[Input, Output, AuthHolder](
+      "stop",
+      EndpointType.EXTERNAL, { _ =>
+        Future.successful(AuthHolder("none"))
+      }, { (_, msg: TextMessage) =>
+        msg.toStrict(5.seconds).map(s => Input(s.getStrictText))
+      }, { (input: Input, inter: WebsocketInterface[Input, Output, _]) =>
+        println(s"got perf input '${input.value}', sending [$events] events")
+        1.to(maxEventsToTry).foreach { i =>
+          inter.reply(Output(input.value + s"-output$i"))
+          Thread.sleep(50L) //scalafix:ok
+          if (i == maxEventsToTry / 2)
+            inter.stop()
+        }
+      },
+      toText, { (_: AuthHolder, _: Option[Input]) =>
+        println("Called onClose")
+        closed = true
+      }
+    )
+
+    "can be stopped mid stream successfully" in {
+      val wsClient = WSProbe()
+
+      WS("/stop", wsClient.flow) ~> routes ~>
+        check {
+          wsClient.sendMessage("begin")
+          var gotMessages = 0
+          while (Try(wsClient.expectMessage()).isSuccess) {
+            gotMessages += 1
+          }
+
+          gotMessages == maxEventsToTry / 2 mustEqual true
         }
     }
   }
