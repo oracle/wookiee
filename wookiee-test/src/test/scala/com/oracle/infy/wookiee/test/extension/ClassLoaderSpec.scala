@@ -204,7 +204,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
          |
          | copy-extension {
          |   enabled = true
-         |   manager = "com.webtrends.infy.qa.BasicExtension"
+         |   manager = "com.oracle.infy.qa.BasicExtension"
          | }
          |
          | other-extension {

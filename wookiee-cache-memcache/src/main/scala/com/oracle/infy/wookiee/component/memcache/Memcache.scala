@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
+ * Copyright (c) 2022 Oracle and/or its affiliates. All rights reserved.
  *
  * See the LICENCE.txt file distributed with this work for additional
  * information regarding copyright ownership.

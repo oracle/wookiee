@@ -1,8 +1,5 @@
 /*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
- *
- * See the LICENCE.txt file distributed with this work for additional
- * information regarding copyright ownership.
+ * Copyright (c) 2022 Oracle and/or its affiliates. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -88,7 +85,7 @@ class ZookeeperSettingsSpec extends AnyWordSpecLike with Matchers {
     ConfigFactory.parseString(
       """
         wookiee-zookeeper {
-          manager = "com.webtrends.harness.component.zookeeper"
+          manager = "com.oracle.infy.wookiee.component.zookeeper"
           libsLocation = "../components/wookiee-zookeeper/target/lib"
           jarLocation = "../components/wookiee-zookeeper/target/wookiee-zookeeper-1.0-SNAPSHOT.jar"
           # The data center to point to

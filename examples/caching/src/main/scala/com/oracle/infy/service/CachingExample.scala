@@ -1,8 +1,5 @@
 /*
- * Copyright 2015 Webtrends (http://www.webtrends.com)
- *
- * See the LICENCE.txt file distributed with this work for additional
- * information regarding copyright ownership.
+ * Copyright (c) 2022 Oracle and/or its affiliates. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,7 +47,7 @@ class CachingExample extends Service {
         cacheManager = Some(actor)
         val config = CacheConfig(
           namespace = Namespace,
-          props = Some(Map("serverList" -> "util01.cuthbertm.os.optlab.webtrends.corp:11211"))
+          props = Some(Map("serverList" -> "util01.cuthbertm.os.optlab.oracle.corp:11211"))
         )
         cacheManager.get ! CreateCache(config)
       case Failure(_) => None
