@@ -197,13 +197,14 @@ class OAuthClientTest extends AsyncFlatSpec with Matchers with ScalatestRouteTes
 
     result.map { r =>
       assert(r.isLeft)
-      assert(r.left.exists(_.isInstanceOf[UnauthorizedException]))
-      val exception = r
-        .swap
-        .getOrElse(new UnauthorizedException(Unknown, Some("test-failed"), HttpResponse()))
-        .asInstanceOf[UnauthorizedException]
-      assert(exception.description.get == "description")
-      assert(exception.code == InvalidClient)
+      r.swap
+        .getOrElse(new UnauthorizedException(Unknown, Some("test-failed"), HttpResponse())) match {
+        case exception: UnauthorizedException =>
+          assert(exception.description.get == "description")
+          assert(exception.code == InvalidClient)
+        case ex: Throwable =>
+          throw ex
+      }
     }
   }
 
@@ -231,13 +232,14 @@ class OAuthClientTest extends AsyncFlatSpec with Matchers with ScalatestRouteTes
 
     result.map { r =>
       assert(r.isLeft)
-      assert(r.left.exists(_.isInstanceOf[UnauthorizedException]))
-      val exception = r
-        .swap
-        .getOrElse(new UnauthorizedException(Unknown, Some("test-failed"), HttpResponse()))
-        .asInstanceOf[UnauthorizedException]
-      assert(exception.description.isEmpty)
-      assert(exception.code == InvalidClient)
+      r.swap
+        .getOrElse(new UnauthorizedException(Unknown, Some("test-failed"), HttpResponse())) match {
+        case exception: UnauthorizedException =>
+          assert(exception.description.isEmpty)
+          assert(exception.code == InvalidClient)
+        case ex: Throwable =>
+          throw ex
+      }
     }
   }
 
