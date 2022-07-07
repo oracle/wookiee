@@ -2,34 +2,34 @@
 
 Entry name for config is "wookiee-metrics". This would be the string you would use in lib-components if using that mechanism to load components.
 
-| Name | Default | Description |
-|:-----|:--------|:------------|
-| manager | com.webtrends.harness.component.metrics.MetricsManager | This should never be overridden or changed, and changing this would most likely cause it to not start up. |
-| enabled | true | whether this component is enabled or not. |
-| dynamic-component | true | enables loading up the component dynamically |
-| application-name | Webtrends Harness | application name used for persisting metrics |
-| metric-prefix | workstations | prefix to append metrics being sent to graphite |
-| jmx.enabled | true | |
-| jmx.port | 9999 | |
-| graphite.enabled | false | |
-| graphite.host | "" | |
-| graphite.port | 2003 | |
-| graphite.interval | 5 | |
-| graphite.vmmetrics | true | |
-| graphite.regex | "" | |
+| Name | Default                                                  | Description |
+|:-----|:---------------------------------------------------------|:------------|
+| manager | com.oracle.infy.wookiee.component.metrics.MetricsManager | This should never be overridden or changed, and changing this would most likely cause it to not start up. |
+| enabled | true                                                     | whether this component is enabled or not. |
+| dynamic-component | true                                                     | enables loading up the component dynamically |
+| application-name | Oracle Wookiee                                           | application name used for persisting metrics |
+| metric-prefix | workstations                                             | prefix to append metrics being sent to graphite |
+| jmx.enabled | true                                                     | |
+| jmx.port | 9999                                                     | |
+| graphite.enabled | false                                                    | |
+| graphite.host | ""                                                       | |
+| graphite.port | 2003                                                     | |
+| graphite.interval | 5                                                        | |
+| graphite.vmmetrics | true                                                     | |
+| graphite.regex | ""                                                       | |
 
 ### Config supplied in JAR
 
 ````
 wookiee-metrics {
-  manager = "com.webtrends.harness.component.metrics.MetricsManager"
+  manager = "com.oracle.infy.wookiee.component.metrics.MetricsManager"
   enabled = true
   dynamic-component = true
 
   # This section is for monitoring the application
 
   # What is the application name (used for persisting metrics)
-  application-name = "Webtrends Harness"
+  application-name = "Oracle Wookiee"
   # the prefix to append metrics being sent to graphite
   metric-prefix = workstations
 

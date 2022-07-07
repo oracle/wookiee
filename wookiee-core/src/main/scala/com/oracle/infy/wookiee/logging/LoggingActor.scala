@@ -42,7 +42,7 @@ class LoggingActor extends Actor with ActorHealth with Slf4jLogging with ActorLo
     case InitializeLogger(_) =>
       sender() ! LoggerInitialized
 
-    // webtrends log events
+    // log events
     case event: LogEvent => process(event)
 
     // akka events

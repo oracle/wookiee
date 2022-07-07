@@ -42,7 +42,7 @@ class AkkaHttpManagerTest extends AnyWordSpecLike with Matchers {
         |    enabled = true
         |  }
         |
-        |  manager = "com.webtrends.harness.component.akkahttp.AkkaHttpManager"
+        |  manager = "com.oracle.infy.wookiee.component.akkahttp.AkkaHttpManager"
         |  enabled = true
         |  dynamic-component = true
         |

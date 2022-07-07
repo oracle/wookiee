@@ -16,7 +16,7 @@ the harness.
 
 ## Where's the Source
 
-As of version **1.0**, Wookiee code is now located in our GitHub public repository for [Wookiee](https://github.com/Webtrends/wookiee).
+As of version **1.0**, Wookiee code is now located in our GitHub public repository for [Wookiee](https://github.com/oracle/wookiee).
 You can fork this code into your own repository and work with it from there.
 
 ## Compiling Wookiee
