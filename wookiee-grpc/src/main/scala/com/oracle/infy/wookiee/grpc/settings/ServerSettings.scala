@@ -1,13 +1,14 @@
 package com.oracle.infy.wookiee.grpc.settings
 
 import cats.data.NonEmptyList
-import cats.effect.{IO, Ref}
 import cats.effect.std.Queue
+import cats.effect.{IO, Ref}
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 
 import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.{FiniteDuration, _}
 
@@ -27,7 +28,18 @@ final case class ServerSettings(
     queue: IO[Queue[IO, Int]],
     quarantined: IO[Ref[IO, Boolean]],
     curatorFramework: CuratorFramework
-)
+) {
+  // Defaults to 4MB or 4194304
+  private val maxMessageSizeRef: AtomicReference[Int] = new AtomicReference[Int](4194304)
+
+  def withMaxMessageSize(bytes: Int): ServerSettings = {
+    maxMessageSizeRef.set(bytes)
+    this
+  }
+
+  def maxMessageSize(): Int =
+    maxMessageSizeRef.get()
+}
 
 object ServerSettings {
 

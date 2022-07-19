@@ -248,7 +248,7 @@ class ComponentManager extends PrepareForShutdown {
 
   def initializing: Receive = super.receive orElse {
     case InitializeComponents               => initializeComponents()
-    case ComponentStarted(name)             => componentStarted(name)
+    case ComponentStarted(name)             => componentStarted(name, sender())
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
   }
 
@@ -258,7 +258,7 @@ class ComponentManager extends PrepareForShutdown {
     case GetComponent(name)                 => sender() ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
     case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()
-    case ComponentStarted(name)             => componentStarted(name)
+    case ComponentStarted(name)             => componentStarted(name, sender())
     case SystemReady                        => context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
@@ -313,10 +313,12 @@ class ComponentManager extends PrepareForShutdown {
     case None         => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
   }
 
-  private def componentStarted(name: String): Unit = {
+  private def componentStarted(name: String, compRef: ActorRef): Unit = {
     log.debug(s"Received start message from component $name")
     ComponentManager.components(name) = ComponentState.Started
-    if (ComponentManager.isAllComponentsStarted) {
+    if (componentsInitialized) {
+      compRef ! SystemReady
+    } else if (ComponentManager.isAllComponentsStarted) {
       validateComponentStartup()
     } else {
       ComponentManager.failedComponents match {
