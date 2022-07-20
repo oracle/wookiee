@@ -11,7 +11,12 @@ import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServiceAuthSettings}
+import com.oracle.infy.wookiee.grpc.settings.{
+  ChannelSettings,
+  ClientAuthSettings,
+  SSLClientSettings,
+  ServiceAuthSettings
+}
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
@@ -76,6 +81,9 @@ object GrpcManager extends LoggingAdapter {
     log.info("Grpc Manager is clean and ready to go")
   }
 
+  def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel =
+    createChannel(zkPath, zkConnect, bearerToken, None)
+
   /**
     * Useful method for creating a gRPC channel to an existing gRPC service,
     * such as the ones GrpcManager is capable of starting
@@ -83,9 +91,15 @@ object GrpcManager extends LoggingAdapter {
     * @param zkPath Config at 'wookiee-grpc-component.grpc.zk-discovery-path'
     * @param zkConnect Zookeeper connect string, e.g. 'localhost:2121'
     * @param bearerToken Optional bearer token if one is setup on the server, null or empty string otherwise
+    * @param sslClientSettings Optional settings for certs, TLS, and service authority if needed by target
     * @return A WookieeGrpcChannel that has a field .managedChannel() that can be put into stubs
     */
-  def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel = {
+  def createChannel(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings]
+  ): WookieeGrpcChannel = {
     import cats.effect.unsafe.implicits.global
 
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
@@ -100,7 +114,7 @@ object GrpcManager extends LoggingAdapter {
       eventLoopGroupExecutionContextThreads = 4,
       lbPolicy = RoundRobinPolicy,
       curatorFramework = curatorFramework,
-      sslClientSettings = None,
+      sslClientSettings = sslClientSettings,
       clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
     )
 
