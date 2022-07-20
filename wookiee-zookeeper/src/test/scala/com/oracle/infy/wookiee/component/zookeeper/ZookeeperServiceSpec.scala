@@ -6,7 +6,11 @@ import akka.testkit.TestKit
 import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor.GetSetWeightInterval
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
-import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService.{MakeDiscoverable, QueryForInstances, UpdateWeight}
+import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService.{
+  MakeDiscoverable,
+  QueryForInstances,
+  UpdateWeight
+}
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener
@@ -81,7 +85,8 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
   "The zookeeper service" should {
     "allow callers to create a node for a valid path" in {
-      val res = Await.result(service.get().createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
+      val res =
+        Await.result(service.get().createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
       res shouldEqual "/test"
       checkForEntry(createdNodes, "/test") shouldEqual true
     }
@@ -96,7 +101,10 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
     "allow callers to delete a node for a valid path" in {
       val res =
-        Await.result(service.get().createNode("/deleteTest", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
+        Await.result(
+          service.get().createNode("/deleteTest", ephemeral = false, Some("data".getBytes)),
+          awaitResultTimeout
+        )
       res shouldEqual "/deleteTest"
       val res2 = Await.result(service.get().deleteNode("/deleteTest"), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
@@ -153,7 +161,10 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
     "allow callers to discover commands " in {
       val res =
-        Await.result(zkActor.get() ? MakeDiscoverable("base/path", "testname", new UriSpec("file://foo")), awaitResultTimeout)
+        Await.result(
+          zkActor.get() ? MakeDiscoverable("base/path", "testname", new UriSpec("file://foo")),
+          awaitResultTimeout
+        )
       res.asInstanceOf[Boolean] shouldBe true
     }
 
