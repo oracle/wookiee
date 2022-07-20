@@ -55,7 +55,9 @@ object HealthCheckProvider {
     if (componentsToAlert.isEmpty) {
       ComponentHealth(ComponentState.NORMAL, "Thunderbirds are GO")
     } else {
-      val status = if (componentsToAlert.exists(c => c.state == ComponentState.CRITICAL)) ComponentState.CRITICAL else ComponentState.DEGRADED
+      val status =
+        if (componentsToAlert.exists(c => c.state == ComponentState.CRITICAL)) ComponentState.CRITICAL
+        else ComponentState.DEGRADED
       val details = componentsToAlert.map(_.details)
       ComponentHealth(status, details.mkString("; "))
     }
