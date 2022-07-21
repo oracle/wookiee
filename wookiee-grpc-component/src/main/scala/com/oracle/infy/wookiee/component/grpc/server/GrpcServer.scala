@@ -61,9 +61,11 @@ trait GrpcServer extends ExtensionHostServices {
     val finalServerSettings = hostName
       .map(
         hName =>
-          serverSettings.copy(
-            host = IO(Host(0, hName, port, HostMetadata(0, quarantined = false)))
-          ).withMaxMessageSize(serverSettings.maxMessageSize())
+          serverSettings
+            .copy(
+              host = IO(Host(0, hName, port, HostMetadata(0, quarantined = false)))
+            )
+            .withMaxMessageSize(serverSettings.maxMessageSize())
       )
       .getOrElse(serverSettings)
 
