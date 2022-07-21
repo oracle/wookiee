@@ -20,6 +20,7 @@ object TestModels {
        |      port = $grpcPort
        |      zk-discovery-path = "/grpc/local_dev"
        |      server-host-name = "localhost"
+       |      max-message-size = 8388608
        |    }
        |  }
        |}
