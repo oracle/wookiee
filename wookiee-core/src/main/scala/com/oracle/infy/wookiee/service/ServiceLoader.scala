@@ -267,11 +267,22 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
         new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
       } else "1.0"
       Some(
-        ServiceMetaData(name, version, DateTime.now(), "", serviceActor.get.path.toString, "", meta.supportsHttp, null),
         (
-          context
-            .actorSelection(serviceActor.get.path),
-          loaderOpt
+          ServiceMetaData(
+            name,
+            version,
+            DateTime.now(),
+            "",
+            serviceActor.get.path.toString,
+            "",
+            meta.supportsHttp,
+            null
+          ),
+          (
+            context
+              .actorSelection(serviceActor.get.path),
+            loaderOpt
+          )
         )
       )
 
