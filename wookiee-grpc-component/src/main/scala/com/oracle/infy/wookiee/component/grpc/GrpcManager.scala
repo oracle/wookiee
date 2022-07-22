@@ -189,6 +189,15 @@ object GrpcManager extends LoggingAdapter {
   case class CleanResponse(clean: Boolean)
 }
 
+/** This Component is meant to manage the single gRPC server endpoint that will host all of the
+  * GrpcServiceDefinition objects passed to it by any number of entities in the Service. It does nothing on
+  * its own but will be activated when it receives a GrpcServiceDefinition from anywhere. After getting that
+  * message it will wait 10 seconds to allow others to register, then it will attempt to start the gRPC server--
+  * shutting down any existing instance of it along the way (so late registrations are OK).
+  *
+  * Note for maintainers: Everything in this class is synchronous and that is taken for granted in the design,
+  * any additional functionality should be similarly blocking on each message that comes in.
+  */
 class GrpcManager(name: String) extends Component(name) with GrpcServer {
   import GrpcManager._
 

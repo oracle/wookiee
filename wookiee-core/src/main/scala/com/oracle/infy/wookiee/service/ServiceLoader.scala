@@ -23,6 +23,7 @@ import akka.actor._
 import akka.pattern.ask
 import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.{HActor, HarnessClassLoader}
+import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
 import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
 import com.oracle.infy.wookiee.service.messages.GetMetaDetails
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
@@ -234,7 +235,12 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     }
   }
 
-  def loadService[T](name: String, clazz: Class[T], classLoader: Option[ClassLoader] = None): Option[ActorRef] = {
+  def loadService[T](
+      name: String,
+      clazz: Class[T],
+      classLoader: Option[ClassLoader] = None,
+      componentInfos: List[ComponentInfo] = List()
+  ): Option[ActorRef] = {
     if (!classOf[Service].isAssignableFrom(clazz)) {
       log.error(s"Could not load service $name, not assignable from ${clazz.getName}")
       return None
@@ -260,7 +266,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
       val version = if (file.endsWith(".jar")) {
         new JarFile(file).getManifest.getMainAttributes.getValue(Name.IMPLEMENTATION_VERSION)
       } else "1.0"
-      (
+      Some(
         ServiceMetaData(name, version, DateTime.now(), "", serviceActor.get.path.toString, "", meta.supportsHttp, null),
         (
           context
@@ -287,8 +293,12 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
     serv match {
       case Failure(_)    =>
       case Success(None) =>
-      case Success(meta) =>
-        services ++= Some(meta.asInstanceOf[(ServiceMetaData, (ActorSelection, Option[HawkClassLoader]))])
+      case Success(Some(meta)) =>
+        log.debug(s"Service Loader sending [${componentInfos.size}] Component Ready infos")
+        componentInfos.foreach { info =>
+          meta._2._1 ! ComponentReady(info) // Send readied Component infos to new Service
+        }
+        services ++= Some(meta)
     }
     serviceActor
   }

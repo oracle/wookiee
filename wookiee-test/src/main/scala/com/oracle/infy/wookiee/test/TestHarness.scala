@@ -170,20 +170,17 @@ class TestHarness(
 
   def loadComponents(componentMap: Map[String, Class[_ <: Component]]): Unit = {
     componentMap foreach { p =>
-      componentReady(5.seconds.fromNow, p._1, p._2.getCanonicalName)
+      componentReady(p._1, p._2.getCanonicalName)
     }
   }
 
   def loadServices(serviceMap: Map[String, Class[_ <: Service]]): Unit = {
     serviceMap foreach { p =>
-      serviceReady(5.seconds.fromNow, p._1, p._2)
+      serviceReady(p._1, p._2)
     }
   }
 
-  private def componentReady(timeOut: Deadline, componentName: String, componentClass: String): Unit = {
-    if (timeOut.isOverdue()) {
-      throw new IllegalStateException(s"Component $componentName did not start up")
-    }
+  private def componentReady(componentName: String, componentClass: String): Unit = {
     Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
       case Some(m) =>
         val component = m.asInstanceOf[ActorRef]
@@ -194,10 +191,7 @@ class TestHarness(
     }
   }
 
-  private def serviceReady(timeOut: Deadline, serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
-    if (timeOut.isOverdue()) {
-      throw new IllegalStateException(s"Service $serviceName did not start up")
-    }
+  private def serviceReady(serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
     Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
       case Some(m) =>
         val service = m.asInstanceOf[ActorRef]

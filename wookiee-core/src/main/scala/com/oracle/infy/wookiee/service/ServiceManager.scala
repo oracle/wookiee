@@ -28,16 +28,17 @@ import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 import ServiceManager.{GetMetaDataByName, RestartService}
 import com.oracle.infy.wookiee.HarnessConstants
+import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
 import com.oracle.infy.wookiee.service.messages.{GetMetaData, LoadService, Ready}
+import scala.jdk.CollectionConverters._
 
+import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.Exception._
 
-/**
-  * Request to return service meta data
-  */
 class ServiceManager extends PrepareForShutdown with ServiceLoader {
+  val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
   import context.dispatcher
 
@@ -88,7 +89,10 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
     case LoadService(name, clazz) =>
       log.info(s"We have received a message to load service $name")
-      sender() ! context.child(name).orElse(context.child(clazz.getSimpleName)).orElse(loadService(name, clazz))
+      sender() ! context
+        .child(name)
+        .orElse(context.child(clazz.getSimpleName))
+        .orElse(loadService(name, clazz, componentInfos = readyComponents.values().asScala.toList))
 
     case GetMetaDataByName(service) =>
       log.info("We have received a message to get service meta data")
@@ -122,6 +126,11 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         }
         services.remove(p._1)
       }
+
+    case ready: ComponentReady =>
+      log.debug(s"Service Manager got Component Ready for [${ready.info.name}]")
+      readyComponents.put(ready.info.name, ready.info)
+      services.values.foreach(service => service._1 ! ready)
   }
 
   private def getServiceMeta(servicePath: Option[ActorPath]): Seq[ServiceMetaData] = {

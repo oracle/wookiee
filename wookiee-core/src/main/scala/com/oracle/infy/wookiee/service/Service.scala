@@ -19,7 +19,7 @@ import akka.actor.ActorContext
 import com.oracle.infy.wookiee.app.HActor
 import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
 import com.oracle.infy.wookiee.command.CommandHelper
-import com.oracle.infy.wookiee.component.ComponentHelper
+import com.oracle.infy.wookiee.component.{ComponentHelper, ComponentInfo, ComponentReady}
 import com.oracle.infy.wookiee.service.messages.{GetMetaData, GetMetaDetails, Ping, Pong, Ready}
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
 
@@ -41,7 +41,12 @@ trait Service extends HActor with CommandHelper with ComponentHelper {
   override def preStart(): Unit = {
     initCommandHelper()
     initComponentHelper
-    log.info("The service {} is starting", serviceName)
+    log.info("The Service {} is starting", serviceName)
+  }
+
+  override def postStop(): Unit = {
+    super.postStop()
+    log.info("The Service {} has been stopped", serviceName)
   }
 
   // Override to act after Service and Component actors are started
@@ -54,6 +59,17 @@ trait Service extends HActor with CommandHelper with ComponentHelper {
     ServiceMetaDetails(false)
   }
 
+  /**
+    * Can override to act when another Wookiee Component comes up. This method will be hit when each
+    * other Component in the Service has Started. It will also be back-filled with any Components that
+    * reached the Started state before this Service, so no worries about load order. Great for when
+    * one needs to use another Component without the need for custom waiting logic, and convenient
+    * since it provides the actorRef of that Started Component
+    * @param info Info about the Component that is ready for interaction, name and actor ref.
+    *             Note: The 'state' will always be Started
+    */
+  def onComponentReady(info: ComponentInfo): Unit = {}
+
   def serviceName: String = this.getClass.getSimpleName
 
   // Combine the services receive along with any optional routes
@@ -65,6 +81,10 @@ trait Service extends HActor with CommandHelper with ComponentHelper {
       case ConfigChange() =>
       // User can receive this themselves to renew their config
 
-      case GetMetaData => (context.parent ! GetMetaData(Some(self.path)))(sender())
+      case GetMetaData =>
+        (context.parent ! GetMetaData(Some(self.path)))(sender())
+
+      case ComponentReady(info) =>
+        onComponentReady(info)
     }: Receive) orElse serviceReceive
 }

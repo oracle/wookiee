@@ -49,9 +49,13 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
     * 2. Stop - Will execute prior to shutdown of the harness
     */
   override def receive: Receive = health orElse {
-    case StartComponent => start()
-    case StopComponent  => stop()
+    case StartComponent =>
+      start()
+    case StopComponent =>
+      stop()
     case ConfigChange() => // User can receive to do something
+    case ComponentReady(info: ComponentInfo) =>
+      onComponentReady(info)
     case ComponentRequest(msg, name, timeout) =>
       val caller = sender()
       getChildActor(name) match {
@@ -67,8 +71,10 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
         case Some(a) => a ! msg
         case None    => log.warn(s"Failed to send message to child actor [$name] for Component [${this.name}]")
       }
-    case SystemReady        => systemReady()
-    case PrepareForShutdown => prepareForShutdown()
+    case SystemReady =>
+      systemReady()
+    case PrepareForShutdown =>
+      prepareForShutdown()
   }
 
   /**
@@ -107,9 +113,21 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
   def stop(): Unit = {}
 
   /**
-    * Any logic to run once all components and services are up
+    * Any logic to run once all (non-hot deployed) components are up
     */
   def systemReady(): Unit = {}
+
+  /**
+    * Can override to act when another Wookiee Component comes up. This method will be hit when each
+    * other Component in the Service has Started. It will also be back-filled with any Components that
+    * reached the Started state before this Component, so no worries about load order. Great for when
+    * one needs to use another Component without the need for custom waiting logic, and convenient
+    * since it provides the actorRef of that Started Component.
+    * Note: The Component will get a Ready message for itself as well
+    * @param info Info about the Component that is ready for interaction, name and actor ref.
+    *             Note: The 'state' will always be Started
+    */
+  def onComponentReady(info: ComponentInfo): Unit = {}
 
   /**
     * Any logic to run once we get the shutdown message but before we begin killing actors
