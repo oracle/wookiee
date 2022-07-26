@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResp
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{
   GrpcMockStub,
+  GrpcServiceFour,
   GrpcServiceOne,
   GrpcServiceThree,
   GrpcServiceTwo
@@ -60,6 +61,7 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
           new GrpcDefinition(new GrpcServiceThree().bindService())
         )
       )
+      GrpcManager.initializeGrpcNow(system)
       GrpcManager.waitForManager(system, waitForClean = true)
 
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "")
@@ -71,6 +73,28 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       resultOne.getValue shouldEqual "msg1:GrpcServiceOne"
       resultTwo.getValue shouldEqual "msg2:GrpcServiceTwo"
       resultThree.getValue shouldEqual "msg3:GrpcServiceThree"
+    }
+
+    "handle a message over the default 4MB with max-message-size configured" in {
+      GrpcManager.registerGrpcService(
+        system,
+        "message-size-spec",
+        List(
+          new GrpcDefinition(new GrpcServiceFour().bindService())
+        )
+      )
+      GrpcManager.initializeGrpcNow(system)
+      GrpcManager.waitForManager(system, waitForClean = true)
+
+      val arraySize = 8000000 // ~8MB sized message
+      val arrayBig = new Array[Char](arraySize)
+      val stringBig = new String(arrayBig)
+
+      val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "", None, 10000000)
+      val stub = new GrpcMockStub(channel.managedChannel)
+      val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
+
+      resultBig.getValue shouldEqual s"$stringBig:GrpcServiceFour"
     }
   }
 }

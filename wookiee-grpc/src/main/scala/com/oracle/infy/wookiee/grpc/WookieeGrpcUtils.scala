@@ -9,6 +9,7 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
 
 object WookieeGrpcUtils {
+  val DEFAULT_MAX_MESSAGE_SIZE = 4194304
 
   def createCurator(
       zkQuorumString: String,

@@ -9,6 +9,7 @@ import cats.effect.std.Dispatcher
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
+import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.grpc.settings.{
@@ -55,6 +56,12 @@ object GrpcManager extends LoggingAdapter {
     manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
+  // Tell a 'dirty' GrpcManager to initialize its endpoints right away instead of waiting for more
+  // registrations to come in. Useful for unit tests and hot deploys, for example. Has no effect
+  // if initialization has already happened without new registrations
+  def initializeGrpcNow(system: ActorSystem): Unit =
+    getGrpcManager(system) ! InitializeServers()
+
   def waitForManager(system: ActorSystem): Unit =
     waitForManager(system, waitForClean = false)
 
@@ -84,6 +91,14 @@ object GrpcManager extends LoggingAdapter {
   def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel =
     createChannel(zkPath, zkConnect, bearerToken, None)
 
+  def createChannel(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings]
+  ): WookieeGrpcChannel =
+    createChannel(zkPath, zkConnect, bearerToken, sslClientSettings, DEFAULT_MAX_MESSAGE_SIZE)
+
   /**
     * Useful method for creating a gRPC channel to an existing gRPC service,
     * such as the ones GrpcManager is capable of starting
@@ -92,13 +107,15 @@ object GrpcManager extends LoggingAdapter {
     * @param zkConnect Zookeeper connect string, e.g. 'localhost:2121'
     * @param bearerToken Optional bearer token if one is setup on the server, null or empty string otherwise
     * @param sslClientSettings Optional settings for certs, TLS, and service authority if needed by target
+    * @param maxMessageSize The limit of how large (in Bytes) a response message can be
     * @return A WookieeGrpcChannel that has a field .managedChannel() that can be put into stubs
     */
   def createChannel(
       zkPath: String,
       zkConnect: String,
       bearerToken: String,
-      sslClientSettings: Option[SSLClientSettings]
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int
   ): WookieeGrpcChannel = {
     import cats.effect.unsafe.implicits.global
 
@@ -106,17 +123,18 @@ object GrpcManager extends LoggingAdapter {
     val blockingEC: ExecutionContext = ThreadUtil.createEC(s"grpc-blocking-${System.currentTimeMillis()}")
     implicit val dispatcher: Dispatcher[IO] = ThreadUtil.dispatcherIO()
 
-    def channelSettings(curatorFramework: CuratorFramework) = ChannelSettings(
-      serviceDiscoveryPath = zkPath,
-      eventLoopGroupExecutionContext = blockingEC,
-      channelExecutionContext = ec,
-      offloadExecutionContext = blockingEC,
-      eventLoopGroupExecutionContextThreads = 4,
-      lbPolicy = RoundRobinPolicy,
-      curatorFramework = curatorFramework,
-      sslClientSettings = sslClientSettings,
-      clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
-    )
+    def channelSettings(curatorFramework: CuratorFramework) =
+      ChannelSettings(
+        serviceDiscoveryPath = zkPath,
+        eventLoopGroupExecutionContext = blockingEC,
+        channelExecutionContext = ec,
+        offloadExecutionContext = blockingEC,
+        eventLoopGroupExecutionContextThreads = 4,
+        lbPolicy = RoundRobinPolicy,
+        curatorFramework = curatorFramework,
+        sslClientSettings = sslClientSettings,
+        clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
+      ).withMaxMessageSize(maxMessageSize)
 
     (for {
       implicit0(logger: Logger[IO]) <- Slf4jLogger.create[IO]
