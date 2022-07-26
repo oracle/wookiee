@@ -82,7 +82,8 @@ object WookieeGrpcChannel {
         settings.serviceDiscoveryPath,
         settings.sslClientSettings,
         settings.clientAuthSettings,
-        settings.clientInterceptors
+        settings.clientInterceptors,
+        settings.maxMessageSize()
       )
     } yield new WookieeGrpcChannel(channel)
 
@@ -133,7 +134,8 @@ object WookieeGrpcChannel {
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       maybeClientAuthSettings: Option[ClientAuthSettings],
-      maybeInterceptors: Option[List[ClientInterceptor]]
+      maybeInterceptors: Option[List[ClientInterceptor]],
+      maxMessageSize: Int
   )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
@@ -164,6 +166,7 @@ object WookieeGrpcChannel {
             case LoadBalancers.RoundRobinHashedPolicy   => "round_robin_hashed"
             case LoadBalancers.RoundRobinWeightedPolicy => "round_robin_weighted"
           })
+          .maxInboundMessageSize(maxMessageSize)
           .usePlaintext()
           .channelFactory(() => new NioSocketChannel())
           .eventLoopGroup(eventLoopGroup(eventLoopGroupExecutionContext, eventLoopGroupExecutionContextThreads))

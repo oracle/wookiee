@@ -3,6 +3,7 @@ package com.oracle.infy.wookiee.grpc.settings
 import cats.data.NonEmptyList
 import cats.effect.std.Queue
 import cats.effect.{IO, Ref}
+import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
@@ -30,7 +31,7 @@ final case class ServerSettings(
     curatorFramework: CuratorFramework
 ) {
   // Defaults to 4MB or 4194304
-  private val maxMessageSizeRef: AtomicReference[Int] = new AtomicReference[Int](4194304)
+  private val maxMessageSizeRef: AtomicReference[Int] = new AtomicReference[Int](DEFAULT_MAX_MESSAGE_SIZE)
 
   def withMaxMessageSize(bytes: Int): ServerSettings = {
     maxMessageSizeRef.set(bytes)
