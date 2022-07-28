@@ -65,18 +65,27 @@ object GrpcManager extends LoggingAdapter {
   def waitForManager(system: ActorSystem): Unit =
     waitForManager(system, waitForClean = false)
 
+  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit =
+    waitForManager(system, waitForClean = waitForClean, 30)
+
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
-  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit = {
+  def waitForManager(system: ActorSystem, waitForClean: Boolean, secondsToWait: Int): Unit = {
     println("Waiting for grpc manager to report clean")
     implicit val mainEC: ExecutionContext = system.dispatcher
-    implicit val timeout: Timeout = Timeout(15.seconds)
+    implicit val timeout: Timeout = Timeout(5.seconds)
 
     def cleanCheck(): Boolean = {
       grpcManagerMap.get(system) match {
         case Some(grpcManagerActor) =>
-          val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 15.seconds)
-          if (waitForClean) resp.clean else true
+          try {
+            val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 5.seconds)
+            if (waitForClean) resp.clean else true
+          } catch {
+            case _: Throwable =>
+              log.debug("Failed once to get gRPC Manager, retrying until we're out of time")
+              false
+          }
         case None => false
       }
     }
@@ -84,7 +93,7 @@ object GrpcManager extends LoggingAdapter {
     val cleanWaiter = Future {
       while (!cleanCheck()) {} // scalafix:ok
     }
-    Await.result(cleanWaiter, 20.seconds)
+    Await.result(cleanWaiter, secondsToWait.seconds)
     log.info("Grpc Manager is clean and ready to go")
   }
 
