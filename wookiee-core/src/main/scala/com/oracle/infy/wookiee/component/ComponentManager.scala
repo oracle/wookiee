@@ -24,6 +24,7 @@ import com.oracle.infy.wookiee.HarnessConstants
 import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.oracle.infy.wookiee.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
 import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
+import com.oracle.infy.wookiee.component.ComponentState.ComponentState
 import com.oracle.infy.wookiee.logging.{Logger, LoggingAdapter}
 import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{ConfigUtil, FileUtil}
@@ -36,6 +37,8 @@ import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
 
+import java.util.concurrent.ConcurrentHashMap
+
 case class Request[T](name: String, msg: ComponentRequest[T])
 case class Message[T](name: String, msg: ComponentMessage[T])
 case class InitializeComponents()
@@ -43,25 +46,27 @@ case class LoadComponent(name: String, classPath: String, classLoader: Option[Ha
 case class ReloadComponent(file: File, classLoader: Option[HarnessClassLoader] = None)
 case class ComponentStarted(name: String)
 case class GetComponent(name: String)
+case class ComponentReady(info: ComponentInfo)
 
-private[component] object ComponentState extends Enumeration {
+object ComponentState extends Enumeration {
   type ComponentState = Value
   val Initializing, Started, Failed = Value
 }
-import ComponentState._
+case class ComponentInfo(name: String, state: ComponentState, actorRef: ActorRef)
 
 object ComponentManager extends LoggingAdapter {
+  import ComponentState._
   private val externalLogger = Logger.getLogger(this.getClass)
 
-  val components: mutable.Map[String, ComponentState] = mutable.Map[String, ComponentState]()
+  protected[wookiee] val components = new ConcurrentHashMap[(String, ActorSystem), ComponentInfo]()
 
   val ComponentRef = "self"
 
   /**
     * Checks to see if all the components have started up
     */
-  def isAllComponentsStarted: Boolean = {
-    val groupedMap = components.groupBy(_._2).toList
+  def isAllComponentsStarted(implicit actorSystem: ActorSystem): Boolean = {
+    val groupedMap = componentsForSystem.groupBy(_.state).toList
     if (groupedMap.size == 1) {
       groupedMap.head._1 == Started
     } else {
@@ -69,15 +74,23 @@ object ComponentManager extends LoggingAdapter {
     }
   }
 
+  // Returns information for all Components running on an ActorSystem
+  def componentsForSystem(implicit actorSystem: ActorSystem): List[ComponentInfo] =
+    components.asScala.filter(_._1._2.equals(actorSystem)).values.toList
+
+  // Returns a single Component (if present) on one ActorSystem
+  def getComponent(compName: String)(implicit actorSystem: ActorSystem): Option[ComponentInfo] =
+    Option(components.get((compName, actorSystem)))
+
   /**
     * Checks to see if there are any components that have failed
     *
     * @return Option, if failed will contain name of first component that failed
     */
-  def failedComponents: Option[String] = {
-    components foreach {
-      case x if x._2 == Failed => return Some(x._1)
-      case _                   => //ignore the other matches
+  def failedComponents(implicit system: ActorSystem): Option[String] = {
+    componentsForSystem foreach {
+      case x if x.state == Failed => return Some(x.name)
+      case _                      => //ignore the other matches
     }
     None
   }
@@ -213,7 +226,7 @@ object ComponentManager extends LoggingAdapter {
         config.getString(s"${HarnessConstants.KeyComponentMapping}.$name")
       } else {
         val fn = jarComponentName(file)
-        if (config.hasPath(s"$fn")) {
+        if (config.hasPath(fn)) {
           fn
         } else {
           throw new ComponentNotFoundException("ComponentManager", s"'$fn...' path not found in config")
@@ -228,6 +241,11 @@ object ComponentManager extends LoggingAdapter {
     // example wookiee-zookeeper-1.0-SNAPSHOT.jar
     segments(0) + "-" + segments(1).replace(".jar", "")
   }
+
+  protected[oracle] def setComponentInfo(compInfo: ComponentInfo)(implicit system: ActorSystem): Unit = {
+    components.put((compInfo.name, system), compInfo)
+    ()
+  }
 }
 
 class ComponentManager extends PrepareForShutdown {
@@ -238,6 +256,7 @@ class ComponentManager extends PrepareForShutdown {
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
 
   var componentsInitialized = false
+  implicit val system: ActorSystem = context.system
 
   override def receive: Receive = initializing
 
@@ -248,7 +267,7 @@ class ComponentManager extends PrepareForShutdown {
 
   def initializing: Receive = super.receive orElse {
     case InitializeComponents               => initializeComponents()
-    case ComponentStarted(name)             => componentStarted(name)
+    case ComponentStarted(name)             => componentStarted(name, sender())
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
   }
 
@@ -258,7 +277,7 @@ class ComponentManager extends PrepareForShutdown {
     case GetComponent(name)                 => sender() ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
     case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()
-    case ComponentStarted(name)             => componentStarted(name)
+    case ComponentStarted(name)             => componentStarted(name, sender())
     case SystemReady                        => context.children.foreach(ref => ref ! SystemReady)
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
@@ -313,10 +332,31 @@ class ComponentManager extends PrepareForShutdown {
     case None         => Thread.currentThread.getContextClassLoader.asInstanceOf[HarnessClassLoader]
   }
 
-  private def componentStarted(name: String): Unit = {
+  /**
+    * Has two phases based on the newly ready Component `compInfo`:
+    * 1. Send ComponentReady message to all Started Components (including `compInfo` itself) for this Component
+    * 2. Checks for what Components are Started and sends ComponentReady to `compInfo` to catch anything it missed
+    */
+  private def sendReadinessToAllStarted(compInfo: ComponentInfo): Unit = {
+    context.parent ! ComponentReady(compInfo)
+    ComponentManager.componentsForSystem.filter(_.state == ComponentState.Started).foreach { info =>
+      info.actorRef ! ComponentReady(compInfo)
+      if (info.name != compInfo.name)
+        compInfo.actorRef ! ComponentReady(info)
+    }
+  }
+
+  private def componentStarted(name: String, compRef: ActorRef): Unit = {
     log.debug(s"Received start message from component $name")
-    ComponentManager.components(name) = ComponentState.Started
-    if (ComponentManager.isAllComponentsStarted) {
+    val compInfo = ComponentInfo(name, ComponentState.Started, compRef)
+    // Store component info in static map
+    ComponentManager.setComponentInfo(compInfo)
+    // Send ComponentReady message to all Components/Service and catch this one up on ones it missed
+    sendReadinessToAllStarted(compInfo)
+
+    if (componentsInitialized) {
+      compRef ! SystemReady
+    } else if (ComponentManager.isAllComponentsStarted) {
       validateComponentStartup()
     } else {
       ComponentManager.failedComponents match {
@@ -518,7 +558,7 @@ class ComponentManager extends PrepareForShutdown {
         val ref = context.actorOf(Props(clazz, componentName), componentName)
         log.info(s"Loading component [$componentName] at path [${ref.path.toString}}]")
         // get the start timeout but default to the component timeout
-        ComponentManager.components(componentName) = ComponentState.Initializing
+        ComponentManager.setComponentInfo(ComponentInfo(componentName, ComponentState.Initializing, ref))
         ref ! StartComponent
         Some(ref)
     }
@@ -529,11 +569,11 @@ class ComponentManager extends PrepareForShutdown {
     * waiting for nothing. If not all components have started then we shut down the server, if it has then we send the
     * all clear message
     */
-  private def checkStartupStatus(system: ActorSystem): Unit = {
+  private def checkStartupStatus(implicit system: ActorSystem): Unit = {
     if (ComponentManager.isAllComponentsStarted) {
       validateComponentStartup()
     } else {
-      log.info("Failed to startup components: " + ComponentManager.components.toString())
+      log.info("Failed to startup components: " + ComponentManager.componentsForSystem.toString())
       Harness.shutdown()(system)
     }
   }
@@ -543,17 +583,22 @@ class ComponentManager extends PrepareForShutdown {
       case Some(e) => log.error(msg, e)
       case None    => log.error(msg)
     }
-    ComponentManager.components(componentName) = ComponentState.Failed
+    // Note that since we don't have an ActorRef for the failed Component, we're using ComponentManager's ref instead
+    ComponentManager.setComponentInfo(ComponentInfo(componentName, ComponentState.Failed, self))
   }
 
-  private def findAndLoadComponentManager(componentName: String, config: Config) = {
+  private def findAndLoadComponentManager(componentName: String, config: Config): Unit = {
     val compConfig = ConfigUtil.prepareSubConfig(config, componentName)
     if (compConfig.hasPath(ComponentManager.KeyEnabled) && !compConfig.getBoolean(ComponentManager.KeyEnabled)) {
-      log.info(s"Component $componentName not enabled, won't be started.")
+      log.info(s"Component '$componentName' not enabled, won't be started.")
     } else {
-      require(compConfig.hasPath(ComponentManager.KeyManagerClass), "Manager for component not found in config.")
+      require(
+        compConfig.hasPath(ComponentManager.KeyManagerClass),
+        s"Manager for component '$componentName' not found in config."
+      )
       val className = compConfig.getString(ComponentManager.KeyManagerClass)
       loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
+      ()
     }
   }
 }

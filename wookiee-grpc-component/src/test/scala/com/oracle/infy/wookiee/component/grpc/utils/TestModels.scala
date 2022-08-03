@@ -20,6 +20,7 @@ object TestModels {
        |      port = $grpcPort
        |      zk-discovery-path = "/grpc/local_dev"
        |      server-host-name = "localhost"
+       |      max-message-size = 10000000
        |    }
        |  }
        |}
@@ -72,4 +73,5 @@ object TestModels {
   class GrpcServiceOne extends GrpcMockService
   class GrpcServiceTwo extends GrpcMockService
   class GrpcServiceThree extends GrpcMockService
+  class GrpcServiceFour extends GrpcMockService
 }

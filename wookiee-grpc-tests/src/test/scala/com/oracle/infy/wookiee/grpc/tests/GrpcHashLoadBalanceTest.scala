@@ -77,7 +77,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
         bossThreads = bossThreads,
         workerThreads = mainECParallelism,
         curatorFramework = curator
-      )
+      ).withMaxMessageSize(8194304)
 
       val serverF1: Future[WookieeGrpcServer] =
         dispatcher.unsafeToFuture(WookieeGrpcServer.start(serverSettings1))

@@ -99,6 +99,7 @@ object WookieeGrpcServer {
       _ <- logger.info("Building gRPC server...")
       builder0 = NettyServerBuilder
         .forPort(host.port)
+        .maxInboundMessageSize(serverSettings.maxMessageSize())
         .channelFactory(() => new NioServerSocketChannel())
 
       builder1 <- serverSettings

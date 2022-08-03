@@ -22,7 +22,13 @@ import akka.util.Timeout
 import com.typesafe.config.Config
 import HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{ComponentManager, ComponentReloadActor, InitializeComponents}
+import com.oracle.infy.wookiee.component.{
+  ComponentInfo,
+  ComponentManager,
+  ComponentReady,
+  ComponentReloadActor,
+  InitializeComponents
+}
 import com.oracle.infy.wookiee.config.ConfigWatcher
 import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -32,7 +38,9 @@ import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ConfigUtil
+import scala.jdk.CollectionConverters._
 
+import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
@@ -48,6 +56,7 @@ object HarnessActor {
   @SerialVersionUID(1L) case class ReadyCheck()
   @SerialVersionUID(1L) case class GetManagers()
   @SerialVersionUID(1L) case object PrepareForShutdown
+  @SerialVersionUID(1L) case object ForwardComponentInfo
 }
 
 // Below are actor traits that are commonly used for actors in the Harness
@@ -74,6 +83,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   import context.dispatcher
 
   private val config = context.system.settings.config
+  val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
   implicit val checkTimeout: Timeout =
     getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
@@ -108,15 +118,26 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   override def receive: Receive = initializing
 
   def initializing: Receive = {
-    case CheckHealth                     => pipe(getHealth(true)) to sender(); ()
-    case ComponentInitializationComplete => initializationComplete(); ()
-    case ShutdownSystem                  => shutdownCoreServices(); ()
-    case ReadyCheck                      => sender() ! running
+    case CheckHealth =>
+      pipe(getHealth(true)) to sender(); ()
+    case ComponentInitializationComplete =>
+      initializationComplete(); ()
+    case ComponentReady(info) => // Store until we're ready to send off to Service
+      readyComponents.put(info.name, info); ()
+    case ShutdownSystem =>
+      shutdownCoreServices(); ()
+    case ReadyCheck =>
+      sender() ! running
   }
 
   def processing: Receive = {
-    case CheckHealth => pipe(getHealth(false)) to sender(); ()
-
+    case CheckHealth =>
+      pipe(getHealth(false)) to sender(); ()
+    case ForwardComponentInfo =>
+      sendComponentInfoToService(readyComponents.values().asScala.toList)
+    case ComponentReady(info) =>
+      readyComponents.put(info.name, info)
+      sendComponentInfoToService(List(info))
     case ServicesReady =>
       // This message is sent from the service manager that tells us the services are loaded.
       // Notify the services, components and commands that we are all ready to go
@@ -130,12 +151,14 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
         HarnessConstants.ServicesName -> serviceActor,
         HarnessConstants.ComponentName -> componentActor
       ).collect { case (key, Some(value)) => key -> value }
-    case RestartSystem => Harness.restartActorSystem()(context.system)
+    case RestartSystem =>
+      Harness.restartActorSystem()(context.system)
     case ConfigChange() =>
       log.debug("Received message to reload services/components due to config change")
       serviceActor.get ! ConfigChange()
       componentActor.get ! ConfigChange()
-    case ShutdownSystem => shutdownCoreServices()
+    case ShutdownSystem =>
+      shutdownCoreServices()
   }
 
   /**
@@ -171,6 +194,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
           startInternalHTTP(ConfigUtil.getDefaultValue(HarnessConstants.KeyInternalHttpPort, config.getInt, 8080))
         }
         running = true
+        self ! ForwardComponentInfo
       case Failure(t) =>
         log.error("Error loading the main harness actors", t)
     }
@@ -192,6 +216,16 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     } else Try(gracefulShutdown())
 
     ()
+  }
+
+  private def sendComponentInfoToService(infos: List[ComponentInfo]): Unit = serviceActor match {
+    case Some(actor) =>
+      log.debug(s"Sending info for started Components [$infos] to Service")
+      infos.foreach { info =>
+        actor ! ComponentReady(info)
+      }
+    case None =>
+      log.warn("Somehow the Service Actor isn't started to get Component Info")
   }
 
   private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {

@@ -20,6 +20,12 @@ trait BaseWookieeTest {
 
   def startupWait: FiniteDuration = 15.seconds
 
+  // Override to execute logic before we create our TestHarness,
+  // good for starting up local kafka/zookeeper/etc.
+  def beforeTestWookiee(): Unit = {}
+
+  beforeTestWookiee()
+
   val testWookiee: TestHarness =
     TestHarness(config, servicesMap, componentMap, logLevel, startupWait)
 

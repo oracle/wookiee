@@ -24,22 +24,34 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.util.Try
 
 class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll with PatienceConfiguration {
 
-  val zkServer = new TestingServer()
-  implicit val system: ActorSystem = ActorSystem("zk-test", loadConfig)
-  val service: ZookeeperAdapterNonActor = MockZookeeper(zkServer.getConnectString)
-  val zkActor: ActorRef = ZookeeperService.getZkActor.get
-  val deletedNodes = new ConcurrentLinkedQueue[String]()
-  val createdNodes = new ConcurrentLinkedQueue[String]()
-  val changedNodes = new ConcurrentLinkedQueue[String]()
-  system.actorOf(Props(new ZKEventWatcher()), "zk-event-watcher-test")
+  val zkServer: AtomicReference[TestingServer] = new AtomicReference()
+  val system: AtomicReference[ActorSystem] = new AtomicReference()
+  val service: AtomicReference[ZookeeperAdapterNonActor] = new AtomicReference()
+  val zkActor: AtomicReference[ActorRef] = new AtomicReference()
 
   implicit val to: Timeout = Timeout(5.seconds)
   val awaitResultTimeout: FiniteDuration = 5000.milliseconds
+
+  val deletedNodes = new ConcurrentLinkedQueue[String]()
+  val createdNodes = new ConcurrentLinkedQueue[String]()
+  val changedNodes = new ConcurrentLinkedQueue[String]()
+
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    zkServer.set(new TestingServer())
+    system.set(ActorSystem("zk-test", loadConfig))
+    service.set(MockZookeeper(zkServer.get().getConnectString)(system.get()))
+    zkActor.set(ZookeeperService.getZkActor(system.get()).get)
+    system.get().actorOf(Props(new ZKEventWatcher()), "zk-event-watcher-test")
+    ()
+  }
 
   def checkForEntry(queue: ConcurrentLinkedQueue[String], path: String): Boolean = {
     val timeout = System.currentTimeMillis() + 5000L
@@ -73,14 +85,15 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
   "The zookeeper service" should {
     "allow callers to create a node for a valid path" in {
-      val res = Await.result(service.createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
+      val res =
+        Await.result(service.get().createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
       res shouldEqual "/test"
       checkForEntry(createdNodes, "/test") shouldEqual true
     }
 
     "allow callers to create a node for a valid namespace and path" in {
       val res = Await.result(
-        service.createNode("/namespacetest", ephemeral = false, Some("namespacedata".getBytes), Some("space")),
+        service.get().createNode("/namespacetest", ephemeral = false, Some("namespacedata".getBytes), Some("space")),
         awaitResultTimeout
       )
       res shouldEqual "/namespacetest"
@@ -88,64 +101,70 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
     "allow callers to delete a node for a valid path" in {
       val res =
-        Await.result(service.createNode("/deleteTest", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
+        Await.result(
+          service.get().createNode("/deleteTest", ephemeral = false, Some("data".getBytes)),
+          awaitResultTimeout
+        )
       res shouldEqual "/deleteTest"
-      val res2 = Await.result(service.deleteNode("/deleteTest"), awaitResultTimeout)
+      val res2 = Await.result(service.get().deleteNode("/deleteTest"), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
       checkForEntry(deletedNodes, "/deleteTest") shouldEqual true
     }
 
     "allow callers to delete a node for a valid namespace and path " in {
       val res = Await.result(
-        service.createNode("/deleteTest", ephemeral = false, Some("data".getBytes), Some("space")),
+        service.get().createNode("/deleteTest", ephemeral = false, Some("data".getBytes), Some("space")),
         awaitResultTimeout
       )
       res shouldEqual "/deleteTest"
-      val res2 = Await.result(service.deleteNode("/deleteTest", Some("space")), awaitResultTimeout)
+      val res2 = Await.result(service.get().deleteNode("/deleteTest", Some("space")), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
     }
 
     "allow callers to get data for a valid path " in {
-      val res = Await.result(service.getData("/test"), awaitResultTimeout)
+      val res = Await.result(service.get().getData("/test"), awaitResultTimeout)
       new String(res) shouldEqual "data"
     }
 
     "allow callers to get data for a valid namespace and path " in {
-      val res = Await.result(service.getData("/namespacetest", Some("space")), awaitResultTimeout)
+      val res = Await.result(service.get().getData("/namespacetest", Some("space")), awaitResultTimeout)
       new String(res) shouldEqual "namespacedata"
     }
 
     " allow callers to get data for a valid path with a namespace" in {
-      val res = Await.result(service.getData("/namespacetest", Some("space")), awaitResultTimeout)
+      val res = Await.result(service.get().getData("/namespacetest", Some("space")), awaitResultTimeout)
       new String(res) shouldEqual "namespacedata"
     }
 
     " return an error when getting data for an invalid path " in {
-      an[Exception] should be thrownBy Await.result(service.getData("/testbad"), awaitResultTimeout)
+      an[Exception] should be thrownBy Await.result(service.get().getData("/testbad"), awaitResultTimeout)
     }
 
     " allow callers to get children with no data for a valid path " in {
-      Await.result(service.createNode("/test/child", ephemeral = false, None), awaitResultTimeout)
-      val res2 = Await.result(service.getChildren("/test"), awaitResultTimeout)
+      Await.result(service.get().createNode("/test/child", ephemeral = false, None), awaitResultTimeout)
+      val res2 = Await.result(service.get().getChildren("/test"), awaitResultTimeout)
       res2.head._1 shouldEqual "child"
       res2.head._2 shouldEqual None
     }
 
     " allow callers to get children with data for a valid path " in {
-      Await.result(service.setData("/test/child", "data".getBytes), awaitResultTimeout)
-      val res2 = Await.result(service.getChildren("/test", includeData = true), awaitResultTimeout)
+      Await.result(service.get().setData("/test/child", "data".getBytes), awaitResultTimeout)
+      val res2 = Await.result(service.get().getChildren("/test", includeData = true), awaitResultTimeout)
       res2.head._1 shouldEqual "child"
       res2.head._2.get shouldEqual "data".getBytes
       checkForEntry(changedNodes, "/test/child") shouldEqual true
     }
 
     " return an error when getting children for an invalid path " in {
-      an[Exception] should be thrownBy Await.result(service.getChildren("/testbad"), awaitResultTimeout)
+      an[Exception] should be thrownBy Await.result(service.get().getChildren("/testbad"), awaitResultTimeout)
     }
 
     "allow callers to discover commands " in {
       val res =
-        Await.result(zkActor ? MakeDiscoverable("base/path", "testname", new UriSpec("file://foo")), awaitResultTimeout)
+        Await.result(
+          zkActor.get() ? MakeDiscoverable("base/path", "testname", new UriSpec("file://foo")),
+          awaitResultTimeout
+        )
       res.asInstanceOf[Boolean] shouldBe true
     }
 
@@ -153,9 +172,9 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val basePath = "base/path"
       val name = UUID.randomUUID().toString
 
-      Await.result(zkActor ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
+      Await.result(zkActor.get() ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
 
-      val res2 = Await.result(zkActor ? QueryForInstances(basePath, name), awaitResultTimeout)
+      val res2 = Await.result(zkActor.get() ? QueryForInstances(basePath, name), awaitResultTimeout)
       res2.asInstanceOf[List[ServiceInstance[WookieeServiceDetails]]].head.getPayload.getWeight shouldBe 0
     }
 
@@ -163,11 +182,11 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val basePath = "base/path"
       val name = UUID.randomUUID().toString
 
-      Await.result(zkActor ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
-      Await.result(zkActor ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
+      Await.result(zkActor.get() ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
+      Await.result(zkActor.get() ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
 
       def result: List[ServiceInstance[WookieeServiceDetails]] = {
-        val r = Await.result(zkActor ? QueryForInstances(basePath, name), awaitResultTimeout)
+        val r = Await.result(zkActor.get() ? QueryForInstances(basePath, name), awaitResultTimeout)
         r.asInstanceOf[List[ServiceInstance[WookieeServiceDetails]]]
       }
 
@@ -178,11 +197,11 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val basePath = "base/path"
       val name = UUID.randomUUID().toString
 
-      Await.result(zkActor ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
-      Await.result(zkActor ? UpdateWeight(100, basePath, name, forceSet = true), awaitResultTimeout)
+      Await.result(zkActor.get() ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
+      Await.result(zkActor.get() ? UpdateWeight(100, basePath, name, forceSet = true), awaitResultTimeout)
 
       val res = Await
-        .result(zkActor ? QueryForInstances(basePath, name), awaitResultTimeout)
+        .result(zkActor.get() ? QueryForInstances(basePath, name), awaitResultTimeout)
         .asInstanceOf[List[ServiceInstance[WookieeServiceDetails]]]
 
       res.head.getPayload.getWeight shouldBe 100
@@ -192,11 +211,11 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val basePath = "base/path"
       val name = UUID.randomUUID().toString
 
-      Await.result(zkActor ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
-      Await.result(zkActor ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
+      Await.result(zkActor.get() ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
+      Await.result(zkActor.get() ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
 
       val res = Await
-        .result(zkActor ? QueryForInstances(basePath, name), awaitResultTimeout)
+        .result(zkActor.get() ? QueryForInstances(basePath, name), awaitResultTimeout)
         .asInstanceOf[List[ServiceInstance[WookieeServiceDetails]]]
 
       res.head.getPayload.getWeight shouldBe 0
@@ -206,26 +225,27 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val basePath = "base/path"
       val name = UUID.randomUUID().toString
 
-      Await.result(zkActor ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
-      Await.result(zkActor ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
+      Await.result(zkActor.get() ? MakeDiscoverable(basePath, name, new UriSpec("file://foo")), awaitResultTimeout)
+      Await.result(zkActor.get() ? UpdateWeight(100, basePath, name, forceSet = false), awaitResultTimeout)
 
       Thread.sleep(3000)
 
       val res = Await
-        .result(zkActor ? QueryForInstances(basePath, name), awaitResultTimeout)
+        .result(zkActor.get() ? QueryForInstances(basePath, name), awaitResultTimeout)
         .asInstanceOf[List[ServiceInstance[WookieeServiceDetails]]]
 
       res.head.getPayload.getWeight shouldBe 100
     }
 
     "use set weight interval defined in config" in {
-      Await.result(zkActor ? GetSetWeightInterval(), 3.second).asInstanceOf[Long] shouldBe 2
+      Await.result(zkActor.get() ? GetSetWeightInterval(), 3.second).asInstanceOf[Long] shouldBe 2
     }
   }
 
   override protected def afterAll(): Unit = {
-    TestKit.shutdownActorSystem(system)
-    zkServer.close()
+    Try(TestKit.shutdownActorSystem(system.get()))
+    Try(zkServer.get().close())
+    ()
   }
 
   def loadConfig: Config = {
@@ -235,6 +255,6 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       }
       wookiee-zookeeper {
         quorum = "%s"
-      }""".format(zkServer.getConnectString)).withFallback(ConfigFactory.load()).resolve
+      }""".format(zkServer.get().getConnectString)).withFallback(ConfigFactory.load()).resolve
   }
 }

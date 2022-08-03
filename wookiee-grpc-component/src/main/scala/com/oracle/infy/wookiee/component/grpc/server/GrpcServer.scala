@@ -41,6 +41,7 @@ trait GrpcServer extends ExtensionHostServices {
       }
       .getOrElse("")
     val port = config.getInt(s"${GrpcManager.ComponentName}.grpc.port")
+    val maxMessageSize = config.getInt(s"${GrpcManager.ComponentName}.grpc.max-message-size")
 
     val serverSettings = ServerSettings(
       discoveryPath = zkPath,
@@ -54,15 +55,17 @@ trait GrpcServer extends ExtensionHostServices {
       curatorFramework = getCurator,
       serverServiceDefinition = services.head,
       services.toList.drop(1): _*
-    )
+    ).withMaxMessageSize(maxMessageSize)
 
     val hostName = Try(config.getString(s"${GrpcManager.ComponentName}.grpc.server-host-name"))
     val finalServerSettings = hostName
       .map(
         hName =>
-          serverSettings.copy(
-            host = IO(Host(0, hName, port, HostMetadata(0, quarantined = false)))
-          )
+          serverSettings
+            .copy(
+              host = IO(Host(0, hName, port, HostMetadata(0, quarantined = false)))
+            )
+            .withMaxMessageSize(serverSettings.maxMessageSize())
       )
       .getOrElse(serverSettings)
 

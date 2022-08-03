@@ -9,9 +9,15 @@ import cats.effect.std.Dispatcher
 import cats.implicits._
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
+import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
-import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServiceAuthSettings}
+import com.oracle.infy.wookiee.grpc.settings.{
+  ChannelSettings,
+  ClientAuthSettings,
+  SSLClientSettings,
+  ServiceAuthSettings
+}
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
@@ -50,21 +56,36 @@ object GrpcManager extends LoggingAdapter {
     manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
+  // Tell a 'dirty' GrpcManager to initialize its endpoints right away instead of waiting for more
+  // registrations to come in. Useful for unit tests and hot deploys, for example. Has no effect
+  // if initialization has already happened without new registrations
+  def initializeGrpcNow(system: ActorSystem): Unit =
+    getGrpcManager(system) ! InitializeServers()
+
   def waitForManager(system: ActorSystem): Unit =
     waitForManager(system, waitForClean = false)
 
+  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit =
+    waitForManager(system, waitForClean = waitForClean, 30)
+
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
-  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit = {
+  def waitForManager(system: ActorSystem, waitForClean: Boolean, secondsToWait: Int): Unit = {
     println("Waiting for grpc manager to report clean")
     implicit val mainEC: ExecutionContext = system.dispatcher
-    implicit val timeout: Timeout = Timeout(15.seconds)
+    implicit val timeout: Timeout = Timeout(5.seconds)
 
     def cleanCheck(): Boolean = {
       grpcManagerMap.get(system) match {
         case Some(grpcManagerActor) =>
-          val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 15.seconds)
-          if (waitForClean) resp.clean else true
+          try {
+            val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 5.seconds)
+            if (waitForClean) resp.clean else true
+          } catch {
+            case _: Throwable =>
+              log.debug("Failed once to get gRPC Manager, retrying until we're out of time")
+              false
+          }
         case None => false
       }
     }
@@ -72,9 +93,20 @@ object GrpcManager extends LoggingAdapter {
     val cleanWaiter = Future {
       while (!cleanCheck()) {} // scalafix:ok
     }
-    Await.result(cleanWaiter, 20.seconds)
+    Await.result(cleanWaiter, secondsToWait.seconds)
     log.info("Grpc Manager is clean and ready to go")
   }
+
+  def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel =
+    createChannel(zkPath, zkConnect, bearerToken, None)
+
+  def createChannel(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings]
+  ): WookieeGrpcChannel =
+    createChannel(zkPath, zkConnect, bearerToken, sslClientSettings, DEFAULT_MAX_MESSAGE_SIZE)
 
   /**
     * Useful method for creating a gRPC channel to an existing gRPC service,
@@ -83,26 +115,35 @@ object GrpcManager extends LoggingAdapter {
     * @param zkPath Config at 'wookiee-grpc-component.grpc.zk-discovery-path'
     * @param zkConnect Zookeeper connect string, e.g. 'localhost:2121'
     * @param bearerToken Optional bearer token if one is setup on the server, null or empty string otherwise
+    * @param sslClientSettings Optional settings for certs, TLS, and service authority if needed by target
+    * @param maxMessageSize The limit of how large (in Bytes) a response message can be
     * @return A WookieeGrpcChannel that has a field .managedChannel() that can be put into stubs
     */
-  def createChannel(zkPath: String, zkConnect: String, bearerToken: String): WookieeGrpcChannel = {
+  def createChannel(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int
+  ): WookieeGrpcChannel = {
     import cats.effect.unsafe.implicits.global
 
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
     val blockingEC: ExecutionContext = ThreadUtil.createEC(s"grpc-blocking-${System.currentTimeMillis()}")
     implicit val dispatcher: Dispatcher[IO] = ThreadUtil.dispatcherIO()
 
-    def channelSettings(curatorFramework: CuratorFramework) = ChannelSettings(
-      serviceDiscoveryPath = zkPath,
-      eventLoopGroupExecutionContext = blockingEC,
-      channelExecutionContext = ec,
-      offloadExecutionContext = blockingEC,
-      eventLoopGroupExecutionContextThreads = 4,
-      lbPolicy = RoundRobinPolicy,
-      curatorFramework = curatorFramework,
-      sslClientSettings = None,
-      clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
-    )
+    def channelSettings(curatorFramework: CuratorFramework) =
+      ChannelSettings(
+        serviceDiscoveryPath = zkPath,
+        eventLoopGroupExecutionContext = blockingEC,
+        channelExecutionContext = ec,
+        offloadExecutionContext = blockingEC,
+        eventLoopGroupExecutionContextThreads = 4,
+        lbPolicy = RoundRobinPolicy,
+        curatorFramework = curatorFramework,
+        sslClientSettings = sslClientSettings,
+        clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)
+      ).withMaxMessageSize(maxMessageSize)
 
     (for {
       implicit0(logger: Logger[IO]) <- Slf4jLogger.create[IO]
@@ -175,6 +216,15 @@ object GrpcManager extends LoggingAdapter {
   case class CleanResponse(clean: Boolean)
 }
 
+/** This Component is meant to manage the single gRPC server endpoint that will host all of the
+  * GrpcServiceDefinition objects passed to it by any number of entities in the Service. It does nothing on
+  * its own but will be activated when it receives a GrpcServiceDefinition from anywhere. After getting that
+  * message it will wait 10 seconds to allow others to register, then it will attempt to start the gRPC server--
+  * shutting down any existing instance of it along the way (so late registrations are OK).
+  *
+  * Note for maintainers: Everything in this class is synchronous and that is taken for granted in the design,
+  * any additional functionality should be similarly blocking on each message that comes in.
+  */
 class GrpcManager(name: String) extends Component(name) with GrpcServer {
   import GrpcManager._
 
