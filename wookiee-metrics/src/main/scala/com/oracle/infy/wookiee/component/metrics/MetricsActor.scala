@@ -97,10 +97,9 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
         )
 
       settings.GraphiteDisabledMetricAttributes match {
-        case Some(attributes) => graphiteBuilder.disabledMetricAttributes(attributes.map(MetricAttribute.valueOf).asJava)
-                    System.out.println(attributes)
+        case Some(attributes) =>
+          graphiteBuilder.disabledMetricAttributes(attributes.map(MetricAttribute.valueOf).asJava)
         case None =>
-          System.out.println("none")
       }
 
       graphiteReporter = Some(
