@@ -20,6 +20,7 @@
 package com.oracle.infy.wookiee.component.metrics
 
 import akka.actor.{Actor, Props}
+import com.codahale.metrics.graphite.GraphiteReporter.Builder
 import com.codahale.metrics.graphite.{Graphite, GraphiteReporter}
 import com.codahale.metrics.jmx.JmxReporter
 import com.codahale.metrics.{MetricAttribute, MetricFilter, ScheduledReporter}
@@ -85,18 +86,25 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
     MetricsEventBus.subscribe(self)
 
     if (settings.GraphiteEnabled) {
-      graphiteReporter = Some(
-        GraphiteReporter
-          .forRegistry(MetricBuilder())
-          .prefixedWith(
-            "%s.%s.%s".format(
-              settings.MetricPrefix,
-              InetAddress.getLocalHost.getHostName.replace('.', '_'),
-              settings.ApplicationName.replace(' ', '_').toLowerCase
-            )
+      val graphiteBuilder: Builder = GraphiteReporter
+        .forRegistry(MetricBuilder())
+        .prefixedWith(
+          "%s.%s.%s".format(
+            settings.MetricPrefix,
+            InetAddress.getLocalHost.getHostName.replace('.', '_'),
+            settings.ApplicationName.replace(' ', '_').toLowerCase
           )
-          .disabledMetricAttributes(settings.GraphiteDisabledMetricAttributes.map(MetricAttribute.valueOf).asJava)
-          .build(new Graphite(new InetSocketAddress(settings.GraphiteHost, settings.GraphitePort)))
+        )
+
+      settings.GraphiteDisabledMetricAttributes match {
+        case Some(attributes) => graphiteBuilder.disabledMetricAttributes(attributes.map(MetricAttribute.valueOf).asJava)
+                    System.out.println(attributes)
+        case None =>
+          System.out.println("none")
+      }
+
+      graphiteReporter = Some(
+        graphiteBuilder.build(new Graphite(new InetSocketAddress(settings.GraphiteHost, settings.GraphitePort)))
       )
 
       jvmGraphiteReporter = Some(
