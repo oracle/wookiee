@@ -19,7 +19,10 @@
 package com.oracle.infy.wookiee.component.metrics.monitoring
 
 import com.typesafe.config.{Config, ConfigFactory}
+
+import scala.jdk.CollectionConverters._
 import scala.language.implicitConversions
+import scala.util.Try
 
 class MonitoringSettings(config: Config = ConfigFactory.load) {
 
@@ -43,6 +46,9 @@ class MonitoringSettings(config: Config = ConfigFactory.load) {
   var GraphiteIncludeVMMetrics: Boolean = config getBoolean "graphite.vmmetrics"
   // This is a regular expression for which metrics should be sent on to graphite. All metrics are still exposed via JMX or the metrics endpoint
   var GraphiteRegEx: String = config getString "graphite.regex"
+
+  var GraphiteDisabledMetricAttributes: Option[Set[String]] =
+    Try(config.getStringList("graphite.disabled-metric-attributes").asScala.toSet).toOption
 
   require(ApplicationName != "", "application-name must be set")
   require(MetricPrefix != "", "metric-prefix must be set")
