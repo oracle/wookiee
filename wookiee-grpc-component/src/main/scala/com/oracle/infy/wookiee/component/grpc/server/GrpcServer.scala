@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.component.grpc.server
 import cats.data.NonEmptyList
 import cats.effect.IO
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
-import com.oracle.infy.wookiee.grpc.WookieeGrpcServer
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings, ServiceAuthSettings}
 import com.oracle.infy.wookiee.utils.ThreadUtil
@@ -41,7 +41,8 @@ trait GrpcServer extends ExtensionHostServices {
       }
       .getOrElse("")
     val port = config.getInt(s"${GrpcManager.ComponentName}.grpc.port")
-    val maxMessageSize = config.getInt(s"${GrpcManager.ComponentName}.grpc.max-message-size")
+    val maxMessageSize = Try(config.getInt(s"${GrpcManager.ComponentName}.grpc.max-message-size"))
+      .getOrElse(WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE)
 
     val serverSettings = ServerSettings(
       discoveryPath = zkPath,

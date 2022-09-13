@@ -1,4 +1,4 @@
-/*package com.oracle.infy.wookiee.test.extension
+package com.oracle.infy.wookiee.test.extension
 
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.pattern.ask
@@ -142,7 +142,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
     "Should not load classes in when reading config" in {
       val cf = HarnessActorSystem.renewConfigsAndClasses(Some(config))
-      cf.getString("other-extension.something.value") shouldEqual "example-other"
+      cf.getString("other-extension.something.value") shouldEqual "changed"
       HarnessActorSystem
         .loader
         .getChildLoaders
@@ -190,6 +190,8 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     }
  */
   }
+
+  override def startupWait: FiniteDuration = 30.seconds
 
   override def config: Config = {
     val cDir = compDir()
@@ -241,9 +243,9 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
   def compDir(): String = {
     val workingDir = new File(System.getProperty("user.dir")).listFiles().filter(_.isDirectory).map(_.getName)
-    if (workingDir.contains("wookiee")) "wookiee/wookiee-test/src/test/resources"
-    else if (workingDir.contains("wookiee-test")) "wookiee-test/src/test/resources"
+    if (workingDir.contains("wookiee-test")) "wookiee-test/src/test/resources"
+    else if (workingDir.contains("wookiee")) "wookiee/wookiee-test/src/test/resources"
     else "src/test/resources"
   }
 }
- */
+
