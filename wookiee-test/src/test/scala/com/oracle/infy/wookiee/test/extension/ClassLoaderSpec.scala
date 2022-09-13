@@ -248,4 +248,4 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     else "src/test/resources"
   }
 }
-*/
+ */
