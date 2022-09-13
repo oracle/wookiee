@@ -20,9 +20,10 @@
 package com.oracle.infy.wookiee.component.metrics
 
 import akka.actor.{Actor, Props}
+import com.codahale.metrics.graphite.GraphiteReporter.Builder
 import com.codahale.metrics.graphite.{Graphite, GraphiteReporter}
 import com.codahale.metrics.jmx.JmxReporter
-import com.codahale.metrics.{MetricFilter, ScheduledReporter}
+import com.codahale.metrics.{MetricAttribute, MetricFilter, ScheduledReporter}
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.component.metrics.messages._
 import com.oracle.infy.wookiee.component.metrics.monitoring.MonitoringSettings
@@ -32,6 +33,7 @@ import org.json4s.jackson.JsonMethods._
 
 import java.net.{InetAddress, InetSocketAddress}
 import java.util.concurrent.TimeUnit
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 /**
@@ -84,17 +86,24 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
     MetricsEventBus.subscribe(self)
 
     if (settings.GraphiteEnabled) {
-      graphiteReporter = Some(
-        GraphiteReporter
-          .forRegistry(MetricBuilder())
-          .prefixedWith(
-            "%s.%s.%s".format(
-              settings.MetricPrefix,
-              InetAddress.getLocalHost.getHostName.replace('.', '_'),
-              settings.ApplicationName.replace(' ', '_').toLowerCase
-            )
+      val graphiteBuilder: Builder = GraphiteReporter
+        .forRegistry(MetricBuilder())
+        .prefixedWith(
+          "%s.%s.%s".format(
+            settings.MetricPrefix,
+            InetAddress.getLocalHost.getHostName.replace('.', '_'),
+            settings.ApplicationName.replace(' ', '_').toLowerCase
           )
-          .build(new Graphite(new InetSocketAddress(settings.GraphiteHost, settings.GraphitePort)))
+        )
+
+      settings.GraphiteDisabledMetricAttributes match {
+        case Some(attributes) =>
+          graphiteBuilder.disabledMetricAttributes(attributes.map(MetricAttribute.valueOf).asJava)
+        case None =>
+      }
+
+      graphiteReporter = Some(
+        graphiteBuilder.build(new Graphite(new InetSocketAddress(settings.GraphiteHost, settings.GraphitePort)))
       )
 
       jvmGraphiteReporter = Some(

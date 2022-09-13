@@ -2,21 +2,23 @@
 
 Entry name for config is "wookiee-metrics". This would be the string you would use in lib-components if using that mechanism to load components.
 
-| Name | Default                                                  | Description |
-|:-----|:---------------------------------------------------------|:------------|
-| manager | com.oracle.infy.wookiee.component.metrics.MetricsManager | This should never be overridden or changed, and changing this would most likely cause it to not start up. |
-| enabled | true                                                     | whether this component is enabled or not. |
-| dynamic-component | true                                                     | enables loading up the component dynamically |
-| application-name | Oracle Wookiee                                           | application name used for persisting metrics |
-| metric-prefix | workstations                                             | prefix to append metrics being sent to graphite |
-| jmx.enabled | true                                                     | |
-| jmx.port | 9999                                                     | |
-| graphite.enabled | false                                                    | |
-| graphite.host | ""                                                       | |
-| graphite.port | 2003                                                     | |
-| graphite.interval | 5                                                        | |
-| graphite.vmmetrics | true                                                     | |
-| graphite.regex | ""                                                       | |
+| Name                                | Default                                                  | Description                                                                                               |
+|:------------------------------------|:---------------------------------------------------------|:----------------------------------------------------------------------------------------------------------|
+| manager                             | com.oracle.infy.wookiee.component.metrics.MetricsManager | This should never be overridden or changed, and changing this would most likely cause it to not start up. |
+| enabled                             | true                                                     | whether this component is enabled or not.                                                                 |
+| dynamic-component                   | true                                                     | enables loading up the component dynamically                                                              |
+| application-name                    | Oracle Wookiee                                           | application name used for persisting metrics                                                              |
+| metric-prefix                       | workstations                                             | prefix to append metrics being sent to graphite                                                           |
+| jmx.enabled                         | true                                                     |                                                                                                           |
+| jmx.port                            | 9999                                                     |                                                                                                           |
+| graphite.enabled                    | false                                                    |                                                                                                           |
+| graphite.host                       | ""                                                       |                                                                                                           |
+| graphite.port                       | 2003                                                     |                                                                                                           |
+| graphite.interval                   | 5                                                        |                                                                                                           |
+| graphite.vmmetrics                  | true                                                     |                                                                                                           |
+| graphite.regex                      | ""                                                       |                                                                                                           |
+| graphite.disabled-metric-attributes | []                                                       | Optional - Do not report the passed metric attributes for all metrics                                     |
+    
 
 ### Config supplied in JAR
 
@@ -55,6 +57,8 @@ wookiee-metrics {
     vmmetrics = true
     # This is a regular expression for which metrics should be sent on to graphite. All metrics are still exposed via JMX or the metrics endpoint
     regex = ""
+    # Do not report the passed metric attributes for all metrics (Optional)
+    disabled-metric-attributes = []
   }
 }
 ```
