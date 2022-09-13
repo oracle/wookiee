@@ -15,8 +15,10 @@
  */
 package com.oracle.infy.wookiee.service
 
+import com.oracle.infy.wookiee.app.HarnessActorSystem.loader
+
 import java.net.{URL, URLClassLoader}
-import scala.util.{Success, Try}
+import scala.util.{Failure, Success, Try}
 
 /**
   * There should be one isolated instance of this class for each Component library
@@ -49,6 +51,28 @@ case class HawkClassLoader(entityName: String, urls: Seq[URL]) extends URLClassL
         None
     }
   }
+
+  override def loadClass(name: String, resolve: Boolean): Class[_] = {
+    println(s"HawkClassLoader : Trying to load class ${name}")
+    // First, check if the class has already been loaded
+    Try(super.loadClass(name, resolve)) match {
+      case Success(v) => {
+        println(s"Class already loaded ${name}")
+        v
+      }
+      case Failure(_) => {
+        println(s"Trying to load class from parent ${name}")
+        loadClassFromParent(name, resolve)
+      }
+    }
+  }
+
+  private def loadClassFromParent(name: String, resolve: Boolean): Class[_] = {
+      this.synchronized {
+        // Get the loaded class
+        loader.loadClass(name, resolve)
+      }
+    }
 
   def getLoadedClass(name: String): Option[Class[_]] = Option(findLoadedClass(name))
 
