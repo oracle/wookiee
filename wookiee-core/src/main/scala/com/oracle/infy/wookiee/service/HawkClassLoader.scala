@@ -68,11 +68,11 @@ case class HawkClassLoader(entityName: String, urls: Seq[URL]) extends URLClassL
   }
 
   private def loadClassFromParent(name: String, resolve: Boolean): Class[_] = {
-      this.synchronized {
-        // Get the loaded class
-        loader.loadClass(name, resolve)
-      }
+    this.synchronized {
+      // Get the loaded class
+      loader.loadClass(name, resolve)
     }
+  }
 
   def getLoadedClass(name: String): Option[Class[_]] = Option(findLoadedClass(name))
 
