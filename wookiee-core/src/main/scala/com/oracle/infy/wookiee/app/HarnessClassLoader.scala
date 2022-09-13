@@ -46,9 +46,13 @@ protected[oracle] class HarnessClassLoader(parent: ClassLoader) extends URLClass
     * ClassLoader overrides
     */
   override def loadClass(name: String, resolve: Boolean): Class[_] = {
+    println(s"Trying to load class ${name}")
     // First, check if the class has already been loaded
     Try(super.loadClass(name, resolve)) match {
-      case Success(v) => v
+      case Success(v) => {
+        println(s"Class already loaded ${name}")
+        v
+      }
       case Failure(_) => {
         println(s"Trying to load class ${name}")
         loadClassFromChildren(name, resolve) getOrElse (throw new ClassNotFoundException(
