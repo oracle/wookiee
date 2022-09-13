@@ -49,10 +49,13 @@ protected[oracle] class HarnessClassLoader(parent: ClassLoader) extends URLClass
     // First, check if the class has already been loaded
     Try(super.loadClass(name, resolve)) match {
       case Success(v) => v
-      case Failure(_) =>
+      case Failure(_) => {
+        println(s"Trying to load class ${name}")
         loadClassFromChildren(name, resolve) getOrElse (throw new ClassNotFoundException(
-          "Could not locate the class " + name
+          "CLASSNOTFOUND :  Could not locate the class " + name
         ))
+      }
+
     }
   }
 
@@ -73,9 +76,11 @@ protected[oracle] class HarnessClassLoader(parent: ClassLoader) extends URLClass
 
   private def loadClassFromChildren(name: String, resolve: Boolean): Option[Class[_]] = {
     if (childLoaders.isEmpty) {
+      println("Child loaders are empty......")
       None
     } else {
       this.synchronized {
+        println(s"Dumping list of child loaders ${childLoaders.keys}")
         // Get the loaded class
         childLoaders.values.filterNot(_.getLoadedClass(name).isEmpty) match {
           case Nil =>

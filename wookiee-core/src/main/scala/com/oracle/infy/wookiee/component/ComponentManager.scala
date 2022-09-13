@@ -29,6 +29,9 @@ import com.oracle.infy.wookiee.logging.{Logger, LoggingAdapter}
 import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{ConfigUtil, FileUtil}
 
+import java.net.{URL, URLClassLoader}
+import java.util
+import java.util.Arrays
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -36,7 +39,6 @@ import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
-
 import java.util.concurrent.ConcurrentHashMap
 
 case class Request[T](name: String, msg: ComponentRequest[T])
@@ -113,6 +115,13 @@ object ComponentManager extends LoggingAdapter {
 
         log.info(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
         hawks.foreach(f => loader.addChildLoader(f, replace = replace))
+
+        log.info("DEBUG CLASSLOADERS in WOOKIEE....")
+        val urls: Array[URL] = loader.asInstanceOf[URLClassLoader].getURLs()
+        log.info("URLS from class loader " + urls.length)
+        log.info("Dumping URLS " + urls.toString)
+
+        log.info(s"Child class loaders ${loader.getChildLoaders}")
       case None => // ignore
     }
   }
