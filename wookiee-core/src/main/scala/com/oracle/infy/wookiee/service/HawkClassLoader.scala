@@ -24,9 +24,11 @@ import scala.util.{Success, Try}
   * @param entityName The name of this Component or Service, should be
   * @param urls Paths to all the JARs that should be in this Class Loader
   */
-case class HawkClassLoader(entityName: String, urls: Seq[URL]) extends URLClassLoader(urls.toArray) {
+case class HawkClassLoader(entityName: String, urls: Seq[URL], parent: ClassLoader) extends URLClassLoader(urls.toArray) {
+  override def loadClass(name: String, resolve: Boolean): Class[_] = {
+    Try(super.loadClass(name, resolve)).getOrElse(parent.loadClass(name))
+  }
 
-  // TODO invalidateCaches()
   /**
     * This method will perform the same functionality as ClassLoader.loadClass, except that it
     * will only locate and load the class in it's own class loader.
