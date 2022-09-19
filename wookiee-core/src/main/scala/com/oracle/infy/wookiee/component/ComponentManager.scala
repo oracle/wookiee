@@ -109,7 +109,7 @@ object ComponentManager extends LoggingAdapter {
     getComponentPath(sysConfig) match {
       case Some(dir) =>
         log.debug(s"Looking for Component JARs at ${dir.getAbsolutePath}")
-        val hawks = dir.listFiles.collect(getHawkClassLoader).flatten
+        val hawks = dir.listFiles.collect(getHawkClassLoader(loader)).flatten
 
         log.info(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
         hawks.foreach(f => loader.addChildLoader(f, replace = replace))
@@ -117,7 +117,7 @@ object ComponentManager extends LoggingAdapter {
     }
   }
 
-  protected[oracle] def getHawkClassLoader: PartialFunction[File, Option[HawkClassLoader]] = {
+  protected[oracle] def getHawkClassLoader(loader: HarnessClassLoader): PartialFunction[File, Option[HawkClassLoader]] = {
     case file if file.isDirectory =>
       val componentName = file.getName
       try {
@@ -130,7 +130,8 @@ object ComponentManager extends LoggingAdapter {
               .listFiles
               .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar"))
               .map(_.getCanonicalFile.toURI.toURL)
-              .toList
+              .toList,
+            loader
           )
         )
       } catch {
@@ -140,7 +141,7 @@ object ComponentManager extends LoggingAdapter {
       }
 
     case file if FileUtil.getExtension(file).equalsIgnoreCase("jar") =>
-      Some(HawkClassLoader(jarComponentName(file), Seq(file.getCanonicalFile.toURI.toURL)))
+      Some(HawkClassLoader(jarComponentName(file), Seq(file.getCanonicalFile.toURI.toURL), loader))
   }
 
   /**
@@ -307,7 +308,7 @@ class ComponentManager extends PrepareForShutdown {
       }
 
       stopFuture.map { result =>
-        getHawkClassLoader(file) match {
+        getHawkClassLoader(hClassLoader)(file) match {
           case Some(hcl) =>
             hClassLoader.addChildLoader(hcl)
             if (!result)
