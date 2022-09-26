@@ -9,8 +9,9 @@ object Deps {
     val curatorVersion = "5.2.1"
     val catsVersion = "2.7.0"
     val catsEffectVersion = "3.3.11"
-    val log4CatsVersion = "2.3.0"
-    val circeVersion = "0.14.1"
+    val log4CatsVersion = "2.4.0"
+    // Provides jawn-parser 1.3.2
+    val circeVersion = "0.14.2"
     val µTestVersion = "0.7.11"
     val scalacheckVersion = "1.16.0"
     val scalatestVersion = "3.2.12"
