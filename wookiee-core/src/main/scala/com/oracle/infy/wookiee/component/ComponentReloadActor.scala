@@ -76,6 +76,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
 
   override def postStop(): Unit = {
     super.postStop()
+    componentWatcher.close()
     log.info("Stopping Component Reload Actor")
   }
 
