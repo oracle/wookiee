@@ -1,4 +1,4 @@
-/*package com.oracle.infy.wookiee.test.extension
+package com.oracle.infy.wookiee.test.extension
 
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.pattern.ask
@@ -8,6 +8,7 @@ import com.oracle.infy.wookiee.component.{
   ComponentManager,
   ComponentRequest,
   ComponentResponse,
+  GetComponent,
   LoadComponent,
   ReloadComponent,
   Request
@@ -22,6 +23,7 @@ import java.io.File
 import java.net.URLClassLoader
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.util.Try
 
 // Note: This test only works if you set your working directory to wookiee or wookiee-test
 class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers {
@@ -174,21 +176,26 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
     // Disabled because this doesn't pass in repeat runs, if you'd like to use
     // it be sure to delete wookiee-test/src/test/resources/copy-extension.jar after each run
-    /*
     "Detect and load a new JAR" in {
       import java.nio.file.Files
       val cm = waitForSome({ testWookiee.componentManager })
       val cDir = compDir()
-
-      Files.copy(new File(s"$cDir/basic-extension.jar").toPath,
-        new File(s"$cDir/copy-extension.jar").toPath)
+      val copy = new File(s"$cDir/copy-extension.jar")
+      Files.copy(new File(s"$cDir/basic-extension.jar").toPath, copy.toPath)
+      copy.deleteOnExit() // This often does nothing
       Thread.sleep(2000L)
       val comp = Await.result((cm ? GetComponent("copy-extension")).mapTo[Option[ActorRef]], timeout.duration)
       comp.isDefined shouldBe true
       val output = Await.result((comp.get ? "log").mapTo[String], timeout.duration)
       output shouldBe "A"
     }
- */
+  }
+
+  override def beforeTestWookiee(): Unit = {
+    val cDir = compDir()
+    // Delete copy jar before tests, in case it's there
+    Try(new File(s"$cDir/copy-extension.jar").delete())
+    super.beforeTestWookiee()
   }
 
   override def startupWait: FiniteDuration = 40.seconds
@@ -206,7 +213,7 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
          |
          | copy-extension {
          |   enabled = true
-         |   manager = "com.oracle.infy.qa.BasicExtension"
+         |   manager = "com.oracle.infy.wookiee.qa.BasicExtension"
          | }
          |
          | other-extension {
@@ -248,4 +255,3 @@ class ClassLoaderSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     else "src/test/resources"
   }
 }
- */

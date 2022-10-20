@@ -525,24 +525,29 @@ class ComponentManager extends PrepareForShutdown {
       componentName: String,
       className: String,
       classLoader: Option[HarnessClassLoader] = None
-  ): Option[ActorRef] = {
-    val hClassLoader = getOrDefaultClassLoader(classLoader)
-    require(className.nonEmpty, "Manager for component not set.")
+  ): Option[ActorRef] =
+    try {
+      val hClassLoader = getOrDefaultClassLoader(classLoader)
+      require(className.nonEmpty, "Manager for component not set.")
 
-    val clazz = hClassLoader.loadClass(className)
-    var component = None: Option[ActorRef]
-    clazz match {
-      case c if classOf[Component].isAssignableFrom(c) =>
-        component = initComponentActor(componentName, clazz)
-      case _ =>
-        log.warning(
-          s"Could not load manager [${clazz.getName}] with superclass " +
-            s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
-            s"for [$componentName]. Not an instance of Component"
-        )
+      val clazz = hClassLoader.loadClass(className)
+      var component = None: Option[ActorRef]
+      clazz match {
+        case c if classOf[Component].isAssignableFrom(c) =>
+          component = initComponentActor(componentName, clazz)
+        case _ =>
+          log.warning(
+            s"Could not load manager [${clazz.getName}] with superclass " +
+              s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
+              s"for [$componentName]. Not an instance of Component"
+          )
+      }
+      component
+    } catch {
+      case ex: Throwable =>
+        log.error(s"Failed to load manager class [$className] for component [$componentName]", ex)
+        None
     }
-    component
-  }
 
   /**
     * Initializes the component actor
