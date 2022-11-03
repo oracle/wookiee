@@ -240,11 +240,21 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
   }
 
   override def postStop(): Unit = {
+    implicit val disp: ExecutionContext = context.dispatcher
     super.postStop()
 
-    log.info(s"WGM400: Stopping the CDR gRPC Manager and shutting down server..")
+    log.info(s"WGM400: Stopping the gRPC Manager and shutting down server..")
     GrpcManager.unregisterMediator(actorSystem)
-    server.get().foreach(_.shutdown().unsafeRunAndForget())
+    server
+      .get()
+      .foreach(
+        _.shutdown()
+          .unsafeToFuture()
+          .foreach(_ => {
+            log.info("WGM401: Stopping gRPC curator..")
+            getCurator.close()
+          })
+      )
   }
 
   // We will usually be in this state, until we get a GrpcServiceDefinition call which sends us into the dirty state
