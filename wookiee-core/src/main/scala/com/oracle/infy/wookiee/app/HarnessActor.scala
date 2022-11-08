@@ -283,6 +283,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
         val health=(a ? (CheckHealth)(Duration.apply(2,TimeUnit.SECONDS))).mapTo[HealthComponent]
+
         log.info("Checking the health Component "+health.value.get.get)
         health
       }
