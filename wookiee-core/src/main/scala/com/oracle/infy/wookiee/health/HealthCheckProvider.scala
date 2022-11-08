@@ -104,7 +104,7 @@ trait HealthCheckProvider {
     // Ask for the health of each component
     val future = (context.actorSelection(HarnessConstants.ActorPrefix) ? CheckHealth).mapTo[Seq[HealthComponent]]
     val p = Promise[ApplicationHealth]()
-
+    log.info("Checking the health check in Health Check Provider :: ")
     future.onComplete({
       case Success(checks) =>
         val overallHealth = HealthCheckProvider.rollupHealth(checks)
