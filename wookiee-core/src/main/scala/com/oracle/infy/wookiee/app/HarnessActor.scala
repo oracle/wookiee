@@ -19,18 +19,10 @@ import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import com.typesafe.config.Config
-import HarnessActor.PrepareForShutdown
+import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{
-  ComponentInfo,
-  ComponentManager,
-  ComponentReady,
-  ComponentReloadActor,
-  InitializeComponents
-}
+import com.oracle.infy.wookiee.component._
 import com.oracle.infy.wookiee.config.ConfigWatcher
-import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
 import com.oracle.infy.wookiee.http.InternalHTTP
 import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
@@ -38,11 +30,13 @@ import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ConfigUtil
-import scala.jdk.CollectionConverters._
+import com.oracle.infy.wookiee.{HarnessConstants, health}
+import com.typesafe.config.Config
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 object HarnessActor {
@@ -81,19 +75,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   import ConfigUtil._
   import HarnessActor._
   import context.dispatcher
-
-  private val config = context.system.settings.config
-  val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
-
-  implicit val checkTimeout: Timeout =
-    getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
-  val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20.seconds))
-
-  val prepareShutdownTimeout: Timeout =
-    getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5.seconds))
-
-  var running: Boolean = false
-
   override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute, loggingEnabled = true) {
       case _: ActorInitializationException => Stop
@@ -102,7 +83,16 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       case _: Exception                    => Restart
       case _: Throwable                    => Escalate
     }
+  val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
+  implicit val checkTimeout: Timeout =
+    getDefaultTimeout(config, HarnessConstants.KeyDefaultTimeout, Timeout(15.seconds))
+  val startupTimeout: Timeout = getDefaultTimeout(config, HarnessConstants.KeyStartupTimeout, Timeout(20.seconds))
+
+  val prepareShutdownTimeout: Timeout =
+    getDefaultTimeout(config, HarnessConstants.PrepareToShutdownTimeout, Timeout(5.seconds))
+  private val config = context.system.settings.config
+  var running: Boolean = false
   // The service manager will be created after we have started and all of the system's actors are able to receive messages
   var serviceActor: Option[ActorRef] = None
   var componentActor: Option[ActorRef] = None
@@ -114,6 +104,21 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   var configWatcherActor: Option[ActorRef] = None
 
   override def preStart(): Unit = initialize()
+
+  /**
+    * Start the core services
+    */
+  private def initialize(): Unit = {
+    startHealth
+    startConfigWatcher
+    if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
+      commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
+      log.info("Command Manager started: {}", commandManager.get.path)
+    }
+    componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
+    log.info("Component Manager started: {}", componentActor.get.path)
+    componentActor.get ! InitializeComponents
+  }
 
   override def receive: Receive = initializing
 
@@ -159,21 +164,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       componentActor.get ! ConfigChange()
     case ShutdownSystem =>
       shutdownCoreServices()
-  }
-
-  /**
-    * Start the core services
-    */
-  private def initialize(): Unit = {
-    startHealth
-    startConfigWatcher
-    if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
-      commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager.get.path)
-    }
-    componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component Manager started: {}", componentActor.get.path)
-    componentActor.get ! InitializeComponents
   }
 
   private def initializationComplete(): Unit = {
@@ -283,8 +273,8 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     } else {
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
-        val healthComponent=(a ? CheckHealth).mapTo[HealthComponent]
-        log.info("checking the health component :: "+healthComponent.value.get.get)
+        val healthComponent = (a ? CheckHealth).mapTo[HealthComponent]
+        log.info("checking the health component :: " + healthComponent.value.get.get)
         healthComponent
       }
 
