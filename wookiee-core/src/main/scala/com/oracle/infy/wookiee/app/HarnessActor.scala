@@ -39,8 +39,7 @@ import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ConfigUtil
 import scala.jdk.CollectionConverters._
-
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{ConcurrentHashMap, TimeUnit}
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
@@ -283,9 +282,11 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     } else {
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
-        (a ? CheckHealth).mapTo[HealthComponent]
+        val health=(a ? (CheckHealth)(Duration.apply(2,TimeUnit.SECONDS))).mapTo[HealthComponent]
+        log.info("Checking the health Component "+health.value.get.get)
+        health
       }
-
+      log.info("In Harness Actor for health check :: ")
       val p = Promise[Seq[HealthComponent]]()
       future.onComplete({
         case Failure(f) =>

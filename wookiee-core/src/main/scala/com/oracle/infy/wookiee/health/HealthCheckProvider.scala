@@ -28,7 +28,7 @@ import java.util.jar
 import java.util.jar.Attributes.Name
 import java.util.jar.{Attributes, JarFile}
 import scala.concurrent.duration._
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{Await, Future, Promise}
 import scala.util.{Failure, Success}
 
 object HealthCheckProvider {
@@ -104,7 +104,7 @@ trait HealthCheckProvider {
     // Ask for the health of each component
     val future = (context.actorSelection(HarnessConstants.ActorPrefix) ? CheckHealth).mapTo[Seq[HealthComponent]]
     val p = Promise[ApplicationHealth]()
-
+    log.info("Checking the health check in Health Check Provider :: ")
     future.onComplete({
       case Success(checks) =>
         val overallHealth = HealthCheckProvider.rollupHealth(checks)
