@@ -119,6 +119,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
 
   def initializing: Receive = {
     case CheckHealth =>
+      log.info("Into Initializing the actor ")
       pipe(getHealth(true)) to sender(); ()
     case ComponentInitializationComplete =>
       initializationComplete(); ()
@@ -132,6 +133,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
 
   def processing: Receive = {
     case CheckHealth =>
+      log.info("Into processing the actor message ")
       pipe(getHealth(false)) to sender(); ()
     case ForwardComponentInfo =>
       sendComponentInfoToService(readyComponents.values().asScala.toList)
@@ -284,11 +286,10 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
         log.info("Getting the actor ref ::" + a.path.name)
-        val healthComponent = (a ? CheckHealth).mapTo[HealthComponent]
+        val healthComponent = (a ? CheckHealth)(0.5.second).mapTo[HealthComponent]
         log.info("checking the health component :: " + healthComponent.value)
         healthComponent
       }
-
       val p = Promise[Seq[HealthComponent]]()
       future.onComplete({
         case Failure(f) =>
