@@ -75,6 +75,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   import ConfigUtil._
   import HarnessActor._
   import context.dispatcher
+
   override val supervisorStrategy: OneForOneStrategy =
     OneForOneStrategy(maxNrOfRetries = 3, withinTimeRange = 1.minute, loggingEnabled = true) {
       case _: ActorInitializationException => Stop
