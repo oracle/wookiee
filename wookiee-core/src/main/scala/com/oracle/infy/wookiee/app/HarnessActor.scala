@@ -22,13 +22,7 @@ import akka.util.Timeout
 import com.typesafe.config.Config
 import HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{
-  ComponentInfo,
-  ComponentManager,
-  ComponentReady,
-  ComponentReloadActor,
-  InitializeComponents
-}
+import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentManager, ComponentReady, ComponentReloadActor, InitializeComponents}
 import com.oracle.infy.wookiee.config.ConfigWatcher
 import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
@@ -38,11 +32,11 @@ import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ConfigUtil
-import scala.jdk.CollectionConverters._
 
+import scala.jdk.CollectionConverters._
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration._
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{Await, Future, Promise}
 import scala.util.{Failure, Success, Try}
 
 object HarnessActor {
@@ -286,7 +280,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
         log.info("Getting the actor ref ::" + a.path.name)
-        val healthComponent = (a ? CheckHealth)(3.second).mapTo[HealthComponent]
+        val healthComponent = (a ? CheckHealth)(75.second).mapTo[HealthComponent]
         log.info("checking the health component :: " + healthComponent.value)
         healthComponent
       }
