@@ -283,7 +283,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     } else {
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
-        val healthComponent = (a ? CheckHealth)(0.5.second).mapTo[HealthComponent].recover {
+        val healthComponent = (a ? CheckHealth).mapTo[HealthComponent].recover {
           case ex: AskTimeoutException =>
             HealthComponent(a.path.name, ComponentState.DEGRADED, s"Timeout Occurred")
         }
