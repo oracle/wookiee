@@ -275,7 +275,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     * @return A Future that contains a sequence of the children's HealthComponent
     */
   private def getHealth(initializing: Boolean): Future[Seq[HealthComponent]] = {
-    log.debug("We have received a message to check our health")
+
     if (initializing) {
       Future {
         Seq(health.HealthComponent("system", ComponentState.DEGRADED, s"The system is still initializing"))
@@ -283,23 +283,18 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     } else {
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
-        log.info("Getting the actor ref ::" + a.path.name)
-        val healthComponent = (a ? CheckHealth)(1.second).mapTo[HealthComponent].recover {
-          case ex =>
-            log.info("Thrown the error", ex.getCause)
+        val healthComponent = (a ? CheckHealth)(0.5.second).mapTo[HealthComponent].recover {
+          case ex:AskTimeoutException =>
             HealthComponent(a.path.name, ComponentState.DEGRADED, s"Timeout Occurred")
         }
-        log.info("checking the health component :: " + healthComponent.value)
         healthComponent
       }
 
       val p = Promise[Seq[HealthComponent]]()
       future.onComplete({
         case Failure(f) =>
-          log.info("Into failure of future :: ")
           p failure f
         case Success(answers) =>
-          log.info("Into success of future :: ")
           p success answers.toSeq
       })
 
