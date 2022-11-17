@@ -9,6 +9,7 @@ import com.sun.nio.file.SensitivityWatchEventModifier
 import java.io.File
 import java.nio.file.StandardWatchEventKinds._
 import java.nio.file._
+import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters._
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -28,7 +29,7 @@ object ComponentReloadActor {
   */
 class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with ComponentHelper {
   import context.dispatcher
-  val componentWatcher: WatchService = FileSystems.getDefault.newWatchService()
+  val componentWatcher: AtomicReference[WatchService] = new AtomicReference[WatchService]()
 
   override def preStart(): Unit = {
     try {
@@ -42,6 +43,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
           "Starting up Component Reload Actor for dynamic loading of " +
             s"Components in the directories: [${toWatch.mkString(",")}]"
         )
+        componentWatcher.set(FileSystems.getDefault.newWatchService())
 
         val watched = toWatch.flatMap { dir =>
           val path = Paths.get(new File(dir).getPath)
@@ -49,7 +51,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
             log.debug("Adding watcher to Component directory [{}]", path)
             Some(
               path.register(
-                componentWatcher,
+                componentWatcher.get(),
                 Array[WatchEvent.Kind[_]](ENTRY_CREATE),
                 SensitivityWatchEventModifier.MEDIUM
               )
@@ -76,7 +78,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
 
   override def postStop(): Unit = {
     super.postStop()
-    componentWatcher.close()
+    Option(componentWatcher.get()).foreach(_.close())
     log.info("Stopping Component Reload Actor")
   }
 
@@ -91,7 +93,8 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
   def changeChecker(): Future[Unit] = Future {
     try {
       // wait for key to be signaled
-      val key = componentWatcher.take()
+      // this will be instantiated in preStart so componentWatch.get() will never be null
+      val key = componentWatcher.get().take()
 
       val events = key.pollEvents().asScala.takeWhile(_.kind() != OVERFLOW).toList
       events.foreach { event =>
@@ -116,6 +119,9 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
     } catch {
       case _: InterruptedException =>
         log.warn("Got interrupt exception while watching for component changes, closing down watcher")
+        context.stop(self)
+      case _: ClosedWatchServiceException =>
+        log.info("Component Reload Actor's Watcher was Closed, Shutting Down Actor")
         context.stop(self)
       case ex: Throwable =>
         log.warn("Error in Component Reload Actor, will try again in 15 seconds", ex)

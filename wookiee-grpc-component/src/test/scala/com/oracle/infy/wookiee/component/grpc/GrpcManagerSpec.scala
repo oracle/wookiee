@@ -16,16 +16,22 @@ import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.typesafe.config.Config
 import org.apache.curator.test.TestingServer
+import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers {
+class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with BeforeAndAfterAll {
   lazy val zkPort: Int = TestHarness.getFreePort
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer = new TestingServer(zkPort)
   zkServer.start()
 
   override def config: Config = TestModels.conf(zkPort, grpcPort)
+
+  override protected def afterAll(): Unit = {
+    super.afterAll()
+    testWookiee.stop()
+  }
 
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
     Some(
