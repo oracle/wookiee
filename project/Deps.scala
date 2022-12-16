@@ -7,9 +7,9 @@ object Deps {
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val curatorVersion = "5.2.1"
-    val catsVersion = "2.7.0"
-    val catsEffectVersion = "3.3.11"
-    val log4CatsVersion = "2.4.0"
+    val catsVersion = "2.9.0"
+    val catsEffectVersion = "3.3.14"
+    val log4CatsVersion = "2.5.0"
     // Provides jawn-parser 1.3.2
     val circeVersion = "0.14.2"
     val µTestVersion = "0.7.11"
