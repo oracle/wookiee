@@ -61,7 +61,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
     ("org.scalameta" % "semanticdb-scalac" % semanticdbVersion.value)
       .cross(CrossVersion.full)
   },
-  ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
+  ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23",
   scalacOptions := scalaVersion.map {
     case `LatestScalaVersion` if warnUnused =>
       commonScalacOptions ++ Seq("-Ywarn-unused")
@@ -221,8 +221,8 @@ lazy val `wookiee-grpc-dev` = project
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
       Deps.build.scalaReflect(scalaVersion.value),
-      "org.scalameta" %% "scalameta" % "4.4.25",
-      "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
+      "org.scalameta" %% "scalameta" % "4.6.0",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.5.9"
     )
   )
 
