@@ -20,9 +20,9 @@ object Deps {
     val guavaVersion = "31.0.1-jre"
     val finagleVersion = "22.1.0"
     val upickleVersion = "1.5.0"
-    val grpcVersion: String = "1.46.1"
+    val grpcVersion: String = "1.49.2"
     val nettyVersion: String = "4.1.77.Final"
-    val nettyTCVersion: String = "2.0.52.Final"
+    val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.10"
 
     val slf4jVersion = "1.7.36"
@@ -32,7 +32,7 @@ object Deps {
     val scalaCollectionCompatVersion = "2.4.4"
     val zookeeperVersion = "3.8.0"
     val json4sVersion = "4.0.5"
-    val jacksonVersion = "2.13.3"
+    val jacksonVersion = "2.14.1"
     val http4sVersion = "0.23.11"
     val dropwizardVersion = "4.2.9"
     val akkaHttpVersion = "10.2.9"
@@ -139,7 +139,7 @@ object Deps {
     def scalaReflect(scalaVersion: String): ModuleID = "org.scala-lang" % "scala-reflect" % scalaVersion
 
     val scalaCollectionCompat
-        : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
+    : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
 
     val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
 
