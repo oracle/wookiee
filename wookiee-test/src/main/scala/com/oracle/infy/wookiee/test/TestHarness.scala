@@ -70,7 +70,7 @@ object TestHarness {
     harnessMap.get(system) match {
       case Some(h) =>
         h.stop()
-        harnessMap = harnessMap.removed(system)
+        harnessMap = harnessMap - system
       case None => // ignore
     }
   }
