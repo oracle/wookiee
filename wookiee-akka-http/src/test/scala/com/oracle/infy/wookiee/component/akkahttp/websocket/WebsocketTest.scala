@@ -351,7 +351,7 @@ class WebsocketTest extends WSWrapper {
         println(s"got perf input '${input.value}', sending [$events] events")
         1.to(maxEventsToTry).foreach { i =>
           inter.reply(Output(input.value + s"-output$i"))
-          Thread.sleep(50L) //scalafix:ok
+          Thread.sleep(50L)
           if (i == maxEventsToTry / 2)
             inter.stop()
         }
