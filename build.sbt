@@ -12,7 +12,7 @@ val buildVersion = Try {
 
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
-val LatestScalaVersion = "2.13.8"
+val LatestScalaVersion = "2.13.10"
 val Scala212 = "2.12.15"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
@@ -26,6 +26,8 @@ addCommandAlias(
 )
 
 val org = "com.oracle.infy"
+// dependency check options
+filterScalaLibrary := true // exclude scala library in output
 
 val commonScalacOptions =
   Seq(
@@ -54,8 +56,12 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   organization := org,
   Test / logBuffered := false,
   Compile / packageDoc / publishArtifact := false,
-  addCompilerPlugin(scalafixSemanticdb),
-  ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.21",
+  ThisBuild / semanticdbVersion := "4.7.0",
+  semanticdbCompilerPlugin := {
+    ("org.scalameta" % "semanticdb-scalac" % semanticdbVersion.value)
+      .cross(CrossVersion.full)
+  },
+  ThisBuild / scalafixDependencies += "com.github.vovapolu" %% "scaluzzi" % "0.1.23",
   scalacOptions := scalaVersion.map {
     case `LatestScalaVersion` if warnUnused =>
       commonScalacOptions ++ Seq("-Ywarn-unused")
@@ -218,8 +224,8 @@ lazy val `wookiee-grpc-dev` = project
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
       Deps.build.scalaReflect(scalaVersion.value),
-      "org.scalameta" %% "scalameta" % "4.4.25",
-      "org.scalameta" %% "scalafmt-dynamic" % "3.0.0-RC6"
+      "org.scalameta" %% "scalameta" % "4.6.0",
+      "org.scalameta" %% "scalafmt-dynamic" % "3.5.9"
     )
   )
 

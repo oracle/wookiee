@@ -12,3 +12,6 @@ addSbtPlugin("net.virtual-void" % "sbt-dependency-graph" % "0.10.0-RC1")
 addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.10"
 //scalaPB
+
+//dependency check tool
+addSbtPlugin("net.vonbuchholtz" % "sbt-dependency-check" % "4.2.0")
