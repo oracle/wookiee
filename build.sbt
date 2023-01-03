@@ -54,6 +54,8 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   crossScalaVersions := ScalaVersions,
   version := projectVersion,
   organization := org,
+  semanticdbEnabled := true,
+  semanticdbVersion := scalafixSemanticdb.revision,
   Test / logBuffered := false,
   Compile / packageDoc / publishArtifact := false,
   ThisBuild / semanticdbVersion := "4.7.0",
@@ -84,6 +86,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   compile := ((Compile / compile) dependsOn (Test / compile)).value,
   ciBuild := {
     ((Compile / Keys.`packageSrc`) dependsOn (Test / test)).value
+    (Compile / Keys.`package`).value
     makePom.value
   },
   ciBuildNoTest := {
@@ -155,7 +158,9 @@ lazy val `wookiee-grpc-component` = project
   .settings(
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.wookieeGrpc ++ Seq(
-      Deps.test.akkaTest, Deps.test.curatorTest, Deps.test.scalatest
+      Deps.test.akkaTest,
+      Deps.test.curatorTest,
+      Deps.test.scalatest
     ),
     addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
   )

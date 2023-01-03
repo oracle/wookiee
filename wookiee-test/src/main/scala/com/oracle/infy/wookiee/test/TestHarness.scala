@@ -68,8 +68,10 @@ object TestHarness {
 
   def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
     harnessMap.get(system) match {
-      case Some(h) => h.stop()
-      case None    => // ignore
+      case Some(h) =>
+        h.stop()
+        harnessMap = harnessMap - system
+      case None => // ignore
     }
   }
 }

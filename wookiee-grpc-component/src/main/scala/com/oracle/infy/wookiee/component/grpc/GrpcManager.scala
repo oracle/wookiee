@@ -247,14 +247,12 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
     GrpcManager.unregisterMediator(actorSystem)
     server
       .get()
-      .foreach(
-        _.shutdown()
-          .unsafeToFuture()
-          .foreach(_ => {
-            log.info("WGM401: Stopping gRPC curator..")
-            getCurator.close()
-          })
-      )
+      .map(_.shutdown().unsafeToFuture())
+      .getOrElse(Future.successful({}))
+      .foreach { _ =>
+        log.info("WGM401: Stopping gRPC curator..")
+        getCurator.close()
+      }
   }
 
   // We will usually be in this state, until we get a GrpcServiceDefinition call which sends us into the dirty state

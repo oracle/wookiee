@@ -126,7 +126,8 @@ class AkkaHttpWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: Class
 
   // Actor that exists per each open websocket and closes when the WS closes, also routes back return messages
   class SocketActor() extends Actor {
-    private[websocket] var lastInput: Option[I] = None //scalafix:ok
+    private[websocket] var lastInput: Option[I] = None
+
     val blockingQueue: ArrayBlockingQueue[TextMessage] =
       new ArrayBlockingQueue[TextMessage](100000)
 
