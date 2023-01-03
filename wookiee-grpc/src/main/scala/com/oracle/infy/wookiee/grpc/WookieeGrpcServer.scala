@@ -3,12 +3,13 @@ package com.oracle.infy.wookiee.grpc
 import cats.effect.std.Queue
 import cats.effect.{FiberIO, IO, Ref, Temporal}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
-import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, _}
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
 import fs2._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
+import io.grpc.netty.shaded.io.netty.channel.EventLoopGroup
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioServerSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslContextBuilder, SslProvider}
 import io.grpc.{Server, ServerInterceptors}
@@ -26,7 +27,9 @@ final class WookieeGrpcServer(
     private val loadQueue: Queue[IO, Int],
     private val host: Host,
     private val discoveryPath: String,
-    private val quarantined: Ref[IO, Boolean]
+    private val quarantined: Ref[IO, Boolean],
+    private val bossEventLoop: EventLoopGroup,
+    private val workerEventLoop: EventLoopGroup
 )(
     implicit
     logger: Logger[IO]
@@ -38,6 +41,10 @@ final class WookieeGrpcServer(
       _ <- fiber.cancel
       _ <- logger.info("Shutting down gRPC server...")
       _ <- IO.blocking(server.shutdown())
+      _ <- IO(server.awaitTermination())
+      _ <- IO(bossEventLoop.shutdownGracefully())
+      _ <- IO(workerEventLoop.shutdownGracefully())
+      _ <- logger.info("Shutdown of gRPC server and event loops complete")
     } yield ()
 
   def assignLoad(load: Int): IO[Unit] =
@@ -67,7 +74,9 @@ object WookieeGrpcServer {
   ): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
-      server <- buildServer(serverSettings, host)
+      bossEventLoop = eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads)
+      workerEventLoop = eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads)
+      server <- buildServer(serverSettings, host, bossEventLoop, workerEventLoop)
       _ <- IO.blocking { server.start() }
       _ <- logger.info("gRPC server started...")
       _ <- logger.info("Registering gRPC server in zookeeper...")
@@ -91,10 +100,17 @@ object WookieeGrpcServer {
       queue,
       host,
       serverSettings.discoveryPath,
-      quarantined
+      quarantined,
+      bossEventLoop,
+      workerEventLoop
     )
 
-  private def buildServer(serverSettings: ServerSettings, host: Host)(implicit logger: Logger[IO]): IO[Server] =
+  private def buildServer(
+      serverSettings: ServerSettings,
+      host: Host,
+      bossEventLoop: EventLoopGroup,
+      workerEventLoop: EventLoopGroup
+  )(implicit logger: Logger[IO]): IO[Server] =
     for {
       _ <- logger.info("Building gRPC server...")
       builder0 = NettyServerBuilder
@@ -110,8 +126,8 @@ object WookieeGrpcServer {
 
       builder2 = IO {
         builder1
-          .bossEventLoopGroup(eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads))
-          .workerEventLoopGroup(eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads))
+          .bossEventLoopGroup(bossEventLoop)
+          .workerEventLoopGroup(workerEventLoop)
           .executor(scalaToJavaExecutor(serverSettings.applicationExecutionContext))
       }
 
