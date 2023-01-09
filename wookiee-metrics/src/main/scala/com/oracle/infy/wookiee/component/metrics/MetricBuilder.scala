@@ -27,6 +27,8 @@ import com.oracle.infy.wookiee.component.metrics.messages.{
   MeterObservation,
   TimerObservation
 }
+import com.oracle.infy.wookiee.component.metrics.metrictype.WookieeFileRatioGauge
+
 import scala.language.existentials
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters._
@@ -82,9 +84,10 @@ object MetricBuilder {
         m
       case None =>
         // Not registered so do so now
-        registry.register(o.metric.name, o.metric.biased match {
-          case true  => new Histogram(new ExponentiallyDecayingReservoir)
-          case false => new Histogram(new UniformReservoir)
+        registry.register(o.metric.name, if (o.metric.biased) {
+          new Histogram(new ExponentiallyDecayingReservoir)
+        } else {
+          new Histogram(new UniformReservoir)
         })
     }
   }
@@ -120,15 +123,17 @@ object MetricBuilder {
       if (timeIndex > 0) {
         val newName = s"${oldName.substring(0, timeIndex)}.gctime"
         jvmRegistry.remove(oldName)
-        jvmRegistry.register(s"${newName}", gauge)
+        jvmRegistry.register(newName, gauge)
       }
     }
 
-    val srv = ManagementFactory.getPlatformMBeanServer()
+    val srv = ManagementFactory.getPlatformMBeanServer
     val poolset = new BufferPoolMetricSet(srv)
     jvmRegistry.register("buffer-pool", poolset)
     val musage = new MemoryUsageGaugeSet()
     jvmRegistry.register("memory", musage)
+    val fd = WookieeFileRatioGauge()
+    jvmRegistry.register("used-file-handles", fd)
     val ts = new ThreadStatesGaugeSet()
     jvmRegistry.register("thread", ts)
   }

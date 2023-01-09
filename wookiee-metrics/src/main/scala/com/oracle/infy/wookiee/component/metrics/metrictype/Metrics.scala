@@ -18,6 +18,7 @@
  */
 package com.oracle.infy.wookiee.component.metrics.metrictype
 
+import com.codahale.metrics.jvm.FileDescriptorRatioGauge
 import com.oracle.infy.wookiee.component.metrics.MetricsAdapter
 import com.oracle.infy.wookiee.component.metrics.messages.{
   CounterObservation,
@@ -97,6 +98,10 @@ case class Timer(name: String) extends Metric with MetricsAdapter {
     * @param unit the time unit, defaults to nanoseconds
     */
   def record(time: Long, unit: TimeUnit = TimeUnit.NANOSECONDS): Unit = record(TimerObservation(this, time, unit))
+}
+
+case class WookieeFileRatioGauge() extends FileDescriptorRatioGauge() {
+  override def toString: String = getRatio.toString
 }
 
 object Metric {
