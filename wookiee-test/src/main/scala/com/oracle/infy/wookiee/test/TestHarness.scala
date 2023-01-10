@@ -27,11 +27,13 @@ import com.oracle.infy.wookiee.component.{Component, LoadComponent}
 import com.oracle.infy.wookiee.logging.Logger
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.LoadService
+import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
 
+import java.lang.management.ManagementFactory
 import java.net.ServerSocket
-import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 object TestHarness {
   var harnessMap: Map[ActorSystem, TestHarness] = Map.empty
@@ -55,6 +57,7 @@ object TestHarness {
     harness
   }
 
+  // Returns an unused port on the current system, useful for avoiding port conflicts
   def getFreePort: Int = {
     val socket = new ServerSocket(0)
     try {
@@ -63,9 +66,21 @@ object TestHarness {
     } finally if (Option(socket).nonEmpty) socket.close()
   }
 
+  // Can use this (on linux systems only) to log how many file descriptors are currently held
+  // by the jvm, useful for tracking down file/connection leaks
+  def logFileHandleCount(prefix: String): Unit = {
+    val os = ManagementFactory.getOperatingSystemMXBean
+    os match {
+      case bean: UnixOperatingSystemMXBean =>
+        log.info(prefix + " open files = " + bean.getOpenFileDescriptorCount)
+      case _ =>
+    }
+  }
+
   def log: Logger = Harness.getLogger
   def rootActor()(implicit system: ActorSystem): Option[ActorRef] = Harness.getRootActor()
 
+  // Use this to shutdown TestHarness
   def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
     harnessMap.get(system) match {
       case Some(h) =>
