@@ -48,7 +48,7 @@ class MetricsWriter extends JsonDSL with DoubleMode {
         .replace("com.codahale.metrics.", "")
         .replace("com.oracle.infy.wookiee.component.metrics.metrictype.", "")
         .split("\\$")(0) match {
-        case "WookieeFileRatioGauge"     => "used-file-handles"
+        case "WookieeFileRatioGauge"     => "file-handles"
         case "JmxAttributeGauge"         => "buffers"
         case "GarbageCollectorMetricSet" => "garbage-collection"
         case "MemoryUsageGaugeSet"       => "memory"
@@ -137,8 +137,8 @@ class MetricsWriter extends JsonDSL with DoubleMode {
   }
 
   def processFileRatioGauge(metric: FileDescriptorRatioGauge): JObject = {
-    ("ratio" -> matchAny(metric.getValue)) ~
-      ("current:total" -> matchAny(metric.toString))
+    ("files.used.ratio" -> matchAny(metric.getValue)) ~
+      ("files.used.total.string" -> matchAny(metric.toString))
   }
 
   def processMeter(metric: com.codahale.metrics.Meter): JObject = {

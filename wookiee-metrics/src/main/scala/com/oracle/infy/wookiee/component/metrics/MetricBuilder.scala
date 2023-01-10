@@ -133,7 +133,7 @@ object MetricBuilder {
     val musage = new MemoryUsageGaugeSet()
     jvmRegistry.register("memory", musage)
     val fd = WookieeFileRatioGauge()
-    jvmRegistry.register("used-file-handles", fd)
+    jvmRegistry.register("files", fd)
     val ts = new ThreadStatesGaugeSet()
     jvmRegistry.register("thread", ts)
   }
