@@ -19,12 +19,12 @@ package com.oracle.infy.wookiee.test
 import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import akka.util.Timeout
+import com.oracle.infy.wookiee.app.HarnessActorSystem
 import com.oracle.infy.wookiee.command._
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.service.messages.Ready
 import com.oracle.infy.wookiee.test.TestSystemActor.RegisterShutdownListener
 import com.oracle.infy.wookiee.test.command.{WeatherCommand, WeatherData}
-import com.typesafe.config.ConfigFactory
 import org.scalatest.Inspectors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -37,14 +37,14 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
   implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
 
   val sys: TestHarness = TestHarness(
-    ConfigFactory.empty(),
+    HarnessActorSystem.renewConfigsAndClasses(None),
     Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent]))
   )
 
   // Ensure we can start up a second one without breaking
   val sys2: TestHarness = TestHarness(
-    ConfigFactory.empty(),
+    HarnessActorSystem.renewConfigsAndClasses(None),
     Some(Map("testservice" -> classOf[TestService])),
     Some(Map("testcomponent" -> classOf[TestComponent]))
   )

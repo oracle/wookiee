@@ -48,10 +48,12 @@ object WookieeMetricsService {
         val bufferPoolMetricSet = new BufferPoolMetricSet(ManagementFactory.getPlatformMBeanServer)
         val memoryUsage = new MemoryUsageGaugeSet()
         val threadStates = new ThreadStatesGaugeSet()
+        val fd = new FileDescriptorRatioGauge()
 
         jvmRegistry.register("gc", gc)
         jvmRegistry.register("buffer-pool", bufferPoolMetricSet)
         jvmRegistry.register("memory", memoryUsage)
+        jvmRegistry.register("files.used.ratio", fd)
         jvmRegistry.register("thread", threadStates)
 
         //Rename gc.time metrics to avoid issues with InfluxDB using time as a reserved word

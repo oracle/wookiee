@@ -19,12 +19,14 @@
 package com.oracle.infy.wookiee.component.metrics
 
 import com.codahale.metrics._
+import com.codahale.metrics.jvm.FileDescriptorRatioGauge
+import com.oracle.infy.wookiee.component.metrics.metrictype.WookieeFileRatioGauge
 import org.json4s.JsonAST.{JObject, JValue}
 import org.json4s.ext.JodaTimeSerializers
-import org.json4s.{DefaultFormats, DoubleMode, Formats, JsonAST, JsonDSL}
+import org.json4s.{DefaultFormats, DoubleMode, Formats, JField, JsonAST, JsonDSL}
 
-import scala.jdk.CollectionConverters._
 import scala.collection._
+import scala.jdk.CollectionConverters._
 
 class MetricsWriter extends JsonDSL with DoubleMode {
 
@@ -44,7 +46,9 @@ class MetricsWriter extends JsonDSL with DoubleMode {
         .getName
         .replace("com.codahale.metrics.jvm.", "")
         .replace("com.codahale.metrics.", "")
+        .replace("com.oracle.infy.wookiee.component.metrics.metrictype.", "")
         .split("\\$")(0) match {
+        case "WookieeFileRatioGauge"     => "file-handles"
         case "JmxAttributeGauge"         => "buffers"
         case "GarbageCollectorMetricSet" => "garbage-collection"
         case "MemoryUsageGaugeSet"       => "memory"
@@ -56,8 +60,10 @@ class MetricsWriter extends JsonDSL with DoubleMode {
         case (w: String, mp: SortedMap[String, Metric]) =>
           w ->
             mp.map {
+                case (_: String, m: WookieeFileRatioGauge) =>
+                  processFileRatioGauge(m)
                 case (s: String, m: Metric) =>
-                  s -> processMetric(m)
+                  JObject(JField(s, processMetric(m)))
               }
               .foldLeft(JObject(Nil))(_ ~ _)
       }
@@ -130,6 +136,11 @@ class MetricsWriter extends JsonDSL with DoubleMode {
     evaluateGauge(metric)
   }
 
+  def processFileRatioGauge(metric: FileDescriptorRatioGauge): JObject = {
+    ("files.used.ratio" -> matchAny(metric.getValue)) ~
+      ("files.used.total.string" -> matchAny(metric.toString))
+  }
+
   def processMeter(metric: com.codahale.metrics.Meter): JObject = {
     ("event_type" -> metric.getCount) ~
       writeMeteredFields(metric)
@@ -171,16 +182,17 @@ class MetricsWriter extends JsonDSL with DoubleMode {
   private def matchAny(num: Any): JValue = {
     try {
       (num: Any) match {
-        case z: Boolean => boolean2jvalue(z)
-        case b: Byte    => int2jvalue(b.toInt)
-        case c: Char    => int2jvalue(c.toInt)
-        case s: Short   => int2jvalue(s.toInt)
-        case i: Int     => int2jvalue(i)
-        case j: Long    => long2jvalue(j)
-        case f: Float   => float2jvalue(f)
-        case d: Double  => bigdecimal2jvalue(d)
-        case st: String => string2jvalue(st)
-        case _: AnyRef  => JsonAST.JNull
+        case z: Boolean           => boolean2jvalue(z)
+        case b: Byte              => int2jvalue(b.toInt)
+        case c: Char              => int2jvalue(c.toInt)
+        case s: Short             => int2jvalue(s.toInt)
+        case i: Int               => int2jvalue(i)
+        case j: Long              => long2jvalue(j)
+        case f: Float             => float2jvalue(f)
+        case d: Double if d.isNaN => bigdecimal2jvalue(0.0)
+        case d: Double            => bigdecimal2jvalue(d)
+        case st: String           => string2jvalue(st)
+        case _: AnyRef            => JsonAST.JNull
       }
     } catch {
       case e: Throwable =>
