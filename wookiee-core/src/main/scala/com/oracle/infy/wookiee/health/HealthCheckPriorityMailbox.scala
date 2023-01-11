@@ -15,8 +15,8 @@ class HealthCheckPriorityMailbox(settings: ActorSystem.Settings, config: Config)
       // Lower value means more important
       PriorityGenerator {
         // Stop message
-        case CheckHealth => 1
+        case CheckHealth => 10
         // Other messages
-        case _ => 2
+        case _ => 20
       }
     )

@@ -32,6 +32,7 @@ class HealthCheckPrioritySpec extends AnyWordSpecLike with Matchers with BeforeA
     case CheckHealth =>
       if (incr.get < iterations) bool.set(true)
     case NormalMessage =>
+      Thread.sleep(1L)
       incr.incrementAndGet()
       ()
   }
