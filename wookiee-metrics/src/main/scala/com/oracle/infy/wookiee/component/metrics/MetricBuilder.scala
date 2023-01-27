@@ -20,20 +20,15 @@ package com.oracle.infy.wookiee.component.metrics
 
 import com.codahale.metrics._
 import com.codahale.metrics.jvm._
-import com.oracle.infy.wookiee.component.metrics.messages.{
-  CounterObservation,
-  GaugeObservation,
-  HistogramObservation,
-  MeterObservation,
-  TimerObservation
-}
+import com.oracle.infy.wookiee.component.metrics.messages._
 import com.oracle.infy.wookiee.component.metrics.metrictype.WookieeFileRatioGauge
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 
-import scala.language.existentials
 import java.lang.management.ManagementFactory
 import scala.jdk.CollectionConverters._
+import scala.language.existentials
 
-object MetricBuilder {
+object MetricBuilder extends LoggingAdapter {
 
   val registry = new MetricRegistry()
   val jvmRegistry = new MetricRegistry()
@@ -51,20 +46,15 @@ object MetricBuilder {
   def apply(o: GaugeObservation): UpdatableGauge[Float] = {
     // See if this is already registered
     registry
-      .getGauges(new MetricFilter {
-        def matches(regName: String, metric: Metric): Boolean =
-          regName.equals(o.metric.name)
-      })
+      .getGauges((regName: String, _: Metric) => regName.equals(o.metric.name))
       .values
       .asScala
-      .headOption match {
-
-      case Some(m) =>
-        m.asInstanceOf[UpdatableGauge[Float]]
-      case None =>
+      .headOption
+      .map(_.asInstanceOf[UpdatableGauge[Float]])
+      .getOrElse {
         // Not registered so do so now
         registry.register(o.metric.name, new UpdatableGauge[Float]())
-    }
+      }
   }
 
   /**
@@ -72,24 +62,18 @@ object MetricBuilder {
     */
   def apply(o: HistogramObservation): Histogram = {
     registry
-      .getHistograms(new MetricFilter {
-        def matches(regName: String, metric: Metric): Boolean =
-          regName.equals(o.metric.name)
-      })
+      .getHistograms((regName: String, _: Metric) => regName.equals(o.metric.name))
       .values
       .asScala
-      .headOption match {
-
-      case Some(m: Histogram) =>
-        m
-      case None =>
+      .headOption
+      .getOrElse {
         // Not registered so do so now
         registry.register(o.metric.name, if (o.metric.biased) {
           new Histogram(new ExponentiallyDecayingReservoir)
         } else {
           new Histogram(new UniformReservoir)
         })
-    }
+      }
   }
 
   /**
@@ -110,10 +94,10 @@ object MetricBuilder {
   def remove(metric: com.oracle.infy.wookiee.component.metrics.metrictype.Metric): Boolean =
     registry.remove(metric.name)
 
-  def registerJvmMetrics: ThreadStatesGaugeSet = {
+  def registerJvmMetrics(): Unit = {
 
     val gcset = new GarbageCollectorMetricSet()
-    jvmRegistry.register("gc", gcset)
+    addMetricToJvmRegistry("gc", gcset)
 
     //Rename gc.time metrics to avoid issues with InfluxDB using time as a reserved word
     val gaugeIter = jvmRegistry.getGauges.asScala.iterator
@@ -123,19 +107,34 @@ object MetricBuilder {
       if (timeIndex > 0) {
         val newName = s"${oldName.substring(0, timeIndex)}.gctime"
         jvmRegistry.remove(oldName)
-        jvmRegistry.register(newName, gauge)
+        addMetricToJvmRegistry(newName, gauge)
       }
     }
 
     val srv = ManagementFactory.getPlatformMBeanServer
     val poolset = new BufferPoolMetricSet(srv)
-    jvmRegistry.register("buffer-pool", poolset)
+    // These could fail if Harness was shutdown uncleanly and restarted on the same jvm
+    addMetricToJvmRegistry("buffer-pool", poolset)
     val musage = new MemoryUsageGaugeSet()
-    jvmRegistry.register("memory", musage)
+    addMetricToJvmRegistry("memory", musage)
     val fd = WookieeFileRatioGauge()
-    jvmRegistry.register("files.used.ratio", fd)
+    addMetricToJvmRegistry("files.used.ratio", fd)
     val ts = new ThreadStatesGaugeSet()
-    jvmRegistry.register("thread", ts)
+    addMetricToJvmRegistry("thread", ts)
   }
+
+  private def addMetricToJvmRegistry(namespace: String, metric: Metric): Unit =
+    try {
+      jvmRegistry.register(namespace, metric)
+      ()
+    } catch {
+      case _: IllegalStateException =>
+        log.info(
+          s"JVM metric registration for [$namespace], already " +
+            s"registered likely due to Wookiee being uncleanly restarted. "
+        )
+      case ex: Exception =>
+        throw ex
+    }
 
 }

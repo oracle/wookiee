@@ -11,6 +11,7 @@ import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
 import com.oracle.infy.wookiee.grpc.settings.{
   ChannelSettings,
@@ -19,12 +20,13 @@ import com.oracle.infy.wookiee.grpc.settings.{
   ServiceAuthSettings
 }
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, WookieeGrpcUtils}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
+import org.apache.curator.retry.RetryForever
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
@@ -126,10 +128,29 @@ object GrpcManager extends LoggingAdapter {
       sslClientSettings: Option[SSLClientSettings],
       maxMessageSize: Int
   ): WookieeGrpcChannel = {
+
+    val zkEC: ExecutionContext = ThreadUtil.createEC(s"curator-blocking-${System.currentTimeMillis()}")
+    val curator = curatorFramework(
+      zkConnect,
+      zkEC,
+      new RetryForever(5000)
+    )
+    curator.start()
+    createChannel(zkPath, curator, bearerToken, sslClientSettings, maxMessageSize)
+  }
+
+  def createChannel(
+      zkPath: String,
+      curatorFramework: CuratorFramework,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int
+  ): WookieeGrpcChannel = {
     import cats.effect.unsafe.implicits.global
 
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
     val blockingEC: ExecutionContext = ThreadUtil.createEC(s"grpc-blocking-${System.currentTimeMillis()}")
+    val offloadEC: ExecutionContext = ThreadUtil.createEC(s"grpc-offload-${System.currentTimeMillis()}")
     implicit val dispatcher: Dispatcher[IO] = ThreadUtil.dispatcherIO()
 
     def channelSettings(curatorFramework: CuratorFramework) =
@@ -137,7 +158,7 @@ object GrpcManager extends LoggingAdapter {
         serviceDiscoveryPath = zkPath,
         eventLoopGroupExecutionContext = blockingEC,
         channelExecutionContext = ec,
-        offloadExecutionContext = blockingEC,
+        offloadExecutionContext = offloadEC,
         eventLoopGroupExecutionContextThreads = 4,
         lbPolicy = RoundRobinPolicy,
         curatorFramework = curatorFramework,
@@ -147,14 +168,7 @@ object GrpcManager extends LoggingAdapter {
 
     (for {
       implicit0(logger: Logger[IO]) <- Slf4jLogger.create[IO]
-      curator <- WookieeGrpcUtils
-        .createCurator(
-          zkConnect,
-          5.seconds,
-          blockingEC
-        )
-      _ <- IO(curator.start())
-      channel <- WookieeGrpcChannel.of(channelSettings(curator))
+      channel <- WookieeGrpcChannel.of(channelSettings(curatorFramework))
     } yield {
       channel
     }).unsafeRunSync()
