@@ -22,6 +22,7 @@ import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
 import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
+import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.typelevel.log4cats.Logger
 
@@ -31,12 +32,22 @@ import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext
 import scala.util.Random
 
-final class WookieeGrpcChannel(val managedChannel: ManagedChannel) {
+final class WookieeGrpcChannel(val managedChannel: ManagedChannel, curator: CuratorFramework) {
 
-  def shutdown(): IO[Unit] =
+  // Shutdown without the IO wrapping, better for Java
+  def shutdownNow(closeCurator: Boolean = false): Unit = {
+    managedChannel.shutdown()
+    if (closeCurator) {
+      managedChannel.awaitTermination(10, TimeUnit.SECONDS)
+      curator.close()
+    }
+    ()
+  }
+
+  // Will not shutdown the input curator unless specified
+  def shutdown(closeCurator: Boolean = false): IO[Unit] =
     IO.blocking({
-      managedChannel.shutdown()
-      ()
+      shutdownNow(closeCurator)
     })
 
 }
@@ -85,7 +96,7 @@ object WookieeGrpcChannel {
         settings.clientInterceptors,
         settings.maxMessageSize()
       )
-    } yield new WookieeGrpcChannel(channel)
+    } yield new WookieeGrpcChannel(channel, settings.curatorFramework)
 
   private def addLoadBalancer(lbPolicy: LBPolicy): IO[Unit] = IO {
     lbPolicy match {

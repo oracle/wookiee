@@ -7,15 +7,15 @@ import org.apache.curator.framework.{CuratorFramework, CuratorFrameworkFactory}
 import java.util.concurrent.Executor
 import scala.concurrent.ExecutionContext
 
-private[grpc] object GRPCUtils {
+private[wookiee] object GRPCUtils {
 
-  protected[grpc] def eventLoopGroup(dispatcherEC: ExecutionContext, dispatcherECThreads: Int): NioEventLoopGroup =
+  protected[wookiee] def eventLoopGroup(dispatcherEC: ExecutionContext, dispatcherECThreads: Int): NioEventLoopGroup =
     new NioEventLoopGroup(dispatcherECThreads, scalaToJavaExecutor(dispatcherEC))
 
-  protected[grpc] def scalaToJavaExecutor(executor: ExecutionContext): Executor =
+  protected[wookiee] def scalaToJavaExecutor(executor: ExecutionContext): Executor =
     (command: Runnable) => executor.execute(command)
 
-  protected[grpc] def curatorFramework(
+  protected[wookiee] def curatorFramework(
       zookeeperQuorum: String,
       zookeeperBlockingExecutionContext: ExecutionContext,
       retryPolicy: RetryPolicy

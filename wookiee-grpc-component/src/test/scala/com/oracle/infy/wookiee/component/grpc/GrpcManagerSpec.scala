@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.component.grpc
 
 import akka.testkit.TestProbe
+import cats.effect.unsafe.implicits.global
 import com.google.protobuf.StringValue
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResponse, GrpcDefinition}
@@ -12,9 +13,14 @@ import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{
   GrpcServiceThree,
   GrpcServiceTwo
 }
+import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
+import org.apache.curator.framework.imps.CuratorFrameworkState
+import org.apache.curator.retry.RetryForever
 import org.apache.curator.test.TestingServer
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
@@ -71,14 +77,16 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       GrpcManager.waitForManager(system, waitForClean = true)
 
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "")
-      val stub = new GrpcMockStub(channel.managedChannel)
-      val resultOne = stub.sayHello(StringValue.of("msg1"), classOf[GrpcServiceOne].getSimpleName)
-      val resultTwo = stub.sayHello(StringValue.of("msg2"), classOf[GrpcServiceTwo].getSimpleName)
-      val resultThree = stub.sayHello(StringValue.of("msg3"), classOf[GrpcServiceThree].getSimpleName)
+      try {
+        val stub = new GrpcMockStub(channel.managedChannel)
+        val resultOne = stub.sayHello(StringValue.of("msg1"), classOf[GrpcServiceOne].getSimpleName)
+        val resultTwo = stub.sayHello(StringValue.of("msg2"), classOf[GrpcServiceTwo].getSimpleName)
+        val resultThree = stub.sayHello(StringValue.of("msg3"), classOf[GrpcServiceThree].getSimpleName)
 
-      resultOne.getValue shouldEqual "msg1:GrpcServiceOne"
-      resultTwo.getValue shouldEqual "msg2:GrpcServiceTwo"
-      resultThree.getValue shouldEqual "msg3:GrpcServiceThree"
+        resultOne.getValue shouldEqual "msg1:GrpcServiceOne"
+        resultTwo.getValue shouldEqual "msg2:GrpcServiceTwo"
+        resultThree.getValue shouldEqual "msg3:GrpcServiceThree"
+      } finally channel.shutdown(true).unsafeRunSync()
     }
 
     "handle a message over the default 4MB with max-message-size configured" in {
@@ -97,10 +105,38 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val stringBig = new String(arrayBig)
 
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "", None, 10000000)
-      val stub = new GrpcMockStub(channel.managedChannel)
-      val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
+      try {
+        val stub = new GrpcMockStub(channel.managedChannel)
+        val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
 
-      resultBig.getValue shouldEqual s"$stringBig:GrpcServiceFour"
+        resultBig.getValue shouldEqual s"$stringBig:GrpcServiceFour"
+      } finally channel.shutdown(true).unsafeRunSync()
+    }
+
+    "allow closing of curators in channels" in {
+      GrpcManager.registerGrpcService(
+        system,
+        "closing-spec",
+        List(
+          new GrpcDefinition(new GrpcServiceOne().bindService())
+        )
+      )
+      GrpcManager.initializeGrpcNow(system)
+      GrpcManager.waitForManager(system, waitForClean = true)
+
+      val curator = GRPCUtils.curatorFramework(
+        s"localhost:$zkPort",
+        ThreadUtil.createEC(s"curator-blocking-${System.currentTimeMillis()}"),
+        new RetryForever(5000)
+      )
+      curator.start()
+      val channel = GrpcManager.createChannel("/grpc/local_dev", curator, "", None, DEFAULT_MAX_MESSAGE_SIZE)
+      val stub = new GrpcMockStub(channel.managedChannel)
+      val resultOne = stub.sayHello(StringValue.of("msg1"), classOf[GrpcServiceOne].getSimpleName)
+
+      resultOne.getValue shouldEqual "msg1:GrpcServiceOne"
+      channel.shutdown(true).unsafeRunSync()
+      curator.getState shouldEqual CuratorFrameworkState.STOPPED
     }
   }
 }

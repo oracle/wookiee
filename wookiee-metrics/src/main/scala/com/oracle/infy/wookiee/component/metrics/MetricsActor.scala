@@ -124,7 +124,7 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
     }
 
     // Start the JMX engine
-    MetricBuilder.registerJvmMetrics
+    MetricBuilder.registerJvmMetrics()
 
     if (settings.JmxEnabled) {
       jmxReporter = Some(JmxReporter.forRegistry(MetricBuilder()).build)
