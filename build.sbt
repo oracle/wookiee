@@ -42,6 +42,7 @@ val commonScalacOptions =
     "-Xfatal-warnings",
     "-deprecation",
     "-feature",
+    "-language:existentials",
     "-explaintypes",
     "-unchecked",
     "-language:higherKinds"
