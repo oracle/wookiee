@@ -166,7 +166,7 @@ object Deps {
       guava,
       scalaCollectionCompat,
       jacksonDatabind
-    ) ++ circe ++ cats
+    )
   }
 
   object test {
@@ -190,7 +190,7 @@ object Deps {
       slf4jLog4jImpl,
       scalacheck,
       scalatest,
-//      akkaTest,
+      akkaTest,
       junit,
       µTest,
 //      curatorTest,

@@ -141,10 +141,12 @@ object Harness {
   def addShutdownHook()(implicit system: ActorSystem): Unit = {
     Runtime
       .getRuntime
-      .addShutdownHook(new Thread(() => {
-        system.log.debug("The shutdown hook has been called")
-        shutdownActorSystem(block = true) {
-          externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
+      .addShutdownHook(new Thread(new Runnable {
+        def run(): Unit = {
+          system.log.debug("The shutdown hook has been called")
+          shutdownActorSystem(block = true) {
+            externalLogger.info("Wookiee Shut Down, Thanks for Coming!")
+          }
         }
       }))
   }

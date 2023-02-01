@@ -62,6 +62,7 @@ trait ComponentHelper extends CommandHelper {
           case Failure(_) => awaitComponentManager(timeOut)
         }
       } else p failure ComponentException("Component Manager", "Context set to null, must have shut down")
+      ()
     }
 
     componentManager match {

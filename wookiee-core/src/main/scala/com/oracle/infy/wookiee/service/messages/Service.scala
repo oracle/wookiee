@@ -18,6 +18,7 @@ package com.oracle.infy.wookiee.service.messages
 import akka.actor.ActorPath
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.meta.ServiceMetaData
+import scala.language.existentials
 
 sealed trait ServiceMessage
 

@@ -230,6 +230,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
         .toMap
 
       services ++= localServices
+      ()
     } finally {
       jarFile.close()
     }
