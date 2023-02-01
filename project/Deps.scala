@@ -157,7 +157,7 @@ object Deps {
       test.akkaTest
     ) ++ json4sLibs
 
-    val core: Seq[ModuleID] = curatorLibs ++ Seq(
+    val core: Seq[ModuleID] = Seq(
       akka,
       slf4jApi,
       logbackClassic,
@@ -190,10 +190,10 @@ object Deps {
       slf4jLog4jImpl,
       scalacheck,
       scalatest,
-      akkaTest,
+//      akkaTest,
       junit,
       µTest,
-      curatorTest,
+//      curatorTest,
       shapeless
     )
   }

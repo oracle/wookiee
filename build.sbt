@@ -111,23 +111,23 @@ lazy val `wookiee-test` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
-lazy val `basic-service` = project
-  .in(file("examples/basic-service"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.core ++ Deps.test.all
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+//lazy val `basic-service` = project
+//  .in(file("examples/basic-service"))
+//  .settings(commonSettings(false))
+//  .settings(
+//    libraryDependencies ++= Deps.build.core ++ Deps.test.all
+//  )
+//  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+//  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
-lazy val `basic-extension` = project
-  .in(file("examples/basic-extension"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.core ++ Deps.test.all
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`)
-  .aggregate(`wookiee-core`, `wookiee-test`)
+//lazy val `basic-extension` = project
+//  .in(file("examples/basic-extension"))
+//  .settings(commonSettings(false))
+//  .settings(
+//    libraryDependencies ++= Deps.build.core ++ Deps.test.all
+//  )
+//  .dependsOn(`wookiee-core`, `wookiee-test`)
+//  .aggregate(`wookiee-core`, `wookiee-test`)
 
 lazy val `metrics-example` = project
   .in(file("examples/metrics"))
@@ -144,14 +144,14 @@ lazy val `caching-example` = project
   .dependsOn(`wookiee-core`, `wookiee-cache-memcache`)
   .aggregate(`wookiee-core`, `wookiee-cache-memcache`)
 
-lazy val `wookiee-zookeeper` = project
-  .in(file("wookiee-zookeeper"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.wookieeZk
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`)
-  .aggregate(`wookiee-core`, `wookiee-test`)
+//lazy val `wookiee-zookeeper` = project
+//  .in(file("wookiee-zookeeper"))
+//  .settings(commonSettings(false))
+//  .settings(
+//    libraryDependencies ++= Deps.build.wookieeZk
+//  )
+//  .dependsOn(`wookiee-core`, `wookiee-test`)
+//  .aggregate(`wookiee-core`, `wookiee-test`)
 
 lazy val `wookiee-metrics` = project
   .in(file("wookiee-metrics"))
@@ -162,14 +162,14 @@ lazy val `wookiee-metrics` = project
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
 
-lazy val `wookiee-akka-http` = project
-  .in(file("wookiee-akka-http"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.wookieeAkkaHttp
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+//lazy val `wookiee-akka-http` = project
+//  .in(file("wookiee-akka-http"))
+//  .settings(commonSettings(false))
+//  .settings(
+//    libraryDependencies ++= Deps.build.wookieeAkkaHttp
+//  )
+//  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+//  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
 lazy val `wookiee-cache` = project
   .in(file("wookiee-cache"))
@@ -207,17 +207,17 @@ lazy val root = project
   .dependsOn(
     `wookiee-core`,
     `wookiee-test`,
-    `wookiee-zookeeper`,
+//    `wookiee-zookeeper`,
     `wookiee-metrics`,
-    `wookiee-akka-http`,
+//    `wookiee-akka-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`
   )
   .aggregate(
     `wookiee-core`,
-    `wookiee-akka-http`,
+//    `wookiee-akka-http`,
     `wookiee-test`,
-    `wookiee-zookeeper`,
+//    `wookiee-zookeeper`,
     `wookiee-metrics`,
     `wookiee-cache`,
     `wookiee-cache-memcache`
