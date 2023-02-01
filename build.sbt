@@ -12,7 +12,7 @@ val buildVersion = Try {
 
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
-val LatestScalaVersion = "2.13.10"
+val LatestScalaVersion = "2.11.12"
 val Scala212 = "2.12.15"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
@@ -144,93 +144,6 @@ lazy val `caching-example` = project
   .dependsOn(`wookiee-core`, `wookiee-cache-memcache`)
   .aggregate(`wookiee-core`, `wookiee-cache-memcache`)
 
-lazy val `wookiee-grpc` = project
-  .in(file("wookiee-grpc"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.wookieeGrpc
-  )
-
-lazy val `wookiee-grpc-component` = project
-  .in(file("wookiee-grpc-component"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.wookieeGrpc ++ Seq(
-      Deps.test.akkaTest,
-      Deps.test.curatorTest,
-      Deps.test.scalatest
-    ),
-    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.1")
-  )
-  .dependsOn(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
-  .aggregate(`wookiee-core`, `wookiee-grpc`, `wookiee-test`)
-
-lazy val `wookiee-grpc-tests` = project
-  .in(file("wookiee-grpc-tests"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    test := {
-      (Test / test).value
-      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpc.UnitTestConstable").value
-      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpc.IntegrationConstable").value
-      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpcdev.UnitTestConstable").value
-      (Test / runMain).toTask(" com.oracle.infy.wookiee.grpcdev.IntegrationConstable").value
-    },
-    libraryDependencies ++= Seq(
-      Deps.test.curatorTest,
-      Deps.test.log4CatsNoop,
-      Deps.test.scalacheck,
-      Deps.test.scalatest,
-      Deps.test.µTest
-    )
-  )
-  .dependsOn(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
-  .aggregate(`wookiee-grpc`, `wookiee-grpc-dev`, `wookiee-proto`, `wookiee-health`, `wookiee-functional-metrics`)
-
-lazy val `wookiee-functional-metrics` = project
-  .in(file("wookiee-functional-metrics"))
-  .settings(commonSettings(true))
-  .settings(
-    libraryDependencies ++= Deps.build.wookieeFuncMetrics
-  )
-  .dependsOn(`wookiee-grpc`)
-  .aggregate(`wookiee-grpc`)
-
-lazy val `wookiee-http` = project
-  .in(file("wookiee-http"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.http4s
-  )
-  .dependsOn(`wookiee-grpc`)
-  .dependsOn(`wookiee-grpc`)
-
-lazy val `wookiee-health` = project
-  .in(file("wookiee-health"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Deps.build.circe
-  )
-  .dependsOn(`wookiee-http`, `wookiee-grpc`)
-  .aggregate(`wookiee-http`, `wookiee-grpc`)
-
-lazy val `wookiee-grpc-dev` = project
-  .in(file("wookiee-grpc-dev"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    libraryDependencies ++= Seq(
-      Deps.build.scalaReflect(scalaVersion.value),
-      "org.scalameta" %% "scalameta" % "4.6.0",
-      "org.scalameta" %% "scalafmt-dynamic" % "3.5.9"
-    )
-  )
-
 lazy val `wookiee-zookeeper` = project
   .in(file("wookiee-zookeeper"))
   .settings(commonSettings(false))
@@ -293,37 +206,21 @@ lazy val root = project
   )
   .dependsOn(
     `wookiee-core`,
-    `wookiee-grpc-dev`,
-    `wookiee-grpc-tests`,
-    `wookiee-grpc`,
-    `wookiee-proto`,
-    `wookiee-http`,
-    `wookiee-health`,
     `wookiee-test`,
     `wookiee-zookeeper`,
-    `wookiee-grpc-component`,
     `wookiee-metrics`,
     `wookiee-akka-http`,
     `wookiee-cache`,
-    `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-cache-memcache`
   )
   .aggregate(
     `wookiee-core`,
-    `wookiee-grpc-dev`,
-    `wookiee-grpc`,
-    `wookiee-grpc-tests`,
-    `wookiee-proto`,
-    `wookiee-health`,
     `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,
-    `wookiee-grpc-component`,
     `wookiee-metrics`,
-    `wookiee-http`,
     `wookiee-cache`,
-    `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-cache-memcache`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
@@ -336,47 +233,3 @@ def readSection(file: String, section: String): String = {
   val s = s"$section\n"
   readF(file, _.dropWhile(a => !a.endsWith(s)).drop(1).takeWhile(a => !a.endsWith(s)).mkString)
 }
-
-val protoFile = "src/main/protobuf/myService.proto"
-val exampleFile = "wookiee-docs/src/main/scala/com/oracle/infy/wookiee/Example.scala"
-
-lazy val `wookiee-docs` = project
-  .in(file("wookiee-docs"))
-  .settings(commonSettings(true))
-  .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
-    // NOTE: DO NOT use $ in variable value, otherwise mdoc complains
-    mdocIn := file("wookiee-docs/docs"),
-    mdocOut := file("."),
-    mdocVariables := Map(
-      "VERSION" -> version.value.split("-").headOption.getOrElse("error-in-build-sbt"),
-      "PROTO_FILE" -> protoFile,
-      "PROTO_DEF" -> readF(s"wookiee-proto/" ++ protoFile, _.mkString),
-      "PLUGIN_DEF" -> readSection("project/plugins.sbt", "scalaPB"),
-      "PROJECT_DEF" -> readSection("build.sbt", "scalaPB"),
-      "CHANNEL_SETTINGS" -> readSection(exampleFile, "channelSettings"),
-      "GRPC_CALL" -> readSection(exampleFile, "grpcCall"),
-      "CREATE_SERVER" -> readSection(exampleFile, "Creating a Server"),
-      "IMPORTS" -> readSection(exampleFile, "wookiee-grpc imports"),
-      "EXAMPLE" -> readF(exampleFile, _.drop(2).mkString)
-    )
-  )
-  .settings(
-    libraryDependencies ++= Seq(
-      Deps.test.curatorTest,
-      Deps.test.slf4jLog4jImpl
-    )
-  )
-  .dependsOn(root, `wookiee-proto`)
-  .enablePlugins(MdocPlugin)
-
-lazy val `wookiee-proto` = project
-  .in(file("wookiee-proto"))
-  .settings(commonSettings(true))
-  .settings(
-    //scalaPB
-    Compile / PB.targets := Seq(
-      scalapb.gen() -> (Compile / sourceManaged).value / "scalapb"
-    ),
-    libraryDependencies ++= Deps.build.wookieeProto
-  )
