@@ -14,7 +14,8 @@ object UnitTestConstable extends ConstableCommon {
     implicit val ec: ExecutionContext = mainExecutionContext(4)
 
     exitNegativeOnFailure(
-      Dispatcher[IO]
+      Dispatcher
+        .parallel[IO]
         .use { d =>
           implicit val dispatcher: Dispatcher[IO] = d
           IO {
