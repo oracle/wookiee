@@ -49,7 +49,8 @@ object UnitTestConstable extends ConstableCommon {
     val grpcTests = GrpcListenerTest.tests(100, pushMessagesFuncAndListenerFactory)
 
     exitNegativeOnFailure(
-      Dispatcher[IO]
+      Dispatcher
+        .parallel[IO]
         .use { d =>
           implicit val dispatcher: Dispatcher[IO] = d
           IO {

@@ -22,7 +22,12 @@ import akka.pattern._
 import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
 import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
-import com.oracle.infy.wookiee.app.HarnessActor.{ComponentInitializationComplete, ConfigChange, SystemReady}
+import com.oracle.infy.wookiee.app.HarnessActor.{
+  ComponentInitializationComplete,
+  ConfigChange,
+  PrepareForShutdown,
+  SystemReady
+}
 import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
 import com.oracle.infy.wookiee.component.ComponentState.ComponentState
 import com.oracle.infy.wookiee.logging.{Logger, LoggingAdapter}
@@ -36,7 +41,6 @@ import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
-
 import java.util.concurrent.ConcurrentHashMap
 
 case class Request[T](name: String, msg: ComponentRequest[T])
@@ -261,11 +265,6 @@ class ComponentManager extends PrepareForShutdown {
 
   override def receive: Receive = initializing
 
-  override def postStop(): Unit = {
-    context.children.foreach(ref => ref ! StopComponent)
-    super.postStop()
-  }
-
   def initializing: Receive = super.receive orElse {
     case InitializeComponents               => initializeComponents()
     case ComponentStarted(name)             => componentStarted(name, sender())
@@ -296,7 +295,7 @@ class ComponentManager extends PrepareForShutdown {
       val stopFuture = (context.child(compName) match {
         case Some(ref) =>
           log.info(s"Component '$compName' already running, stopping current instance")
-          Try(ref ! StopComponent)
+          Try(ref ! PrepareForShutdown)
           gracefulStop(ref, componentTimeout.duration)
         case None =>
           log.debug(s"Component '$compName' not running, no need to stop")

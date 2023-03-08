@@ -17,7 +17,6 @@ package com.oracle.infy.wookiee.component.${component-name.toLowerCase()}
 
 import akka.actor._
 import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.component.StopComponent
 import com.oracle.infy.wookiee.health.HealthComponent
 
 import scala.concurrent.Future
@@ -28,9 +27,7 @@ object ${component-name}Actor {
 
 class ${component-name}Actor extends HActor {
 
-  override def receive = super.receive orElse {
-    case StopComponent => // do something to stop the component DELETE if not needed
-  }
+  override def receive = super.receive
 
   // This should probably be overriden to get some custom information about the health of this actor
   override protected def getHealth: Future[HealthComponent] = super.getHealth

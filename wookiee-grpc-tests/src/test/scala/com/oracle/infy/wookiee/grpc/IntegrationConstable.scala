@@ -89,7 +89,8 @@ object IntegrationConstable extends ConstableCommon {
         (pushMessagesFunc, cleanup, listener)
       }
 
-    val result = Dispatcher[IO]
+    val result = Dispatcher
+      .parallel[IO]
       .use { dispatcher =>
         implicit val disp: Dispatcher[IO] = dispatcher
 

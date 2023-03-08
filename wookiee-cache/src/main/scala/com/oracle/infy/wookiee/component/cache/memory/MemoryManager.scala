@@ -96,9 +96,9 @@ class MemoryManager(name: String) extends Cache(name) {
   /**
     * Any logic to stop the component
     */
-  override def stop(): Unit = {
-    super.stop()
+  override def prepareForShutdown(): Unit = {
     caches.clear()
+    super.prepareForShutdown()
   }
 
   override protected def get(namespace: String, key: String): Future[Option[Array[Byte]]] = {

@@ -22,12 +22,12 @@ import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.HActor
 import com.oracle.infy.wookiee.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 
+import scala.annotation.nowarn
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 sealed class ComponentMessages()
 case class StartComponent() extends ComponentMessages
-case class StopComponent() extends ComponentMessages
 
 case class ComponentRequest[T](msg: T, name: Option[String] = None, timeout: Timeout = 5.seconds)
     extends ComponentMessages
@@ -51,8 +51,6 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
   override def receive: Receive = health orElse {
     case StartComponent =>
       start()
-    case StopComponent =>
-      stop()
     case ConfigChange() => // User can receive to do something
     case ComponentReady(info: ComponentInfo) =>
       onComponentReady(info)
@@ -109,7 +107,9 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
 
   /**
     * Any logic to stop the component
+    * @deprecated Use prepareForShutdown() instead, shouldn't require additional changes
     */
+  @deprecated("Use prepareForShutdown() instead, shouldn't require additional changes", "2.3.26")
   def stop(): Unit = {}
 
   /**
@@ -131,8 +131,15 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
 
   /**
     * Any logic to run once we get the shutdown message but before we begin killing actors
+    * When overriding this method, be sure to call super.prepareForShutdown() at the end
+    * of the method
+    * Note that this calls the deprecated stop() method, and that will be removed at some point
     */
-  def prepareForShutdown(): Unit = {}
+  @nowarn def prepareForShutdown(): Unit = {
+    log.info(s"COMP400: [$name] prepared for shutdown")
+    // Will keep this in until everyone has moved to prepareForShutdown() instead of stop()
+    stop() // scalafix:ok
+  }
 }
 
 object Component {

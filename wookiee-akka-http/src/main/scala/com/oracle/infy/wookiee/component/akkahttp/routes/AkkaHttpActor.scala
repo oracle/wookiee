@@ -7,7 +7,7 @@ import akka.http.scaladsl.{ConnectionContext, Http, HttpsConnectionContext}
 import akka.stream.Materializer
 import akka.stream.scaladsl.{Sink, Source}
 import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.component.StopComponent
+import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.component.akkahttp.AkkaHttpManager
 import com.oracle.infy.wookiee.component.akkahttp.client.SimpleHttpClient
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
@@ -86,8 +86,8 @@ trait AkkaHttpActor extends HActor with SimpleHttpClient {
   def unbind(): Unit = boundFutures.foreach(f => f.flatMap(_.unbind()))
 
   override def receive: PartialFunction[Any, Unit] = super.receive orElse {
-    case AkkaHttpUnbind => unbind()
-    case StopComponent  => unbind()
+    case AkkaHttpUnbind     => unbind()
+    case PrepareForShutdown => unbind()
   }
 
   override def checkHealth: Future[HealthComponent] = {
