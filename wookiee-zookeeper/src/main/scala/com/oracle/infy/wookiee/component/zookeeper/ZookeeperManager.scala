@@ -30,9 +30,9 @@ class ZookeeperManager(name: String) extends Component(name) with Zookeeper {
     super.preStart()
   }
 
-  override def stop(): Unit = {
+  override def prepareForShutdown(): Unit = {
     stopZookeeper()
-    super.stop()
+    super.prepareForShutdown()
   }
 }
 

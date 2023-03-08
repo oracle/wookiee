@@ -72,9 +72,9 @@ class AkkaHttpManager(name: String) extends Component(name) {
     * Stop will execute any cleanup work to be done for the child actors
     * if not necessary this can be deleted
     */
-  override def stop(): Unit = {
+  override def prepareForShutdown(): Unit = {
     stopAkkaHttp()
-    super.stop()
+    super.prepareForShutdown()
   }
 
 }
