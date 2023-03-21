@@ -8,7 +8,7 @@ object Deps {
     val shapelessVersion = "1.3.0"
     val curatorVersion = "5.3.0"
     val catsVersion = "2.9.0"
-    val catsEffectVersion = "3.4.7"
+    val catsEffectVersion = "3.4.8"
     val log4CatsVersion = "2.5.0"
     // Provides jawn-parser 1.3.2
     val circeVersion = "0.14.4"
