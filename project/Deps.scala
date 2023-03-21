@@ -109,8 +109,12 @@ object Deps {
     )
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
-    val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
-    val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
+
+    val log4CatsCore: ModuleID =
+      "org.typelevel" %% "log4cats-core" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
+
+    val log4CatsSlf4J: ModuleID =
+      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
 
     val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
     val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion
