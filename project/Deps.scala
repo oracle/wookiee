@@ -98,12 +98,14 @@ object Deps {
     val scalaStm: ModuleID = "org.scala-stm" %% "scala-stm" % scalaStmVersion
     val catsCore: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
     val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsEffectVersion
+    val catsEffectStd: ModuleID = "org.typelevel" %% "cats-effect-std" % catsEffectVersion
     val catsKernel: ModuleID = "org.typelevel" %% "cats-kernel" % catsVersion
 
     val cats: Seq[ModuleID] = Seq(
       catsCore,
       catsEffect,
-      catsKernel
+      catsKernel,
+      catsEffectStd
     )
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion

@@ -128,7 +128,7 @@ object MetricBuilder extends LoggingAdapter {
       jvmRegistry.register(namespace, metric)
       ()
     } catch {
-      case _: IllegalStateException =>
+      case IllegalStateException | IllegalArgumentException =>
         log.info(
           s"JVM metric registration for [$namespace], already " +
             s"registered likely due to Wookiee being uncleanly restarted. "
