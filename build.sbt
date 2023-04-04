@@ -13,7 +13,7 @@ val buildVersion = Try {
 val projectVersion = Option(System.getenv("CI_RELEASE")).getOrElse(s"$buildVersion-SNAPSHOT")
 
 val LatestScalaVersion = "2.13.10"
-val Scala212 = "2.12.15"
+val Scala212 = "2.12.17"
 val ScalaVersions = Seq(LatestScalaVersion, Scala212)
 
 lazy val ciBuild = taskKey[Unit]("prepare final builds")
@@ -58,7 +58,7 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   semanticdbVersion := scalafixSemanticdb.revision,
   Test / logBuffered := false,
   Compile / packageDoc / publishArtifact := false,
-  ThisBuild / semanticdbVersion := "4.7.0",
+  ThisBuild / semanticdbVersion := Deps.versions.scalametaVersion,
   semanticdbCompilerPlugin := {
     ("org.scalameta" % "semanticdb-scalac" % semanticdbVersion.value)
       .cross(CrossVersion.full)
@@ -226,8 +226,8 @@ lazy val `wookiee-grpc-dev` = project
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
       Deps.build.scalaReflect(scalaVersion.value),
-      "org.scalameta" %% "scalameta" % "4.6.0",
-      "org.scalameta" %% "scalafmt-dynamic" % "3.5.9"
+      Deps.build.scalaMeta,
+      Deps.build.scalaFmtDyn
     )
   )
 

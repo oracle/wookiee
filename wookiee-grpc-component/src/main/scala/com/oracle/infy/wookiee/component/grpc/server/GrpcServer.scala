@@ -53,7 +53,7 @@ trait GrpcServer extends ExtensionHostServices {
       applicationExecutionContext = ThreadUtil.createEC(s"${getClass.getSimpleName}-grpc-application"),
       bossThreads = bossThreads,
       workerThreads = workerThreads,
-      curatorFramework = getCurator,
+      curatorFramework = renewCurator,
       serverServiceDefinition = services.head,
       services.toList.drop(1): _*
     ).withMaxMessageSize(maxMessageSize)
@@ -71,7 +71,7 @@ trait GrpcServer extends ExtensionHostServices {
       .getOrElse(serverSettings)
 
     log.info(
-      s"Starting gRPC Services: Host = [${hostName.getOrElse("localhost")}:" +
+      s"WGCS100: Starting gRPC Services: Host = [${hostName.getOrElse("localhost")}:" +
         s"$port], ZK Path = [$zkPath]"
     )
 

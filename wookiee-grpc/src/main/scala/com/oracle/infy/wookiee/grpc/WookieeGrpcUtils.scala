@@ -3,7 +3,7 @@ package com.oracle.infy.wookiee.grpc
 import cats.effect.IO
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
 import org.apache.curator.framework.CuratorFramework
-import org.apache.curator.retry.RetryForever
+import org.apache.curator.retry.RetryUntilElapsed
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.FiniteDuration
@@ -20,7 +20,7 @@ object WookieeGrpcUtils {
       curatorFramework(
         zkQuorumString,
         zookeeperBlockingExecutionContext,
-        new RetryForever(retryInterval.toMillis.toInt)
+        new RetryUntilElapsed(retryInterval.toMillis.toInt, retryInterval.toMillis.toInt / 3)
       )
     }
 }
