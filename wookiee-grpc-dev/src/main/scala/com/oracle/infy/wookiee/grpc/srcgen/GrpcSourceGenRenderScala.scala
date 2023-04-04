@@ -1,3 +1,4 @@
+// scalafix:off
 package com.oracle.infy.wookiee.grpc.srcgen
 
 import SourceGenModel._
@@ -14,6 +15,7 @@ import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen.{
 
 import scala.meta._
 
+// TODO: This class will need a major refactor to migrate past deprecated unapply patterns
 object GrpcSourceGenRenderScala {
 
   private def getClassName(tpe: Type, outerType: String): String =
