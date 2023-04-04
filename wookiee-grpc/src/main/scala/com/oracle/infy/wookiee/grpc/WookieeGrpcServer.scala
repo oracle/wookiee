@@ -89,7 +89,7 @@ object WookieeGrpcServer {
           logger.error(e)(s"WGS102: Failed to register in zookeeper").*> {
             IO.blocking {
               server.shutdown()
-              throw e
+              throw e // scalafix:ok
             }
           }
       })
