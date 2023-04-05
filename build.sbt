@@ -223,7 +223,6 @@ lazy val `wookiee-grpc-dev` = project
   .in(file("wookiee-grpc-dev"))
   .settings(commonSettings(true))
   .settings(
-    scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Seq(
       Deps.build.scalaReflect(scalaVersion.value),
       Deps.build.scalaMeta,
