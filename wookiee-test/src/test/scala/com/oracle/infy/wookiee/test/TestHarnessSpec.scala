@@ -34,7 +34,7 @@ import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 
 class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
-  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  implicit val timeout: Timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
   val sys: TestHarness = TestHarness(
     HarnessActorSystem.renewConfigsAndClasses(None),

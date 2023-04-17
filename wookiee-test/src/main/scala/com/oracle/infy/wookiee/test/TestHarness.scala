@@ -19,24 +19,33 @@ package com.oracle.infy.wookiee.test
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.{Level, LoggerContext}
 import com.oracle.infy.wookiee.HarnessConstants._
+import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.app.Harness
 import com.oracle.infy.wookiee.app.HarnessActor.{GetManagers, ReadyCheck}
-import com.oracle.infy.wookiee.component.{Component, LoadComponent}
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.component.{
+  Component,
+  ComponentInfo,
+  ComponentInfoAkka,
+  ComponentInfoV2,
+  ComponentV2,
+  LoadComponent
+}
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.LoadService
+import com.oracle.infy.wookiee.test.TestHarness.defaultConfig
 import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
+import org.slf4j.LoggerFactory
 
 import java.lang.management.ManagementFactory
 import java.net.ServerSocket
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
+import scala.util.Random
 
-object TestHarness {
-  var harnessMap: Map[ActorSystem, TestHarness] = Map.empty
+object TestHarness extends Mediator[TestHarness] {
 
   /**
     * Create a new instance of the test harness and start all of it's components.
@@ -51,9 +60,8 @@ object TestHarness {
       componentMap: Option[Map[String, Class[_ <: Component]]] = None,
       logLevel: Level = Level.INFO,
       timeToWait: FiniteDuration = 15.seconds
-  ): TestHarness = harnessMap.synchronized {
+  ): TestHarness = {
     val harness = new TestHarness(config, serviceMap, componentMap, logLevel, timeToWait)
-    harnessMap = harnessMap.updated(harness.system, harness)
     harness
   }
 
@@ -77,17 +85,47 @@ object TestHarness {
     }
   }
 
-  def log: Logger = Harness.getLogger
   def rootActor()(implicit system: ActorSystem): Option[ActorRef] = Harness.getRootActor()
 
   // Use this to shutdown TestHarness
-  def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
-    harnessMap.get(system) match {
+  def shutdown()(implicit system: ActorSystem): Unit =
+    maybeGetMediator(getInstanceId(system.settings.config)) match {
       case Some(h) =>
         h.stop()
-        harnessMap = harnessMap - system
+        unregisterMediator(getInstanceId(system.settings.config))
       case None => // ignore
     }
+
+  def defaultConfig: Config = {
+    ConfigFactory.parseString(s"""
+        wookiee-system {
+          prepare-to-shutdown-timeout = 1
+          instance-id = "test-${Random.nextInt(1000000)}"
+        }
+        services {
+          path = ""
+          distinct-classloader = false
+        }
+        components {
+          path = ""
+        }
+        test-mode = true
+        internal-http {
+          enabled = false
+        }
+        # CIDR Rules
+        cidr-rules {
+          # This is a list of IP ranges to allow through. Can be empty.
+          allow = ["127.0.0.1/30", "10.0.0.0/8"]
+          # This is a list of IP ranges to specifically deny access. Can be empty.
+          deny = []
+        }
+        commands {
+          # generally this should be enabled
+          enabled = true
+          default-nr-routees = 1
+        }
+      """)
   }
 }
 
@@ -100,13 +138,27 @@ class TestHarness(
 ) {
 
   var services: Map[String, ActorRef] = Map[String, ActorRef]()
-  var components: Map[String, ActorRef] = Map[String, ActorRef]()
+  var components: Map[String, ComponentInfo] = Map[String, ComponentInfo]()
   var serviceManager: Option[ActorRef] = None
   var componentManager: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
-  var policyManager: Option[ActorRef] = None
   var config: Config = conf.withFallback(defaultConfig)
+
+  private val instanceId: String = TestHarness.getInstanceId(config) match {
+    case "wookiee" =>
+      val inst = s"test-${Random.nextInt(1000000)}"
+      config = ConfigFactory
+        .parseString(s"""
+             |wookiee-system.instance-id = "$inst"
+             |instance-id = "$inst"
+             |""".stripMargin)
+        .withFallback(config)
+      inst
+    case other => other
+  }
   config = config.withFallback(config.getConfig("wookiee-system")).resolve()
+
+  TestHarness.registerMediator(TestHarness.getInstanceId(config), this)
 
   implicit val timeout: Timeout = Timeout(timeToWait)
 
@@ -134,6 +186,8 @@ class TestHarness(
     loadServices(serviceMap.get)
   }
 
+  def getInstanceId: String = instanceId
+
   def stop()(implicit system: ActorSystem): Unit = {
     Harness.shutdownActorSystem(block = false) {
       // wait a second to make sure it shutdown correctly
@@ -141,8 +195,10 @@ class TestHarness(
     }
   }
 
-  def setLogLevel(level: Level): Unit =
-    TestHarness.log.setLogLevel(level)
+  def setLogLevel(level: Level): Unit = {
+    val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
+    loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
+  }
 
   def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
     while (!timeOut.isOverdue() && !Await
@@ -172,15 +228,41 @@ class TestHarness(
     )
   }
 
+  // @deprecated("Use getComponentAkka instead", "2.4.0")
   def getComponent(component: String): Option[ActorRef] = {
-    components.get(component)
+    getComponentAkka(component)
   }
 
+  // Returns the ComponentV2 if it exists
+  def getComponentV2(componentName: String): Option[ComponentV2] = {
+    components
+      .get(componentName)
+      .collectFirst {
+        case ComponentInfoV2(_, _, component) => component
+      }
+  }
+
+  // For legacy Components, will eventually be removed
+  def getComponentAkka(componentName: String): Option[ActorRef] = {
+    components.get(componentName).collectFirst {
+      case ComponentInfoAkka(_, _, actorRef) => actorRef
+    }
+  }
+
+  // For legacy Components, will eventually be removed
   def getComponentOrDie(component: String): ActorRef = {
-    components.getOrElse(
-      component,
+    getComponentAkka(component).getOrElse(
       throw new IllegalStateException(
         s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"
+      )
+    )
+  }
+
+  // For legacy Components, will eventually be removed
+  def getComponentOrDieV2(component: String): ComponentV2 = {
+    getComponentV2(component).getOrElse(
+      throw new IllegalStateException(
+        s"No such V2 component registered: $component, available components: ${components.keySet.mkString(",")}"
       )
     )
   }
@@ -200,8 +282,8 @@ class TestHarness(
   private def componentReady(componentName: String, componentClass: String): Unit = {
     Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
       case Some(m) =>
-        val component = m.asInstanceOf[ActorRef]
-        TestHarness.log.info(s"Loaded component $componentName, ${component.path.toString}")
+        val component = m.asInstanceOf[ComponentInfo]
+        TestHarness.log.info(s"Loaded component $componentName")
         components += (componentName -> component)
       case None =>
         throw new Exception("Component not returned")
@@ -217,36 +299,5 @@ class TestHarness(
       case None =>
         throw new Exception("Service not returned")
     }
-  }
-
-  def defaultConfig: Config = {
-    ConfigFactory.parseString("""
-        wookiee-system {
-          prepare-to-shutdown-timeout = 1
-        }
-        services {
-          path = ""
-          distinct-classloader = false
-        }
-        components {
-          path = ""
-        }
-        test-mode = true
-        internal-http {
-          enabled = false
-        }
-        # CIDR Rules
-        cidr-rules {
-          # This is a list of IP ranges to allow through. Can be empty.
-          allow = ["127.0.0.1/30", "10.0.0.0/8"]
-          # This is a list of IP ranges to specifically deny access. Can be empty.
-          deny = []
-        }
-        commands {
-          # generally this should be enabled
-          enabled = true
-          default-nr-routees = 1
-        }
-      """)
   }
 }

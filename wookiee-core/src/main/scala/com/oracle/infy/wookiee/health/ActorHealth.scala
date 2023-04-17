@@ -19,23 +19,20 @@ import akka.actor.{Actor, ActorRef}
 import akka.pattern._
 import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
-import com.oracle.infy.wookiee.logging.Logger
 import com.oracle.infy.wookiee.service.messages.CheckHealth
-import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.oracle.infy.wookiee.utils.AkkaUtil
 
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 
-trait ActorHealth {
+trait ActorHealth extends WookieeHealth {
   this: Actor =>
-
-  private val _log = Logger(this, context.system)
 
   import context.dispatcher
 
   implicit val checkTimeout: Timeout =
-    ConfigUtil.getDefaultTimeout(
+    AkkaUtil.getDefaultTimeout(
       context.system.settings.config,
       HarnessConstants.KeyDefaultTimeout,
       Timeout(15.seconds)
@@ -47,10 +44,10 @@ trait ActorHealth {
         Try(checkHealth)
           .recover({
             case e: Exception =>
-              _log.error("Error fetching health", e)
+              log.error("Error fetching health", e)
               Future.successful(
                 HealthComponent(
-                  getClass.getSimpleName,
+                  name,
                   ComponentState.CRITICAL,
                   "Exception when trying to check the health: %s".format(e.getMessage)
                 )
@@ -59,7 +56,7 @@ trait ActorHealth {
           .getOrElse({
             Future.successful(
               HealthComponent(
-                getClass.getSimpleName,
+                name,
                 ComponentState.DEGRADED,
                 "No return message when trying to check the health"
               )
@@ -70,32 +67,13 @@ trait ActorHealth {
   }
 
   /**
-    * This is the health of the current object, by default will be NORMAL
-    * In general this should be overridden to define the health of the current object
-    * For objects that simply manage other objects you shouldn't need to do anything
-    * else, as the health of the children components would be handled by their own
-    * CheckHealth function
-    *
-    * @return
-    */
-  protected def getHealth: Future[HealthComponent] = {
-    Future {
-      HealthComponent(self.path.toString, ComponentState.NORMAL, "Healthy")
-    }
-  }
-
-  /**
     * This is the list of child actors that should be iterated and checked for health
     * This can be overridden in cases where one does not want to check all children for
     * health, or some children may not support health checks, or a child is using a push
-    * based model of health reporting
-    * CheckHealth function
-    *
-    * @return
+    * based model of health reporting CheckHealth function
     */
-  protected def getHealthChildren: Iterable[ActorRef] = {
+  protected def getHealthChildren: Iterable[ActorRef] =
     if (context != null) context.children else Iterable()
-  }
 
   /**
     * The actor has been asked to respond with some health information. It needs
@@ -105,7 +83,7 @@ trait ActorHealth {
     * behavior
     * @return An instance of a health component
     */
-  def checkHealth: Future[HealthComponent] = {
+  override protected def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
     getHealth.onComplete {
@@ -113,15 +91,15 @@ trait ActorHealth {
         val healthFutures = getHealthChildren map { ref =>
           (ref ? CheckHealth).mapTo[HealthComponent] recover {
             case _: AskTimeoutException =>
-              _log.warn(s"Health Check time out on child actor ${ref.path.toStringWithoutAddress}")
+              log.warn(s"Health Check time out on child actor ${ref.path.toStringWithoutAddress}")
               HealthComponent(
-                getClass.getSimpleName,
+                name,
                 ComponentState.CRITICAL,
                 "Time out on child: %s".format(ref.path.toStringWithoutAddress)
               )
             case ex: Exception =>
               HealthComponent(
-                ref.path.name,
+                name,
                 ComponentState.CRITICAL,
                 s"Failure to get health of child component. ${ex.getMessage}"
               )
@@ -130,9 +108,9 @@ trait ActorHealth {
 
         Future.sequence(healthFutures) onComplete {
           case Failure(f) =>
-            _log.debug(f, "Failed to retrieve health of children objects")
+            log.warn("Failed to retrieve health of children objects", f)
             p success HealthComponent(
-              s.name,
+              name,
               ComponentState.CRITICAL,
               s"Failure to get health of child components. ${f.getMessage}"
             )
@@ -143,8 +121,8 @@ trait ActorHealth {
             p success s
         }
       case Failure(f) =>
-        _log.debug(f, "Failed to get health from component")
-        p success HealthComponent(self.path.toString, ComponentState.CRITICAL, f.getMessage)
+        log.warn("Failed to get health from component", f)
+        p success HealthComponent(name, ComponentState.CRITICAL, f.getMessage)
     }
 
     p.future

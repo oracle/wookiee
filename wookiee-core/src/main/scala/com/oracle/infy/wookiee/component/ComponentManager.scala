@@ -15,13 +15,9 @@
  */
 package com.oracle.infy.wookiee.component
 
-import java.io.File
-import java.nio.file.FileSystems
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import com.oracle.infy.wookiee.HarnessConstants
-import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 import com.oracle.infy.wookiee.app.HarnessActor.{
   ComponentInitializationComplete,
   ConfigChange,
@@ -29,19 +25,22 @@ import com.oracle.infy.wookiee.app.HarnessActor.{
   SystemReady
 }
 import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
-import com.oracle.infy.wookiee.component.ComponentState.ComponentState
-import com.oracle.infy.wookiee.logging.{Logger, LoggingAdapter}
+import com.oracle.infy.wookiee.health.{HealthComponent, WookieeHealth}
 import com.oracle.infy.wookiee.service.HawkClassLoader
-import com.oracle.infy.wookiee.utils.{ConfigUtil, FileUtil}
+import com.oracle.infy.wookiee.utils.{AkkaUtil, ClassUtil, ConfigUtil, FileUtil}
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
+import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
 
-import scala.jdk.CollectionConverters._
+import java.io.File
+import java.nio.file.FileSystems
+import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
+import scala.jdk.CollectionConverters._
 import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
-import java.util.concurrent.ConcurrentHashMap
 
 case class Request[T](name: String, msg: ComponentRequest[T])
 case class Message[T](name: String, msg: ComponentMessage[T])
@@ -50,19 +49,10 @@ case class LoadComponent(name: String, classPath: String, classLoader: Option[Ha
 case class ReloadComponent(file: File, classLoader: Option[HarnessClassLoader] = None)
 case class ComponentStarted(name: String)
 case class GetComponent(name: String)
-case class ComponentReady(info: ComponentInfo)
 
-object ComponentState extends Enumeration {
-  type ComponentState = Value
-  val Initializing, Started, Failed = Value
-}
-case class ComponentInfo(name: String, state: ComponentState, actorRef: ActorRef)
-
-object ComponentManager extends LoggingAdapter {
+object ComponentManager extends Mediator[ConcurrentHashMap[(String, ActorSystem), ComponentInfo]] {
   import ComponentState._
-  private val externalLogger = Logger.getLogger(this.getClass)
-
-  protected[wookiee] val components = new ConcurrentHashMap[(String, ActorSystem), ComponentInfo]()
+  private val externalLogger = log
 
   val ComponentRef = "self"
 
@@ -74,17 +64,17 @@ object ComponentManager extends LoggingAdapter {
     if (groupedMap.size == 1) {
       groupedMap.head._1 == Started
     } else {
-      components.isEmpty
+      groupedMap.isEmpty
     }
   }
 
   // Returns information for all Components running on an ActorSystem
   def componentsForSystem(implicit actorSystem: ActorSystem): List[ComponentInfo] =
-    components.asScala.filter(_._1._2.equals(actorSystem)).values.toList
+    getMediator(getInstanceId(actorSystem.settings.config)).asScala.values.toList
 
   // Returns a single Component (if present) on one ActorSystem
   def getComponent(compName: String)(implicit actorSystem: ActorSystem): Option[ComponentInfo] =
-    Option(components.get((compName, actorSystem)))
+    Option(getMediator(getInstanceId(actorSystem.settings.config)).get((compName, actorSystem)))
 
   /**
     * Checks to see if there are any components that have failed
@@ -248,19 +238,21 @@ object ComponentManager extends LoggingAdapter {
   }
 
   protected[oracle] def setComponentInfo(compInfo: ComponentInfo)(implicit system: ActorSystem): Unit = {
-    components.put((compInfo.name, system), compInfo)
+    getMediator(getInstanceId(system.settings.config)).put((compInfo.name, system), compInfo)
     ()
   }
 }
 
 class ComponentManager extends PrepareForShutdown {
-  import context.dispatcher
   import ComponentManager._
+  import context.dispatcher
 
-  val componentTimeout: Timeout = ConfigUtil
+  registerMediator(getInstanceId(config), new ConcurrentHashMap[(String, ActorSystem), ComponentInfo]())
+
+  private val componentTimeout: Timeout = AkkaUtil
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
 
-  var componentsInitialized = false
+  private var componentsInitialized = false
   implicit val system: ActorSystem = context.system
 
   override def receive: Receive = initializing
@@ -338,17 +330,21 @@ class ComponentManager extends PrepareForShutdown {
     * 2. Checks for what Components are Started and sends ComponentReady to `compInfo` to catch anything it missed
     */
   private def sendReadinessToAllStarted(compInfo: ComponentInfo): Unit = {
+    def sendReady(recipient: ComponentInfo, info: ComponentInfo): Unit = recipient match {
+      case recip: ComponentInfoAkka => recip.actorRef ! ComponentReady(info)
+      case recip: ComponentInfoV2   => recip.component.onComponentReady(info)
+    }
+
     context.parent ! ComponentReady(compInfo)
     ComponentManager.componentsForSystem.filter(_.state == ComponentState.Started).foreach { info =>
-      info.actorRef ! ComponentReady(compInfo)
-      if (info.name != compInfo.name)
-        compInfo.actorRef ! ComponentReady(info)
+      sendReady(info, compInfo)
+      sendReady(compInfo, info)
     }
   }
 
   private def componentStarted(name: String, compRef: ActorRef): Unit = {
     log.debug(s"Received start message from component $name")
-    val compInfo = ComponentInfo(name, ComponentState.Started, compRef)
+    val compInfo = ComponentInfoAkka(name, ComponentState.Started, compRef)
     // Store component info in static map
     ComponentManager.setComponentInfo(compInfo)
     // Send ComponentReady message to all Components/Service and catch this one up on ones it missed
@@ -488,10 +484,10 @@ class ComponentManager extends PrepareForShutdown {
             )
           case nf: ComponentNotFoundException =>
             // this is the one case were we don't set the component as failed
-            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${nf.getMessage}", nf)
+            log.warn(s"Could not load component [$cfName]. Component invalid. Error: ${nf.getMessage}", nf)
           case i: IllegalArgumentException =>
             // this is the one case were we don't set the component as failed
-            log.warning(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}", i)
+            log.warn(s"Could not load component [$cfName]. Component invalid. Error: ${i.getMessage}", i)
           case c: ConfigException =>
             componentLoadFailed(cfName, s"Could not load component [$cfName]. Configuration failure", Some(c))
         }
@@ -524,22 +520,31 @@ class ComponentManager extends PrepareForShutdown {
       componentName: String,
       className: String,
       classLoader: Option[HarnessClassLoader] = None
-  ): Option[ActorRef] =
+  ): Option[ComponentInfo] =
     try {
       val hClassLoader = getOrDefaultClassLoader(classLoader)
       require(className.nonEmpty, "Manager for component not set.")
 
       val clazz = hClassLoader.loadClass(className)
-      var component = None: Option[ActorRef]
+      var component = None: Option[ComponentInfo]
       clazz match {
         case c if classOf[Component].isAssignableFrom(c) =>
-          component = initComponentActor(componentName, clazz)
+          component = Some(
+            initComponentActor(componentName, clazz)
+          )
+        case c if classOf[ComponentV2].isAssignableFrom(c) =>
+          component = Some(
+            initComponentV2(componentName, clazz.asSubclass(classOf[ComponentV2]))
+          )
         case _ =>
-          log.warning(
+          log.warn(
             s"Could not load manager [${clazz.getName}] with superclass " +
               s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
               s"for [$componentName]. Not an instance of Component"
           )
+      }
+      component.foreach { c =>
+        ComponentManager.setComponentInfo(c)
       }
       component
     } catch {
@@ -548,24 +553,34 @@ class ComponentManager extends PrepareForShutdown {
         None
     }
 
+  // New initialization method for V2 components
+  def initComponentV2(componentName: String, clazz: Class[_ <: ComponentV2]): ComponentInfoV2 = {
+    log.info(s"Loading V2 component [$componentName]")
+    val componentStart = ClassUtil.instantiateClass(clazz, componentName, config)
+    componentStart.start()
+    ComponentInfoV2(componentName, ComponentState.Initializing, componentStart)
+  }
+
   /**
     * Initializes the component actor
     */
-  def initComponentActor[T](componentName: String, clazz: Class[T]): Option[ActorRef] = {
+  def initComponentActor[T](componentName: String, clazz: Class[T]): ComponentInfo = {
     // check to see if the actor exists
     // need to block in this instance we don't want the system to start prior to
     // the system components to being fully loaded.
     context.child(componentName) match {
       case Some(ref) =>
         log.info(s"Component [$componentName] already loaded.")
-        Some(ref)
+        getComponent(componentName).getOrElse(
+          ComponentInfoAkka(componentName, ComponentState.Initializing, ref)
+        )
       case None =>
         val ref = context.actorOf(Props(clazz, componentName), componentName)
         log.info(s"Loading component [$componentName] at path [${ref.path.toString}}]")
         // get the start timeout but default to the component timeout
-        ComponentManager.setComponentInfo(ComponentInfo(componentName, ComponentState.Initializing, ref))
+
         ref ! StartComponent
-        Some(ref)
+        ComponentInfoAkka(componentName, ComponentState.Initializing, ref)
     }
   }
 
@@ -589,7 +604,7 @@ class ComponentManager extends PrepareForShutdown {
       case None    => log.error(msg)
     }
     // Note that since we don't have an ActorRef for the failed Component, we're using ComponentManager's ref instead
-    ComponentManager.setComponentInfo(ComponentInfo(componentName, ComponentState.Failed, self))
+    ComponentManager.setComponentInfo(ComponentInfoAkka(componentName, ComponentState.Failed, self))
   }
 
   private def findAndLoadComponentManager(componentName: String, config: Config): Unit = {
@@ -606,4 +621,22 @@ class ComponentManager extends PrepareForShutdown {
       ()
     }
   }
+
+  override val name: String = "component-manager"
+
+  // Override to call both Component V1 and V2 health checks
+  override protected def checkHealth: Future[HealthComponent] =
+    super.checkHealth.flatMap(checkHealthOfChildren(_, this))
+
+  /**
+    * Should return a list of child components that will be checked for health
+    * and aggregated along with this class's health
+    */
+  override def getDependentHealths: Iterable[WookieeHealth] =
+    getMediator(getInstanceId(config))
+      .values()
+      .asScala
+      .collect {
+        case info2: ComponentInfoV2 => info2.component
+      }
 }

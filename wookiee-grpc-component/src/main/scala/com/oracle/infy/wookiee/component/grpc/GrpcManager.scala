@@ -1,12 +1,13 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.actor.{ActorRef, ActorSystem, PoisonPill}
+import akka.actor.{ActorRef, ActorSystem}
 import akka.pattern.ask
 import akka.util.Timeout
 import cats.data.{EitherT, NonEmptyList}
 import cats.effect.IO
 import cats.effect.std.Dispatcher
 import cats.implicits._
+import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
@@ -22,7 +23,6 @@ import com.oracle.infy.wookiee.grpc.settings.{
 import com.oracle.infy.wookiee.grpc.utils.implicits.{Java2ScalaConverterList, _}
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer}
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
@@ -32,17 +32,16 @@ import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.util.concurrent.atomic.AtomicReference
-import scala.collection.concurrent.TrieMap
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.Try
 
-object GrpcManager extends LoggingAdapter {
+object GrpcManager extends Mediator[ActorRef] {
   val ComponentName = "wookiee-grpc-component"
 
   // Actor of type GrpcManager
   // @throws IllegalStateException if manager has not been registered
-  def getGrpcManager(system: ActorSystem): ActorRef = getMediator(system)
+  def getGrpcManager(system: ActorSystem): ActorRef = getMediator(system.name)
 
   /**
     * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
@@ -80,7 +79,7 @@ object GrpcManager extends LoggingAdapter {
     implicit val timeout: Timeout = Timeout(5.seconds)
 
     def cleanCheck(): Boolean = {
-      grpcManagerMap.get(system) match {
+      maybeGetMediator(system.name) match {
         case Some(grpcManagerActor) =>
           try {
             val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 5.seconds)
@@ -176,29 +175,6 @@ object GrpcManager extends LoggingAdapter {
     }).unsafeRunSync()
   }
 
-  private val grpcManagerMap = TrieMap[ActorSystem, ActorRef]()
-
-  private[wookiee] def getMediator(system: ActorSystem): ActorRef = {
-    grpcManagerMap.get(system) match {
-      case Some(zkActor) => zkActor
-      case None =>
-        throw new IllegalStateException(s"No gRPC Manager Registered for System: [$system]") //scalafix:ok
-    }
-  }
-
-  private[wookiee] def registerMediator(actor: ActorRef)(implicit system: ActorSystem) = {
-    log.info(s"WGM101: Registering gRPC Manager: [${actor.path}], for actor system: [$system]")
-    grpcManagerMap.put(system, actor)
-  }
-
-  private[wookiee] def unregisterMediator(system: ActorSystem): Unit = {
-    if (grpcManagerMap.contains(system)) {
-      log.info(s"WGM401: Unregistering gRPC Manager for actor system: [$system]")
-      grpcManagerMap.remove(system) foreach (_ ! PoisonPill)
-      ()
-    }
-  }
-
   class GrpcDefinition(
       val definition: ServerServiceDefinition,
       val authSettings: Option[ServiceAuthSettings] = None,
@@ -256,7 +232,7 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
 
     log.info(s"WGM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
     // Register this actor so others can access it
-    GrpcManager.registerMediator(self)
+    GrpcManager.registerMediator(context.system.name, self)
     context.become(clean(Map(), None))
   }
 
@@ -265,7 +241,7 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
     super.postStop()
 
     log.info(s"WGM400: Stopping the gRPC Manager and shutting down server..")
-    GrpcManager.unregisterMediator(actorSystem)
+    GrpcManager.unregisterMediator(actorSystem.name)
     server
       .get()
       .map(_.shutdown().unsafeToFuture())

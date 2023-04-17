@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext
 import scala.util.Random
 
-final class WookieeGrpcChannel(val managedChannel: ManagedChannel, curator: CuratorFramework) {
+final class WookieeGrpcChannel(val managedChannel: ManagedChannel, curator: CuratorFramework) extends AutoCloseable {
 
   // Shutdown without the IO wrapping, better for Java
   def shutdownNow(closeCurator: Boolean = false): Unit = {
@@ -50,6 +50,8 @@ final class WookieeGrpcChannel(val managedChannel: ManagedChannel, curator: Cura
       shutdownNow(closeCurator)
     })
 
+  // Note that this doesn't shutdown the supplied curator, will be called on dereference
+  override def close(): Unit = shutdownNow()
 }
 
 object WookieeGrpcChannel {

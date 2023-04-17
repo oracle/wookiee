@@ -20,7 +20,6 @@ import akka.http.scaladsl.settings.ServerSettings
 import com.oracle.infy.wookiee.component.Component
 import com.oracle.infy.wookiee.component.akkahttp.AkkaHttpManager.ComponentName
 import com.oracle.infy.wookiee.component.akkahttp.routes.{AkkaHttpUnbind, ExternalAkkaHttpActor, InternalAkkaHttpActor}
-import com.oracle.infy.wookiee.logging.Logger
 import com.oracle.infy.wookiee.utils.ConfigUtil
 import com.typesafe.config.Config
 
@@ -32,7 +31,6 @@ class AkkaHttpManager(name: String) extends Component(name) {
 
   var internalAkkaHttpRef: Option[ActorRef] = None
   var externalAkkaHttpRef: Option[ActorRef] = None
-  implicit val logger: Logger = log
 
   def startAkkaHttp(): Unit = {
     starMonitor.synchronized {

@@ -34,6 +34,7 @@ object Deps {
     val jodaTimeVersion = "2.12.2"
     val scalaCollectionCompatVersion = "2.8.1"
     val zookeeperVersion = "3.8.1"
+    val typesafeVersion = "1.4.2"
     val json4sVersion = "4.0.6"
     val jacksonVersion = "2.14.2"
     val http4sVersion = "0.23.18"
@@ -50,6 +51,9 @@ object Deps {
 
     val zookeeper
         : ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude ("org.slf4j", "slf4j-log4j12")
+
+    // https://mvnrepository.com/artifact/com.typesafe/config
+    val typesafe: ModuleID = "com.typesafe" % "config" % typesafeVersion
 
     val curator
         : ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper")
@@ -160,6 +164,11 @@ object Deps {
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
 
     val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
+
+    val wookieeLibs: Seq[ModuleID] = Seq(
+      typesafe,
+      logbackClassic
+    ) ++ curatorLibs ++ cats
 
     val wookieeAkkaHttp: Seq[ModuleID] = Seq(
       test.scalatest,

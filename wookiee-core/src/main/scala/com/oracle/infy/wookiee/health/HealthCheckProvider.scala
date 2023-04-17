@@ -19,9 +19,9 @@ import akka.actor.Actor
 import akka.pattern._
 import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.messages.CheckHealth
-import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.oracle.infy.wookiee.utils.AkkaUtil
 import org.joda.time.DateTime
 
 import java.util.jar
@@ -66,11 +66,11 @@ object HealthCheckProvider {
 }
 
 trait HealthCheckProvider {
-  this: Actor with ActorLoggingAdapter =>
+  this: Actor with LoggingAdapter =>
   val upTime: DateTime = DateTime.now
 
   implicit val timeout: Timeout =
-    ConfigUtil.getDefaultTimeout(
+    AkkaUtil.getDefaultTimeout(
       context.system.settings.config,
       HarnessConstants.KeyDefaultTimeout,
       Timeout(15.seconds)

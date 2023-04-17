@@ -133,7 +133,7 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
       services.values.foreach(service => service._1 ! ready)
   }
 
-  private def getServiceMeta(servicePath: Option[ActorPath]): Seq[ServiceMetaData] = {
+  private def getServiceMeta(servicePath: Option[ActorPath]): Seq[ServiceMetaData] =
     try {
       log.debug("Service meta requested")
       servicePath match {
@@ -147,7 +147,6 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
         log.error("Error fetching service meta information", e)
         Nil
     }
-  }
 
   /**
     * This is the health of the current object, by default will be NORMAL
@@ -155,10 +154,8 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     * For objects that simply manage other objects you shouldn't need to do anything
     * else, as the health of the children components would be handled by their own
     * CheckHealth function
-    *
-    * @return
     */
-  override protected def getHealth: Future[HealthComponent] = {
+  override def getHealth: Future[HealthComponent] = {
     log.debug("Service health requested")
     Future {
       if (services.isEmpty) {

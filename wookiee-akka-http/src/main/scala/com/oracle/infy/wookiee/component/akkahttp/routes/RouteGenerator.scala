@@ -37,7 +37,7 @@ import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
 import com.oracle.infy.wookiee.command.ExecuteCommand
 import com.oracle.infy.wookiee.component.akkahttp.logging.AccessLog
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.util.Locale
 import java.util.Locale.LanguageRange
@@ -65,7 +65,7 @@ case class AkkaHttpRequest(
     requestBody: Option[RequestEntity] = None
 )
 
-object RouteGenerator {
+object RouteGenerator extends LoggingAdapter {
 
   def makeHttpRoute[T <: Product: ClassTag, V](
       path: String,
@@ -78,7 +78,7 @@ object RouteGenerator {
       timeoutHandler: HttpRequest => HttpResponse,
       options: EndpointOptions = EndpointOptions.default,
       accessLoggingEnabled: Boolean = false
-  )(implicit ec: ExecutionContext, log: Logger): Route = {
+  )(implicit ec: ExecutionContext): Route = {
     val accessLogger = if (accessLoggingEnabled) Some(options.accessLogIdGetter) else None
     val httpPath = parseRouteSegments(path)
     ignoreTrailingSlash {
@@ -225,7 +225,7 @@ object RouteGenerator {
   type Path6 = PathMatcher[(String, String, String, String, String, String)]
 
   // Don't expose this, just use the paramHoldersToList to change it to something actually useful.
-  protected[akkahttp] def parseRouteSegments(path: String)(implicit log: Logger): Directive1[AkkaHttpPathSegments] = {
+  protected[akkahttp] def parseRouteSegments(path: String): Directive1[AkkaHttpPathSegments] = {
     val segs = path.split("/").filter(_.nonEmpty).toSeq
     var segCount = 0
     try {

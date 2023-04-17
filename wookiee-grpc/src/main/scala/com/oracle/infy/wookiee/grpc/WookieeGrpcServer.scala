@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.grpc
 
 import cats.effect.std.Queue
+import cats.effect.unsafe.implicits.global
 import cats.effect.{FiberIO, IO, Ref, Temporal}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, _}
@@ -33,7 +34,7 @@ final class WookieeGrpcServer(
 )(
     implicit
     logger: Logger[IO]
-) {
+) extends AutoCloseable {
 
   def shutdown(): IO[Unit] =
     for {
@@ -64,6 +65,8 @@ final class WookieeGrpcServer(
         WookieeGrpcServer.assignQuarantine(isQuarantined = false, host, discoveryPath, curatorFramework)
       )
 
+  override def close(): Unit =
+    shutdown().unsafeRunSync()
 }
 
 object WookieeGrpcServer {

@@ -19,30 +19,25 @@ import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import com.typesafe.config.Config
-import HarnessActor.PrepareForShutdown
+import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{
-  ComponentInfo,
-  ComponentManager,
-  ComponentReady,
-  ComponentReloadActor,
-  InitializeComponents
-}
+import com.oracle.infy.wookiee.component._
 import com.oracle.infy.wookiee.config.ConfigWatcher
-import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
 import com.oracle.infy.wookiee.http.InternalHTTP
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
+import com.oracle.infy.wookiee.utils.AkkaUtil._
 import com.oracle.infy.wookiee.utils.ConfigUtil
-import scala.jdk.CollectionConverters._
+import com.oracle.infy.wookiee.{HarnessConstants, health}
+import com.typesafe.config.Config
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
 object HarnessActor {
@@ -60,7 +55,7 @@ object HarnessActor {
 }
 
 // Below are actor traits that are commonly used for actors in the Harness
-trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
+trait HActor extends Actor with LoggingAdapter with ActorHealth {
   // Globally accessible config loaded from -Dconfig.file=$file_path
   lazy val config: Config = context.system.settings.config
   // By default routes to health check, should make sure to orElse to here if overriding
@@ -76,9 +71,8 @@ trait PrepareForShutdown extends HActor {
   }
 }
 
-class HarnessActor extends Actor with ActorLoggingAdapter with Health with ConfigWatcher with InternalHTTP {
+class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatcher with InternalHTTP {
 
-  import ConfigUtil._
   import HarnessActor._
   import context.dispatcher
 
@@ -176,7 +170,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
     componentActor.get ! InitializeComponents
   }
 
-  private def initializationComplete(): Unit = {
+  private def initializationComplete(): Unit =
     // Wait for the child actors above to be loaded before calling on the services
     Future.traverse(context.children)(child => (child ? Identify("xyz123"))(startupTimeout)) onComplete {
       case Success(_) =>
@@ -198,7 +192,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       case Failure(t) =>
         log.error("Error loading the main harness actors", t)
     }
-  }
 
   /**
     * Complete the shutdown process. This will be called after clustering has been shutdown.
@@ -228,7 +221,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       log.warn("Somehow the Service Actor isn't started to get Component Info")
   }
 
-  private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
+  private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] =
     Future {
       log.debug(s"Prepare For Shutdown")
       for {
@@ -240,7 +233,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       //Give the message time to propagate through the system.
       Thread sleep prepareShutdownTimeout.duration.toMillis
     }
-  }
 
   private def gracefulShutdown(): Unit = {
     def gStop(actOpt: Option[ActorRef]): Future[Boolean] = {

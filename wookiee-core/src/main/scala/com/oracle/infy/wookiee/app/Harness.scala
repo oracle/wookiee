@@ -18,9 +18,10 @@ package com.oracle.infy.wookiee.app
 import akka.actor.{ActorRef, ActorSystem, Props, UnhandledMessage}
 import akka.pattern._
 import com.oracle.infy.wookiee.app.HarnessActor.ShutdownSystem
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.{Mediator, UnhandledEventListener}
 import com.typesafe.config.Config
-import com.oracle.infy.wookiee.UnhandledEventListener
-import com.oracle.infy.wookiee.logging.Logger
+import org.slf4j.Logger
 
 import scala.concurrent.Await
 import scala.concurrent.duration._
@@ -31,20 +32,19 @@ case class HarnessMeta(actorSystem: ActorSystem, harnessActor: ActorRef, config:
 /**
   * @author Spencer Wood
   */
-object Harness {
-  // Map from tcp port to Harness system and HarnessActor ref
-  protected[oracle] var harnessMap: Map[ActorSystem, HarnessMeta] = Map.empty
-  def getRootActor()(implicit system: ActorSystem): Option[ActorRef] = harnessMap.get(system).map(_.harnessActor)
+object Harness extends Mediator[HarnessMeta] with LoggingAdapter {
 
-  protected[oracle] var log: Logger = Logger(this.getClass)
+  def getRootActor()(implicit system: ActorSystem): Option[ActorRef] =
+    maybeGetMediator(getInstanceId(system.settings.config)).map(_.harnessActor)
+
   def getLogger: Logger = log
-  val externalLogger: Logger = Logger.getLogger(this.getClass)
+  val externalLogger: Logger = log
 
   /**
     * Restart the specified actor system
     */
   def restartActorSystem()(implicit system: ActorSystem): Unit = {
-    harnessMap.get(system) match {
+    maybeGetMediator(getInstanceId(system.settings.config)) match {
       case Some(meta) =>
         externalLogger.info(s"Restarting the actor system ${system.name}")
         shutdownActorSystem(block = false) {
@@ -75,7 +75,7 @@ object Harness {
   /**
     * Start the actor system
     */
-  def startActorSystem(config: Option[Config] = None): HarnessMeta = harnessMap.synchronized {
+  def startActorSystem(config: Option[Config] = None): HarnessMeta = {
     try {
       externalLogger.debug(s"Creating the actor system")
       val finalConfig = HarnessActorSystem.renewConfigsAndClasses(config, replace = true)
@@ -85,12 +85,11 @@ object Harness {
       val listener = system.actorOf(Props(new UnhandledEventListener))
       system.eventStream.subscribe(listener, classOf[UnhandledMessage])
 
-      log = Logger(this.getClass, system)
       log.debug(s"Creating main Wookiee actor for ${system.name}")
 
       val rootActor = system.actorOf(HarnessActor.props(), "system")
       val meta = HarnessMeta(system, rootActor, finalConfig)
-      harnessMap = harnessMap.updated(system, meta)
+      registerMediator(getInstanceId(system.settings.config), meta)
       meta
     } catch {
       case t: Throwable =>
@@ -102,7 +101,7 @@ object Harness {
   /**
     * Shutdown the actor system
     */
-  def shutdownActorSystem(block: Boolean)(f: => Unit)(implicit system: ActorSystem): Unit = harnessMap.synchronized {
+  def shutdownActorSystem(block: Boolean)(f: => Unit)(implicit system: ActorSystem): Unit = {
     log.debug(s"Shutting down the main actor ")
     import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -120,7 +119,7 @@ object Harness {
       fut.onComplete {
         case Success(_) =>
           // Remove from map of running Wookiees
-          harnessMap = harnessMap - system
+          unregisterMediator(getInstanceId(system.settings.config))
           externalLogger.debug("The actor system has terminated")
           // Call the passed function
           f

@@ -33,7 +33,7 @@ import com.oracle.infy.wookiee.component.akkahttp.logging.AccessLog
 import com.oracle.infy.wookiee.component.akkahttp.routes.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.akkahttp.routes.RouteGenerator._
 import com.oracle.infy.wookiee.component.akkahttp.websocket.{AkkaHttpWebsocket, WebsocketInterface}
-import com.oracle.infy.wookiee.logging.{ActorLoggingAdapter, Logger, LoggingAdapter}
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ConfigUtil
 import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization.write
@@ -65,13 +65,12 @@ object EndpointOptions {
 }
 
 trait AkkaHttpEndpointRegistration {
-  this: CommandHelper with ActorLoggingAdapter with HActor =>
+  this: CommandHelper with LoggingAdapter with HActor =>
   import AkkaHttpEndpointRegistration._
 
   private val accessLoggingEnabled =
     ConfigUtil.getDefaultValue(s"${AkkaHttpManager.ComponentName}.access-logging.enabled", config.getBoolean, true)
   if (accessLoggingEnabled) log.info("Access Logging Enabled") else log.info("Access Logging Disabled")
-  implicit val logger: Logger = log
 
   def addAkkaHttpEndpoint[T <: Product: ClassTag, U: ClassTag](
       name: String,

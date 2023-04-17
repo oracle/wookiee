@@ -17,17 +17,17 @@ package com.oracle.infy.wookiee.app
 
 import akka.actor.ActorSystem
 import com.oracle.infy.wookiee.component.ComponentManager
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.ServiceManager
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 
 import java.io.InputStream
 import scala.io.Source
 
-object HarnessActorSystem {
+object HarnessActorSystem extends LoggingAdapter {
 
   lazy val loader: HarnessClassLoader = HarnessClassLoader(Thread.currentThread.getContextClassLoader)
-  private val externalLogger = Logger.getLogger(this.getClass)
+  private val externalLogger = log
 
   def apply(config: Config): ActorSystem = {
     ActorSystem.create("server", config, loader)

@@ -146,7 +146,7 @@ class ConfigWatchingActor extends HActor with ConfigHelper {
 ```
 
 ### Logging
-Standardized logging is provided by the library. This can be applied to any actor using the trait ActorLoggingAdapter. This will give you the "log" variable which will allow you to write info, debug, warn, error and trace messages to the log. If you need to add logging to a non-actor based class, possibly like an object you can use the following code.
+Standardized logging is provided by the library. This can be applied to any actor using the trait LoggingAdapter. This will give you the "log" variable which will allow you to write info, debug, warn, error and trace messages to the log. If you need to add logging to a non-actor based class, possibly like an object you can use the following code.
 ```scala
 	val externalLogger = LoggerFactory.getLogger(this.getClass)
 ```

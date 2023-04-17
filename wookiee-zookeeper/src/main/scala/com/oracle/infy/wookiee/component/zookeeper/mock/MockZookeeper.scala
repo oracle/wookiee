@@ -18,9 +18,9 @@ package com.oracle.infy.wookiee.component.zookeeper.mock
 
 import akka.actor.{ActorSystem, PoisonPill, Props}
 import akka.util.Timeout
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
 import com.oracle.infy.wookiee.component.zookeeper.{ZookeeperActor, ZookeeperAdapterNonActor, ZookeeperService}
 import com.oracle.infy.wookiee.utils.ActorWaitHelper
+import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.typesafe.config.Config
 
 import scala.concurrent.duration._

@@ -15,8 +15,8 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
 import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike

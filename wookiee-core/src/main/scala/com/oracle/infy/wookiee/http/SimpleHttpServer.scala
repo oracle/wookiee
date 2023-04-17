@@ -215,7 +215,7 @@ class SimpleHttpServer(port: Int = 8008) extends HActor with ComponentHelper {
     *
     * @return
     */
-  override protected def getHealth: Future[HealthComponent] = {
+  override def getHealth: Future[HealthComponent] = {
     Future {
       httpServer match {
         case Some(_) =>

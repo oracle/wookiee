@@ -21,11 +21,11 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse, StatusCodes}
 import akka.stream.Materializer
 import akka.util.ByteString
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import scala.concurrent.{ExecutionContext, Future}
 
-trait SimpleHttpClient extends ActorLoggingAdapter { this: Actor =>
+trait SimpleHttpClient extends LoggingAdapter { this: Actor =>
 
   implicit val executionContext: ExecutionContext
   implicit val materializer: Materializer = Materializer(context)

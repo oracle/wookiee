@@ -19,16 +19,14 @@ package com.oracle.infy.wookiee.authentication
 import java.net.{InetAddress, UnknownHostException}
 import java.util
 import akka.japi.Util._
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ConfigUtil
 import com.typesafe.config.Config
 
 /**
   * @author Michael Cuthbert on 2/23/15.
   */
-case class CIDRRules(cidrAllow: Seq[String], cidrDeny: Seq[String]) {
-
-  private val log = Logger.getLogger(getClass)
+case class CIDRRules(cidrAllow: Seq[String], cidrDeny: Seq[String]) extends LoggingAdapter {
 
   private lazy val allow = { cidrAllow map (x => new IpAddressMatcher(x.trim)) }
   private lazy val deny = { cidrDeny map (x => new IpAddressMatcher(x.trim)) }

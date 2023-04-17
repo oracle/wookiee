@@ -28,7 +28,7 @@ import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.component.metrics.messages._
 import com.oracle.infy.wookiee.component.metrics.monitoring.MonitoringSettings
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import org.json4s.jackson.JsonMethods._
 
 import java.net.{InetAddress, InetSocketAddress}
@@ -45,7 +45,7 @@ object MetricsActor {
   var health: HealthComponent = HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Metrics not started yet.")
 }
 
-class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLoggingAdapter with ActorHealth {
+class MetricsActor(settings: MonitoringSettings) extends Actor with LoggingAdapter with ActorHealth {
 
   private[metrics] var jmxReporter: Option[JmxReporter] = None
   private[metrics] var graphiteReporter: Option[GraphiteReporter] = None

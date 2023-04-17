@@ -20,7 +20,7 @@ import akka.pattern.ask
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.{ActorLoggingAdapter, LoggingAdapter}
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.messages.{CheckHealth, GetMetaData, GetMetaDetails, Ready}
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.oracle.infy.wookiee.test.TestSystemActor.RegisterShutdownListener
@@ -146,7 +146,7 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
 }
 
 trait ShutdownListener {
-  this: Actor with ActorLoggingAdapter =>
+  this: Actor with LoggingAdapter =>
 
   var shutdownListener: Option[ActorRef] = None
 

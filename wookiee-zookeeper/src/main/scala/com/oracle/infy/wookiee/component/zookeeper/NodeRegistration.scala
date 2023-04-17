@@ -16,10 +16,8 @@
 package com.oracle.infy.wookiee.component.zookeeper
 
 import akka.actor.ActorSystem
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
+import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.typesafe.config.Config
-
-import java.net.InetAddress
 
 object NodeRegistration {
 
@@ -53,7 +51,7 @@ object NodeRegistration {
   def getAddress(implicit system: ActorSystem): String = {
     val addrHost = SystemExtension.getAddress(system)
 
-    if (!Zookeeper.isMock(system.settings.config) &&
+    if (!ZookeeperSettings.isMock(system.settings.config) &&
         (addrHost.equalsIgnoreCase("localhost") || addrHost.equals("127.0.0.1"))) {
       SystemExtension.getLocalHost(system)
     } else {

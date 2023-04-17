@@ -15,29 +15,29 @@
  */
 package com.oracle.infy.wookiee.service
 
-import java.io.File
-import java.nio.file.FileSystems
-import java.util.jar.Attributes.Name
-import java.util.jar.JarFile
 import akka.actor._
 import akka.pattern.ask
 import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.{HActor, HarnessClassLoader}
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.messages.GetMetaDetails
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.oracle.infy.wookiee.utils.ConfigUtil
 import org.joda.time.DateTime
 
-import scala.jdk.CollectionConverters._
+import java.io.File
+import java.nio.file.FileSystems
+import java.util.jar.Attributes.Name
+import java.util.jar.JarFile
 import scala.collection.mutable
 import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
-trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
+trait ServiceLoader { this: HActor with LoggingAdapter =>
 
   val services: mutable.Map[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])] =
     collection.mutable.HashMap[ServiceMetaData, (ActorSelection, Option[HawkClassLoader])]()
@@ -74,7 +74,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
                   loadClasses(context, subPath)
                 }).recover({
                   case e: Throwable =>
-                    log.error(e, "Error loading the service(s) in {}", subPath.getPath)
+                    log.error(s"Error loading the service(s) in [${subPath.getPath}]", e)
                 })
               })
             }
@@ -125,7 +125,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
 
       jars.foreach(file => processJar(context, rootPath, file, loader))
     } else {
-      log.warning("No jar was found for the service in {}", rootPath)
+      log.warn("No jar was found for the service in {}", rootPath)
     }
   }
 
@@ -199,7 +199,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
 
                   }.recover {
                     case e: Throwable =>
-                      log.error(e, "Error processing jar for {}", name)
+                      log.error(s"Error processing jar for [$name]", e)
                       // Remove the actor so we can avoid a badly loaded actor
                       context.child(name).foreach { actor =>
                         context.unwatch(actor)
@@ -223,7 +223,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
               }
             } catch {
               case e: Throwable =>
-                log.error(e, "Error loading the service: {}", entry.getName)
+                log.error(s"Error loading the service: [${entry.getName}]", e)
                 None
             }
         )
@@ -292,7 +292,7 @@ trait ServiceLoader { this: HActor with ActorLoggingAdapter =>
         serviceActor = getServiceByName(name)
         None
       case e: Throwable =>
-        log.error(e, "Error loading the service {}", name)
+        log.error(s"Error loading the service [$name]", e)
         // Remove the actor so we can avoid a badly loaded actor
         context.child(name) match {
           case Some(actor) => context.unwatch(actor); context.stop(actor)

@@ -39,7 +39,7 @@ The component actor is where the logic of the actual component goes. This is whe
 object MyComponentActor {
 	def props:Props = Props(classOf[MyComponentActor])
 }
-class MyComponentActor with Actor with ActorHealth with ActorLoggingAdapter {
+class MyComponentActor with Actor with ActorHealth with LoggingAdapter {
 	
 	def receive = health orElse {
 		// receive message functionality here

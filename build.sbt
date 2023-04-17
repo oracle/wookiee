@@ -101,6 +101,8 @@ lazy val `wookiee-core` = project
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
+  .dependsOn(`wookiee-libs`)
+  .aggregate(`wookiee-libs`)
 
 lazy val `wookiee-test` = project
   .in(file("wookiee-test"))
@@ -110,6 +112,25 @@ lazy val `wookiee-test` = project
   )
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
+
+// For messaging between wookiee services via gRPC
+lazy val `wookiee-libs` = project
+  .in(file("wookiee-libs"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeLibs,
+    libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
+  )
+
+// For messaging between wookiee services via gRPC
+lazy val `wookiee-discovery` = project
+  .in(file("wookiee-discovery"))
+  .settings(commonSettings(false))
+  //  .settings(
+  //    libraryDependencies ++= Deps.build.core ++ Deps.test.all
+  //  )
+  .dependsOn(`wookiee-grpc-component`)
+  .aggregate(`wookiee-grpc-component`)
 
 lazy val `basic-service` = project
   .in(file("examples/basic-service"))
@@ -254,8 +275,8 @@ lazy val `wookiee-akka-http` = project
   .settings(
     libraryDependencies ++= Deps.build.wookieeAkkaHttp
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
 
 lazy val `wookiee-cache` = project
   .in(file("wookiee-cache"))
@@ -291,6 +312,7 @@ lazy val root = project
     }
   )
   .dependsOn(
+    `wookiee-libs`,
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc-tests`,
@@ -305,9 +327,11 @@ lazy val root = project
     `wookiee-akka-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-functional-metrics`,
+    `wookiee-discovery`
   )
   .aggregate(
+    `wookiee-libs`,
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
@@ -322,7 +346,8 @@ lazy val root = project
     `wookiee-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-functional-metrics`,
+    `wookiee-discovery`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {

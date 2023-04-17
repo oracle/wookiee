@@ -18,11 +18,12 @@ package com.oracle.infy.wookiee.component.akkahttp.logging
 
 import akka.http.scaladsl.model.{DateTime, StatusCode}
 import com.oracle.infy.wookiee.component.akkahttp.routes.AkkaHttpRequest
-import com.oracle.infy.wookiee.logging.Logger
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import org.slf4j.Logger
 
-object AccessLog {
+object AccessLog extends LoggingAdapter {
   val host: String = java.net.InetAddress.getLocalHost.getHostName
-  val accessLog: Logger = Logger("AccessLog")
+  val accessLog: Logger = log
 
   def logAccess(request: AkkaHttpRequest, accessLogId: String, statusCode: StatusCode): Unit = {
 
