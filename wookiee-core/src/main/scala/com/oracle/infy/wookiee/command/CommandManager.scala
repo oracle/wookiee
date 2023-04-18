@@ -20,7 +20,7 @@ import akka.actor.{ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.routing.{FromConfig, RoundRobinPool}
 import akka.util.Timeout
-import com.oracle.infy.wookiee.HarnessConstants
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
 import com.oracle.infy.wookiee.app.HarnessActor.SystemReady
 import com.oracle.infy.wookiee.app.PrepareForShutdown
 
@@ -54,6 +54,7 @@ case class ExecuteRemoteCommand[Input <: Product: ClassTag, Output <: Any: Class
 
 class CommandManager extends PrepareForShutdown {
   import context.dispatcher
+  CommandManager.registerMediator(CommandManager.getInstanceId(config), this)
 
   // map that stores the name of the command with the actor it references
   val commandMap: mutable.Map[String, ActorRef] = mutable.Map[String, ActorRef]()
@@ -151,6 +152,6 @@ class CommandManager extends PrepareForShutdown {
   }
 }
 
-object CommandManager {
+object CommandManager extends Mediator[CommandManager] {
   def props: Props = Props[CommandManager]()
 }

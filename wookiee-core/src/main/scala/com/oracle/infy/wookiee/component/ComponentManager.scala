@@ -270,13 +270,31 @@ class ComponentManager extends PrepareForShutdown {
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
     case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()
     case ComponentStarted(name)             => componentStarted(name, sender())
-    case SystemReady                        => context.children.foreach(ref => ref ! SystemReady)
+    case SystemReady =>
+      context.children.foreach(ref => ref ! SystemReady)
+      tryAndLogError(
+        componentsForSystem
+          .collect({ case ci2: ComponentInfoV2 => ci2 })
+          .foreach(ci => ci.component.systemReady()),
+        Some("Failed to call systemReady on component")
+      )
+      ()
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
     case _ => // Ignore
   }
 
+  override def prepareForShutdown(): Unit = {
+    super.prepareForShutdown()
+    componentsForSystem
+      .collect {
+        case ci2: ComponentInfoV2 => ci2
+      }
+      .foreach(ci => ci.component.prepareForShutdown())
+  }
+
+  // TODO: Add in comp v2 support
   protected def reloadComponent(file: File, classLoader: Option[HarnessClassLoader]): Future[Boolean] = {
     try {
       val hClassLoader = getOrDefaultClassLoader(classLoader)
@@ -342,6 +360,22 @@ class ComponentManager extends PrepareForShutdown {
     }
   }
 
+  private def shutdownOnFailure(): Unit = ComponentManager.failedComponents match {
+    case Some(n) =>
+      log.error(s"Failed to load component [$n]")
+      Harness.shutdown()(context.system)
+    case None => //ignore
+  }
+
+  private def componentV2Started(compInfo: ComponentInfoV2): Unit = {
+    sendReadinessToAllStarted(compInfo)
+    if (componentsInitialized) {
+      compInfo.component.systemReady()
+    } else {
+      shutdownOnFailure()
+    }
+  }
+
   private def componentStarted(name: String, compRef: ActorRef): Unit = {
     log.debug(s"Received start message from component $name")
     val compInfo = ComponentInfoAkka(name, ComponentState.Started, compRef)
@@ -355,12 +389,7 @@ class ComponentManager extends PrepareForShutdown {
     } else if (ComponentManager.isAllComponentsStarted) {
       validateComponentStartup()
     } else {
-      ComponentManager.failedComponents match {
-        case Some(n) =>
-          log.error(s"Failed to load component [$n]")
-          Harness.shutdown()(context.system)
-        case None => //ignore
-      }
+      shutdownOnFailure()
     }
   }
 
@@ -526,27 +555,24 @@ class ComponentManager extends PrepareForShutdown {
       require(className.nonEmpty, "Manager for component not set.")
 
       val clazz = hClassLoader.loadClass(className)
-      var component = None: Option[ComponentInfo]
       clazz match {
         case c if classOf[Component].isAssignableFrom(c) =>
-          component = Some(
-            initComponentActor(componentName, clazz)
-          )
+          val info = initComponentActor(componentName, clazz)
+          ComponentManager.setComponentInfo(info)
+          Some(info)
         case c if classOf[ComponentV2].isAssignableFrom(c) =>
-          component = Some(
-            initComponentV2(componentName, clazz.asSubclass(classOf[ComponentV2]))
-          )
+          val info = initComponentV2(componentName, clazz.asSubclass(classOf[ComponentV2]))
+          ComponentManager.setComponentInfo(info)
+          componentV2Started(info)
+          Some(info)
         case _ =>
           log.warn(
             s"Could not load manager [${clazz.getName}] with superclass " +
               s"[${Option(clazz.getSuperclass).map(_.getName).getOrElse("none")}] " +
               s"for [$componentName]. Not an instance of Component"
           )
+          None
       }
-      component.foreach { c =>
-        ComponentManager.setComponentInfo(c)
-      }
-      component
     } catch {
       case ex: Throwable =>
         log.error(s"Failed to load manager class [$className] for component [$componentName]", ex)
@@ -554,12 +580,17 @@ class ComponentManager extends PrepareForShutdown {
     }
 
   // New initialization method for V2 components
-  def initComponentV2(componentName: String, clazz: Class[_ <: ComponentV2]): ComponentInfoV2 = {
-    log.info(s"Loading V2 component [$componentName]")
-    val componentStart = ClassUtil.instantiateClass(clazz, componentName, config)
-    componentStart.start()
-    ComponentInfoV2(componentName, ComponentState.Initializing, componentStart)
-  }
+  def initComponentV2(componentName: String, clazz: Class[_ <: ComponentV2]): ComponentInfoV2 =
+    try {
+      log.info(s"Loading V2 component [$componentName]")
+      val componentStart = ClassUtil.instantiateClass(clazz, componentName, config)
+      componentStart.start()
+      ComponentInfoV2(componentName, ComponentState.Started, componentStart)
+    } catch {
+      case ex: Throwable =>
+        log.error(s"Failed to load manager class [$clazz] for component [$componentName]", ex)
+        ComponentInfoV2(componentName, ComponentState.Failed, ComponentV2(componentName, config))
+    }
 
   /**
     * Initializes the component actor

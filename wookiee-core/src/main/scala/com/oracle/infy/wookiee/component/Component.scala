@@ -106,25 +106,6 @@ abstract case class Component(override val name: String) extends WookieeComponen
     // after completion of this, we need to send the started message from the component
     context.parent ! ComponentStarted(self.path.name)
   }
-
-  /**
-    * Any logic to stop the component
-    * @deprecated Use prepareForShutdown() instead, shouldn't require additional changes
-    */
-  @deprecated("Use prepareForShutdown() instead, shouldn't require additional changes", "2.3.26")
-  def stop(): Unit = {}
-
-  /**
-    * Any logic to run once we get the shutdown message but before we begin killing actors
-    * When overriding this method, be sure to call super.prepareForShutdown() at the end
-    * of the method
-    * Note that this calls the deprecated stop() method, and that will be removed at some point
-    */
-  @nowarn override def prepareForShutdown(): Unit = {
-    log.info(s"COMP400: [$name] prepared for shutdown")
-    // Will keep this in until everyone has moved to prepareForShutdown() instead of stop()
-    stop()
-  }
 }
 
 object Component {

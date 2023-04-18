@@ -4,8 +4,9 @@ import akka.actor.ActorSystem
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
+import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
-import com.oracle.infy.wookiee.component.TestComponentV2.wasStarted
+import com.oracle.infy.wookiee.component.TestComponentV2.{systemWasReady, wasShutdown, wasStarted}
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeHealth}
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
@@ -20,6 +21,10 @@ import scala.concurrent.duration._
 
 object TestComponentV2 {
   val wasStarted: AtomicBoolean = new AtomicBoolean(false)
+  val oneSawTwo: AtomicBoolean = new AtomicBoolean(false)
+  val twoSawOne: AtomicBoolean = new AtomicBoolean(false)
+  val systemWasReady: AtomicBoolean = new AtomicBoolean(false)
+  val wasShutdown: AtomicBoolean = new AtomicBoolean(false)
 }
 
 class TestComponentV2(name: String, config: Config) extends ComponentV2(name, config) {
@@ -32,6 +37,13 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
     override val name: String = "test-child"
   }
 
+  override def onComponentReady(info: ComponentInfo): Unit =
+    if (info.name == "component-v2") {
+      TestComponentV2.twoSawOne.set(true)
+    } else if (info.name == "component-v2-copy") {
+      TestComponentV2.oneSawTwo.set(true)
+    }
+
   override def getDependentHealths: Iterable[WookieeHealth] = List(new HealthTest)
 
   override def getHealth: Future[HealthComponent] =
@@ -39,6 +51,12 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
 
   override def start(): Unit =
     wasStarted.set(true)
+
+  override def systemReady(): Unit =
+    systemWasReady.set(true)
+
+  override def prepareForShutdown(): Unit =
+    wasShutdown.set(true)
 }
 
 class ComponentV2Spec
@@ -48,6 +66,10 @@ class ComponentV2Spec
         ConfigFactory.parseString("""
     |instance-id = "component-test"
     |component-v2 {
+    |  enabled = true
+    |  manager = "com.oracle.infy.wookiee.component.TestComponentV2"
+    |}
+    |component-v2-copy {
     |  enabled = true
     |  manager = "com.oracle.infy.wookiee.component.TestComponentV2"
     |}
@@ -64,6 +86,8 @@ class ComponentV2Spec
   "ComponentV2" should {
     val componentManager = system.actorOf(ComponentManager.props)
     componentManager ! LoadComponent("component-v2", "com.oracle.infy.wookiee.component.TestComponentV2")
+    componentManager ! LoadComponent("component-v2-copy", "com.oracle.infy.wookiee.component.TestComponentV2")
+    componentManager ! InitializeComponents
 
     "be able to start a component" in {
       val result = ThreadUtil.awaitResult({ if (wasStarted.get()) Some(true) else None })
@@ -81,6 +105,33 @@ class ComponentV2Spec
             components = List(HealthComponent("test-child", ComponentState.DEGRADED, "test-detail-inner"))
           )
       }
+    }
+
+    "be alerted when another component has come up" in {
+      val resOne = ThreadUtil.awaitResult({
+        if (TestComponentV2.oneSawTwo.get()) Some(true) else None
+      })
+      resOne mustBe true
+      val resTwo = ThreadUtil.awaitResult({
+        if (TestComponentV2.twoSawOne.get()) Some(true) else None
+      })
+      resTwo mustBe true
+    }
+
+    "be alerted when the system is ready" in {
+      componentManager ! SystemReady
+      val res = ThreadUtil.awaitResult({
+        if (TestComponentV2.systemWasReady.get()) Some(true) else None
+      })
+      res mustBe true
+    }
+
+    "be alerted when the system is shutting down" in {
+      componentManager ! PrepareForShutdown
+      val res = ThreadUtil.awaitResult({
+        if (TestComponentV2.wasShutdown.get()) Some(true) else None
+      })
+      res mustBe true
     }
   }
 }

@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component
 
+import com.oracle.infy.wookiee.app.WookieeShutdown
 import com.oracle.infy.wookiee.component.ComponentState.ComponentState
 import com.oracle.infy.wookiee.health.WookieeHealth
 
@@ -15,7 +16,7 @@ object ComponentState extends Enumeration {
 }
 case class ComponentInfoV2(name: String, state: ComponentState, component: ComponentV2) extends ComponentInfo
 
-trait WookieeComponent extends WookieeHealth {
+trait WookieeComponent extends WookieeHealth with WookieeShutdown {
   val name: String
 
   /**
@@ -27,13 +28,6 @@ trait WookieeComponent extends WookieeHealth {
     * Any logic to run once all (non-hot deployed) components are up
     */
   def systemReady(): Unit = {}
-
-  /**
-    * Any logic to run once we get the shutdown message but before we begin killing executors
-    */
-  def prepareForShutdown(): Unit = {
-    log.info(s"COMP400: [$name] prepared for shutdown")
-  }
 
   /**
     * Can override to act when another Wookiee Component comes up. This method will be hit when each
