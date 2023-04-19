@@ -18,12 +18,16 @@ private[wookiee] object GRPCUtils {
   protected[wookiee] def curatorFramework(
       zookeeperQuorum: String,
       zookeeperBlockingExecutionContext: ExecutionContext,
-      retryPolicy: RetryPolicy
-  ): CuratorFramework =
+      retryPolicy: RetryPolicy,
+      retryPeriodMs: Int = 15000
+  ): CuratorFramework = {
     CuratorFrameworkFactory
       .builder()
       .runSafeService(scalaToJavaExecutor(zookeeperBlockingExecutionContext))
       .connectString(zookeeperQuorum)
       .retryPolicy(retryPolicy)
+      .sessionTimeoutMs(retryPeriodMs)
+      .connectionTimeoutMs(retryPeriodMs)
       .build()
+  }
 }

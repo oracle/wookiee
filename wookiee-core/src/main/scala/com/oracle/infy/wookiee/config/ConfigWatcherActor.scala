@@ -35,7 +35,6 @@ class ConfigWatcherActor extends HActor {
   val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
   var configDir: Path = Paths.get(".")
   val watchThread = new Thread(new DirectoryWatcher)
-  var brokenKeys = List()
   var configExists = false
 
   override def preStart(): Unit = {

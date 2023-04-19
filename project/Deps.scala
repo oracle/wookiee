@@ -6,12 +6,15 @@ object Deps {
     val akkaVersion = "2.7.0"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
+    val scalametaVersion = "4.7.6"
+    val scalafmtDynVersion = "3.7.3"
+
     val curatorVersion = "5.3.0"
     val catsVersion = "2.9.0"
-    val catsEffectVersion = "3.4.7"
+    val catsEffectVersion = "3.4.8"
     val log4CatsVersion = "2.5.0"
     // Provides jawn-parser 1.3.2
-    val circeVersion = "0.14.4"
+    val circeVersion = "0.14.5"
     val µTestVersion = "0.8.1"
     val scalacheckVersion = "1.17.0"
     val scalatestVersion = "3.2.15"
@@ -25,20 +28,20 @@ object Deps {
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
 
-    val slf4jVersion = "1.7.36"
-    val slf4jImplVersion = "2.19.0"
-    val logbackVersion = "1.2.11"
+    val slf4jVersion = "2.0.5"
+    val slf4jImplVersion = "2.20.0"
+    val logbackVersion = "1.3.6"
     val jodaTimeVersion = "2.12.2"
     val scalaCollectionCompatVersion = "2.8.1"
     val zookeeperVersion = "3.8.1"
     val json4sVersion = "4.0.6"
     val jacksonVersion = "2.14.2"
     val http4sVersion = "0.23.18"
-    val http4sBlazeVersion = "0.23.13"
-    val dropwizardVersion = "4.2.16"
-    val akkaHttpVersion = "10.4.0"
+    val http4sBlazeVersion = "0.23.14"
+    val dropwizardVersion = "4.2.17"
+    val akkaHttpVersion = "10.5.0"
     val akkaHttpJson4sVersion = "1.39.2"
-    val akkaHttpCorsVersion = "1.1.3"
+    val akkaHttpCorsVersion = "1.2.0"
   }
 
   object build {
@@ -95,20 +98,28 @@ object Deps {
       logbackClassic
     )
 
+    val scalaMeta: ModuleID = "org.scalameta" %% "scalameta" % scalametaVersion
+    val scalaFmtDyn: ModuleID = "org.scalameta" %% "scalafmt-dynamic" % scalafmtDynVersion
     val scalaStm: ModuleID = "org.scala-stm" %% "scala-stm" % scalaStmVersion
     val catsCore: ModuleID = "org.typelevel" %% "cats-core" % catsVersion
     val catsEffect: ModuleID = "org.typelevel" %% "cats-effect" % catsEffectVersion
+    val catsEffectStd: ModuleID = "org.typelevel" %% "cats-effect-std" % catsEffectVersion
     val catsKernel: ModuleID = "org.typelevel" %% "cats-kernel" % catsVersion
 
     val cats: Seq[ModuleID] = Seq(
       catsCore,
       catsEffect,
-      catsKernel
+      catsKernel,
+      catsEffectStd
     )
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
-    val log4CatsCore: ModuleID = "org.typelevel" %% "log4cats-core" % log4CatsVersion
-    val log4CatsSlf4J: ModuleID = "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion
+
+    val log4CatsCore: ModuleID =
+      "org.typelevel" %% "log4cats-core" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
+
+    val log4CatsSlf4J: ModuleID =
+      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
 
     val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
     val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion

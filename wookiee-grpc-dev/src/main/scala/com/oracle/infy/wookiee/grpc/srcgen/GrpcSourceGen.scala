@@ -1,3 +1,4 @@
+// scalafix:off
 package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel._
@@ -5,6 +6,7 @@ import com.oracle.infy.wookiee.grpc.srcgen.implicits.MultiversalEquality
 
 import scala.meta.{Term, _}
 
+// TODO: This class will need a major refactor to migrate past deprecated unapply patterns
 object GrpcSourceGen {
 
   implicit class Transpiler(lhs: Model) {

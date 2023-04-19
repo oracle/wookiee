@@ -138,7 +138,7 @@ abstract class Component(name: String) extends HActor with ComponentHelper {
   @nowarn def prepareForShutdown(): Unit = {
     log.info(s"COMP400: [$name] prepared for shutdown")
     // Will keep this in until everyone has moved to prepareForShutdown() instead of stop()
-    stop() // scalafix:ok
+    stop()
   }
 }
 

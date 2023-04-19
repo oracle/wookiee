@@ -21,6 +21,8 @@ object TestModels {
        |      zk-discovery-path = "/grpc/local_dev"
        |      server-host-name = "localhost"
        |      max-message-size = 10000000
+       |      retry-delay-sec = 3
+       |      zk-retry-period-sec = 3
        |    }
        |  }
        |}
