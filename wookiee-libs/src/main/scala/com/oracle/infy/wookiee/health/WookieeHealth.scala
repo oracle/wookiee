@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.health
 
-import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.app.WookieeShutdown
 import com.oracle.infy.wookiee.utils.ClassUtil
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -13,7 +13,7 @@ import scala.util.{Failure, Success}
   * of Component/Service extensions you can mix this trait into any class to enable health checks
   * as long as that class is in the chain of classes that link down from `getDependentHealths`.
   */
-trait WookieeHealth extends LoggingAdapter {
+trait WookieeHealth extends WookieeShutdown {
   // Override this with the name of the health component to show up in the check
   val name: String = ClassUtil.getSimpleNameSafe(this.getClass)
 
@@ -33,8 +33,8 @@ trait WookieeHealth extends LoggingAdapter {
   def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "Healthy"))
 
-  // Internal
-  protected def checkHealth: Future[HealthComponent] = {
+  // Internal but called from outside
+  protected[wookiee] def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
     getHealth.onComplete {

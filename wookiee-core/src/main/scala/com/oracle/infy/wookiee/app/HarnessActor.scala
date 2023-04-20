@@ -108,6 +108,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
   var componentActor: Option[ActorRef] = None
   var componentReloadActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
+  var supervisor: Option[WookieeSupervisor] = None
   var dispatchManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
@@ -164,17 +165,26 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
   /**
     * Start the core services
     */
-  private def initialize(): Unit = {
-    startHealth
-    startConfigWatcher
-    if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
-      commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager.get.path)
+  private def initialize(): Unit =
+    try {
+      startHealth
+      startConfigWatcher
+      if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(
+            HarnessConstants.KeyCommandsEnabled
+          )) {
+        commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
+        supervisor = Some(new WookieeSupervisor(config))
+        supervisor.foreach(_.startSupervising())
+        log.info("Command Managers started: {}", commandManager.get.path)
+      }
+      componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
+      log.info("Component Manager started: {}", componentActor.get.path)
+      componentActor.get ! InitializeComponents
+    } catch {
+      case e: Exception =>
+        log.error("Error starting core services", e)
+        shutdownCoreServices()
     }
-    componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component Manager started: {}", componentActor.get.path)
-    componentActor.get ! InitializeComponents
-  }
 
   private def initializationComplete(): Unit =
     // Wait for the child actors above to be loaded before calling on the services
@@ -209,6 +219,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
       val tmpComp = componentActor
       val tmpCmd = commandManager
       val tmpDis = dispatchManager
+      Try(supervisor.foreach(_.prepareForShutdown()))
       prepareForShutdown(tmpService, tmpDis, tmpCmd, tmpComp) andThen {
         case _ => Try(gracefulShutdown())
       }
@@ -282,7 +293,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
         val healthComponent = (a ? CheckHealth).mapTo[HealthComponent].recover {
-          case ex: AskTimeoutException =>
+          case _: AskTimeoutException =>
             HealthComponent(a.path.name, ComponentState.DEGRADED, s"Timeout Occurred")
         }
         healthComponent

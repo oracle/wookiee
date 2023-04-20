@@ -23,13 +23,12 @@ import scala.reflect.ClassTag
 
 object CommandFactory {
 
-  def createCommand[U <: Product: ClassTag, V <: Any: ClassTag](
+  def createCommand[U <: Any: ClassTag, V <: Any: ClassTag](
       businessLogic: U => Future[V]
   ): Props = {
     class FunctionalCommand extends Command[U, V] {
-      override def execute(bean: U): Future[V] = {
+      override def execute(bean: U): Future[V] =
         businessLogic(bean)
-      }
     }
     object FunctionalCommand {
       def apply() = new FunctionalCommand()
@@ -37,7 +36,7 @@ object CommandFactory {
     Props({ FunctionalCommand() })
   }
 
-  def createCommand[U <: Product: ClassTag, V <: Any: ClassTag](
+  def createCommand[U <: Any: ClassTag, V <: Any: ClassTag](
       customUnmarshaller: Bean => U,
       businessLogic: U => Future[V],
       customMarshaller: V => Array[Byte]

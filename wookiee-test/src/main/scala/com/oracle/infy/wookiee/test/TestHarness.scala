@@ -43,7 +43,7 @@ import java.lang.management.ManagementFactory
 import java.net.ServerSocket
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
-import scala.util.Random
+import scala.util.{Random, Try}
 
 object TestHarness extends Mediator[TestHarness] {
 
@@ -144,7 +144,7 @@ class TestHarness(
   var commandManager: Option[ActorRef] = None
   var config: Config = conf.withFallback(defaultConfig)
 
-  private val instanceId: String = TestHarness.getInstanceId(config) match {
+  private val instanceId: String = Try(TestHarness.getInstanceId(config)).getOrElse("wookiee") match {
     case "wookiee" =>
       val inst = s"test-${Random.nextInt(1000000)}"
       config = ConfigFactory

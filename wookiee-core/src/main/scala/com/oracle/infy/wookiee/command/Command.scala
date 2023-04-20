@@ -27,11 +27,9 @@ import scala.reflect.ClassTag
   * the logic that is defined for the end point and returns the response. It should not ever deal with the
   * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
   * deal with any storage or caching or anything like that.
-  *
-  * @author Michael Cuthbert on 12/1/14.
   */
-abstract class Command[Input <: Product: ClassTag, Output <: Any: ClassTag]
-    extends BaseCommand
+abstract class Command[Input <: Any: ClassTag, Output <: Any: ClassTag]
+    extends WookieeCommand[Input, Output]
     with HActor
     with CommandHelper {
   import context.dispatcher
@@ -43,12 +41,6 @@ abstract class Command[Input <: Product: ClassTag, Output <: Any: ClassTag]
         ()
       case _ => // ignore all other messages to this actor
     }: Receive)
-
-  /**
-    * The primary entry point for the command, the actor for this command
-    * will ignore all other messaging and only execute through this
-    */
-  def execute(bean: Input): Future[Output]
 }
 
 object CommandBeanHelper {

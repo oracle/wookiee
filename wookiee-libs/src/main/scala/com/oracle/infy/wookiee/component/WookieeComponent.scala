@@ -1,6 +1,5 @@
 package com.oracle.infy.wookiee.component
 
-import com.oracle.infy.wookiee.app.WookieeShutdown
 import com.oracle.infy.wookiee.component.ComponentState.ComponentState
 import com.oracle.infy.wookiee.health.WookieeHealth
 
@@ -16,7 +15,7 @@ object ComponentState extends Enumeration {
 }
 case class ComponentInfoV2(name: String, state: ComponentState, component: ComponentV2) extends ComponentInfo
 
-trait WookieeComponent extends WookieeHealth with WookieeShutdown {
+trait WookieeComponent extends WookieeHealth {
   val name: String
 
   /**

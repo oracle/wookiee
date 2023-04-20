@@ -32,5 +32,6 @@ trait BaseWookieeTest {
   Thread.sleep(1000)
   implicit val system: ActorSystem = testWookiee.system
 
+  def getWookieeInstanceId: String = testWookiee.getInstanceId
   def shutdown(): Unit = TestHarness.shutdown()
 }

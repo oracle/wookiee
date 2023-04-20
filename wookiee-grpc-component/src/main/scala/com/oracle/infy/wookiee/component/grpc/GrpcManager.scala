@@ -41,7 +41,8 @@ object GrpcManager extends Mediator[ActorRef] {
 
   // Actor of type GrpcManager
   // @throws IllegalStateException if manager has not been registered
-  def getGrpcManager(system: ActorSystem): ActorRef = getMediator(system.name)
+  def getGrpcManager(system: ActorSystem): ActorRef = getGrpcManager(system.settings.config)
+  def getGrpcManager(config: Config): ActorRef = getMediator(getInstanceId(config))
 
   /**
     * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
@@ -52,6 +53,11 @@ object GrpcManager extends Mediator[ActorRef] {
     */
   def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit = {
     registerGrpcService(system, groupName, defs.asScala)
+  }
+
+  def registerGrpcService(config: Config, groupName: String, defs: List[GrpcDefinition]): Unit = {
+    val manager = getGrpcManager(config)
+    manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
   def registerGrpcService(system: ActorSystem, groupName: String, defs: List[GrpcDefinition]): Unit = {
@@ -65,21 +71,27 @@ object GrpcManager extends Mediator[ActorRef] {
   def initializeGrpcNow(system: ActorSystem): Unit =
     getGrpcManager(system) ! InitializeServers()
 
+  def initializeGrpcNow(config: Config): Unit =
+    getGrpcManager(config) ! InitializeServers()
+
   def waitForManager(system: ActorSystem): Unit =
     waitForManager(system, waitForClean = false)
 
   def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit =
     waitForManager(system, waitForClean = waitForClean, 30)
 
+  def waitForManager(system: ActorSystem, waitForClean: Boolean, secondsToWait: Int): Unit =
+    waitForManager(system.settings.config, waitForClean = waitForClean, secondsToWait = secondsToWait)
+
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
-  def waitForManager(system: ActorSystem, waitForClean: Boolean, secondsToWait: Int): Unit = {
+  def waitForManager(config: Config, waitForClean: Boolean, secondsToWait: Int): Unit = {
     log.info("WGM300: Waiting for grpc manager to report clean")
-    implicit val mainEC: ExecutionContext = system.dispatcher
     implicit val timeout: Timeout = Timeout(5.seconds)
+    import scala.concurrent.ExecutionContext.Implicits.global
 
     def cleanCheck(): Boolean = {
-      maybeGetMediator(system.name) match {
+      maybeGetMediator(getInstanceId(config)) match {
         case Some(grpcManagerActor) =>
           try {
             val resp = Await.result((grpcManagerActor ? CleanCheck()).mapTo[CleanResponse], 5.seconds)

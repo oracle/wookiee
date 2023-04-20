@@ -17,6 +17,12 @@ object ThreadUtil extends LoggingAdapter {
   // If parallelism = None then we'll use a cached thread pool with no size limit, if Some(1) we'll use a single thread pool
   def createEC(threadNames: String): ExecutionContext = createEC(threadNames, None)
 
+  /**
+    * Creates an ExecutionContext with the given thread name prefix and parallelism
+    * @param threadNames - Be sure threadNames is unique or it could lead to deadlocks
+    * @param parallelism - If parallelism = None then we'll use a cached thread pool with no size limit, if Some(1) we'll use a single thread pool
+    * @return - ExecutionContext
+    */
   def createEC(
       threadNames: String,
       parallelism: Option[Int]
@@ -49,6 +55,7 @@ object ThreadUtil extends LoggingAdapter {
     ioRuntime(mainEC, blockingEC, scheduled)
   }
 
+  // Creates an IORuntime with the given thread name prefix and parallelism
   def ioRuntime(
       mainEC: ExecutionContext,
       blockingEC: ExecutionContext,
@@ -56,6 +63,7 @@ object ThreadUtil extends LoggingAdapter {
   ): IORuntime =
     IORuntime(mainEC, blockingEC, Scheduler.fromScheduledExecutor(scheduled), () => (), IORuntimeConfig())
 
+  // Creates a ScheduledThreadPoolExecutor with the given thread name prefix and parallelism
   def scheduledThreadPoolExecutor(
       prefix: String,
       threads: Int
