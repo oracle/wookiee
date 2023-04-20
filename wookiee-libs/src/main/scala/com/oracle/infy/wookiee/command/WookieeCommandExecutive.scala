@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.command
 
 import com.oracle.infy.wookiee.Mediator
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeHealth}
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 import com.typesafe.config.Config
 
 import java.util.concurrent.ConcurrentHashMap
@@ -11,8 +11,9 @@ import scala.jdk.CollectionConverters._
 // Since this extends Mediator, can be accessed to retrieve current instance of WookieeCommandManager
 object WookieeCommandExecutive extends Mediator[WookieeCommandExecutive]
 
+// This is the class that will be used to store and execute V2 commands
 class WookieeCommandExecutive(override val name: String, config: Config)(implicit ec: ExecutionContext)
-    extends WookieeHealth {
+    extends WookieeMonitor {
   import WookieeCommandExecutive._
   registerMediator(getInstanceId(config), this)
 
@@ -50,7 +51,7 @@ class WookieeCommandExecutive(override val name: String, config: Config)(implici
   // Call this to retrieve a previously registered command
   def getCommand(name: String): Option[WookieeCommand[Any, Any]] = Option(commands.get(name))
 
-  override def getDependentHealths: Iterable[WookieeHealth] =
+  override def getDependentHealths: Iterable[WookieeMonitor] =
     commands.values().asScala.toList
 
   override def getHealth: Future[HealthComponent] = {

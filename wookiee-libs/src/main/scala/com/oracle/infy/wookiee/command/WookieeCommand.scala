@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.command
 
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeHealth}
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 import com.oracle.infy.wookiee.utils.WookieeOperations
 
 import scala.concurrent.Future
@@ -12,7 +12,7 @@ import scala.reflect.ClassTag
   * and the execute method is the primary entry point for the command.
   */
 abstract class WookieeCommand[-Input <: Any: ClassTag, +Output <: Any: ClassTag]
-    extends WookieeHealth
+    extends WookieeMonitor
     with WookieeOperations {
   def commandName: String = name
 

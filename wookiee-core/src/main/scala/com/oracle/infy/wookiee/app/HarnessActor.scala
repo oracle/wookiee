@@ -62,7 +62,7 @@ trait HActor extends Actor with LoggingAdapter with ActorHealth {
   override def receive: Receive = health
 }
 
-trait PrepareForShutdown extends HActor with WookieeShutdown {
+trait PrepareForShutdown extends HActor {
 
   override def receive: Receive = health orElse {
     case PrepareForShutdown =>

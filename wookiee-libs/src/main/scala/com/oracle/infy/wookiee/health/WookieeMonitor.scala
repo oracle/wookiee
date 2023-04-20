@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.health
 
-import com.oracle.infy.wookiee.app.WookieeShutdown
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ClassUtil
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -13,7 +13,7 @@ import scala.util.{Failure, Success}
   * of Component/Service extensions you can mix this trait into any class to enable health checks
   * as long as that class is in the chain of classes that link down from `getDependentHealths`.
   */
-trait WookieeHealth extends WookieeShutdown {
+trait WookieeMonitor extends LoggingAdapter {
   // Override this with the name of the health component to show up in the check
   val name: String = ClassUtil.getSimpleNameSafe(this.getClass)
 
@@ -21,7 +21,7 @@ trait WookieeHealth extends WookieeShutdown {
     * Should return a list of child components that should be checked for health
     * and aggregated along with this class's health
     */
-  def getDependentHealths: Iterable[WookieeHealth] = List()
+  def getDependentHealths: Iterable[WookieeMonitor] = List()
 
   /**
     * This is the health of the current object, by default will be NORMAL
@@ -33,8 +33,22 @@ trait WookieeHealth extends WookieeShutdown {
   def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "Healthy"))
 
+  /**
+    * Any logic to run once we get the shutdown message but before we begin killing executors.
+    * Will be called for all dependent components as well.
+    */
+  def prepareForShutdown(): Unit =
+    getDependentHealths.foreach { comp =>
+      try {
+        comp.prepareForShutdown()
+      } catch {
+        case ex: Throwable =>
+          log.error(s"Entity [${comp.name}] failed to prepare for shutdown", ex)
+      }
+    }
+
   // Internal but called from outside
-  protected[wookiee] def checkHealth: Future[HealthComponent] = {
+  def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
     getHealth.onComplete {
@@ -51,7 +65,7 @@ trait WookieeHealth extends WookieeShutdown {
   // Go through each `getDependentHealths`
   protected def checkHealthOfChildren(
       parentStatus: HealthComponent,
-      current: WookieeHealth
+      current: WookieeMonitor
   ): Future[HealthComponent] = {
     val healthFutures = current.getDependentHealths map { ref =>
       ref

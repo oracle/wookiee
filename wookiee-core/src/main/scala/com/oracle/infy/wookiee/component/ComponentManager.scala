@@ -25,7 +25,7 @@ import com.oracle.infy.wookiee.app.HarnessActor.{
   SystemReady
 }
 import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
-import com.oracle.infy.wookiee.health.{HealthComponent, WookieeHealth}
+import com.oracle.infy.wookiee.health.{HealthComponent, WookieeMonitor}
 import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{AkkaUtil, ClassUtil, ConfigUtil, FileUtil}
 import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
@@ -656,14 +656,14 @@ class ComponentManager extends PrepareForShutdown {
   override val name: String = "component-manager"
 
   // Override to call both Component V1 and V2 health checks
-  override protected def checkHealth: Future[HealthComponent] =
+  override def checkHealth: Future[HealthComponent] =
     super.checkHealth.flatMap(checkHealthOfChildren(_, this))
 
   /**
     * Should return a list of child components that will be checked for health
     * and aggregated along with this class's health
     */
-  override def getDependentHealths: Iterable[WookieeHealth] =
+  override def getDependentHealths: Iterable[WookieeMonitor] =
     getMediator(getInstanceId(config))
       .values()
       .asScala

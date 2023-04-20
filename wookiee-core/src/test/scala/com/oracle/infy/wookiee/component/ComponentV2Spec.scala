@@ -7,7 +7,7 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
 import com.oracle.infy.wookiee.component.TestComponentV2.{systemWasReady, wasShutdown, wasStarted}
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeHealth}
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
@@ -29,7 +29,7 @@ object TestComponentV2 {
 
 class TestComponentV2(name: String, config: Config) extends ComponentV2(name, config) {
 
-  class HealthTest extends WookieeHealth {
+  class HealthTest extends WookieeMonitor {
 
     override def getHealth: Future[HealthComponent] =
       Future.successful(HealthComponent(name, ComponentState.DEGRADED, "test-detail-inner"))
@@ -44,7 +44,7 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
       TestComponentV2.oneSawTwo.set(true)
     }
 
-  override def getDependentHealths: Iterable[WookieeHealth] = List(new HealthTest)
+  override def getDependentHealths: Iterable[WookieeMonitor] = List(new HealthTest)
 
   override def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "test-detail"))
@@ -97,13 +97,20 @@ class ComponentV2Spec
     "be able to get health of that component" in {
       val health = (componentManager ? CheckHealth).mapTo[HealthComponent]
       whenReady(health) { result =>
-        result.components.head mustBe
+        result.components must contain theSameElementsAs List(
           HealthComponent(
             "component-v2",
             ComponentState.NORMAL,
             "test-detail",
             components = List(HealthComponent("test-child", ComponentState.DEGRADED, "test-detail-inner"))
+          ),
+          HealthComponent(
+            "component-v2-copy",
+            ComponentState.NORMAL,
+            "test-detail",
+            components = List(HealthComponent("test-child", ComponentState.DEGRADED, "test-detail-inner"))
           )
+        )
       }
     }
 

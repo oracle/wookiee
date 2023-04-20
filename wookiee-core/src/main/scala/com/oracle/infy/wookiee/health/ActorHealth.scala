@@ -26,7 +26,7 @@ import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success, Try}
 
-trait ActorHealth extends WookieeHealth {
+trait ActorHealth extends WookieeMonitor {
   this: Actor =>
 
   import context.dispatcher
@@ -83,7 +83,7 @@ trait ActorHealth extends WookieeHealth {
     * behavior
     * @return An instance of a health component
     */
-  override protected def checkHealth: Future[HealthComponent] = {
+  override def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
 
     getHealth.onComplete {
