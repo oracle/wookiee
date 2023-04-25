@@ -24,7 +24,7 @@ trait DiscoverableCommandHelper {
     */
   def registerDiscoverableCommand[Input <: Any: ClassTag](
       command: DiscoverableCommand[Input, _ <: Any],
-      authToken: Option[String] = None, // scalafix:ok
+      authToken: Option[String] = None,
       intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
   )(implicit config: Config, ec: ExecutionContext): Future[Unit] = Future {
     val wookComExec = WookieeCommandExecutive.getMediator(Mediator.getInstanceId(config))

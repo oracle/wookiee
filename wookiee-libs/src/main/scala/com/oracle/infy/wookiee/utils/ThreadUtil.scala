@@ -113,28 +113,28 @@ object ThreadUtil extends LoggingAdapter {
   // A helper method to wait for a result to be Some(..), great for testing
   def awaitResult[T](
       f: => Option[T],
-      waitMs: Long = 15000L, // scalafix:ok
-      ignoreError: Boolean = true // scalafix:ok
+      waitMs: Long = 15000L,
+      ignoreError: Boolean = true
   ): T = {
     val goUntil = System.currentTimeMillis + waitMs
     while (System.currentTimeMillis < goUntil) {
       try {
         f match {
           case Some(result) =>
-            return result // scalafix:ok
+            return result
           case None =>
-            Thread.sleep(500L) // scalafix:ok
+            Thread.sleep(500L)
         }
       } catch {
         case e: Exception =>
           if (ignoreError && System.currentTimeMillis < goUntil) {
-            Thread.sleep(500L) // scalafix:ok
+            Thread.sleep(500L)
           } else {
-            throw e // scalafix:ok
+            throw e
           }
       }
     }
 
-    throw new RuntimeException("Timed out waiting for result") // scalafix:ok
+    throw new RuntimeException("Timed out waiting for result")
   }
 }

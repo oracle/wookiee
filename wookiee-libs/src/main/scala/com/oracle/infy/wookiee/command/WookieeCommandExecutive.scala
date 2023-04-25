@@ -25,7 +25,7 @@ class WookieeCommandExecutive(override val name: String, config: Config)(implici
     getCommand(name) match {
       case Some(command) =>
         Future {
-          command.execute(input).map(_.asInstanceOf[O]) // scalafix:ok
+          command.execute(input).map(_.asInstanceOf[O])
         }.flatten
       case None =>
         throw new IllegalArgumentException(s"Command $name not found.")
