@@ -4,14 +4,14 @@ import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeM
 import com.oracle.infy.wookiee.utils.WookieeOperations
 
 import scala.concurrent.Future
-import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 /**
   * A WookieeCommand is a command that can be executed by the WookieeCommandManager
   * and is a WookieeHealth component. The commandName is the name of the command
   * and the execute method is the primary entry point for the command.
   */
-abstract class WookieeCommand[-Input <: Any: ClassTag, +Output <: Any: ClassTag]
+abstract class WookieeCommand[Input <: Any: TypeTag, +Output <: Any: TypeTag]
     extends WookieeMonitor
     with WookieeOperations {
   def commandName: String = name
@@ -22,6 +22,7 @@ abstract class WookieeCommand[-Input <: Any: ClassTag, +Output <: Any: ClassTag]
     */
   def execute(args: Input): Future[Output]
 
+  // Override for custom health check logic
   override def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(commandName, ComponentState.NORMAL, s"Command [$commandName] is healthy."))
 }

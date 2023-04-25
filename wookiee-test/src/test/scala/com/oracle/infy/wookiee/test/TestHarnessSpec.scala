@@ -128,13 +128,11 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
       assert(commandManager.isDefined, "Command Manager was not registered")
       probe.send(
         commandManager.get,
-        ExecuteRemoteCommand[WeatherData, String]("WeatherCommand", bean, { (id: String, input: WeatherData) =>
-          Future.successful(s"$id-${input.name}-remote")
-        }, timeout)
+        ExecuteCommand[WeatherData, String]("WeatherCommand", bean, timeout)
       )
 
       val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
-      reply shouldBe "WeatherCommand-Seattle, WA-remote"
+      reply shouldBe "Weather: 47.608013,-122.335167|current"
     }
 
     "shutdown services and components" in {

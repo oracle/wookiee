@@ -20,10 +20,12 @@ import akka.actor.Props
 
 import scala.concurrent.Future
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 object CommandFactory {
 
-  def createCommand[U <: Any: ClassTag, V <: Any: ClassTag](
+  // Functional interface for creating a command
+  def createCommand[U <: Any: TypeTag: ClassTag, V <: Any: TypeTag](
       businessLogic: U => Future[V]
   ): Props = {
     class FunctionalCommand extends Command[U, V] {
@@ -36,7 +38,7 @@ object CommandFactory {
     Props({ FunctionalCommand() })
   }
 
-  def createCommand[U <: Any: ClassTag, V <: Any: ClassTag](
+  def createCommand[U <: Any: TypeTag, V <: Any: TypeTag](
       customUnmarshaller: Bean => U,
       businessLogic: U => Future[V],
       customMarshaller: V => Array[Byte]

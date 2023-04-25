@@ -126,9 +126,9 @@ lazy val `wookiee-libs` = project
 lazy val `wookiee-discovery` = project
   .in(file("wookiee-discovery"))
   .settings(commonSettings(false))
-  //  .settings(
-  //    libraryDependencies ++= Deps.build.core ++ Deps.test.all
-  //  )
+  .settings(
+    libraryDependencies += Deps.test.scalatest
+  )
   .dependsOn(`wookiee-grpc-component`)
   .aggregate(`wookiee-grpc-component`)
 

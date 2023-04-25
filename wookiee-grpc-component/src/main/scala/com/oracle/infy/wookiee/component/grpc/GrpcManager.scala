@@ -32,9 +32,14 @@ import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.Try
+
+// Useful for storing channels that have already been created and re-using them
+object GrpcChannelManager extends Mediator[TrieMap[ChannelKey, WookieeGrpcChannel]]
+case class ChannelKey(zkPath: String, zkConnect: String, bearerToken: String)
 
 object GrpcManager extends Mediator[ActorRef] {
   val ComponentName = "wookiee-grpc-component"
@@ -51,9 +56,8 @@ object GrpcManager extends Mediator[ActorRef] {
     * @param defs The list of GrpcDefinition objects we'll use to know what to register
     * @throws IllegalStateException If manager actor hasn't started yet, consider calling waitForManager(system) if this happens
     */
-  def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit = {
+  def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit =
     registerGrpcService(system, groupName, defs.asScala)
-  }
 
   def registerGrpcService(config: Config, groupName: String, defs: List[GrpcDefinition]): Unit = {
     val manager = getGrpcManager(config)
@@ -152,6 +156,28 @@ object GrpcManager extends Mediator[ActorRef] {
     createChannel(zkPath, curator, bearerToken, sslClientSettings, maxMessageSize)
   }
 
+  /**
+    * Will return a channel from the mediator if it exists,
+    * otherwise it will create a new channel and add it to the mediator
+    */
+  def getChannelFromMediator(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int
+  )(implicit config: Config): WookieeGrpcChannel = {
+    val channelMap = GrpcChannelManager.getMediator(getInstanceId(config))
+    channelMap.get(ChannelKey(zkPath, zkConnect, bearerToken)) match {
+      case Some(channel) =>
+        channel
+      case None =>
+        val channel = createChannel(zkPath, zkConnect, bearerToken, sslClientSettings, maxMessageSize)
+        channelMap.put(ChannelKey(zkPath, zkConnect, bearerToken), channel)
+        channel
+    }
+  }
+
   def createChannel(
       zkPath: String,
       curatorFramework: CuratorFramework,
@@ -244,7 +270,8 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
 
     log.info(s"WGM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
     // Register this actor so others can access it
-    GrpcManager.registerMediator(context.system.name, self)
+    GrpcManager.registerMediator(getInstanceId(config), self)
+    GrpcChannelManager.registerMediator(getInstanceId(config), new TrieMap[ChannelKey, WookieeGrpcChannel]())
     context.become(clean(Map(), None))
   }
 
@@ -253,7 +280,9 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
     super.postStop()
 
     log.info(s"WGM400: Stopping the gRPC Manager and shutting down server..")
-    GrpcManager.unregisterMediator(actorSystem.name)
+    GrpcManager.unregisterMediator(getInstanceId(config))
+    GrpcChannelManager.maybeGetMediator(getInstanceId(config)).foreach(_.values.foreach(_.shutdown(true)))
+    GrpcChannelManager.unregisterMediator(getInstanceId(config))
     server
       .get()
       .map(_.shutdown().unsafeToFuture())
@@ -320,7 +349,7 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
       case _: GrpcDefinitionsAck => // Do nothing, this is for other actors that want an Ack
     }
 
-  override protected def getHealth: Future[HealthComponent] =
+  override def getHealth: Future[HealthComponent] =
     Future.successful(healthRef.get())
 
   private def shutdownCurrent(currentServer: Option[WookieeGrpcServer]): EitherT[IO, WookieeGrpcError, Unit] =

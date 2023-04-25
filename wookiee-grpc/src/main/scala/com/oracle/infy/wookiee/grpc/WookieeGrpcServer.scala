@@ -171,7 +171,12 @@ object WookieeGrpcServer {
                   )
                   .*>(builderIO)
                   .map { builder =>
-                    builder.addService(serverServiceDefinition)
+                    val interceptors = maybeInterceptors.getOrElse(
+                      List()
+                    )
+                    builder.addService(
+                      ServerInterceptors.intercept(serverServiceDefinition, interceptors: _*)
+                    )
                   }
               )
         }

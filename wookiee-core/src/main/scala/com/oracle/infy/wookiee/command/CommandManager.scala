@@ -20,13 +20,14 @@ import akka.actor.{ActorRef, Props}
 import akka.pattern.{ask, pipe}
 import akka.routing.{FromConfig, RoundRobinPool}
 import akka.util.Timeout
-import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
 import com.oracle.infy.wookiee.app.HarnessActor.SystemReady
 import com.oracle.infy.wookiee.app.PrepareForShutdown
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
 
 import scala.collection.mutable
 import scala.concurrent.Future
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 /**
   * @author Michael Cuthbert & Spencer Wood
@@ -36,19 +37,12 @@ sealed trait AddCommands {
 }
 
 case class AddCommandWithProps(id: String, props: Props, checkHealth: Boolean = false) extends AddCommands
-case class AddCommand[T: ClassTag](id: String, actorClass: Class[T], checkHealth: Boolean = false) extends AddCommands
+case class AddCommand[T: TypeTag](id: String, actorClass: Class[T], checkHealth: Boolean = false) extends AddCommands
 case class GetCommands()
 
-case class ExecuteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+case class ExecuteCommand[Input <: Any: TypeTag, Output <: Any: TypeTag](
     id: String,
     bean: Input,
-    timeout: Timeout
-)
-
-case class ExecuteRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
-    id: String,
-    bean: Input,
-    remoteLogic: (String, Input) => Future[Output],
     timeout: Timeout
 )
 
@@ -72,10 +66,8 @@ class CommandManager extends PrepareForShutdown {
       sender() ! addCommand(name, props, checkHealth)
     case AddCommand(name, actorClass, checkHealth) =>
       sender() ! addCommand(name, actorClass, checkHealth)
-    case exec: ExecuteCommand[Product, Any] @unchecked =>
+    case exec: ExecuteCommand[Any, Any] @unchecked =>
       pipe(executeCommand(exec)) to sender(); ()
-    case exec: ExecuteRemoteCommand[Product, Any] @unchecked =>
-      pipe(executeRemoteCommand(exec)) to sender(); ()
     case GetCommands() =>
       sender() ! getCommands
     case SystemReady => // ignore
@@ -83,7 +75,7 @@ class CommandManager extends PrepareForShutdown {
       log.warn(s"Unable to handle message type: $ex")
   }
 
-  protected def addCommand[T: ClassTag](name: String, actorClass: Class[T], checkHealth: Boolean): ActorRef = {
+  protected def addCommand[T: TypeTag](name: String, actorClass: Class[T], checkHealth: Boolean): ActorRef = {
     addCommand(name, Props(actorClass), checkHealth)
   }
 
@@ -119,22 +111,9 @@ class CommandManager extends PrepareForShutdown {
   }
 
   /**
-    * Executes a remote command and will return a BaseCommandResponse to the sender
-    * @param exec The name, server, port, and bean for the command you want to execute
-    */
-  protected def executeRemoteCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
-      exec: ExecuteRemoteCommand[Input, Output]
-  ): Future[Output] = {
-    exec.remoteLogic(exec.id, exec.bean) recover {
-      case f =>
-        throw CommandException("CommandManager", f)
-    }
-  }
-
-  /**
     * Executes a command and will return expected Output to the sender
     */
-  protected def executeCommand[Input <: Product: ClassTag, Output <: Any: ClassTag](
+  protected def executeCommand[Input <: Any: TypeTag, Output <: Any: TypeTag: ClassTag](
       exec: ExecuteCommand[Input, Output]
   ): Future[Output] = {
     getCommand(exec.id).map { ref =>

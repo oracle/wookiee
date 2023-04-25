@@ -7,6 +7,19 @@ import scala.collection.concurrent.TrieMap
 import scala.reflect.ClassTag
 import scala.util.Try
 
+object Mediator extends LoggingAdapter {
+
+  // Helper method to get the `instance-id` from the config
+  def getInstanceId(config: Config): String =
+    try {
+      Try(config.getString("instance-id")).getOrElse(config.getString("wookiee-system.instance-id"))
+    } catch {
+      case e: Exception =>
+        log.error(s"Missing 'instance-id' from top level of config, please set it to any string")
+        throw e
+    }
+}
+
 trait Mediator[T] extends LoggingAdapter {
   private val mediatorMap = TrieMap[String, T]()
 
@@ -25,9 +38,11 @@ trait Mediator[T] extends LoggingAdapter {
 
   // If not present, register the mediator using the 'create' function
   def getOrCreateMediator(instanceId: String, create: => T)(implicit classTag: ClassTag[T]): T =
-    mediatorMap.get(instanceId) match {
-      case Some(mediator) => mediator
-      case None           => registerMediator(instanceId, create)
+    mediatorMap.synchronized {
+      mediatorMap.get(instanceId) match {
+        case Some(mediator) => mediator
+        case None           => registerMediator(instanceId, create)
+      }
     }
 
   // In most cases will be called only once on startup for each class
@@ -47,12 +62,5 @@ trait Mediator[T] extends LoggingAdapter {
     }
 
   // Helper method to get the `instance-id` from the config
-  def getInstanceId(config: Config): String =
-    try {
-      Try(config.getString("instance-id")).getOrElse(config.getString("wookiee-system.instance-id"))
-    } catch {
-      case e: Exception =>
-        log.error(s"Missing 'instance-id' from top level of config, please set it to any string")
-        throw e
-    }
+  def getInstanceId(config: Config): String = Mediator.getInstanceId(config)
 }
