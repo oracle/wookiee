@@ -56,9 +56,6 @@ Add [latest version](https://github.com/oracle/wookiee/releases/latest) of wooki
 </dependency>
 ~~~~
 
-### Contributing
-This project is not accepting external contributions at this time. For bugs or enhancement requests, please file a GitHub issue unless it’s security related. When filing a bug remember that the better written the bug is, the more likely it is to be fixed. If you think you’ve found a security vulnerability, do not raise a GitHub issue and follow the instructions in our [security policy](./SECURITY.md).
-
 ### What's Included
 
 The Wookiee platform repository contains the core, supporting components and a test library. It is built primarily on Scala and [Akka](http://akka.io). It contains example projects as well as Maven archetypes for creating various service and creating a component. Wookiee is split into 2 primary components, the Wookiee library and the system components. The Wookiee library is comprised of the of the following components:
@@ -259,7 +256,7 @@ java -cp *:lib/components/*:lib/thirdparty/* com.oracle.infy.wookiee.app.Harness
 
 
 # wookiee-grpc
-## Install
+## Installation
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```scala
 libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "2.2.8"
@@ -635,7 +632,12 @@ Example.main(Array.empty[String])
 // received request
 // HelloResponse(Hello world!,UnknownFieldSet(Map()))
 ```
+## Contributing
+This project is not accepting external contributions at this time. For bugs or enhancement requests, please file a GitHub issue unless it’s security related. When filing a bug remember that the better written the bug is, the more likely it is to be fixed. If you think you’ve found a security vulnerability, do not raise a GitHub issue and follow the instructions in our [security policy](./SECURITY.md).
+
+## Security
+Please consult the [security guide](./SECURITY.md) for our responsible security vulnerability disclosure process
+
 ## License
-Copyright (c) 2004 Oracle and/or its affiliates.
-*Replace this statement if your project is not licensed under the UPL*
+Copyright (c) 2004, 2023 Oracle and/or its affiliates.
 Released under the Apache License Version 2.0
