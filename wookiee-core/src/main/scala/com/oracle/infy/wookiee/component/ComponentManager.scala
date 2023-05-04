@@ -25,7 +25,7 @@ import com.oracle.infy.wookiee.app.HarnessActor.{
   SystemReady
 }
 import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
-import com.oracle.infy.wookiee.health.{HealthComponent, WookieeMonitor}
+import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{AkkaUtil, ClassUtil, ConfigUtil, FileUtil}
 import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
@@ -275,7 +275,7 @@ class ComponentManager extends PrepareForShutdown {
       tryAndLogError(
         componentsForSystem
           .collect({ case ci2: ComponentInfoV2 => ci2 })
-          .foreach(ci => ci.component.systemReady()),
+          .foreach(ci => ci.component.propagateSystemReady()),
         Some("Failed to call systemReady on component")
       )
       ()
@@ -291,7 +291,7 @@ class ComponentManager extends PrepareForShutdown {
       .collect {
         case ci2: ComponentInfoV2 => ci2
       }
-      .foreach(ci => ci.component.prepareForShutdown())
+      .foreach(ci => ci.component.propagatePrepareForShutdown())
   }
 
   // TODO: Add in comp v2 support
@@ -350,7 +350,7 @@ class ComponentManager extends PrepareForShutdown {
   private def sendReadinessToAllStarted(compInfo: ComponentInfo): Unit = {
     def sendReady(recipient: ComponentInfo, info: ComponentInfo): Unit = recipient match {
       case recip: ComponentInfoAkka => recip.actorRef ! ComponentReady(info)
-      case recip: ComponentInfoV2   => recip.component.onComponentReady(info)
+      case recip: ComponentInfoV2   => recip.component.propagateOnComponentReady(info)
     }
 
     context.parent ! ComponentReady(compInfo)
@@ -370,7 +370,7 @@ class ComponentManager extends PrepareForShutdown {
   private def componentV2Started(compInfo: ComponentInfoV2): Unit = {
     sendReadinessToAllStarted(compInfo)
     if (componentsInitialized) {
-      compInfo.component.systemReady()
+      compInfo.component.propagateSystemReady()
     } else {
       shutdownOnFailure()
     }
@@ -584,7 +584,7 @@ class ComponentManager extends PrepareForShutdown {
     try {
       log.info(s"Loading V2 component [$componentName]")
       val componentStart = ClassUtil.instantiateClass(clazz, componentName, config)
-      componentStart.start()
+      componentStart.propagateStart()
       ComponentInfoV2(componentName, ComponentState.Started, componentStart)
     } catch {
       case ex: Throwable =>
@@ -655,15 +655,7 @@ class ComponentManager extends PrepareForShutdown {
 
   override val name: String = "component-manager"
 
-  // Override to call both Component V1 and V2 health checks
-  override def checkHealth: Future[HealthComponent] =
-    super.checkHealth.flatMap(checkHealthOfChildren(_, this))
-
-  /**
-    * Should return a list of child components that will be checked for health
-    * and aggregated along with this class's health
-    */
-  override def getDependentHealths: Iterable[WookieeMonitor] =
+  override def getDependents: Iterable[WookieeMonitor] =
     getMediator(getInstanceId(config))
       .values()
       .asScala

@@ -15,9 +15,7 @@
  */
 package com.oracle.infy.wookiee.service.messages
 
-import akka.actor.ActorPath
 import com.oracle.infy.wookiee.service.Service
-import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 
 sealed trait ServiceMessage
 
@@ -27,10 +25,9 @@ case class Ping() extends ServiceMessage
 
 case class Pong() extends ServiceMessage
 
-case class Ready(meta: ServiceMetaData) extends ServiceMessage
+case class Ready() extends ServiceMessage
 
+// @deprecated("Phasing out GetMetaDetails, switch to CheckHealth for service status", "2.4.0")
 case class GetMetaDetails() extends ServiceMessage
-
-case class GetMetaData(service: Option[ActorPath] = None) extends ServiceMessage
 
 case class LoadService(name: String, clazz: Class[_ <: Service]) extends ServiceMessage

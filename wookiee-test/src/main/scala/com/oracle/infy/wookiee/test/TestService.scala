@@ -24,7 +24,7 @@ import com.oracle.infy.wookiee.test.command.TestCommand
 import scala.concurrent.Future
 
 class TestService extends Service with ShutdownListener {
-  var metaData: Option[ServiceMetaData] = None
+  private var metaData: Option[ServiceMetaData] = None
 
   override def checkHealth: Future[HealthComponent] = {
     val comp = HealthComponent("testservice", ComponentState.NORMAL, "test")
@@ -36,12 +36,10 @@ class TestService extends Service with ShutdownListener {
 
   // Define the receive function
   override def serviceReceive: Receive = shutdownReceive orElse {
-    case Ready =>
-      sender() ! Ready
-      log.info("I am now ready: " + self.path)
-    case Ready(meta) =>
-      metaData = Some(meta)
+    case _: Ready =>
+      metaData = Some(ServiceMetaData("testservice", self))
       log.info("I am now ready, meta data set: " + self.path)
+      sender() ! Ready()
     case GetMetaDetails =>
       sender() ! ServiceMetaDetails(supportsHttp = false)
   }
@@ -50,8 +48,4 @@ class TestService extends Service with ShutdownListener {
     addCommand(TestCommand.CommandName, classOf[TestCommand])
     ()
   }
-}
-
-object TestService {
-  var gotMessage: Boolean = false
 }

@@ -34,6 +34,7 @@ import com.oracle.infy.wookiee.component.{
 }
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.LoadService
+import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 import com.oracle.infy.wookiee.test.TestHarness.defaultConfig
 import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
@@ -293,9 +294,9 @@ class TestHarness(
   private def serviceReady(serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
     Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
       case Some(m) =>
-        val service = m.asInstanceOf[ActorRef]
-        TestHarness.log.info(s"Loaded service $serviceName, ${service.path.toString}")
-        services += (serviceName -> service)
+        val service = m.asInstanceOf[ServiceMetaData]
+        TestHarness.log.info(s"Loaded service $serviceName, ${service.actorRef.path.toString}")
+        services += (serviceName -> service.actorRef)
       case None =>
         throw new Exception("Service not returned")
     }

@@ -16,19 +16,18 @@
 
 package com.oracle.infy.wookiee.config
 
+import akka.actor.Props
+import com.oracle.infy.wookiee.app.HActor
+import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
+import com.sun.nio.file.SensitivityWatchEventModifier
+
 import java.io.{File, IOException}
 import java.nio.file.StandardWatchEventKinds._
 import java.nio.file._
-import akka.actor.Props
-import com.oracle.infy.wookiee.app.HActor
-import com.sun.nio.file.SensitivityWatchEventModifier
-import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.service.ServiceManager
-
-import scala.jdk.CollectionConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 class ConfigWatcherActor extends HActor {
@@ -39,28 +38,6 @@ class ConfigWatcherActor extends HActor {
 
   override def preStart(): Unit = {
     super.preStart()
-    ServiceManager.serviceDir(config) match {
-      case Some(s) =>
-        configDir = s.toPath
-        val dirs = s.listFiles.filter(_.isDirectory)
-
-        dirs foreach { dir =>
-          val path = Paths.get(dir.getPath.concat("/conf"))
-          if (Files.exists(path)) {
-            log.info("Adding watcher to existing service directory {} for any *.conf file changes", path)
-            path.register(
-              configWatcher,
-              Array[WatchEvent.Kind[_]](ENTRY_CREATE, ENTRY_MODIFY),
-              SensitivityWatchEventModifier.HIGH
-            )
-          }
-        }
-        if (dirs.length > 0) {
-          configExists = true
-          watchThread.start()
-        }
-      case None => log.debug("Service dir does not exist, not starting watchers")
-    }
     System.getProperty("config.file") match {
       case s: String =>
         val cPath = new File(s)

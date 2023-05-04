@@ -15,26 +15,25 @@
  */
 package com.oracle.infy.wookiee.service
 
-import java.io.{File, FilenameFilter}
-import java.nio.file._
 import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
-import com.typesafe.config.{Config, ConfigFactory}
+import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.HarnessActor.{ConfigChange, SystemReady}
 import com.oracle.infy.wookiee.app.PrepareForShutdown
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.LoggingAdapter
-import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
-import com.oracle.infy.wookiee.service.meta.ServiceMetaData
-import ServiceManager.{GetMetaDataByName, RestartService}
-import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
-import com.oracle.infy.wookiee.service.messages.{GetMetaData, LoadService, Ready}
-import scala.jdk.CollectionConverters._
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.service.ServiceManager.{RestartService, ServicesReady}
+import com.oracle.infy.wookiee.service.messages.{LoadService, Ready}
+import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDataV2}
+import com.typesafe.config.{Config, ConfigFactory}
 
+import java.io.{File, FilenameFilter}
+import java.nio.file._
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
 import scala.util.control.Exception._
 
 class ServiceManager extends PrepareForShutdown with ServiceLoader {
@@ -57,124 +56,97 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
     // Tell the harness that the services are loaded. The parent will then
     // tell us when it is ready so that the services can be notified
     context.parent ! ServicesReady
-    log.info("Service Manager started: {}", context.self.path)
+    log.info("Service Manager started")
   }
 
   override def postStop(): Unit = {
-    // Kill any custom class loaders
-    services.values foreach { p =>
-      if (p._2.isDefined) p._2.get.close()
-    }
-    services.clear()
-    if (context != null) log.info("Service Manager stopped: {}", context.self.path)
+    log.info("Service Manager stopped")
+  }
+
+  override def getDependents: Iterable[WookieeMonitor] =
+    Option(serviceRef.get).collect {
+      case meta: ServiceMetaDataV2 => meta.service
+    }.toList
+
+  override def prepareForShutdown(): Unit = {
+    oldAndNewLogic(
+      it => it, // Do nothing as this is propagated on the receive method
+      service => service.propagatePrepareForShutdown()
+    )
+    ()
   }
 
   override def receive: Receive = super.receive orElse {
     case SystemReady =>
-      log.debug("Notifying Services that we are completely ready.")
-      context.children foreach { p =>
-        val meta = getServiceMeta(Some(p.path))
-        if (meta.nonEmpty) p ! Ready(meta.head)
-        else log.warn(s"No Service Path to Send Ready Message for ${p.path}")
-      }
+      log.debug("Notifying Service that we are completely ready..")
+      oldAndNewLogic(
+        actor => actor ! Ready(),
+        service => service.propagateSystemReady()
+      )
       log.info("Wookiee Started, Let's Go")
 
-    case GetMetaData(path) =>
-      log.info("We have received a message to get service meta data")
-      val meta = getServiceMeta(path)
-      path match {
-        case None => sender() ! meta // Asked for all services
-        case _    => sender() ! meta.head // Asked for only a specific service
-      }
-
     case LoadService(name, clazz) =>
-      log.info(s"We have received a message to load service $name")
+      log.info(s"We have received a message to load service [$name]")
       sender() ! context
         .child(name)
         .orElse(context.child(clazz.getSimpleName))
         .orElse(loadService(name, clazz, componentInfos = readyComponents.values().asScala.toList))
 
-    case GetMetaDataByName(service) =>
-      log.info("We have received a message to get service meta data")
-      services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
-        case Some(meta) => sender() ! meta
-        case None =>
-          sender() ! Status.Failure(
-            new NoSuchElementException(s"Could not locate the meta information for service $service")
-          )
-      }
-
-    case RestartService(service) =>
-      log.info(s"We have received a message to restart the service $service")
-      services.filter(_._1.name.equalsIgnoreCase(service)).keys.headOption match {
-        case Some(m) => services(m)._1 ! Kill
-        case None    =>
-      }
+    case RestartService() =>
+      log.info(s"We have received a message to restart the service")
+      tryAndLogError(
+        oldAndNewLogic(
+          akkaRef => akkaRef ! Restart, { service =>
+            service.propagatePrepareForShutdown()
+            service.propagateStart()
+            readyComponents.values().asScala.foreach(info => service.propagateOnComponentReady(info))
+            service.propagateSystemReady()
+          }
+        )
+      )
+      ()
 
     case ConfigChange() =>
-      log.debug("Sending config change message to all services...")
+      log.debug("Sending config change message to service...")
       context.children foreach { p =>
         p ! ConfigChange()
-      }
-
-    case Terminated(service) =>
-      log.info("Service {} terminated", service.path.name)
-      // Find and nuke the classloader
-      services.filter(_._1.akkaPath == service.path.toString) foreach { p =>
-        if (p._2._2.isDefined) {
-          p._2._2.get.close()
-        }
-        services.remove(p._1)
       }
 
     case ready: ComponentReady =>
       log.debug(s"Service Manager got Component Ready for [${ready.info.name}]")
       readyComponents.put(ready.info.name, ready.info)
-      services.values.foreach(service => service._1 ! ready)
+      tryAndLogError(
+        oldAndNewLogic(
+          akkaRef => akkaRef ! ready,
+          service => service.propagateOnComponentReady(ready.info)
+        )
+      )
+      ()
   }
 
-  private def getServiceMeta(servicePath: Option[ActorPath]): Seq[ServiceMetaData] =
-    try {
-      log.debug("Service meta requested")
-      servicePath match {
-        case None =>
-          services.keys.toSeq
-        case _ =>
-          services.filter(p => ActorPath.fromString(p._1.akkaPath).equals(servicePath.get)).keys.toSeq
-      }
-    } catch {
-      case e: Throwable =>
-        log.error("Error fetching service meta information", e)
-        Nil
+  private def oldAndNewLogic[T](akkaLogic: ActorRef => T, serviceLogic: ServiceV2 => T): Option[T] =
+    Option(serviceRef.get()).map {
+      case meta: ServiceMetaData =>
+        akkaLogic(meta.actorRef)
+      case meta: ServiceMetaDataV2 =>
+        val service = meta.service
+        serviceLogic(service)
     }
 
-  /**
-    * This is the health of the current object, by default will be NORMAL
-    * In general this should be overridden to define the health of the current object
-    * For objects that simply manage other objects you shouldn't need to do anything
-    * else, as the health of the children components would be handled by their own
-    * CheckHealth function
-    */
   override def getHealth: Future[HealthComponent] = {
     log.debug("Service health requested")
     Future {
-      if (services.isEmpty) {
+      if (Option(serviceRef.get).isEmpty) {
         HealthComponent(
           ServiceManager.ServiceManagerName,
           ComponentState.CRITICAL,
           "There are no services currently installed"
         )
-      } else if (context.children.size != services.size) {
-        HealthComponent(
-          ServiceManager.ServiceManagerName,
-          ComponentState.CRITICAL,
-          s"There are ${services.size} installed, but only ${context.children.size} that were successfully loaded"
-        )
       } else {
         HealthComponent(
           ServiceManager.ServiceManagerName,
           ComponentState.NORMAL,
-          s"Currently managing ${services.size} service(s)"
+          s"Managing Wookiee's service layer"
         )
       }
     }
@@ -187,16 +159,13 @@ object ServiceManager extends LoggingAdapter {
 
   @SerialVersionUID(1L) case class ServicesReady()
 
-  @SerialVersionUID(1L) case class GetMetaDataByName(name: String)
-
-  @SerialVersionUID(1L) case class RestartService(name: String)
+  @SerialVersionUID(2L) case class RestartService()
 
   def props: Props = Props[ServiceManager]()
 
   /**
     * Load the configuration files for the deployed services
     * @param sysConfig System level config for wookiee
-    * @return
     */
   def loadConfigs(sysConfig: Config): Seq[Config] = {
     serviceDir(sysConfig) match {

@@ -21,10 +21,10 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
-import com.oracle.infy.wookiee.service.messages.{CheckHealth, GetMetaData, GetMetaDetails, Ready}
+import com.oracle.infy.wookiee.service.messages.{CheckHealth, GetMetaDetails}
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
 import com.oracle.infy.wookiee.test.TestSystemActor.RegisterShutdownListener
-import org.joda.time.DateTime
+import com.oracle.infy.wookiee.service.messages.Ready
 
 import java.net.{URI, URLEncoder}
 import scala.concurrent.Future
@@ -81,8 +81,6 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
       var serviceMeta: Map[ActorPath, ServiceMetaData] = Map[ActorPath, ServiceMetaData]()
 
       override def receive: PartialFunction[Any, Unit] = {
-        case m: GetMetaData =>
-          sender() ! serviceMeta.get(m.service.get)
         case TestSystemActor.LoadService(clazz, path) =>
           loadService(sender(), clazz, path)
         case TestSystemActor.GetService(clazz) =>
@@ -111,16 +109,13 @@ private[test] class TestSystemActor(serviceSeq: Seq[Class[_ <: Actor]], val http
           val service = context.actorOf(Props(clazz), name)
           services += (name -> service)
 
-          val path = if (servicePath.isDefined) servicePath.get.getPath else "not provided"
-          val jar = clazz.getProtectionDomain.getCodeSource.getLocation.toURI.toString
-
           (service ? GetMetaDetails).mapTo[ServiceMetaDetails] onComplete {
-            case Success(m) =>
+            case Success(_) =>
               val meta =
-                ServiceMetaData(name, "n/a", DateTime.now, path, service.path.toString, jar, m.supportsHttp, Nil)
+                ServiceMetaData(name, self)
               serviceMeta += (service.path -> meta)
 
-              service ! Ready(meta)
+              service ! Ready()
               ref ! Some(service)
             case Failure(t) =>
               log.error("An error occurred trying to load the service", t)

@@ -51,7 +51,7 @@ class WookieeCommandExecutive(override val name: String, config: Config)(implici
   // Call this to retrieve a previously registered command
   def getCommand(name: String): Option[WookieeCommand[Any, Any]] = Option(commands.get(name))
 
-  override def getDependentHealths: Iterable[WookieeMonitor] =
+  override def getDependents: Iterable[WookieeMonitor] =
     commands.values().asScala.toList
 
   override def getHealth: Future[HealthComponent] = {

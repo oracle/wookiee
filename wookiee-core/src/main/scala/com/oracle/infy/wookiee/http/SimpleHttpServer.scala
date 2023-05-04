@@ -17,30 +17,21 @@
 package com.oracle.infy.wookiee.http
 
 import akka.actor.ActorSelection
+import akka.pattern.ask
+import com.oracle.infy.wookiee.HarnessConstants
+import com.oracle.infy.wookiee.app.HActor
+import com.oracle.infy.wookiee.authentication.CIDRRules
+import com.oracle.infy.wookiee.component.messages.StatusRequest
+import com.oracle.infy.wookiee.component.{ComponentHelper, ComponentRequest}
+import com.oracle.infy.wookiee.health.HealthResponseType.HealthResponseType
+import com.oracle.infy.wookiee.health._
+import com.oracle.infy.wookiee.utils.Json
+import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
+import org.joda.time.{DateTime, DateTimeZone}
 
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
-import akka.pattern.ask
-import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.authentication.CIDRRules
-import com.oracle.infy.wookiee.component.{ComponentHelper, ComponentRequest}
-import com.oracle.infy.wookiee.component.messages.StatusRequest
-import com.oracle.infy.wookiee.health.{
-  ApplicationHealth,
-  ComponentState,
-  HealthComponent,
-  HealthRequest,
-  HealthResponseType
-}
-import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
-import com.oracle.infy.wookiee.HarnessConstants
-import com.oracle.infy.wookiee.health.HealthResponseType.HealthResponseType
-import com.oracle.infy.wookiee.service.ServiceManager.GetMetaDataByName
-import com.oracle.infy.wookiee.service.messages.GetMetaData
-import com.oracle.infy.wookiee.utils.Json
-import org.joda.time.{DateTime, DateTimeZone}
-
 import scala.concurrent.Future
 import scala.util.{Failure, Success}
 
@@ -118,18 +109,7 @@ class SimpleHttpServer(port: Int = 8008) extends HActor with ComponentHelper {
     }
   }
 
-  def handleServicesMessage(httpExchange: HttpExchange, path: Option[String]): Unit = {
-    val msg = path match {
-      case None    => GetMetaData(None)
-      case Some(x) => GetMetaDataByName(x)
-    }
-    (servicesActor ? msg) onComplete {
-      case Success(s) => respond(httpExchange, Json.build(s).toString, 200, "application/json")
-      case Failure(f) => respond(httpExchange, f.getMessage, 500)
-    }
-  }
-
-  def start(): Unit = {
+  override def start(): Unit = {
     if (!isStarted) {
       try {
         val server = HttpServer.create(new InetSocketAddress(port), 0)
@@ -151,14 +131,6 @@ class SimpleHttpServer(port: Int = 8008) extends HActor with ComponentHelper {
                     "pong: ".concat(new DateTime(System.currentTimeMillis(), DateTimeZone.UTC).toString)
                   )
                 case "/metrics" => handleMetricsMessage(httpExchange)
-                case x if x.startsWith("/services") =>
-                  val p = x.split("/")
-                  val path = if (p.length == 3) {
-                    Some(p(2))
-                  } else {
-                    None
-                  }
-                  handleServicesMessage(httpExchange, path)
               }
             } else {
               // Could be a 403 Forbidden, but obscurity is better

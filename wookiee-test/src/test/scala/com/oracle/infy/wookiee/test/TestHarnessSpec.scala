@@ -62,8 +62,8 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
         val probe = TestProbe()
         val testService = sysToUse.getService("testservice")
         assert(testService.isDefined, "Test service was not registered")
-        probe.send(testService.get, Ready)
-        Ready shouldBe probe.expectMsg(Ready)
+        probe.send(testService.get, Ready())
+        Ready() shouldBe probe.expectMsg(Ready())
       }
 
       checkReady(sys)

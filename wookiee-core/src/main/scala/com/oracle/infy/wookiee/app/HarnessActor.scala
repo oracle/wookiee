@@ -30,7 +30,7 @@ import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.AkkaUtil._
-import com.oracle.infy.wookiee.utils.{ClassUtil, ConfigUtil}
+import com.oracle.infy.wookiee.utils.ConfigUtil
 import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.typesafe.config.Config
 
@@ -66,12 +66,12 @@ trait PrepareForShutdown extends HActor {
 
   override def receive: Receive = health orElse {
     case PrepareForShutdown =>
-      log.debug("Preparing for shutdown of self and children")
+      log.debug(s"Preparing for shutdown of [$name] and children")
       try {
         prepareForShutdown()
       } catch {
         case e: Exception =>
-          log.error(s"Error preparing for shutdown in [${ClassUtil.getSimpleNameSafe(getClass)}]", e)
+          log.error(s"Error preparing for shutdown in [$name]", e)
       }
       context.children foreach (_ ! PrepareForShutdown)
   }

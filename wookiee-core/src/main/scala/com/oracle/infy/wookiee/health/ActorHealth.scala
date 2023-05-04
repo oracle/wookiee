@@ -118,7 +118,7 @@ trait ActorHealth extends WookieeMonitor {
             healths foreach { it =>
               s.addComponent(it)
             }
-            p success s
+            p completeWith checkHealthOfChildren(s, this)
         }
       case Failure(f) =>
         log.warn("Failed to get health from component", f)

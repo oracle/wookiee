@@ -23,7 +23,6 @@ object HarnessConstants {
   val ServicesName = "services"
   val ComponentName = "component"
   val CommandName = "command"
-  val TypedCommandName = "typedCommand"
   val ComponentReloadName = "component-reloader"
 
   // full actor names
@@ -36,7 +35,6 @@ object HarnessConstants {
   val KeyDefaultTimeout = "default-timeout"
   val KeyCommandsEnabled = "commands.enabled"
   val KeyCommandsNrRoutees = "commands.default-nr-routees"
-  val TestMode = "test-mode"
   val PrepareToShutdownTimeout = "prepare-to-shutdown-timeout"
 
   val KeyInternalHttpPort = "internal-http.port"
@@ -53,10 +51,6 @@ object HarnessConstants {
   // constants for services
   val KeyServicePath = "services.path"
   val KeyInternalService = "services.internal"
-  val KeyInternalServiceConfig = "services.internal-config"
-  val KeyServiceCheckTimeout = "services.check-timeout"
-  val KeyServiceDistinctClassLoader = "services.distinct-classloader"
-  val KeyServiceClassLoaderName = "service-classloader"
 
   val LogHealthCheckDiffs = "logging.health-check.diff-compare"
 }

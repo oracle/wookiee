@@ -3,7 +3,7 @@ import sbt._
 object Deps {
 
   object versions {
-    val akkaVersion = "2.7.0"
+    val akkaVersion = "2.6.20"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val scalametaVersion = "4.7.6"

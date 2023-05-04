@@ -24,5 +24,5 @@ class WookieeSupervisor(config: Config)(implicit ec: ExecutionContext) extends W
     log.info("Wookiee now under supervision")
   }
 
-  override def getDependentHealths: Iterable[WookieeMonitor] = healthComponents.values
+  override def getDependents: Iterable[WookieeMonitor] = healthComponents.values
 }

@@ -6,7 +6,7 @@ import akka.testkit.TestKit
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
-import com.oracle.infy.wookiee.component.TestComponentV2.{systemWasReady, wasShutdown, wasStarted}
+import com.oracle.infy.wookiee.component.TestComponentV2._
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
@@ -25,6 +25,10 @@ object TestComponentV2 {
   val twoSawOne: AtomicBoolean = new AtomicBoolean(false)
   val systemWasReady: AtomicBoolean = new AtomicBoolean(false)
   val wasShutdown: AtomicBoolean = new AtomicBoolean(false)
+  val innerSystemReady: AtomicBoolean = new AtomicBoolean(false)
+  val innerShutdown: AtomicBoolean = new AtomicBoolean(false)
+  val innerStart: AtomicBoolean = new AtomicBoolean(false)
+  val innerCompReady: AtomicBoolean = new AtomicBoolean(false)
 }
 
 class TestComponentV2(name: String, config: Config) extends ComponentV2(name, config) {
@@ -33,6 +37,14 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
 
     override def getHealth: Future[HealthComponent] =
       Future.successful(HealthComponent(name, ComponentState.DEGRADED, "test-detail-inner"))
+
+    override def start(): Unit = innerStart.set(true)
+
+    override def systemReady(): Unit = innerSystemReady.set(true)
+
+    override def onComponentReady(info: ComponentInfo): Unit = innerCompReady.set(true)
+
+    override def prepareForShutdown(): Unit = innerShutdown.set(true)
 
     override val name: String = "test-child"
   }
@@ -44,7 +56,7 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
       TestComponentV2.oneSawTwo.set(true)
     }
 
-  override def getDependentHealths: Iterable[WookieeMonitor] = List(new HealthTest)
+  override def getDependents: Iterable[WookieeMonitor] = List(new HealthTest)
 
   override def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "test-detail"))
@@ -90,8 +102,8 @@ class ComponentV2Spec
     componentManager ! InitializeComponents
 
     "be able to start a component" in {
-      val result = ThreadUtil.awaitResult({ if (wasStarted.get()) Some(true) else None })
-      result mustBe true
+      ThreadUtil.awaitResult({ if (wasStarted.get()) Some(true) else None }) mustBe true
+      ThreadUtil.awaitResult({ if (innerStart.get()) Some(true) else None }) mustBe true
     }
 
     "be able to get health of that component" in {
@@ -123,6 +135,7 @@ class ComponentV2Spec
         if (TestComponentV2.twoSawOne.get()) Some(true) else None
       })
       resTwo mustBe true
+      ThreadUtil.awaitResult({ if (innerCompReady.get()) Some(true) else None }) mustBe true
     }
 
     "be alerted when the system is ready" in {
@@ -131,6 +144,7 @@ class ComponentV2Spec
         if (TestComponentV2.systemWasReady.get()) Some(true) else None
       })
       res mustBe true
+      ThreadUtil.awaitResult({ if (innerSystemReady.get()) Some(true) else None }) mustBe true
     }
 
     "be alerted when the system is shutting down" in {
@@ -139,6 +153,7 @@ class ComponentV2Spec
         if (TestComponentV2.wasShutdown.get()) Some(true) else None
       })
       res mustBe true
+      ThreadUtil.awaitResult({ if (innerShutdown.get()) Some(true) else None }) mustBe true
     }
   }
 }

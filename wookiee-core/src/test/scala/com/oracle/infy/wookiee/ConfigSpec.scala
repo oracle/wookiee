@@ -35,6 +35,8 @@ import scala.reflect.io.{Directory, Path}
 class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
   implicit val dur: FiniteDuration = FiniteDuration(2, TimeUnit.SECONDS)
   new File("services/test/conf").mkdirs()
+  writeFile("original = \"value\"")
+  System.setProperty("config.file", "services/test/conf/test.conf")
   implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString("""
     services { path = "services" }
     """).withFallback(ConfigFactory.load()))
@@ -60,10 +62,7 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
     }
 
     "detect changes in config" in {
-      val file = new File("services/test/conf/test.conf")
-      val bw = new BufferedWriter(new FileWriter(file))
-      bw.write("test = \"value\"")
-      bw.close()
+      writeFile("test = \"value\"")
       val msg = probe.expectMsgClass(classOf[ConfigChange])
       msg.isInstanceOf[ConfigChange] //scalafix:ok
     }
@@ -73,5 +72,12 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
     sys.terminate().onComplete { _ =>
       Directory(Path(new File("services"))).deleteRecursively()
     }
+  }
+
+  def writeFile(toWrite: String): Unit = {
+    val file = new File("services/test/conf/test.conf")
+    val bw = new BufferedWriter(new FileWriter(file))
+    bw.write(toWrite)
+    bw.close()
   }
 }

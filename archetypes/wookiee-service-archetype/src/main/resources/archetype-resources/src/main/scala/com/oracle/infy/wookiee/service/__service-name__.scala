@@ -34,7 +34,7 @@ class ${service-name} extends Service {
    */
   override def serviceReceive = ({
     // TODO: Add additional message handlers here
-    case Ready(meta) =>
+    case Ready() =>
       log.info("I received a Ready message from the outside world")
   }: Receive) orElse super.serviceReceive
 }

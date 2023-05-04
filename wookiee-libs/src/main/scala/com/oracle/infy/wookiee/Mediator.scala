@@ -23,6 +23,10 @@ object Mediator extends LoggingAdapter {
 trait Mediator[T] extends LoggingAdapter {
   private val mediatorMap = TrieMap[String, T]()
 
+  // Convenience method to get a mediator using config with 'instance-id' on it
+  def getMediator(config: Config)(implicit classTag: ClassTag[T]): T =
+    getMediator(getInstanceId(config))
+
   // @throws IllegalStateException when the mediator hasn't been registered yet
   def getMediator(instanceId: String)(implicit classTag: ClassTag[T]): T =
     mediatorMap.get(instanceId) match {
