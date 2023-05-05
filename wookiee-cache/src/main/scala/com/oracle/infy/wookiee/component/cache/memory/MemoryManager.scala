@@ -140,7 +140,7 @@ class MemoryManager(name: String) extends Cache(name) {
     }
   }
 
-  override protected def getHealth: Future[HealthComponent] =
+  override def getHealth: Future[HealthComponent] =
     Future {
       HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size))
     }

@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.implicits.global
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
-import com.oracle.infy.wookiee.grpcdev.tests.GrpcDevTest
+import com.oracle.infy.wookiee.grpcdev.tests.{GrpcDevTest, SrcGenTest}
 
 import scala.concurrent.ExecutionContext
 
@@ -21,8 +21,8 @@ object UnitTestConstable extends ConstableCommon {
           IO {
             runTestsAsync(
               List(
-                (GrpcDevTest.tests(), "UnitTest - SrcGen") /*,
-              (SrcGenTest.tests(), "UnitTest - SrcGenTwo")*/
+                (GrpcDevTest.tests(), "UnitTest - SrcGen"),
+                (SrcGenTest.tests(), "UnitTest - SrcGenTwo")
               )
             )
           }

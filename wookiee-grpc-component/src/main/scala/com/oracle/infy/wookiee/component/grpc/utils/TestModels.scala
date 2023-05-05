@@ -2,11 +2,11 @@ package com.oracle.infy.wookiee.component.grpc.utils
 
 import com.google.protobuf.StringValue
 import com.typesafe.config.{Config, ConfigFactory}
-import io.grpc.{BindableService, CallOptions, Channel, ServerServiceDefinition}
 import io.grpc.protobuf.ProtoUtils
-import io.grpc.stub.{AbstractStub, ServerCalls, StreamObserver}
 import io.grpc.stub.ClientCalls.blockingUnaryCall
 import io.grpc.stub.ServerCalls.asyncUnaryCall
+import io.grpc.stub.{AbstractStub, ServerCalls, StreamObserver}
+import io.grpc.{BindableService, CallOptions, Channel, ServerServiceDefinition}
 
 object TestModels {
   def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(s"""

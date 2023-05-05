@@ -1,4 +1,3 @@
-// scalafix:off
 package com.oracle.infy.wookiee.grpc.srcgen
 
 import SourceGenModel._
@@ -15,14 +14,13 @@ import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen.{
 
 import scala.meta._
 
-// TODO: This class will need a major refactor to migrate past deprecated unapply patterns
 object GrpcSourceGenRenderScala {
 
   private def getClassName(tpe: Type, outerType: String): String =
     tpe match {
-      case Type.Apply(Type.Name(`outerType`), Type.Name(innerType) :: Nil) =>
+      case CustomTypeApply(Type.Name(`outerType`), List(Type.Name(innerType))) =>
         s"$outerType$innerType"
-      case Type.Apply(Type.Name(`outerType`), innerType :: Nil) =>
+      case CustomTypeApply(Type.Name(`outerType`), List(innerType)) =>
         s"$outerType${getClassName(innerType, outerType)}"
       case _ => ""
     }
@@ -69,22 +67,22 @@ object GrpcSourceGenRenderScala {
     val grpcTerm = Term.Name(getGrpcType(Some(t)))
 
     val toApply = t match {
-      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
+      case CustomTypeApply(Type.Name("Option"), List(innerType)) if isScalarType(innerType) =>
         q"value"
-      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isZonedDateTimeType(innerType) =>
+      case CustomTypeApply(Type.Name("Option"), List(innerType)) if isZonedDateTimeType(innerType) =>
         q"toGrpcZonedDateTime(value)"
-      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
+      case CustomTypeApply(Type.Name("Option"), List(CustomTypeApply(Type.Name("List"), List(Type.Name("String"))))) =>
         q"GrpcListString(value)"
       case _ =>
         q"value.toGrpc"
     }
 
     val fromApply = t match {
-      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isScalarType(innerType) =>
+      case CustomTypeApply(Type.Name("Option"), List(innerType)) if isScalarType(innerType) =>
         q"Right(Some(value))"
-      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name("String") :: Nil) :: Nil) =>
+      case CustomTypeApply(Type.Name("Option"), List(CustomTypeApply(Type.Name("List"), List(Type.Name("String"))))) =>
         q"Right(Some(value.list.toList))"
-      case Type.Apply(Type.Name("Option"), innerType :: Nil) if isZonedDateTimeType(innerType) =>
+      case CustomTypeApply(Type.Name("Option"), List(innerType)) if isZonedDateTimeType(innerType) =>
         q"fromGrpcZonedDateTime(value).map(Some(_))"
       case _ =>
         q"value.fromGrpc.map(Some(_))"
@@ -105,9 +103,10 @@ object GrpcSourceGenRenderScala {
     val matchStatement = Term.Match(
       q"lhs.oneOf",
       List(
-        Case(Pat.Extract(q"$grpcTerm.OneOf.Somme", List(Pat.Var(q"value"))), None, fromApply),
+        Case(Pat.Extract(q"$grpcTerm.OneOf.Somme", Pat.ArgClause(List(Pat.Var(q"value")))), None, fromApply),
         Case(Pat.Wildcard(), None, q"Right(None)")
-      )
+      ),
+      mods = List.empty
     )
 
     val fromGrpcTree =
@@ -317,7 +316,8 @@ object GrpcSourceGenRenderScala {
               pat = Pat.Wildcard(),
               cond = None,
               body = q"$grpcTerm($grpcTerm.OneOf.Empty)"
-            )
+            ),
+          mods = List.empty // Added the empty list of mods to match the new signature
         )
 
         val toGrpcTree = q"""
@@ -347,11 +347,12 @@ object GrpcSourceGenRenderScala {
                 }
                 val childTerm = Term.Name(paramTypeStr)
                 Case(
-                  pat = Pat.Extract(q"$grpcTerm.OneOf.$childTerm", List(Pat.Var(Term.Name("value")))),
+                  pat = Pat.Extract(q"$grpcTerm.OneOf.$childTerm", Pat.ArgClause(List(Pat.Var(Term.Name("value"))))),
                   cond = None,
                   body = q"value.fromGrpc"
                 )
-              }
+              },
+            mods = List.empty // Added the empty list of mods to match the new signature
           )
 
         val fromGrpcTree = q"""

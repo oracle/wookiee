@@ -1,4 +1,3 @@
-// scalafix:off
 package com.oracle.infy.wookiee.grpc.srcgen
 
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel._
@@ -6,7 +5,6 @@ import com.oracle.infy.wookiee.grpc.srcgen.implicits.MultiversalEquality
 
 import scala.meta.{Term, _}
 
-// TODO: This class will need a major refactor to migrate past deprecated unapply patterns
 object GrpcSourceGen {
 
   implicit class Transpiler(lhs: Model) {
@@ -70,8 +68,8 @@ object GrpcSourceGen {
   def expandNestedType(input: List[Model], outerType: String): Set[Type] = {
     def expand(t: Type.Apply): List[Type] =
       t match {
-        case Type.Apply(Type.Name(`outerType`), Type.Name(_) :: Nil) => List(t)
-        case Type.Apply(Type.Name(`outerType`), (app @ Type.Apply(_, _)) :: Nil) =>
+        case CustomTypeApply(Type.Name(`outerType`), List(_: Type.Name)) => List(t)
+        case CustomTypeApply(Type.Name(`outerType`), List(NestedTypeApply(app))) =>
           t :: expand(app)
         case _ => Nil
       }
@@ -80,7 +78,7 @@ object GrpcSourceGen {
       .flatMap(_.fields)
       .flatMap(_.param.decltpe)
       .collect {
-        case t @ Type.Apply(Type.Name(`outerType`), _) => t
+        case t @ CustomTypeApply(Type.Name(`outerType`), _) => t
       }
       .flatMap(expand)
       .groupBy(_.toString())
@@ -137,14 +135,14 @@ object GrpcSourceGen {
       val noneType = Type.Name("Nonne")
 
       t match {
-        case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
+        case CustomTypeApply(Type.Name("Option"), List(Type.Name(innerType))) =>
           val newTypeName = "Maybe" + innerType
           handleTypeReturnOption(acc, noneType, Set.empty, innerType, newTypeName)
 
         //TODO -- handle lists and maps
-        case Type.Apply(
+        case CustomTypeApply(
             Type.Name("Option"),
-            (listType @ Type.Apply(Type.Name("List"), Type.Name(innerTypeName) :: Nil)) :: Nil
+            List(NestedTypeApply(listType @ CustomTypeApply(Type.Name("List"), List(Type.Name(innerTypeName)))))
             ) =>
           val newTypeName = "MaybeList" + innerTypeName
           val typeName = s"List$innerTypeName"
@@ -188,7 +186,7 @@ object GrpcSourceGen {
             newTypeName
           )
 
-        case Type.Apply(Type.Name("Option"), head :: Nil) =>
+        case CustomTypeApply(Type.Name("Option"), head :: Nil) =>
           val handletypeReturn = handleType(head, acc)
           val (innerModel, innerTypeName) = (handletypeReturn.models, handletypeReturn.grpcType)
           val newTypeName = "Maybe" + innerTypeName
@@ -232,12 +230,12 @@ object GrpcSourceGen {
           )
         }
 
-      (dedupedExpandedOptions + Model(
+      dedupedExpandedOptions + Model(
         scalaTypeName = "None",
         grpcTypeName = getGrpcType(Some(Type.Name("Nonne"))),
         oneOfs = Nil,
         fields = Nil
-      ))
+      )
 
     } else {
       expandedOptions
@@ -297,13 +295,13 @@ object GrpcSourceGen {
     // flatten implicit params and params because we filter out implicits
     val protoFields = clazz
       .ctor
-      .paramss
+      .paramClauses
       .flatten
       // filtering out ignored fields
       .filter { param =>
         !clazz.mods.exists {
-          case Mod.Annot(Init(Type.Name(t), _, args)) =>
-            t === "srcGenIgnoreField" && args.flatten.exists {
+          case Mod.Annot(CustomInit(Type.Name(t), _, argClauses)) =>
+            t === "srcGenIgnoreField" && argClauses.flatten.exists {
               case Lit.String(ignoredField) => param.name.value === ignoredField
               case _                        => false
             }
@@ -315,7 +313,7 @@ object GrpcSourceGen {
         ParamModel(param, getGrpcType(param.decltpe))
       }
 
-    Model(clazz.name.value, getGrpcType(Some(Type.Name(clazz.name.value))), Nil, protoFields)
+    Model(clazz.name.value, getGrpcType(Some(Type.Name(clazz.name.value))), Nil, protoFields.toList)
   }
 
   def getGrpcScalarType: PartialFunction[Type, String] = {
@@ -332,13 +330,13 @@ object GrpcSourceGen {
   }
 
   def isValidScalarMapType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
+    case CustomTypeApply(Type.Name("Map"), List(k, v)) =>
       isValidMapKeyType(k) && isValidMapValueType(v) && isScalarType(v)
     case _ => false
   }
 
   def isValidNonScalarMapType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("Map"), k :: v :: Nil) =>
+    case CustomTypeApply(Type.Name("Map"), List(k, v)) =>
       isValidMapKeyType(k) && isValidMapValueType(v) && !isScalarType(v)
     case _ => false
   }
@@ -350,32 +348,32 @@ object GrpcSourceGen {
     }
 
   def isValidMapValueType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("List" | "Map"), _) => false
-    case _                                        => true
+    case CustomTypeApply(Type.Name("List" | "Map"), _) => false
+    case _                                             => true
   }
 
   def getGrpcMapType: PartialFunction[Type, String] = {
-    case Type.Apply(Type.Name("Map"), k :: v :: Nil) if isValidMapKeyType(k) && isValidMapValueType(v) =>
+    case CustomTypeApply(Type.Name("Map"), List(k, v)) if isValidMapKeyType(k) && isValidMapValueType(v) =>
       s"map<${getGrpcType(Some(k))}, ${getGrpcType(Some(v))}>"
   }
 
   def getGrpcListType: PartialFunction[Type, String] = {
-    case Type.Apply(Type.Name("List"), inner :: Nil) => s"repeated ${getGrpcType(Some(inner))}"
+    case CustomTypeApply(Type.Name("List"), List(inner)) => s"repeated ${getGrpcType(Some(inner))}"
   }
 
   def isListScalarType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("List"), inner :: Nil) => isScalarType(inner)
-    case _                                           => false
+    case CustomTypeApply(Type.Name("List"), List(inner)) => isScalarType(inner)
+    case _                                               => false
   }
 
   def isListNonScalarType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("List"), inner :: Nil) => !isScalarType(inner)
-    case _                                           => false
+    case CustomTypeApply(Type.Name("List"), List(inner)) => !isScalarType(inner)
+    case _                                               => false
   }
 
   def isListZonedDateTimeType(t: Type): Boolean = t match {
-    case Type.Apply(Type.Name("List"), inner :: Nil) => isZonedDateTimeType(inner)
-    case _                                           => false
+    case CustomTypeApply(Type.Name("List"), List(inner)) => isZonedDateTimeType(inner)
+    case _                                               => false
   }
 
   def isScalarType(t: Type): Boolean =
@@ -395,7 +393,6 @@ object GrpcSourceGen {
       }(t)
 
   def getGrpcType(t: Option[Type]): String = {
-
     val Grpc = "Grpc"
 
     def getGrpcMessageType: PartialFunction[Type, String] = {
@@ -403,18 +400,20 @@ object GrpcSourceGen {
     }
 
     def getGrpcOptionType: PartialFunction[Type, String] = {
-      case Type.Apply(Type.Name("Option"), Type.Name(innerType) :: Nil) =>
+      case CustomTypeApply(Type.Name("Option"), List(Type.Name(innerType))) =>
         s"Maybe$innerType"
 
-      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("List"), Type.Name(innerType) :: Nil) :: Nil) =>
+      case CustomTypeApply(Type.Name("Option"), List(CustomTypeApply(Type.Name("List"), List(Type.Name(innerType))))) =>
         s"MaybeList$innerType"
 
-      case Type.Apply(Type.Name("Option"), Type.Apply(Type.Name("Map"), Type.Name(k) :: Type.Name(v) :: Nil) :: Nil) =>
+      case CustomTypeApply(
+          Type.Name("Option"),
+          List(CustomTypeApply(Type.Name("Map"), List(Type.Name(k), Type.Name(v))))
+          ) =>
         s"MaybeMap$k$v"
 
-      case Type.Apply(Type.Name("Option"), head :: Nil) =>
+      case CustomTypeApply(Type.Name("Option"), List(head)) =>
         s"Maybe${getGrpcOptionType(head)}"
-
     }
 
     getGrpcOptionType

@@ -1,8 +1,29 @@
 package com.oracle.infy.wookiee.grpc.srcgen
 
-import scala.meta.Term
+import scala.meta.{Init, Name, Term, Type}
 
 object SourceGenModel {
+  // Custom extractor for Init
+  object CustomInit {
+    def unapply(init: Init): Option[(Type, Name, Seq[Seq[Term]])] =
+      Some((init.tpe, init.name, init.argClauses.map(_.values)))
+  }
+
+  object CustomTypeApply {
+    def unapply(t: Type.Apply): Option[(Type.Name, List[Type])] = {
+      t.tpe match {
+        case typeName: Type.Name => Some((typeName, t.argClause.values))
+        case _ => None
+      }
+    }
+  }
+
+  object NestedTypeApply {
+    def unapply(t: Type): Option[Type.Apply] = t match {
+      case app: Type.Apply => Some(app)
+      case _ => None
+    }
+  }
 
   final case class srcGenIgnoreClass() extends scala.annotation.StaticAnnotation
   final case class srcGenIgnoreField(field: String) extends scala.annotation.StaticAnnotation
