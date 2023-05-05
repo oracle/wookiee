@@ -36,12 +36,12 @@ trait SourceGen {
             .collect {
               case node: Defn.Trait if !node.mods.exists {
                     case Mod.Annot(CustomInit(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
+                    case _                                         => false
                   } =>
                 node
               case node: Defn.Class if !node.mods.exists {
                     case Mod.Annot(CustomInit(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
+                    case _                                         => false
                   } =>
                 node
             }
