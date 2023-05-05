@@ -7,7 +7,7 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
 import com.oracle.infy.wookiee.component.TestComponentV2._
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
+import com.oracle.infy.wookiee.health.{ComponentState => CState, HealthComponent, WookieeMonitor}
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
@@ -36,7 +36,7 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
   class HealthTest extends WookieeMonitor {
 
     override def getHealth: Future[HealthComponent] =
-      Future.successful(HealthComponent(name, ComponentState.DEGRADED, "test-detail-inner"))
+      Future.successful(HealthComponent(name, CState.DEGRADED, "test-detail-inner"))
 
     override def start(): Unit = innerStart.set(true)
 
@@ -59,7 +59,7 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
   override def getDependents: Iterable[WookieeMonitor] = List(new HealthTest)
 
   override def getHealth: Future[HealthComponent] =
-    Future.successful(HealthComponent(name, ComponentState.NORMAL, "test-detail"))
+    Future.successful(HealthComponent(name, CState.NORMAL, "test-detail"))
 
   override def start(): Unit =
     wasStarted.set(true)
@@ -112,15 +112,15 @@ class ComponentV2Spec
         result.components must contain theSameElementsAs List(
           HealthComponent(
             "component-v2",
-            ComponentState.NORMAL,
+            CState.NORMAL,
             "test-detail",
-            components = List(HealthComponent("test-child", ComponentState.DEGRADED, "test-detail-inner"))
+            components = List(HealthComponent("test-child", CState.DEGRADED, "test-detail-inner"))
           ),
           HealthComponent(
             "component-v2-copy",
-            ComponentState.NORMAL,
+            CState.NORMAL,
             "test-detail",
-            components = List(HealthComponent("test-child", ComponentState.DEGRADED, "test-detail-inner"))
+            components = List(HealthComponent("test-child", CState.DEGRADED, "test-detail-inner"))
           )
         )
       }

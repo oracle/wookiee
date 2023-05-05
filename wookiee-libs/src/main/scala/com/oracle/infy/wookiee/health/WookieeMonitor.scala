@@ -65,7 +65,7 @@ trait WookieeMonitor extends LoggingAdapter {
     * else, as the health of the children components would be handled by their own
     * getHealth function
     */
-  def getHealth: Future[HealthComponent] =
+  protected def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "Healthy"))
 
   /**
