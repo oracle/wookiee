@@ -39,6 +39,7 @@ import org.json4s.DefaultFormats
 import org.json4s.jackson.Serialization.write
 
 import java.util.concurrent.TimeUnit
+import scala.reflect.runtime.universe._
 import scala.collection.immutable
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, ExecutionException, Future}
@@ -72,7 +73,7 @@ trait AkkaHttpEndpointRegistration {
     ConfigUtil.getDefaultValue(s"${AkkaHttpManager.ComponentName}.access-logging.enabled", config.getBoolean, true)
   if (accessLoggingEnabled) log.info("Access Logging Enabled") else log.info("Access Logging Disabled")
 
-  def addAkkaHttpEndpoint[T <: Product: ClassTag, U: ClassTag](
+  def addAkkaHttpEndpoint[T <: Product: ClassTag: TypeTag, U: ClassTag: TypeTag](
       name: String,
       path: String,
       method: HttpMethod,
@@ -92,7 +93,7 @@ trait AkkaHttpEndpointRegistration {
     val sysTo = FiniteDuration(config.getDuration("akka.http.server.request-timeout").toNanos, TimeUnit.NANOSECONDS)
     val timeout = responseTimeout match {
       case Some(to) if to > sysTo =>
-        log.warning(
+        log.warn(
           s"Time out of ${to.toMillis}ms for $method $path exceeds system max time out of ${sysTo.toMillis}ms."
         )
         sysTo
@@ -196,7 +197,7 @@ object AkkaHttpEndpointRegistration extends LoggingAdapter {
       wsErrorHandler: PartialFunction[Throwable, Directive] = wsErrorDefaultHandler,
       options: EndpointOptions = EndpointOptions.default
   )(implicit ec: ExecutionContext, mat: Materializer): Unit = {
-    val httpPath = parseRouteSegments(path)(log)
+    val httpPath = parseRouteSegments(path)
     val accessLogger = Some(options.accessLogIdGetter)
     val route = ignoreTrailingSlash {
       httpPath { segments: AkkaHttpPathSegments =>

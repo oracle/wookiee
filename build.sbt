@@ -273,7 +273,8 @@ lazy val `wookiee-akka-http` = project
   .in(file("wookiee-akka-http"))
   .settings(commonSettings(false))
   .settings(
-    libraryDependencies ++= Deps.build.wookieeAkkaHttp
+    libraryDependencies ++= Deps.build.wookieeAkkaHttp,
+    libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
   )
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)

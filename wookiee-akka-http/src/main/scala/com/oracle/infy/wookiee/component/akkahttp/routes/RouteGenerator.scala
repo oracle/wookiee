@@ -34,6 +34,7 @@ import akka.util.Timeout
 import ch.megard.akka.http.cors.javadsl
 import ch.megard.akka.http.cors.scaladsl.CorsDirectives
 import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
+import scala.reflect.runtime.universe._
 import com.oracle.infy.wookiee.command.ExecuteCommand
 import com.oracle.infy.wookiee.component.akkahttp.logging.AccessLog
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
@@ -67,7 +68,7 @@ case class AkkaHttpRequest(
 
 object RouteGenerator extends LoggingAdapter {
 
-  def makeHttpRoute[T <: Product: ClassTag, V](
+  def makeHttpRoute[T <: Product: ClassTag: TypeTag, V](
       path: String,
       method: HttpMethod,
       commandRef: ActorRef,
