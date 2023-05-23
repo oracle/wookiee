@@ -1,22 +1,64 @@
 package com.oracle.infy.wookiee.component.helidon.web.http.impl
 
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter._
-import io.helidon.webserver.{Routing, ServerRequest, ServerResponse, Service}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.WookieeResponse
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import io.helidon.webserver._
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.function.BiConsumer
 import javax.websocket.server.ServerEndpointConfig
+import scala.jdk.CollectionConverters._
+import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
-object WookieeRouter {
+object WookieeRouter extends LoggingAdapter {
+  case class ServiceHolder(server: WebServer, routingService: WookieeRouter)
+
   type Handler = BiConsumer[ServerRequest, ServerResponse]
 
   case class PathNode(children: ConcurrentHashMap[String, PathNode], handler: Option[Handler] = None)
+
+  // Takes the endpoints path template (e.g. /api/$foo/$bar) and the actual segments
+  // that were sent (e.g. /api/v1/v2) and returns the Map of segment values (e.g. Map(foo -> v1, bar -> v2))
+  def getPathSegments(pathWithVariables: String, actualPath: String): Map[String, String] = {
+    val pathSegments = pathWithVariables.split("/")
+    val actualSegments = actualPath.split("/")
+    pathSegments
+      .zip(actualSegments)
+      .collect {
+        case (segment, actual) if segment.startsWith("$") => (segment.drop(1), actual)
+      }
+      .toMap
+  }
+
+  def handleErrorAndRespond[Input <: Product: ClassTag: TypeTag, Output: ClassTag: TypeTag](
+      errorHandler: Throwable => WookieeResponse,
+      res: ServerResponse,
+      e: Throwable
+  ): Unit =
+    try {
+      // Go into error handling
+      val response = errorHandler(e)
+      res.status(response.statusCode.code)
+      response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
+      res.send(response.content.value)
+      ()
+    } catch {
+      case ex: Throwable =>
+        log.error("RH400: Unexpected error in error handling logic while handling error", ex)
+        log.error("RH401: Original error was:", e)
+        res.status(500)
+        res.send("Internal Server Error")
+        ()
+    }
 }
 
 class WookieeRouter extends Service {
+  import WookieeRouter._
+
   val root = new ConcurrentHashMap[String, PathNode]()
 
-  def addRoute(path: String, method: String, handler: Handler): Unit = {
+  def addRoute(path: String, method: String, handler: WookieeRouter.Handler): Unit = {
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
 
     val segments = path.split("/").filter(_.nonEmpty)
@@ -48,8 +90,9 @@ class WookieeRouter extends Service {
     // TODO
   }
 
-  def findHandler(path: String, method: String): Option[Handler] = {
-    val segments = path.split("/").filter(_.nonEmpty)
+  def findHandler(path: String, method: String): Option[WookieeRouter.Handler] = {
+    val withoutQueryParams = path.split("\\?").head
+    val segments = withoutQueryParams.split("/").filter(_.nonEmpty)
     val upperMethod = method.toUpperCase
     if (!root.containsKey(upperMethod)) {
       return None

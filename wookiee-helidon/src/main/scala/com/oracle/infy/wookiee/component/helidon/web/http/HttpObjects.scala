@@ -32,7 +32,7 @@ object HttpObjects {
   case class Content(value: Array[Byte]) {
     def asString: String = new String(value, Charset.forName("UTF-8"))
   }
-  case class Headers(headers: Map[String, List[String]])
+  case class Headers(mappings: Map[String, List[String]] = Map())
   case class StatusCode(code: Int = 200)
 
   case class WookieeRequest(
@@ -41,5 +41,5 @@ object HttpObjects {
       queryParameters: Map[String, List[String]],
       headers: Headers
   )
-  case class WookieeResponse(content: Content, statusCode: StatusCode, headers: Headers)
+  case class WookieeResponse(content: Content, statusCode: StatusCode = StatusCode(), headers: Headers = Headers())
 }
