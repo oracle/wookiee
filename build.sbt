@@ -132,6 +132,16 @@ lazy val `wookiee-discovery` = project
   .dependsOn(`wookiee-grpc-component`)
   .aggregate(`wookiee-grpc-component`)
 
+// For HTTP/WS support, use instead of wookiee-akka-http
+lazy val `wookiee-helidon` = project
+  .in(file("wookiee-helidon"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeHelidon
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`)
+  .aggregate(`wookiee-core`, `wookiee-test`)
+
 lazy val `basic-service` = project
   .in(file("examples/basic-service"))
   .settings(commonSettings(false))
@@ -320,6 +330,7 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
+    `wookiee-helidon`,
     `wookiee-health`,
     `wookiee-test`,
     `wookiee-zookeeper`,
@@ -339,6 +350,7 @@ lazy val root = project
     `wookiee-grpc-tests`,
     `wookiee-proto`,
     `wookiee-health`,
+    `wookiee-helidon`,
     `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,

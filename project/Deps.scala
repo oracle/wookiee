@@ -27,6 +27,7 @@ object Deps {
     val nettyVersion: String = "4.1.86.Final"
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
+    val helidonVersion = "2.6.0"
 
     val slf4jVersion = "2.0.5"
     val slf4jImplVersion = "2.20.0"
@@ -43,6 +44,7 @@ object Deps {
     val akkaHttpVersion = "10.5.0"
     val akkaHttpJson4sVersion = "1.39.2"
     val akkaHttpCorsVersion = "1.2.0"
+    val mockitoVersion = "5.3.1"
   }
 
   object build {
@@ -141,6 +143,15 @@ object Deps {
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
 
+    val helidon: Seq[ModuleID] = Seq(
+      "io.helidon.webserver" % "helidon-webserver" % helidonVersion,
+      "io.helidon.webserver" % "helidon-webserver-tyrus" % helidonVersion,
+      "io.helidon.webserver" % "helidon-webserver-cors" % helidonVersion,
+      "io.helidon.webclient" % "helidon-webclient" % helidonVersion,
+      "io.helidon.config" % "helidon-config" % helidonVersion,
+      "io.helidon.common" % "helidon-common-reactive" % helidonVersion
+    )
+
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
       grpcProtoBuf,
@@ -164,6 +175,10 @@ object Deps {
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
 
     val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
+
+    val wookieeHelidon: Seq[ModuleID] = Seq(
+      test.scalatest
+    ) ++ helidon
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,

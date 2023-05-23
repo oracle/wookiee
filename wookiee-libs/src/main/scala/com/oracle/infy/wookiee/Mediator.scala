@@ -56,6 +56,10 @@ trait Mediator[T] extends LoggingAdapter {
     mediator
   }
 
+  // Convenience method to register a mediator using config with 'instance-id' on it
+  def registerMediator(config: Config, mediator: T)(implicit classTag: ClassTag[T]): T =
+    registerMediator(getInstanceId(config), mediator)
+
   // Optional closing logic can be passed in to process any additional needed cleanup
   def unregisterMediator(instanceId: String, closingLogic: T => Unit = { _ =>
     ()
@@ -64,6 +68,10 @@ trait Mediator[T] extends LoggingAdapter {
       log.info(s"Unregistering mediator of type [${classTag.runtimeClass.getSimpleName}] for instance [$instanceId]")
       mediatorMap.remove(instanceId).foreach(closingLogic)
     }
+
+  // Convenience method to unregister a mediator using config with 'instance-id' on it
+  def unregisterMediator(config: Config)(implicit classTag: ClassTag[T]): Unit =
+    unregisterMediator(getInstanceId(config))
 
   // Helper method to get the `instance-id` from the config
   def getInstanceId(config: Config): String = Mediator.getInstanceId(config)
