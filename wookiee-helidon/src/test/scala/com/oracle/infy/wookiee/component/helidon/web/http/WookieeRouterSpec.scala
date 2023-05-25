@@ -98,5 +98,34 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       router.findHandler("/api/version/endpoint", "GET") mustBe None
       router.findHandler("/api", "GET") mustBe None
     }
+
+    "handle tons of registrations and finds" in {
+      // Last run: Added 100,000 routes in ~1s, Found 1,000,000 routes in ~2s
+      val N = 100000
+      val router = new WookieeRouter
+      val handler = makeHandler
+
+      def doNTimes(fn: (Int, Int) => Unit): Unit = {
+        val iters = Math.sqrt(N).toInt
+        1.to(iters).foreach(i => 1.to(iters).foreach(j => fn(i, j)))
+      }
+
+      val startTime = System.currentTimeMillis()
+      doNTimes({ (i, j) =>
+        router.addRoute(s"/api/a$i/b$j", "GET", handler)
+      })
+      println(s"Added $N routes in ${System.currentTimeMillis() - startTime}ms")
+
+      val startTime2 = System.currentTimeMillis()
+      1.to(10)
+        .foreach(
+          _ =>
+            doNTimes({ (i, j) =>
+              router.findHandler(s"/api/a$i/b$j", "GET") must not be None
+              ()
+            })
+        )
+      println(s"Found ${N * 10} routes in ${System.currentTimeMillis() - startTime2}ms")
+    }
   }
 }
