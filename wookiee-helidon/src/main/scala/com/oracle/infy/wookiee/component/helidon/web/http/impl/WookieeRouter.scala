@@ -128,7 +128,7 @@ class WookieeRouter extends Service {
     *
     * You can get the Helidon Handler object via WookieeRouter.handlerFromCommand
     */
-  def addRoute(path: String, method: String, handler: Handler): Unit = {
+  def addRoute(path: String, method: String, handler: Handler): Unit = root.synchronized {
     // Path must be non-empty
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
 

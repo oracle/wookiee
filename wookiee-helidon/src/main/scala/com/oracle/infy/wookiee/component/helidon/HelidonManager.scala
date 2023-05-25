@@ -3,7 +3,12 @@ package com.oracle.infy.wookiee.component.helidon
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.ComponentV2
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.{BOTH, EXTERNAL, EndpointType, INTERNAL}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.{
+  BOTH,
+  EXTERNAL,
+  EndpointType,
+  INTERNAL
+}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.WookieeHttpHandler
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
