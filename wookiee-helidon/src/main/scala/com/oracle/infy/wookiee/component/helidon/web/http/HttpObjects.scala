@@ -4,6 +4,7 @@ import java.nio.charset.Charset
 
 object HttpObjects {
 
+  // For determining which port(s) to host an endpoint on
   object EndpointType extends Enumeration {
     type EndpointType = Value
     val INTERNAL, EXTERNAL, BOTH = Value
@@ -29,17 +30,23 @@ object HttpObjects {
     def apply(content: String): Content = Content(content.getBytes(Charset.forName("UTF-8")))
   }
 
+  // Request/Response body content
   case class Content(value: Array[Byte]) {
     def asString: String = new String(value, Charset.forName("UTF-8"))
   }
+  // Request/Response headers
   case class Headers(mappings: Map[String, List[String]] = Map())
+  // Response status code
   case class StatusCode(code: Int = 200)
 
+  // Object holding all of the request information
   case class WookieeRequest(
       content: Content,
       pathSegments: Map[String, String],
       queryParameters: Map[String, List[String]],
       headers: Headers
   )
+
+  // Object holding all of the response information
   case class WookieeResponse(content: Content, statusCode: StatusCode = StatusCode(), headers: Headers = Headers())
 }

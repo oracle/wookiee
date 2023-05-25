@@ -1,17 +1,13 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import io.helidon.webserver.{ServerRequest, ServerResponse}
+import io.helidon.webserver.{Handler, ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.util.function.BiConsumer
-
 class WookieeRouterSpec extends AnyWordSpec with Matchers {
   "WookieeRouter" should {
-    def makeHandler: WookieeRouter.Handler = new BiConsumer[ServerRequest, ServerResponse]() {
-      override def accept(t: ServerRequest, u: ServerResponse): Unit = ()
-    }
+    def makeHandler: Handler = (_: ServerRequest, _: ServerResponse) => ()
 
     "correctly add a route and find the handler" in {
       val router = new WookieeRouter
@@ -19,11 +15,13 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       val handler2 = makeHandler
       val handler3 = makeHandler
 
-      router.addRoute("/api/v1/endpoint", "GET", handler)
-      router.addRoute("/api", "GET", handler2)
-      router.addRoute("/$api", "GET", handler3)
+      router.addRoute("api/v1/endpoint", "GET", handler)
       router.findHandler("/api/v1/endpoint", "GET") mustBe Some(handler)
+
+      router.addRoute("/api", "GET", handler2)
       router.findHandler("/api", "GET") mustBe Some(handler2)
+
+      router.addRoute("/$api", "GET", handler3)
       router.findHandler("/something", "GET") mustBe Some(handler3)
     }
 
@@ -74,6 +72,31 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
 
       router.addRoute("/api/v1/endpoint", "GET", handler)
       router.findHandler("/api/v1/endpoint", "POST") mustBe None
+    }
+
+    "perform unapply on its relevant classes" in {
+      val rt = WookieeRouter.ServiceHolder(null, new WookieeRouter)
+      WookieeRouter.ServiceHolder.unapply(rt) must not be None
+    }
+
+    "doesn't get too greedy algo-wise" in {
+      val router = new WookieeRouter
+      val handler = makeHandler
+      val handler2 = makeHandler
+
+      router.addRoute("/api/version/incorrect", "GET", handler)
+      router.addRoute("/api/$version/endpoint", "GET", handler2)
+
+      router.findHandler("/api/version/endpoint", "GET") mustBe Some(handler2)
+    }
+
+    "doesn't match when it shouldn't" in {
+      val router = new WookieeRouter
+      val handler = makeHandler
+
+      router.addRoute("/api/$version", "GET", handler)
+      router.findHandler("/api/version/endpoint", "GET") mustBe None
+      router.findHandler("/api", "GET") mustBe None
     }
   }
 }
