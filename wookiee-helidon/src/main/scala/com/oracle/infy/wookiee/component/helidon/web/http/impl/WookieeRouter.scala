@@ -20,7 +20,12 @@ object WookieeRouter extends LoggingAdapter {
   case class ServiceHolder(server: WebServer, routingService: WookieeRouter)
 
   // Primary class of our Path Trie
-  case class PathNode(children: ConcurrentHashMap[String, PathNode], handler: Option[Handler] = None)
+  case class PathNode(
+      // Will descend down the paths with a map at each segment
+      children: ConcurrentHashMap[String, PathNode],
+      // Will contain HTTP methods and their handlers for a specific path
+      handlers: ConcurrentHashMap[String, Handler] = new ConcurrentHashMap[String, Handler]()
+  )
 
   // Takes the endpoints path template (e.g. /api/$foo/$bar) and the actual segments
   // that were sent (e.g. /api/v1/v2) and returns the Map of segment values (e.g. Map(foo -> v1, bar -> v2))
@@ -114,7 +119,7 @@ object WookieeRouter extends LoggingAdapter {
 class WookieeRouter extends Service {
   import WookieeRouter._
 
-  val root = new ConcurrentHashMap[String, PathNode]()
+  val root: PathNode = PathNode(new ConcurrentHashMap[String, PathNode]())
 
   /**
     * This is the method that HelidonManager calls when it needs to register an endpoint.
@@ -129,19 +134,15 @@ class WookieeRouter extends Service {
     * You can get the Helidon Handler object via WookieeRouter.handlerFromCommand
     */
   def addRoute(path: String, method: String, handler: Handler): Unit = root.synchronized {
-    // Path must be non-empty
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
 
     val segments = path.split("/").filter(_.nonEmpty)
     val upperMethod = method.toUpperCase
-    if (!root.containsKey(upperMethod)) {
-      root.put(upperMethod, PathNode(new ConcurrentHashMap[String, PathNode]()))
-    }
 
-    var currentNode = root.get(upperMethod)
-    // Navigate to the correct node in the Trie, creating nodes along the way
-    for (segment <- segments.init) {
-      // Any variable ('$' prefixed) segments are treated as wildcard '*' strings
+    // Navigate to the correct node in the Trie, creating nodes along the way if necessary
+    var currentNode = root
+    for (segment <- segments) {
+      // If the segment starts with a '$', treat it as a wildcard
       val segOrWild = if (segment.startsWith("$")) "*" else segment
       if (!currentNode.children.containsKey(segOrWild)) {
         currentNode.children.put(segOrWild, PathNode(new ConcurrentHashMap[String, PathNode]()))
@@ -149,20 +150,10 @@ class WookieeRouter extends Service {
       currentNode = currentNode.children.get(segOrWild)
     }
 
-    val finalSegment = if (segments.last.startsWith("$")) "*" else segments.last
-    // Update this final node with the handler object provided, allowing it to be found
-    if (!currentNode.children.containsKey(finalSegment)) {
-      currentNode.children.put(finalSegment, PathNode(new ConcurrentHashMap[String, PathNode](), Some(handler)))
-    } else {
-      val node = currentNode.children.get(finalSegment)
-      currentNode.children.put(finalSegment, node.copy(handler = Some(handler)))
-    }
+    // In the last segment, store the method and handler
+    currentNode.handlers.put(upperMethod, handler)
     ()
   }
-
-//  def addWebsocketEndpoint(endpointConfig: ServerEndpointConfig): Unit = {
-//    // TODO
-//  }
 
   // This is the search method for the underlying Trie. It is complicated by the
   // fact that we need to support path variables. This means that we need to
@@ -172,14 +163,12 @@ class WookieeRouter extends Service {
     val withoutQueryParams = path.split("\\?").head
     val segments = withoutQueryParams.split("/").filter(_.nonEmpty)
     val upperMethod = method.toUpperCase
-    if (!root.containsKey(upperMethod)) {
-      return None
-    }
 
+    // Start at the root of the Trie
+    var currentNode = Option(root)
     // Will be used to store wildcard nodes that we encounter
     // in case we need to backtrack
     val wildcardNodes = new mutable.Stack[(PathNode, Int)]()
-    var currentNode = Option(root.get(upperMethod))
     var i = 0
 
     // Goes down the trie until we find a handler or we run out of trie
@@ -205,10 +194,7 @@ class WookieeRouter extends Service {
     }
 
     // If we found a handler, return it. Otherwise, return None
-    currentNode.flatMap {
-      case PathNode(_, Some(handler)) => Some(handler)
-      case _                          => None
-    }
+    currentNode.flatMap(node => Option(node.handlers.get(upperMethod)))
   }
 
   // This is a Helidon Service method that is called by that library

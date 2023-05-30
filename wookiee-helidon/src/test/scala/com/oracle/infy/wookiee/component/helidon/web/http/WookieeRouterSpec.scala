@@ -100,7 +100,7 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
     }
 
     "handle tons of registrations and finds" in {
-      // Last run: Added 100,000 routes in ~1s, Found 1,000,000 routes in ~2s
+      // Last run: Added 100,000 routes in ~150ms, Found 1,000,000 routes in ~500ms
       val N = 100000
       val router = new WookieeRouter
       val handler = makeHandler
