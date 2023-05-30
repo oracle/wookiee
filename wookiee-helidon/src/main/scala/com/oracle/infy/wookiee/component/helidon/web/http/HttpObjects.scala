@@ -11,26 +11,47 @@ object HttpObjects {
   }
 
   // These are all of the more optional bits of configuring an endpoint
+  object EndpointOptions {
+    val default: EndpointOptions = EndpointOptions()
+  }
+
   case class EndpointOptions(
       defaultHeaders: Headers = Headers(Map()),
-      corsSettings: Option[CorsAllowed] = None,
+      allowedHeaders: Option[CorsWhiteList] = None,
       routeTimerLabel: Option[String] = None,
       requestHandlerTimerLabel: Option[String] = None,
       businessLogicTimerLabel: Option[String] = None,
       responseHandlerTimerLabel: Option[String] = None
   )
 
-  object EndpointOptions {
-    val default: EndpointOptions = EndpointOptions()
+  // The headers that are allowed for a particular endpoint
+  // If not specified, all headers are allowed
+  // Note:
+  //   * Allowed methods is returned dynamically based on what endpoints are registered
+  //   * Allowed origins is set at the global config level under wookiee-helidon.web.cors.allowed-origins = []
+  object CorsWhiteList {
+    def apply(): CorsWhiteList = AllowAll()
+    def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
-  case class CorsAllowed(methods: List[String] = List("*"), origins: List[String] = List("*"))
+  trait CorsWhiteList {
+    def allowed(toCheck: List[String]): List[String]
+    def allowed(toCheck: String): List[String] = allowed(List(toCheck))
+  }
 
+  case class AllowAll() extends CorsWhiteList {
+    override def allowed(toCheck: List[String]): List[String] = toCheck
+  }
+
+  case class AllowSome(whiteList: List[String]) extends CorsWhiteList {
+    override def allowed(toCheck: List[String]): List[String] = toCheck.intersect(whiteList)
+  }
+
+  // Request/Response body content
   object Content {
     def apply(content: String): Content = Content(content.getBytes(Charset.forName("UTF-8")))
   }
 
-  // Request/Response body content
   case class Content(value: Array[Byte]) {
     def asString: String = new String(value, Charset.forName("UTF-8"))
   }

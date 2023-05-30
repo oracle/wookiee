@@ -19,12 +19,15 @@ object WookieeRouter extends LoggingAdapter {
   // Represents the entire HTTP service and routing layers
   case class ServiceHolder(server: WebServer, routingService: WookieeRouter)
 
+  // Wraps a Helidon handler and the options for that endpoint
+  case class WookieeHandler(handler: Handler, endpointOptions: EndpointOptions = EndpointOptions.default)
+
   // Primary class of our Path Trie
   case class PathNode(
       // Will descend down the paths with a map at each segment
       children: ConcurrentHashMap[String, PathNode],
       // Will contain HTTP methods and their handlers for a specific path
-      handlers: ConcurrentHashMap[String, Handler] = new ConcurrentHashMap[String, Handler]()
+      handlers: ConcurrentHashMap[String, WookieeHandler] = new ConcurrentHashMap[String, WookieeHandler]()
   )
 
   // Takes the endpoints path template (e.g. /api/$foo/$bar) and the actual segments
@@ -66,49 +69,54 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  def handlerFromCommand(command: WookieeHttpHandler)(implicit ec: ExecutionContext): Handler = { (req, res) =>
-    // There are three catch and recovery points in this method as there are three different
-    // scopes in which errors can occur
-    try {
-      val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
-      val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
-
-      // Get the query parameters on the request
-      val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList)
-      req.content().as(classOf[Array[Byte]]).thenAccept { bytes =>
+  def handlerFromCommand(command: WookieeHttpHandler)(implicit ec: ExecutionContext): WookieeHandler =
+    WookieeHandler(
+      { (req, res) =>
+        // There are three catch and recovery points in this method as there are three different
+        // scopes in which errors can occur
         try {
-          val wookieeRequest = WookieeRequest(
-            Content(bytes),
-            pathSegments,
-            queryParams,
-            Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
-          )
+          val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
+          val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
 
-          command
-            .execute(wookieeRequest) // main business logic
-            .map { response =>
-              val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
-              respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
-              res.status(response.statusCode.code)
-              res.send(response.content.value)
-            }
-            .recover {
-              case e: Throwable =>
-                WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
-            }
+          // Get the query parameters on the request
+          val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList)
+          req.content().as(classOf[Array[Byte]]).thenAccept {
+            bytes =>
+              try {
+                val wookieeRequest = WookieeRequest(
+                  Content(bytes),
+                  pathSegments,
+                  queryParams,
+                  Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
+                )
+
+                command
+                  .execute(wookieeRequest) // main business logic
+                  .map { response =>
+                    val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
+                    respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
+                    res.status(response.statusCode.code)
+                    res.send(response.content.value)
+                  }
+                  .recover {
+                    case e: Throwable =>
+                      WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                  }
+                ()
+              } catch {
+                case e: Throwable =>
+                  WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+              }
+          }
+
           ()
         } catch {
           case e: Throwable =>
             WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
         }
-      }
-
-      ()
-    } catch {
-      case e: Throwable =>
-        WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
-    }
-  }
+      },
+      command.endpointOptions
+    )
 }
 
 /**
@@ -116,7 +124,7 @@ object WookieeRouter extends LoggingAdapter {
   * registering endpoints and routing/handling requests. The routing schema utilizes a Trie
   * data structure to allow for efficient routing of requests.
   */
-class WookieeRouter extends Service {
+case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extends Service {
   import WookieeRouter._
 
   val root: PathNode = PathNode(new ConcurrentHashMap[String, PathNode]())
@@ -131,9 +139,9 @@ class WookieeRouter extends Service {
     * will be routed to that endpoint. Precedence will be given to exact matches, so a request
     * "/api/v1" will hit the endpoint registered with the path "/api/v1" instead of "/api/$baz".
     *
-    * You can get the Helidon Handler object via WookieeRouter.handlerFromCommand
+    * You can get the WookieeHandler object via WookieeRouter.handlerFromCommand
     */
-  def addRoute(path: String, method: String, handler: Handler): Unit = root.synchronized {
+  def addRoute(path: String, method: String, handler: WookieeHandler): Unit = root.synchronized {
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
 
     val segments = path.split("/").filter(_.nonEmpty)
@@ -158,11 +166,10 @@ class WookieeRouter extends Service {
   // This is the search method for the underlying Trie. It is complicated by the
   // fact that we need to support path variables. This means that we need to
   // search down multiple paths in the Trie since some paths represent wildcards.
-  def findHandler(path: String, method: String): Option[Handler] = {
+  def findHandlers(path: String): Map[String, WookieeHandler] = {
     // Strip off any trialing query params
     val withoutQueryParams = path.split("\\?").head
     val segments = withoutQueryParams.split("/").filter(_.nonEmpty)
-    val upperMethod = method.toUpperCase
 
     // Start at the root of the Trie
     var currentNode = Option(root)
@@ -193,8 +200,16 @@ class WookieeRouter extends Service {
       }
     }
 
+    // If we found a node, return its handlers. Otherwise, return None
+    currentNode.map(node => node.handlers.asScala.toMap).getOrElse(Map.empty)
+  }
+
+  def findHandler(path: String, method: String): Option[WookieeHandler] = {
+    val upperMethod = method.toUpperCase
+    val handlers = findHandlers(path)
+
     // If we found a handler, return it. Otherwise, return None
-    currentNode.flatMap(node => Option(node.handlers.get(upperMethod)))
+    handlers.get(upperMethod)
   }
 
   // This is a Helidon Service method that is called by that library
@@ -202,10 +217,55 @@ class WookieeRouter extends Service {
   override def update(rules: Routing.Rules): Unit = {
     rules.any((req, res) => {
       val path = req.path().toString
+      val method = req.method().name().trim.toUpperCase
+      // Origin of the request, header used by CORS
+      val originOpt = Option(req.headers.value("Origin").orElse(null))
 
-      findHandler(path, req.method().name()) match {
-        case Some(handler) => handler.accept(req, res)
-        case None          => res.status(404).send("Endpoint not found.")
+      def isOriginAllowed: Boolean = allowedOrigins match {
+        case _: AllowAll      => true
+        case allow: AllowSome =>
+          // Return false if Origin wasn't on request
+          originOpt.map(allow.allowed).exists(_.nonEmpty)
+      }
+
+      // Allow all if allowedHeaders is None
+      def allowedHeaders(handlers: List[WookieeHandler], headers: List[String]): List[String] =
+        if (handlers.isEmpty) List()
+        else {
+          val allowed: List[CorsWhiteList] = handlers.map(_.endpointOptions.allowedHeaders.getOrElse(CorsWhiteList()))
+          headers.filter(head => allowed.forall(_.allowed(head).nonEmpty))
+        }
+
+      // Didn't match CORS Origin requirements
+      if (!isOriginAllowed) {
+        res.status(403).send("Origin not permitted.")
+        return
+      }
+
+      // Main search function
+      val handlers = findHandlers(path)
+      handlers.get(method) match {
+        case Some(wookHandler) => // Normal handling
+          res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
+          res.headers().add("Access-Control-Allow-Credentials", "true")
+          wookHandler.handler.accept(req, res)
+
+        case None if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
+          val reqHeadersOpt =
+            Option(req.headers.value("Access-Control-Request-Headers").orElse(null))
+              .map(_.split(",").map(_.trim).toList)
+              .getOrElse(List())
+
+          res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
+          res.headers().add("Access-Control-Allow-Methods", handlers.keySet.mkString(","))
+          res.headers().add("Access-Control-Allow-Credentials", "true")
+          res
+            .headers()
+            .add("Access-Control-Allow-Headers", allowedHeaders(handlers.values.toList, reqHeadersOpt).mkString(","))
+          res.status(200).send("")
+
+        case None =>
+          res.status(404).send("Endpoint not found.")
       }
       ()
     })

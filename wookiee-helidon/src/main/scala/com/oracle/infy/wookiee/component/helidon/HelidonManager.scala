@@ -12,11 +12,16 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointTy
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.WookieeHttpHandler
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{ServiceHolder, handlerFromCommand}
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{
+  ServiceHolder,
+  WookieeHandler,
+  handlerFromCommand
+}
 import com.typesafe.config.Config
 import io.helidon.webserver._
 import io.helidon.webserver.tyrus.TyrusSupport
 
+import scala.jdk.CollectionConverters._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
@@ -24,6 +29,11 @@ import scala.reflect.runtime.universe._
 object HelidonManager extends Mediator[HelidonManager] {
   val ComponentName = "wookiee-helidon"
 
+  /**
+    * Primary 'object-oriented' entry point for registering an HTTP endpoint using Wookiee Helidon.
+    * Will pull various functions and properties off of the WookieeHttpHandler and use them to
+    * construct a handler registered at the specified path
+    */
   def registerEndpoint(command: WookieeHttpHandler)(implicit config: Config, ec: ExecutionContext): Unit = {
     val mediator = getMediator(config)
     WookieeCommandExecutive.getMediator(config).registerCommand(command)
@@ -32,18 +42,23 @@ object HelidonManager extends Mediator[HelidonManager] {
     mediator.registerEndpoint(command.path, command.endpointType, command.method, handler)
   }
 
+  /**
+    * Primary 'functional' entry point for registering an HTTP endpoint using Wookiee Helidon.
+    * Will compose the input functions in order of their passing into a WookieeHttpHandler object.
+    * This object will then be automatically hosted on the specified web server
+    */
   def registerEndpoint[Input <: Product: ClassTag: TypeTag, Output: ClassTag: TypeTag](
-      name: String,
-      path: String,
-      method: String,
-      endpointType: EndpointType.EndpointType,
-      requestHandler: WookieeRequest => Future[Input],
-      businessLogic: Input => Future[Output],
-      responseHandler: Output => WookieeResponse,
-      errorHandler: Throwable => WookieeResponse,
-      endpointOptions: EndpointOptions = EndpointOptions.default
+      name: String, // Unique name that will also expose this command via the WookieeCommandExecutive
+      path: String, // HTTP path to host this endpoint, segments starting with '$' will be treated as wildcards
+      method: String, // e.g. GET, POST, PATCH, OPTIONS, etc.
+      endpointType: EndpointType.EndpointType, // Host this endpoint on internal or external port?
+      requestHandler: WookieeRequest => Future[Input], // Marshall the WookieeRequest into any generic Input type
+      businessLogic: Input => Future[Output], // Main business logic, Output is any generic type
+      responseHandler: Output => WookieeResponse, // Marshall the generic Output type into a WookieeResponse
+      errorHandler: Throwable => WookieeResponse, // If any errors happen at any point, how shall we respond
+      endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
   )(
-      implicit config: Config,
+      implicit config: Config, // This just need to have 'instance-id' set to any string
       ec: ExecutionContext
   ): Unit = {
 
@@ -72,6 +87,7 @@ object HelidonManager extends Mediator[HelidonManager] {
   }
 }
 
+// Main Helidon Component, manager of all things Helidon but for now mainly HTTP and Websockets
 class HelidonManager(name: String, config: Config) extends ComponentV2(name, config) {
   HelidonManager.registerMediator(config, this)
 
@@ -81,6 +97,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
   def internalPort: Int = config.getInt(s"${HelidonManager.ComponentName}.web.internal-port")
   def externalPort: Int = config.getInt(s"${HelidonManager.ComponentName}.web.external-port")
 
+  // Kick off both internal and external web services on startup
   def startService(): Unit = {
     def startServer(routingService: WookieeRouter, port: Int): ServiceHolder = {
       val routing = Routing
@@ -99,17 +116,29 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
       ServiceHolder(server, routingService)
     }
 
-    internalServer = startServer(new WookieeRouter(), internalPort)
-    externalServer = startServer(new WookieeRouter(), externalPort)
+    // Check config for the settings of allowed Origin headers
+    def getAllowedOrigins(portType: String): CorsWhiteList = {
+      val origins = config.getStringList(s"${HelidonManager.ComponentName}.web.cors.$portType").asScala.toList
+      if (origins.isEmpty || origins.contains("*")) CorsWhiteList()
+      else CorsWhiteList(origins)
+    }
+
+    val internalOrigins = getAllowedOrigins("internal-allowed-origins")
+    val externalOrigins = getAllowedOrigins("external-allowed-origins")
+
+    internalServer = startServer(new WookieeRouter(internalOrigins), internalPort)
+    externalServer = startServer(new WookieeRouter(externalOrigins), externalPort)
   }
 
+  // Call on shutdown
   def stopService(): Unit = {
     internalServer.server.shutdown()
     externalServer.server.shutdown()
     ()
   }
 
-  def registerEndpoint(path: String, endpointType: EndpointType, method: String, handler: Handler): Unit =
+  // Main internal entry point for registration of HTTP endpoints
+  def registerEndpoint(path: String, endpointType: EndpointType, method: String, handler: WookieeHandler): Unit =
     endpointType match {
       case EXTERNAL =>
         externalServer.routingService.addRoute(path, method, handler)
@@ -119,19 +148,6 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
         externalServer.routingService.addRoute(path, method, handler)
         internalServer.routingService.addRoute(path, method, handler)
     }
-
-//  def registerWebsocket(path: String, endpointType: EndpointType, websocket: HelidonWebsocket): Unit = {
-//    val endpointConfig = ServerEndpointConfig.Builder.create(websocket.getClass, path).build()
-//    endpointType match {
-//      case EXTERNAL =>
-//        externalServer.routingService.addWebsocketEndpoint(endpointConfig)
-//      case INTERNAL =>
-//        internalServer.routingService.addWebsocketEndpoint(endpointConfig)
-//      case BOTH =>
-//        externalServer.routingService.addWebsocketEndpoint(endpointConfig)
-//        internalServer.routingService.addWebsocketEndpoint(endpointConfig)
-//    }
-//  }
 
   override def start(): Unit = {
     startService()

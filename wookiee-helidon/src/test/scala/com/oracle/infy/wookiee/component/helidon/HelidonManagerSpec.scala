@@ -1,50 +1,25 @@
 package com.oracle.infy.wookiee.component.helidon
 
-import com.oracle.infy.wookiee.command.WookieeCommandExecutive
+import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.util.TestObjects.{InputObject, OutputObject}
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
 import com.oracle.infy.wookiee.component.helidon.web.http.{HttpObjects, WookieeHttpHandler}
-import com.oracle.infy.wookiee.test.TestHarness.getFreePort
-import com.oracle.infy.wookiee.utils.ThreadUtil
-import com.typesafe.config.{Config, ConfigFactory}
-import org.json4s._
 import org.json4s.jackson.JsonMethods._
-import org.scalatest.BeforeAndAfterAll
-import org.scalatest.matchers.must.Matchers
-import org.scalatest.wordspec.AnyWordSpec
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 
-class HelidonManagerSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
-  implicit val formats: Formats = DefaultFormats
-  private var manager: HelidonManager = _
+class HelidonManagerSpec extends EndpointTestHelper {
 
-  private lazy val internalPort = getFreePort
-  private lazy val externalPort = getFreePort
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
-  implicit lazy val conf: Config = ConfigFactory.parseString(s"""
-       |instance-id = "helidon-test-$internalPort"
-       |wookiee-helidon {
-       |  web {
-       |    internal-port = $internalPort
-       |    external-port = $externalPort
-       |  }
-       |}
-       |""".stripMargin)
-
-  override protected def beforeAll(): Unit = {
-    new WookieeCommandExecutive("wookiee-command", conf)
-    manager = new HelidonManager("wookiee-helidon", conf)
-    manager.start()
-
+  override def registerEndpoints(manager: HelidonManager): Unit = {
     manager.registerEndpoint(
       "/api/$variable/endpoint",
       EndpointType.BOTH,
       "GET",
-      (req, res) => {
+      WookieeHandler((req, res) => {
         req
           .content()
           .as(classOf[String])
@@ -55,7 +30,7 @@ class HelidonManagerSpec extends AnyWordSpec with Matchers with BeforeAndAfterAl
             ()
           })
         ()
-      }
+      })
     )
 
     HelidonManager.registerEndpoint[InputObject, OutputObject](
@@ -295,8 +270,12 @@ class HelidonManagerSpec extends AnyWordSpec with Matchers with BeforeAndAfterAl
       val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers(Map()))
       WookieeRequest.unapply(req) must not be None
 
-      val cors = CorsAllowed()
-      CorsAllowed.unapply(cors) must not be None
+      val cors = AllowSome(List())
+      AllowSome.unapply(cors) must not be None
+
+      val cors2 = AllowAll()
+      cors2.allowed(List("anything")) mustEqual List("anything")
+      AllowAll.unapply(cors2) must not be None
 
       val eo = EndpointOptions()
       EndpointOptions.unapply(eo) must not be None

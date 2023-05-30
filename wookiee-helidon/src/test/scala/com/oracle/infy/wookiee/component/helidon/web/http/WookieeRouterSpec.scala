@@ -1,13 +1,14 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import io.helidon.webserver.{Handler, ServerRequest, ServerResponse}
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
+import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 class WookieeRouterSpec extends AnyWordSpec with Matchers {
   "WookieeRouter" should {
-    def makeHandler: Handler = (_: ServerRequest, _: ServerResponse) => ()
+    def makeHandler: WookieeHandler = WookieeHandler((_: ServerRequest, _: ServerResponse) => ())
 
     "correctly add a route and find the handler" in {
       val router = new WookieeRouter
@@ -100,7 +101,7 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
     }
 
     "handle tons of registrations and finds" in {
-      // Last run: Added 100,000 routes in ~150ms, Found 1,000,000 routes in ~500ms
+      // Last fastest run: Added 100,000 routes in ~150ms, Found 1,000,000 routes in ~500ms
       val N = 100000
       val router = new WookieeRouter
       val handler = makeHandler
