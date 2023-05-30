@@ -35,13 +35,23 @@ trait DiscoverableCommandExecution {
       input: Input, // The actual input for the command, will be (de)serialized on send/receipt
       maxMessageSize: Int = 4194304 // If needing to protect against large messages, or to allow them, use this
   )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] = Future {
-    // Will be stored in mediator and closed on shutdown
-    val channel = GrpcManager.getChannelFromMediator(zkPath, zkConnect, bearerToken, sslClientSettings, maxMessageSize)
-    val stub = new GrpcDiscoverableStub(channel.managedChannel)
+    val stub: GrpcDiscoverableStub = getGenericStub(zkPath, zkConnect, bearerToken, sslClientSettings, maxMessageSize)
     val inputString = ClassUtil.writeAny(input)
     // Send the request to our remote server
     val result = stub.executeRemote(StringValue.of(inputString), commandName)
     parse(result.getValue).extract[Output]
+  }
+
+  private[wookiee] def getGenericStub(
+      zkPath: String,
+      zkConnect: String,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int = 4194304
+  )(implicit config: Config): GrpcDiscoverableStub = {
+    // Will be stored in mediator and closed on shutdown
+    val channel = GrpcManager.getChannelFromMediator(zkPath, zkConnect, bearerToken, sslClientSettings, maxMessageSize)
+    new GrpcDiscoverableStub(channel.managedChannel)
   }
 
   /**
@@ -49,13 +59,13 @@ trait DiscoverableCommandExecution {
     * Returns the result of one of the run commands
     * TODO: Implement this using gRPC
     */
-  def broadcastDiscoverableCommand[Input <: AnyRef: ClassTag, Output <: Any: ClassTag](
-      zkPath: String,
-      zkConnect: String,
-      bearerToken: String,
-      sslClientSettings: Option[SSLClientSettings],
-      maxMessageSize: Int,
-      commandName: String,
-      input: Input
-  )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] = ???
+//  def broadcastDiscoverableCommand[Input <: AnyRef: ClassTag, Output <: Any: ClassTag](
+//      zkPath: String,
+//      zkConnect: String,
+//      bearerToken: String,
+//      sslClientSettings: Option[SSLClientSettings],
+//      maxMessageSize: Int,
+//      commandName: String,
+//      input: Input
+//  )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] = ???
 }

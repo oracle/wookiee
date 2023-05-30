@@ -27,9 +27,8 @@ trait GrpcMethodHolder {
 
 class GrpcDiscoverableStub(channel: Channel) extends AbstractStub[GrpcDiscoverableStub](channel) with GrpcMethodHolder {
 
-  override def build(channel: Channel, callOptions: CallOptions): GrpcDiscoverableStub = {
+  override def build(channel: Channel, callOptions: CallOptions): GrpcDiscoverableStub =
     new GrpcDiscoverableStub(channel)
-  }
 
   def executeRemote(request: StringValue, commandName: String): StringValue =
     blockingUnaryCall(getChannel, basicMethod(commandName), getCallOptions, request)

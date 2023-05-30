@@ -164,8 +164,8 @@ object GrpcManager extends Mediator[ActorRef] {
       zkPath: String,
       zkConnect: String,
       bearerToken: String,
-      sslClientSettings: Option[SSLClientSettings],
-      maxMessageSize: Int
+      sslClientSettings: Option[SSLClientSettings] = None,
+      maxMessageSize: Int = 4194304
   )(implicit config: Config): WookieeGrpcChannel = {
     val channelMap = GrpcChannelManager.getMediator(getInstanceId(config))
     channelMap.get(ChannelKey(zkPath, zkConnect, bearerToken)) match {

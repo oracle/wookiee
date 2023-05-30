@@ -12,7 +12,7 @@ import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness}
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
-import io.grpc.{Metadata, ServerCall, ServerCallHandler, ServerInterceptor, StatusRuntimeException}
+import io.grpc._
 import org.apache.curator.test.TestingServer
 import org.json4s.ext.JavaTimeSerializers
 import org.json4s.{DefaultFormats, Formats}
@@ -20,10 +20,10 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.jdk.CollectionConverters._
 
 case class TestInput(value: String)
 case class TestOutput(value: String)
@@ -32,7 +32,11 @@ class TestDiscoverableCommand(override val name: String)(implicit val config: Co
     extends DiscoverableCommand[TestInput, TestOutput] {
 
   override def execute(args: TestInput): Future[TestOutput] = {
-    Future.successful(TestOutput(s"$name-${args.value}-output"))
+    args.value match {
+      case "outer-fail" => throw new IllegalArgumentException("outer-fail")
+      case "inner-fail" => Future.failed(new IllegalStateException("inner-fail"))
+      case _            => Future.successful(TestOutput(s"$name-${args.value}-output"))
+    }
   }
 }
 
@@ -171,6 +175,54 @@ class DiscoverableCommandSpec
       )
       result mustBe TestOutput("test-command-interceptor-input-output")
       wasIntercepted.get() mustBe true
+    }
+
+    "have support for generic stubs that can take anything" in {
+      val stub = getGenericStub(
+        zkPath,
+        s"localhost:$zkPort",
+        "",
+        None
+      )
+
+      val channel = GrpcManager.getChannelFromMediator(zkPath, s"localhost:$zkPort", "")
+      stub.build(channel.managedChannel, CallOptions.DEFAULT)
+    }
+
+    "fail gracefully inside of the execute future" in {
+      val ex = intercept[StatusRuntimeException] {
+        Await.result(
+          executeDiscoverableCommand[TestInput, TestOutput](
+            zkPath,
+            s"localhost:$zkPort",
+            "",
+            None,
+            "test-command-main",
+            TestInput("inner-fail")
+          ),
+          15.seconds
+        )
+      }
+
+      ex.getMessage mustEqual "INTERNAL: Failed gRPC execution: 'inner-fail'"
+    }
+
+    "fail gracefully outside of the execute future" in {
+      val ex = intercept[StatusRuntimeException] {
+        Await.result(
+          executeDiscoverableCommand[TestInput, TestOutput](
+            zkPath,
+            s"localhost:$zkPort",
+            "",
+            None,
+            "test-command-main",
+            TestInput("outer-fail")
+          ),
+          15.seconds
+        )
+      }
+
+      ex.getMessage mustEqual "INTERNAL: Failed gRPC invocation: 'outer-fail'"
     }
   }
 }
