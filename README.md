@@ -191,19 +191,21 @@ wookiee-system {
 }
 ```
 
-1.  [Akka Http Component](https://github.com/oracle/wookiee-akka-http)
-2.  [Memcache Component](https://github.com/oracle/wookiee-cache-memcache)
-3.  [Cache Component](https://github.com/oracle/wookiee-cache)
-4.  [Cluster Component](https://github.com/oracle/wookiee-cluster)
-5.  [Colossus Component](https://github.com/oracle/wookiee-colossus)
-6.  [ETCD Component](https://github.com/oracle/wookiee-etcd)
-7.  [JSON Component](https://github.com/oracle/wookiee-json)
-8.  [Kafka Component](https://github.com/oracle/wookiee-kafka)
-9. [Metrics Component](https://github.com/oracle/wookiee-metrics)
-10. [Netty Component](https://github.com/oracle/wookiee-netty)
-11. [Socko Component](https://github.com/oracle/wookiee-socko)
-12. [Spray Component](https://github.com/oracle/wookiee-spray)
-13.  [Zookeeper Component](https://github.com/oracle/wookiee-zookeeper)
+
+* [Memcache Component](wookiee-cache-memcache)
+  * Extends the Cache Component to provide a Memcache implementation
+* [Helidon Component](wookiee-helidon)
+  * Most modern Component for HTTP/WS services
+* [Cache Component](wookiee-cache)
+  * Provides a Cache implementation for Wookiee
+* [gRPC Component](wookiee-grpc-component)
+  * Allows for creation and querying of gRPC services
+* [Metrics Component](wookiee-metrics)
+  * Metrics that can be attached anywhere and sent to a metrics service
+* [Zookeeper Component](wookiee-zookeeper)
+  * Provides Zookeeper connection management and service discovery
+* [Akka Http Component](wookiee-akka-http)
+  * Legacy Component for HTTP/WS services
 
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform
@@ -252,10 +254,15 @@ Run command:
 java -cp *:lib/components/*:lib/thirdparty/* com.oracle.infy.wookiee.app.HarnessService
 ```
 
-* [wookiee-grpc](#wookiee-grpc)
-
+## Discoverability
+Wookiee provides a service discovery mechanism that allows services to register themselves with the Wookiee Platform.
+This gives us the ability to message services that are running in the Wookiee Platform without having to know the
+exact host that those services are on. 
+* [Wookiee Discovery](wookiee-discovery)
+* [Example of Usage](examples/advanced-communication)
 
 # wookiee-grpc
+* [wookiee-grpc](#wookiee-grpc)
 ## Installation
 wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
 ```scala

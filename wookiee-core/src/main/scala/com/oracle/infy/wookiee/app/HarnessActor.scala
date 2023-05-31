@@ -145,7 +145,8 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
       List(serviceActor, componentActor, dispatchManager, commandManager)
         .flatten
         .foreach(_ ! SystemReady)
-    case ReadyCheck => sender() ! running
+    case ReadyCheck =>
+      sender() ! running
     case GetManagers =>
       sender() ! Map[String, Option[ActorRef]](
         HarnessConstants.CommandName -> commandManager,

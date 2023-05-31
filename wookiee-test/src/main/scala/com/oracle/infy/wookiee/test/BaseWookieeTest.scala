@@ -2,9 +2,10 @@ package com.oracle.infy.wookiee.test
 
 import akka.actor.ActorSystem
 import ch.qos.logback.classic.Level
-import com.oracle.infy.wookiee.component.Component
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.component.{Component, WookieeComponent}
+import com.oracle.infy.wookiee.service.{Service, WookieeService}
 import com.typesafe.config.{Config, ConfigFactory}
+
 import scala.concurrent.duration._
 import scala.concurrent.duration.FiniteDuration
 
@@ -12,9 +13,9 @@ import scala.concurrent.duration.FiniteDuration
 trait BaseWookieeTest {
   def config: Config = ConfigFactory.empty()
 
-  def componentMap: Option[Map[String, Class[_ <: Component]]] = None
+  def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None
 
-  def servicesMap: Option[Map[String, Class[_ <: Service]]] = None
+  def servicesMap: Option[Map[String, Class[_ <: WookieeService]]] = None
 
   def logLevel: Level = Level.INFO
 

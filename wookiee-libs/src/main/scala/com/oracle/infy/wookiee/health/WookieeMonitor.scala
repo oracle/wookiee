@@ -137,25 +137,25 @@ trait WookieeMonitor extends LoggingAdapter {
   protected[oracle] def propagateOnComponentReady(info: ComponentInfo): Unit =
     propogateCall({ mon =>
       mon.onComponentReady(info)
-    }, "Error in onComponentReady")
+    }, "Failure in onComponentReady() execution")
 
   // Internal but called from outside, will call prepareForShutdown() on this and all dependents
   protected[oracle] def propagatePrepareForShutdown(): Unit =
     propogateCall({ mon =>
       mon.prepareForShutdown()
-    }, "Error in prepareForShutdown")
+    }, "Error in prepareForShutdown() execution")
 
   // Internal but called from outside, will call start() on this and all dependents
   protected[oracle] def propagateStart(): Unit =
     propogateCall({ mon =>
       mon.start()
-    }, "Error in start")
+    }, "Failure in start() execution")
 
   // Internal but called from outside, will call systemReady() on this and all dependents
   protected[oracle] def propagateSystemReady(): Unit =
     propogateCall({ mon =>
       mon.systemReady()
-    }, "Error in system ready")
+    }, "Failure in systemReady() execution")
 
   // Useful util to iterate through all dependents and call a function
   protected[oracle] def propogateCall(call: WookieeMonitor => Unit, errorMsg: String): Unit =

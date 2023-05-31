@@ -4,6 +4,7 @@ import akka.actor.{Actor, ActorRef, Props}
 import akka.testkit.TestProbe
 import com.oracle.infy.wookiee.service.Service
 import com.oracle.infy.wookiee.service.messages.Ready
+import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 import org.scalatest.Inspectors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -34,7 +35,7 @@ class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val probe = TestProbe()
         val testService = sysToUse.getService("testservice")
         assert(testService.isDefined, "Test service was not registered")
-        probe.send(testService.get, Ready())
+        probe.send(testService.get.asInstanceOf[ServiceMetaData].actorRef, Ready())
         Ready() shouldBe probe.expectMsg(Ready())
       }
 

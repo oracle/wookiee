@@ -15,7 +15,7 @@
  */
 package com.oracle.infy.wookiee.service.messages
 
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.service.WookieeService
 
 sealed trait ServiceMessage
 
@@ -30,4 +30,4 @@ case class Ready() extends ServiceMessage
 // @deprecated("Phasing out GetMetaDetails, switch to CheckHealth for service status", "2.4.0")
 case class GetMetaDetails() extends ServiceMessage
 
-case class LoadService(name: String, clazz: Class[_ <: Service]) extends ServiceMessage
+case class LoadService(name: String, clazz: Class[_ <: WookieeService]) extends ServiceMessage

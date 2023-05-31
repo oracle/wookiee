@@ -151,6 +151,15 @@ lazy val `basic-service` = project
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
+lazy val `advanced-communication` = project
+  .in(file("examples/advanced-communication"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`)
+
 lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))
   .settings(commonSettings(false))

@@ -369,11 +369,12 @@ class ComponentManager extends PrepareForShutdown {
 
   private def componentV2Started(compInfo: ComponentInfoV2): Unit = {
     sendReadinessToAllStarted(compInfo)
-    if (componentsInitialized) {
+    if (componentsInitialized)
       compInfo.component.propagateSystemReady()
-    } else {
+    else if (ComponentManager.isAllComponentsStarted)
+      validateComponentStartup()
+    else
       shutdownOnFailure()
-    }
   }
 
   private def componentStarted(name: String, compRef: ActorRef): Unit = {
@@ -561,6 +562,7 @@ class ComponentManager extends PrepareForShutdown {
           ComponentManager.setComponentInfo(info)
           Some(info)
         case c if classOf[ComponentV2].isAssignableFrom(c) =>
+          // TODO Async loading of V2 components
           val info = initComponentV2(componentName, clazz.asSubclass(classOf[ComponentV2]))
           ComponentManager.setComponentInfo(info)
           componentV2Started(info)

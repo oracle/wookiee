@@ -24,17 +24,10 @@ import com.oracle.infy.wookiee.HarnessConstants._
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.app.Harness
 import com.oracle.infy.wookiee.app.HarnessActor.{GetManagers, ReadyCheck}
-import com.oracle.infy.wookiee.component.{
-  Component,
-  ComponentInfo,
-  ComponentInfoAkka,
-  ComponentInfoV2,
-  ComponentV2,
-  LoadComponent
-}
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.component._
+import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.LoadService
-import com.oracle.infy.wookiee.service.meta.ServiceMetaData
+import com.oracle.infy.wookiee.service.meta.WookieeServiceMeta
 import com.oracle.infy.wookiee.test.TestHarness.defaultConfig
 import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
@@ -57,8 +50,8 @@ object TestHarness extends Mediator[TestHarness] {
     */
   def apply(
       config: Config,
-      serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-      componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+      serviceMap: Option[Map[String, Class[_ <: WookieeService]]] = None,
+      componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None,
       logLevel: Level = Level.INFO,
       timeToWait: FiniteDuration = 15.seconds
   ): TestHarness = {
@@ -132,13 +125,13 @@ object TestHarness extends Mediator[TestHarness] {
 
 class TestHarness(
     conf: Config,
-    serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-    componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+    serviceMap: Option[Map[String, Class[_ <: WookieeService]]] = None,
+    componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None,
     logLevel: Level = Level.ERROR,
-    timeToWait: FiniteDuration = 15.seconds
+    timeToWait: FiniteDuration = 30.seconds
 ) {
 
-  var services: Map[String, ActorRef] = Map[String, ActorRef]()
+  var services: Map[String, WookieeServiceMeta] = Map[String, WookieeServiceMeta]()
   var components: Map[String, ComponentInfo] = Map[String, ComponentInfo]()
   var serviceManager: Option[ActorRef] = None
   var componentManager: Option[ActorRef] = None
@@ -189,12 +182,11 @@ class TestHarness(
 
   def getInstanceId: String = instanceId
 
-  def stop()(implicit system: ActorSystem): Unit = {
+  def stop()(implicit system: ActorSystem): Unit =
     Harness.shutdownActorSystem(block = false) {
       // wait a second to make sure it shutdown correctly
       Thread.sleep(1000)
     }
-  }
 
   def setLogLevel(level: Level): Unit = {
     val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
@@ -216,18 +208,16 @@ class TestHarness(
     }
   }
 
-  def getService(service: String): Option[ActorRef] = {
+  def getService(service: String): Option[WookieeServiceMeta] =
     services.get(service)
-  }
 
-  def getServiceOrDie(service: String): ActorRef = {
+  def getServiceOrDie(service: String): WookieeServiceMeta =
     services.getOrElse(
       service,
       throw new IllegalStateException(
         s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"
       )
     )
-  }
 
   // @deprecated("Use getComponentAkka instead", "2.4.0")
   def getComponent(component: String): Option[ActorRef] = {
@@ -268,13 +258,13 @@ class TestHarness(
     )
   }
 
-  def loadComponents(componentMap: Map[String, Class[_ <: Component]]): Unit = {
+  def loadComponents(componentMap: Map[String, Class[_ <: WookieeComponent]]): Unit = {
     componentMap foreach { p =>
       componentReady(p._1, p._2.getCanonicalName)
     }
   }
 
-  def loadServices(serviceMap: Map[String, Class[_ <: Service]]): Unit = {
+  def loadServices(serviceMap: Map[String, Class[_ <: WookieeService]]): Unit = {
     serviceMap foreach { p =>
       serviceReady(p._1, p._2)
     }
@@ -291,12 +281,12 @@ class TestHarness(
     }
   }
 
-  private def serviceReady(serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
+  private def serviceReady(serviceName: String, serviceClass: Class[_ <: WookieeService]): Unit = {
     Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
       case Some(m) =>
-        val service = m.asInstanceOf[ServiceMetaData]
-        TestHarness.log.info(s"Loaded service $serviceName, ${service.actorRef.path.toString}")
-        services += (serviceName -> service.actorRef)
+        val service = m.asInstanceOf[WookieeServiceMeta]
+        TestHarness.log.info(s"Loaded service $serviceName")
+        services += (serviceName -> service)
       case None =>
         throw new Exception("Service not returned")
     }

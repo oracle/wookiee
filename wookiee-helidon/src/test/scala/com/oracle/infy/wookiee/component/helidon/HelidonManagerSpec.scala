@@ -7,7 +7,7 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointTy
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
-import com.oracle.infy.wookiee.component.helidon.web.http.{HttpObjects, WookieeHttpHandler}
+import com.oracle.infy.wookiee.component.helidon.web.http.{HttpCommand, HttpObjects}
 import org.json4s.jackson.JsonMethods._
 
 import scala.concurrent.Future
@@ -77,7 +77,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       }
     )
 
-    class WookieeBasicGet extends WookieeHttpHandler {
+    class BasicGet extends HttpCommand {
       override def commandName: String = "basic-get-command"
 
       override def endpointOptions: EndpointOptions =
@@ -95,9 +95,9 @@ class HelidonManagerSpec extends EndpointTestHelper {
       }
     }
 
-    HelidonManager.registerEndpoint(new WookieeBasicGet)
+    HelidonManager.registerEndpoint(new BasicGet)
 
-    class WookieeErrorBomb extends WookieeHttpHandler {
+    class ErrorBomb extends HttpCommand {
       override def method: String = "get"
 
       override def path: String = throw new Exception("bomb")
@@ -113,7 +113,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       "/error/bomb",
       EndpointType.BOTH,
       "GET",
-      WookieeRouter.handlerFromCommand(new WookieeErrorBomb)
+      WookieeRouter.handlerFromCommand(new ErrorBomb)
     )
 
   }

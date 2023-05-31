@@ -23,6 +23,7 @@ import com.oracle.infy.wookiee.app.HarnessActorSystem
 import com.oracle.infy.wookiee.command._
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.service.messages.Ready
+import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 import com.oracle.infy.wookiee.test.TestSystemActor.RegisterShutdownListener
 import com.oracle.infy.wookiee.test.command.{WeatherCommand, WeatherData}
 import org.scalatest.Inspectors
@@ -30,7 +31,6 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.TimeUnit
-import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 
 class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
@@ -62,7 +62,7 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
         val probe = TestProbe()
         val testService = sysToUse.getService("testservice")
         assert(testService.isDefined, "Test service was not registered")
-        probe.send(testService.get, Ready())
+        probe.send(testService.get.asInstanceOf[ServiceMetaData].actorRef, Ready())
         Ready() shouldBe probe.expectMsg(Ready())
       }
 
@@ -143,9 +143,9 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
       val testService2 = sys2.getService("testservice")
       val testComponent2 = sys2.getComponent("testcomponent")
 
-      probe1.send(testService.get, RegisterShutdownListener(probe1.ref))
+      probe1.send(testService.get.asInstanceOf[ServiceMetaData].actorRef, RegisterShutdownListener(probe1.ref))
       probe1.send(testComponent.get, RegisterShutdownListener(probe1.ref))
-      probe2.send(testService2.get, RegisterShutdownListener(probe2.ref))
+      probe2.send(testService2.get.asInstanceOf[ServiceMetaData].actorRef, RegisterShutdownListener(probe2.ref))
       probe2.send(testComponent2.get, RegisterShutdownListener(probe2.ref))
 
       sys.stop()(actorSystem)

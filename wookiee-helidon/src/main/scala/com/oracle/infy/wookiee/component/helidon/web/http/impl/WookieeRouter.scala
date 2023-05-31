@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.component.helidon.web.http.impl
 
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
-import com.oracle.infy.wookiee.component.helidon.web.http.WookieeHttpHandler
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver._
 
@@ -69,7 +69,7 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  def handlerFromCommand(command: WookieeHttpHandler)(implicit ec: ExecutionContext): WookieeHandler =
+  def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): WookieeHandler =
     WookieeHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different

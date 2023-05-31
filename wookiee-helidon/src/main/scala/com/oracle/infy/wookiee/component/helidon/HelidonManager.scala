@@ -10,7 +10,7 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointTy
   INTERNAL
 }
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
-import com.oracle.infy.wookiee.component.helidon.web.http.WookieeHttpHandler
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{
   ServiceHolder,
@@ -34,7 +34,7 @@ object HelidonManager extends Mediator[HelidonManager] {
     * Will pull various functions and properties off of the WookieeHttpHandler and use them to
     * construct a handler registered at the specified path
     */
-  def registerEndpoint(command: WookieeHttpHandler)(implicit config: Config, ec: ExecutionContext): Unit = {
+  def registerEndpoint(command: HttpCommand)(implicit config: Config, ec: ExecutionContext): Unit = {
     val mediator = getMediator(config)
     WookieeCommandExecutive.getMediator(config).registerCommand(command)
     val handler = handlerFromCommand(command)
@@ -68,7 +68,7 @@ object HelidonManager extends Mediator[HelidonManager] {
     val cmdType = endpointType
     val cmdErrors = errorHandler
     val cmdOptions = endpointOptions
-    val command = new WookieeHttpHandler {
+    val command = new HttpCommand {
       override def commandName: String = cmdName
       override def method: String = cmdMethod
       override def path: String = cmdPath
@@ -151,12 +151,11 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
 
   override def start(): Unit = {
     startService()
-    println(s"Helidon Servers started on ports: [internal=$internalPort], [external=$externalPort]")
+    log.info(s"Helidon Servers started on ports: [internal=$internalPort], [external=$externalPort]")
   }
 
   override def prepareForShutdown(): Unit = {
     stopService()
-    println("Helidon Server shutdown complete")
+    log.info("Helidon Server shutdown complete")
   }
-
 }

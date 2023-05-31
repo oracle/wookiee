@@ -11,7 +11,7 @@ import scala.concurrent.Future
   * required methods, you can register the endpoint by calling:
   *   HelidonManager.registerEndpoint(command)
   */
-trait WookieeHttpHandler extends WookieeCommand[WookieeRequest, WookieeResponse] {
+trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
   // Can be one of: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE
   def method: String
 
