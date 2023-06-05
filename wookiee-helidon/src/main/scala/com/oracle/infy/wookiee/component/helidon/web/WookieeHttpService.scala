@@ -4,17 +4,19 @@ import com.oracle.infy.wookiee.component.ComponentInfo
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.service.ServiceV2
 import com.typesafe.config.Config
+import scala.concurrent.ExecutionContext
+import com.oracle.infy.wookiee.utils.ThreadUtil
 
-// Useful trait for creating a Wookiee service that uses Helidon endpoints
+// Useful trait for creating a Wookiee Service that uses Helidon endpoints
 abstract class WookieeHttpService(config: Config) extends ServiceV2(config) {
-  def addCommands(): Unit
+  def addCommands(implicit conf: Config, ec: ExecutionContext): Unit
 
   // Will kick off the addCommands method once wookiee-helidon component is ready
   // Be sure to call super.onComponentReady(info) if you override this method
   override def onComponentReady(info: ComponentInfo): Unit = {
     super.onComponentReady(info)
     if (info.name == HelidonManager.ComponentName) {
-      addCommands()
+      addCommands(config, ThreadUtil.createEC(s"helidon-$name"))
     }
   }
 }

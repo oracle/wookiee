@@ -8,6 +8,7 @@ import com.oracle.infy.wookiee.utils.ClassUtil
 import com.typesafe.config.Config
 import org.json4s.Formats
 import org.json4s.jackson.JsonMethods._
+import scala.util.Try
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
@@ -41,6 +42,12 @@ trait DiscoverableCommandExecution {
     val result = stub.executeRemote(StringValue.of(inputString), commandName)
     parse(result.getValue).extract[Output]
   }
+
+  // Convenience method to check all the usual places that the zookeeper server might be configured
+  def getZKConnectConfig(config: Config): Option[String] =
+    Try(config.getString("wookiee-zookeeper.quorum"))
+      .orElse(Try(config.getString("zookeeper-config.connect-string")))
+      .toOption
 
   private[wookiee] def getGenericStub(
       zkPath: String,

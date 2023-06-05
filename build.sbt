@@ -157,8 +157,8 @@ lazy val `advanced-communication` = project
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`)
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`, `wookiee-zookeeper`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`, `wookiee-zookeeper`)
 
 lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))

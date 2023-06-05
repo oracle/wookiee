@@ -45,8 +45,8 @@ class DiscoverableCommandSpec
     with AnyWordSpecLike
     with Matchers
     with BeforeAndAfterAll
-    with DiscoverableCommandHelper
-    with DiscoverableCommandExecution {
+    with DiscoverableCommandExecution
+    with DiscoverableCommandHelper {
   lazy val zkPort: Int = TestHarness.getFreePort
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer: AtomicReference[TestingServer] = new AtomicReference(new TestingServer(zkPort))
@@ -73,21 +73,17 @@ class DiscoverableCommandSpec
     super.beforeAll()
     zkServer.get().start()
 
-    Await.result(registerDiscoverableCommand(new TestDiscoverableCommand("test-command-main")), 15.seconds)
-    Await.result(
-      registerDiscoverableCommand(new TestDiscoverableCommand("test-command-token"), Some("test-bearer")),
-      15.seconds
+    registerDiscoverableCommand(new TestDiscoverableCommand("test-command-main"))
+    DiscoverableCommandHelper.registerDiscoverableCommand(new TestDiscoverableCommand("test-command-main-2"))
+    registerDiscoverableCommand(new TestDiscoverableCommand("test-command-token"), Some("test-bearer"))
+    registerDiscoverableCommand(
+      new TestDiscoverableCommand("test-command-interceptor"),
+      None,
+      List(
+        interceptor
+      ).asJava
     )
-    Await.result(
-      registerDiscoverableCommand(
-        new TestDiscoverableCommand("test-command-interceptor"),
-        None,
-        List(
-          interceptor
-        ).asJava
-      ),
-      15.seconds
-    )
+
     GrpcManager.initializeGrpcNow(testConfig)
     GrpcManager.waitForManager(testConfig, waitForClean = true, 30)
   }

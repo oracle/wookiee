@@ -9,12 +9,24 @@ import com.oracle.infy.wookiee.grpc.settings.ServiceAuthSettings
 import com.typesafe.config.Config
 import io.grpc.ServerInterceptor
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 
 // Will usually be extended by a Wookiee Service to register DiscoverableCommands once on startup
 trait DiscoverableCommandHelper {
+
+  // Helper method to register a discoverable command, identical to the one in the companion object
+  def registerDiscoverableCommand[Input <: Any: ClassTag](
+      command: DiscoverableCommand[Input, _ <: Any],
+      authToken: Option[String] = None,
+      intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
+  )(implicit config: Config, ec: ExecutionContext): Unit = {
+    DiscoverableCommandHelper.registerDiscoverableCommand[Input](command, authToken, intercepts)
+  }
+}
+
+object DiscoverableCommandHelper {
 
   /**
     * Wrapper that allows services to add commands to the command manager with a single discoverable command
@@ -26,7 +38,7 @@ trait DiscoverableCommandHelper {
       command: DiscoverableCommand[Input, _ <: Any],
       authToken: Option[String] = None,
       intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
-  )(implicit config: Config, ec: ExecutionContext): Future[Unit] = Future {
+  )(implicit config: Config, ec: ExecutionContext): Unit = {
     val wookComExec = WookieeCommandExecutive.getMediator(Mediator.getInstanceId(config))
     // Register command locally (can be called via WookieeCommandExecutive.executeCommand)
     wookComExec.registerCommand(command)

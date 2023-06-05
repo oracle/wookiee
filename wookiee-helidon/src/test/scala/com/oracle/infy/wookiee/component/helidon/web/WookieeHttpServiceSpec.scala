@@ -7,10 +7,11 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.concurrent.ExecutionContext
 
 class TestHttpService(config: Config) extends WookieeHttpService(config) {
 
-  override def addCommands(): Unit =
+  override def addCommands(implicit conf: Config, ec: ExecutionContext): Unit =
     WookieeHttpServiceSpec.calledAddCommands.set(true)
 }
 
