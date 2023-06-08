@@ -4,7 +4,7 @@ import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.{getContent, oneOff}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{CorsWhiteList, EndpointOptions, EndpointType}
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
 import io.helidon.webserver.{ServerRequest, ServerResponse}
 
 class CORSSpec extends EndpointTestHelper {
@@ -17,7 +17,7 @@ class CORSSpec extends EndpointTestHelper {
         "/api/v1/endpoint",
         EndpointType.INTERNAL,
         method,
-        WookieeHandler(
+        HttpHandler(
           (_: ServerRequest, _: ServerResponse) => (),
           EndpointOptions
             .default
@@ -34,7 +34,7 @@ class CORSSpec extends EndpointTestHelper {
       "/api/v1/endpoint",
       EndpointType.EXTERNAL,
       "GET",
-      WookieeHandler(
+      HttpHandler(
         (_: ServerRequest, _: ServerResponse) => (),
         EndpointOptions
           .default

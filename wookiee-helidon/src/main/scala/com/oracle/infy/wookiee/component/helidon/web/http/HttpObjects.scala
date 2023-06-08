@@ -64,7 +64,7 @@ object HttpObjects {
   case class WookieeRequest(
       content: Content,
       pathSegments: Map[String, String],
-      queryParameters: Map[String, List[String]],
+      queryParameters: Map[String, String],
       headers: Headers
   )
 

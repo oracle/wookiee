@@ -1,11 +1,18 @@
 package com.oracle.infy.wookiee.component.helidon.web.http.impl
 
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
+import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
+import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver._
+import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 
+import java.nio.ByteBuffer
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import javax.websocket.HandshakeResponse
+import javax.websocket.server.{HandshakeRequest, ServerEndpointConfig}
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
@@ -20,7 +27,19 @@ object WookieeRouter extends LoggingAdapter {
   case class ServiceHolder(server: WebServer, routingService: WookieeRouter)
 
   // Wraps a Helidon handler and the options for that endpoint
-  case class WookieeHandler(handler: Handler, endpointOptions: EndpointOptions = EndpointOptions.default)
+  trait WookieeHandler {
+    val endpointOptions: EndpointOptions
+  }
+
+  case class HttpHandler(handler: Handler, endpointOptions: EndpointOptions = EndpointOptions.default)
+      extends WookieeHandler
+
+  case class WebsocketHandler(handler: WookieeWebsocket) extends WookieeHandler {
+    override val endpointOptions: EndpointOptions = handler.endpointOptions
+  }
+
+  val FLUSH_BUFFER: ByteBuffer = ByteBuffer.allocateDirect(0)
+  val REQUEST_HEADERS: String = "RequestHeaders"
 
   // Primary class of our Path Trie
   case class PathNode(
@@ -69,8 +88,8 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): WookieeHandler =
-    WookieeHandler(
+  def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
+    HttpHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different
         // scopes in which errors can occur
@@ -79,7 +98,7 @@ object WookieeRouter extends LoggingAdapter {
           val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
 
           // Get the query parameters on the request
-          val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList)
+          val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.mkString(","))
           req.content().as(classOf[Array[Byte]]).thenAccept {
             bytes =>
               try {
@@ -128,6 +147,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
   import WookieeRouter._
 
   val root: PathNode = PathNode(new ConcurrentHashMap[String, PathNode]())
+  // Tyrus container that holds websocket endpoints
+  protected[oracle] val engine: WookieeTyrusContainer = new WookieeTyrusContainer()
+  // Universal handler for all websocket requests
+  protected[oracle] val websocketHandler: WookieeTyrusHandler = new WookieeTyrusHandler(engine.getWebSocketEngine)
 
   /**
     * This is the method that HelidonManager calls when it needs to register an endpoint.
@@ -160,7 +183,35 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
 
     // In the last segment, store the method and handler
     currentNode.handlers.put(upperMethod, handler)
-    ()
+    handler match {
+      case wsHandler: WebsocketHandler =>
+        // This trick allows us to use an instantiated HelidonWebsocket
+        val serverEndpointConfig = ServerEndpointConfig
+          .Builder
+          .create(wsHandler.handler.getClass, wsHandler.handler.path)
+          .extensions(Collections.singletonList(new PerMessageDeflateExtension()))
+          .configurator(new ServerEndpointConfig.Configurator {
+            // This takes the headers from the request and passes them along to the websocket
+            override def modifyHandshake(
+                sec: ServerEndpointConfig,
+                request: HandshakeRequest,
+                response: HandshakeResponse
+            ): Unit = {
+              sec
+                .getUserProperties
+                .put(REQUEST_HEADERS, Headers(request.getHeaders.asScala.view.mapValues(_.asScala.toList).toMap))
+              ()
+            }
+
+            override def getEndpointInstance[T](endpointClass: Class[T]): T =
+              wsHandler.handler.asInstanceOf[T]
+          })
+          .build()
+
+        engine.register(serverEndpointConfig, "")
+      case _ => // Normal HTTP handler
+    }
+    log.debug(s"WR100: Registered [$method] endpoint: [$path]")
   }
 
   // This is the search method for the underlying Trie. It is complicated by the
@@ -215,60 +266,73 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
   // This is a Helidon Service method that is called by that library
   // whenever a request comes into the WebServer. Calls findHandler mainly
   override def update(rules: Routing.Rules): Unit = {
-    rules.any((req, res) => {
-      val path = req.path().toString
-      val method = req.method().name().trim.toUpperCase
-      // Origin of the request, header used by CORS
-      val originOpt = Option(req.headers.value("Origin").orElse(null))
+    rules
+      .any((req, res) => {
+        val path = req.path().toString
+        // Skip this handler if not an upgrade request
+        val secWebSocketKey = req.headers().value(HandshakeRequest.SEC_WEBSOCKET_KEY)
+        val method =
+          if (secWebSocketKey.isEmpty)
+            req.method().name().trim.toUpperCase
+          else "WS" // This is an upgrade request
 
-      def isOriginAllowed: Boolean = allowedOrigins match {
-        case _: AllowAll      => true
-        case allow: AllowSome =>
-          // Return false if Origin wasn't on request
-          originOpt.map(allow.allowed).exists(_.nonEmpty)
-      }
+        // Origin of the request, header used by CORS
+        val originOpt = Option(req.headers.value("Origin").orElse(null))
 
-      // Allow all if allowedHeaders is None
-      def allowedHeaders(handlers: List[WookieeHandler], headers: List[String]): List[String] =
-        if (handlers.isEmpty) List()
-        else {
-          val allowed: List[CorsWhiteList] = handlers.map(_.endpointOptions.allowedHeaders.getOrElse(CorsWhiteList()))
-          headers.filter(head => allowed.forall(_.allowed(head).nonEmpty))
+        def isOriginAllowed: Boolean = allowedOrigins match {
+          case _: AllowAll      => true
+          case allow: AllowSome =>
+            // Return false if Origin wasn't on request
+            originOpt.map(allow.allowed).exists(_.nonEmpty)
         }
 
-      // Didn't match CORS Origin requirements
-      if (!isOriginAllowed) {
-        res.status(403).send("Origin not permitted.")
-        return
-      }
+        // Allow all if allowedHeaders is None
+        def allowedHeaders(handlers: List[WookieeHandler], headers: List[String]): List[String] =
+          if (handlers.isEmpty) List()
+          else {
+            val allowed: List[CorsWhiteList] = handlers.map(_.endpointOptions.allowedHeaders.getOrElse(CorsWhiteList()))
+            headers.filter(head => allowed.forall(_.allowed(head).nonEmpty))
+          }
 
-      // Main search function
-      val handlers = findHandlers(path)
-      handlers.get(method) match {
-        case Some(wookHandler) => // Normal handling
-          res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
-          res.headers().add("Access-Control-Allow-Credentials", "true")
-          wookHandler.handler.accept(req, res)
+        // Didn't match CORS Origin requirements
+        if (!isOriginAllowed) {
+          res.status(403).send("Origin not permitted.")
+          return
+        }
 
-        case None if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
-          val reqHeadersOpt =
-            Option(req.headers.value("Access-Control-Request-Headers").orElse(null))
-              .map(_.split(",").map(_.trim).toList)
-              .getOrElse(List())
+        // Main search function
+        val handlers = findHandlers(path)
+        handlers.get(method) match {
+          case Some(httpHandler: HttpHandler) => // Normal handling
+            res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
+            res.headers().add("Access-Control-Allow-Credentials", "true")
+            httpHandler.handler.accept(req, res)
 
-          res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
-          res.headers().add("Access-Control-Allow-Methods", handlers.keySet.mkString(","))
-          res.headers().add("Access-Control-Allow-Credentials", "true")
-          res
-            .headers()
-            .add("Access-Control-Allow-Headers", allowedHeaders(handlers.values.toList, reqHeadersOpt).mkString(","))
-          res.status(200).send("")
+          // TODO Get CORS headers onto websocket, but not here as this isn't hit
+          case Some(_: WebsocketHandler) => // Websocket handling
+            res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
+            res.headers().add("Access-Control-Allow-Credentials", "true")
+            websocketHandler.accept(req, res)
 
-        case None =>
-          res.status(404).send("Endpoint not found.")
-      }
-      ()
-    })
+          case _ if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
+            val reqHeadersOpt =
+              Option(req.headers.value("Access-Control-Request-Headers").orElse(null))
+                .map(_.split(",").map(_.trim).toList)
+                .getOrElse(List())
+
+            res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
+            res.headers().add("Access-Control-Allow-Methods", handlers.keySet.mkString(","))
+            res.headers().add("Access-Control-Allow-Credentials", "true")
+            res
+              .headers()
+              .add("Access-Control-Allow-Headers", allowedHeaders(handlers.values.toList, reqHeadersOpt).mkString(","))
+            res.status(200).send("")
+
+          case _ =>
+            res.status(404).send("Endpoint not found.")
+        }
+        ()
+      })
     ()
   }
 }

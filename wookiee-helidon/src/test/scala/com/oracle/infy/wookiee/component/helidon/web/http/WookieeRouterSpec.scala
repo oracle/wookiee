@@ -1,14 +1,19 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{HttpHandler, WebsocketHandler}
+import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import javax.websocket.Session
+
 class WookieeRouterSpec extends AnyWordSpec with Matchers {
   "WookieeRouter" should {
-    def makeHandler: WookieeHandler = WookieeHandler((_: ServerRequest, _: ServerResponse) => ())
+    def makeHandler: HttpHandler = HttpHandler((_: ServerRequest, _: ServerResponse) => ())
 
     "correctly add a route and find the handler" in {
       val router = new WookieeRouter
@@ -78,6 +83,14 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
     "perform unapply on its relevant classes" in {
       val rt = WookieeRouter.ServiceHolder(null, new WookieeRouter)
       WookieeRouter.ServiceHolder.unapply(rt) must not be None
+
+      val rt2 = WookieeRouter.WebsocketHandler(new WookieeWebsocket {
+        override def path: String = "/"
+        override def endpointType: EndpointType = EndpointType.BOTH
+        override def handleText(text: String, request: HttpObjects.WookieeRequest)(implicit session: Session): Unit =
+          ???
+      })
+      WookieeRouter.WebsocketHandler.unapply(rt2) must not be None
     }
 
     "doesn't get too greedy algo-wise" in {

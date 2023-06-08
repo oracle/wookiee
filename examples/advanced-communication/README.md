@@ -10,3 +10,6 @@ messaged via gRPC, and one that is external (with HTTP and WS support) that send
 4. Hit the HTTP GET endpoint with a browser or curl, the returned message will have been sent back and forth between the two services
    1. The first HTTP GET endpoint is at http://localhost:8081/external/first-input
    2. The second HTTP GET endpoint is at http://localhost:8081/external/second-input/functional
+
+Note: Whichever Service is started first will create a local Zookeeper instance. If this Service is restarted then
+the other Service will need to be restarted too to get the new Zookeeper connection.

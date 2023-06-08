@@ -3,6 +3,7 @@ package com.oracle.infy.wookiee.component.helidon
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.ComponentV2
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.{
   BOTH,
   EXTERNAL,
@@ -10,19 +11,14 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointTy
   INTERNAL
 }
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{
-  ServiceHolder,
-  WookieeHandler,
-  handlerFromCommand
-}
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter._
+import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import com.typesafe.config.Config
 import io.helidon.webserver._
-import io.helidon.webserver.tyrus.TyrusSupport
 
-import scala.jdk.CollectionConverters._
 import scala.concurrent.{ExecutionContext, Future}
+import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
 
@@ -85,6 +81,18 @@ object HelidonManager extends Mediator[HelidonManager] {
 
     registerEndpoint(command)
   }
+
+  // TODO Add corresponding functional WS endpoint
+
+  def registerWebsocket(helidonWebsocket: WookieeWebsocket)(implicit config: Config, ec: ExecutionContext): Unit = {
+    val mediator = getMediator(config)
+    mediator.registerEndpoint(
+      helidonWebsocket.path,
+      helidonWebsocket.endpointType,
+      "WS",
+      WebsocketHandler(helidonWebsocket)
+    )
+  }
 }
 
 // Main Helidon Component, manager of all things Helidon but for now mainly HTTP and Websockets
@@ -103,8 +111,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
       val routing = Routing
         .builder()
         .register("/", routingService)
-        .register("/websocket", TyrusSupport.builder().build()) // Add Tyrus support for WebSocket
-        .build()
+        .build() // Add Tyrus support for WebSocket
 
       val server = WebServer
         .builder()
@@ -138,16 +145,27 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
   }
 
   // Main internal entry point for registration of HTTP endpoints
-  def registerEndpoint(path: String, endpointType: EndpointType, method: String, handler: WookieeHandler): Unit =
+  def registerEndpoint(path: String, endpointType: EndpointType, method: String, handler: WookieeHandler): Unit = {
+    val actualMethod = handler match {
+      case _: WebsocketHandler => "WS"
+      case _                   => method
+    }
+
+    val slashPath = if (path.startsWith("/")) path else s"/$path"
+    log.debug(s"HM200 Registering Endpoint: [path=$slashPath], [method=$actualMethod], [type=$endpointType]")
+
     endpointType match {
       case EXTERNAL =>
-        externalServer.routingService.addRoute(path, method, handler)
+        externalServer.routingService.addRoute(slashPath, actualMethod, handler)
       case INTERNAL =>
-        internalServer.routingService.addRoute(path, method, handler)
+        internalServer.routingService.addRoute(slashPath, actualMethod, handler)
       case BOTH =>
-        externalServer.routingService.addRoute(path, method, handler)
-        internalServer.routingService.addRoute(path, method, handler)
+        externalServer.routingService.addRoute(slashPath, actualMethod, handler)
+        internalServer.routingService.addRoute(slashPath, actualMethod, handler)
     }
+
+    log.info(s"HM201 Endpoint Registered: Path=[$slashPath], Method=[$actualMethod], Type=[$endpointType]")
+  }
 
   override def start(): Unit = {
     startService()

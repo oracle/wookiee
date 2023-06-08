@@ -6,7 +6,7 @@ import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.WookieeHandler
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
 import com.oracle.infy.wookiee.component.helidon.web.http.{HttpCommand, HttpObjects}
 import org.json4s.jackson.JsonMethods._
 
@@ -19,7 +19,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       "/api/$variable/endpoint",
       EndpointType.BOTH,
       "GET",
-      WookieeHandler((req, res) => {
+      HttpHandler((req, res) => {
         req
           .content()
           .as(classOf[String])
@@ -61,7 +61,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       "POST",
       EndpointType.EXTERNAL, { request =>
         val segment = request.pathSegments.getOrElse("segment", "")
-        val query = request.queryParameters.getOrElse("query", List()).mkString(",")
+        val query = request.queryParameters.getOrElse("query", "")
         val header = request.headers.mappings.getOrElse("header", List()).mkString(",")
         Future.successful(
           InputObject(

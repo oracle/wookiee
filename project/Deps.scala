@@ -44,6 +44,7 @@ object Deps {
     val akkaHttpVersion = "10.5.0"
     val akkaHttpJson4sVersion = "1.39.2"
     val akkaHttpCorsVersion = "1.2.0"
+    val tyrusVersion = "1.20"
     val mockitoVersion = "5.3.1"
   }
 
@@ -61,6 +62,13 @@ object Deps {
         : ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper")
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
+
+    val tyrus: Seq[ModuleID] = Seq(
+      "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion,
+      "org.glassfish.tyrus" % "tyrus-server" % tyrusVersion,
+      "org.glassfish.tyrus" % "tyrus-spi" % tyrusVersion,
+      "org.glassfish.tyrus" % "tyrus-core" % tyrusVersion
+    )
 
     val curatorLibs: Seq[ModuleID] = Seq(
       nettyAll,
@@ -178,7 +186,7 @@ object Deps {
 
     val wookieeHelidon: Seq[ModuleID] = Seq(
       test.scalatest
-    ) ++ helidon
+    ) ++ helidon ++ tyrus
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
