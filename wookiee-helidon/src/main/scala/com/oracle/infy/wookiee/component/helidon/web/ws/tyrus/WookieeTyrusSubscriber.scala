@@ -12,10 +12,10 @@ import javax.websocket.CloseReason.CloseCodes.{NORMAL_CLOSURE, UNEXPECTED_CONDIT
 class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[DataChunk] {
   require(connection != null, "Connection cannot be null")
 
-  private val MaxRetries = 5
+  protected val MaxRetries = 5
   private val ConnectionClosed = new CloseReason(NORMAL_CLOSURE, "Connection closed")
 
-  private var subscription: Flow.Subscription = _
+  protected[oracle] var subscription: Flow.Subscription = _
 
   override def onSubscribe(subscription: Flow.Subscription): Unit = {
     this.subscription = subscription

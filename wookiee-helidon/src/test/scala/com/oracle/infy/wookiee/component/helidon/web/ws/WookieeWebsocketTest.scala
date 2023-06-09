@@ -4,11 +4,15 @@ import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointType, WookieeRequest}
+import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusSubscriber}
+import io.helidon.common.http.DataChunk
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
+import org.glassfish.tyrus.spi.{Connection, ReadHandler, Writer}
 
 import java.net.URI
 import java.util
 import java.util.Collections
+import java.util.concurrent.Flow
 import javax.websocket._
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Promise}
@@ -115,6 +119,37 @@ class WookieeWebsocketTest extends EndpointTestHelper {
 
     }
 
+    "container doesn't register directly" in {
+      val container = new WookieeTyrusContainer
+      intercept[UnsupportedOperationException] {
+        container.register(getClass)
+      }
+      intercept[UnsupportedOperationException] {
+        container.register(getClass)
+      }
+    }
+
+    "subscriber releases items" in {
+      val mockConnection: Connection = new Connection {
+        override def getReadHandler: ReadHandler = ???
+        override def getWriter: Writer = ???
+        override def getCloseListener: Connection.CloseListener = ???
+        override def close(reason: CloseReason): Unit = {}
+      }
+
+      val tyrusSubscriber: WookieeTyrusSubscriber = new WookieeTyrusSubscriber(mockConnection) {
+        override protected val MaxRetries: Int = 0
+      }
+
+      tyrusSubscriber.onNext(DataChunk.create("test".getBytes))
+      tyrusSubscriber.onSubscribe(new Flow.Subscription {
+        override def request(n: Long): Unit = {}
+        override def cancel(): Unit = {}
+      })
+      tyrusSubscriber.onNext(DataChunk.create("test".getBytes))
+      tyrusSubscriber.onComplete()
+    }
+
   }
 
   override def registerEndpoints(manager: HelidonManager): Unit = {
@@ -151,4 +186,5 @@ class WookieeWebsocketTest extends EndpointTestHelper {
       override def endpointType: EndpointType = EndpointType.BOTH
     })
   }
+
 }
