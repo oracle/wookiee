@@ -1,9 +1,10 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
+import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{HttpHandler, WebsocketHandler}
+import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
 import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
@@ -102,6 +103,11 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       router.addRoute("/api/$version/endpoint", "GET", handler2)
 
       router.findHandler("/api/version/endpoint", "GET") mustBe Some(handler2)
+    }
+
+    "query string parser should handle odd cases" in {
+      val params = WookieeWebClient.getQueryParams("a=b=c&d=e&f=g")
+      params.size mustBe 2
     }
 
     "doesn't match when it shouldn't" in {

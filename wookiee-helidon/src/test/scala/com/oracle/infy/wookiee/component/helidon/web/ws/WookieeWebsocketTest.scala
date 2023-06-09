@@ -4,7 +4,6 @@ import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointType, WookieeRequest}
-import org.glassfish.tyrus.client.ClientManager
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 
 import java.net.URI
@@ -16,8 +15,6 @@ import scala.concurrent.{Await, Promise}
 
 class WookieeWebsocketTest extends EndpointTestHelper {
   "Wookiee Websocket" should {
-    val clientManager = ClientManager.createClient()
-
     "return expected message" in {
 
       val promise = Promise[String]()
@@ -87,7 +84,6 @@ class WookieeWebsocketTest extends EndpointTestHelper {
         clientManager.connectToServer(endpoint, cec, new URI(s"ws://localhost:$internalPort/ws/test"))
 
       session.getBasicRemote.sendText("Hello from client!")
-      Thread.sleep(5000)
 
       // Wait for the server to send a message
       val messageFromServer = Await.result(promise.future, 10.seconds)
@@ -96,6 +92,29 @@ class WookieeWebsocketTest extends EndpointTestHelper {
       assert(messageFromServer == "Got message: [Hello from client!]")
 
     }
+
+    "has support for query parameters and segments" in {
+      val promise = Promise[String]()
+
+      // Define the WebSocket client endpoint
+      val endpoint = clientEndpoint(promise)
+
+      // Connect to the server endpoint
+      val session =
+        clientManager.connectToServer(endpoint, new URI(s"ws://localhost:$internalPort/ws/value1/value2?param3=value3"))
+
+      session.getBasicRemote.sendText("Hello from client!")
+
+      // Wait for the server to send a message
+      val messageFromServer = Await.result(promise.future, 10.seconds)
+      session.close()
+
+      assert(
+        messageFromServer == "Got message: [Hello from client!], param1=[value1], param2=[value2], param3=[value3]"
+      )
+
+    }
+
   }
 
   override def registerEndpoints(manager: HelidonManager): Unit = {
@@ -119,17 +138,17 @@ class WookieeWebsocketTest extends EndpointTestHelper {
 
       override def endpointType: EndpointType = EndpointType.BOTH
     })
-  }
 
-  def clientEndpoint(promise: Promise[String]): Endpoint = new Endpoint {
+    HelidonManager.registerWebsocket(new WookieeWebsocket {
+      override def path: String = "/ws/$param1/$param2"
 
-    override def onOpen(session: Session, config: EndpointConfig): Unit = {
-      session.addMessageHandler(new MessageHandler.Whole[String] {
-        override def onMessage(message: String): Unit = {
-          promise.success(message)
-        }
-      })
+      override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit =
+        sendText(
+          s"Got message: [$text], param1=[${request.pathSegments("param1")}], " +
+            s"param2=[${request.pathSegments("param2")}], param3=[${request.queryParameters("param3")}]"
+        )
 
-    }
+      override def endpointType: EndpointType = EndpointType.BOTH
+    })
   }
 }

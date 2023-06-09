@@ -3,7 +3,6 @@ package com.oracle.infy.wookiee.component.helidon.web.ws
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.REQUEST_HEADERS
-import com.oracle.infy.wookiee.component.helidon.web.util.WebUtil
 import com.oracle.infy.wookiee.health.WookieeMonitor
 
 import javax.websocket._
@@ -22,17 +21,22 @@ abstract class WookieeWebsocket extends Endpoint with WookieeMonitor {
   def sendText(message: String)(implicit session: Session): Unit =
     session.getBasicRemote.sendText(message)
 
+  // List of segments in `path` that start with '$
+  lazy val pathKeys: List[String] = path.split("/").filter(_.nonEmpty).filter(_.startsWith("$")).map(_.drop(1)).toList
+
   // Internal-only, will forward messages on to the handleText method
   override def onOpen(session: Session, config: EndpointConfig): Unit =
     try {
-      val pathParams = session.getPathParameters.asScala.toMap
-      val queryString = Option(session.getRequestURI.getQuery)
-      // TODO Ensure these are read in correctly
-      val queryParams = queryString.map(WebUtil.getQueryParams).getOrElse(Map.empty)
       val headers = config.getUserProperties.asScala.toMap.get(REQUEST_HEADERS) match {
         case Some(h: Headers) => h
         case _                => Headers()
       }
+
+      val allParamsRaw = session.getRequestParameterMap.asScala
+      val allParams = allParamsRaw.toMap.view.mapValues(_.asScala.mkString(",")).toMap
+
+      // Separate out query params vs path params
+      val (pathParams, queryParams) = allParams.partition { case (key, _) => pathKeys.contains(key) }
 
       val wookieeRequest = WookieeRequest(
         Content(""), // Empty as we don't have a request body

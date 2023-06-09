@@ -188,7 +188,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // This trick allows us to use an instantiated HelidonWebsocket
         val serverEndpointConfig = ServerEndpointConfig
           .Builder
-          .create(wsHandler.handler.getClass, wsHandler.handler.path)
+          .create(wsHandler.handler.getClass, convertPath(wsHandler.handler.path))
           .extensions(Collections.singletonList(new PerMessageDeflateExtension()))
           .configurator(new ServerEndpointConfig.Configurator {
             // This takes the headers from the request and passes them along to the websocket
@@ -308,11 +308,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Credentials", "true")
             httpHandler.handler.accept(req, res)
 
-          // TODO Get CORS headers onto websocket, but not here as this isn't hit
-          case Some(_: WebsocketHandler) => // Websocket handling
+          case Some(wsHandler: WebsocketHandler) => // Websocket handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
-            websocketHandler.accept(req, res)
+            websocketHandler.acceptWithContext(req, res, wsHandler.endpointOptions)
 
           case _ if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
             val reqHeadersOpt =
@@ -335,4 +334,8 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
       })
     ()
   }
+
+  // /api/$var/path --> /api/{var}/path
+  private[wookiee] def convertPath(path: String): String =
+    path.split("/").map(segment => if (segment.startsWith("$")) s"{${segment.drop(1)}}" else segment).mkString("/")
 }

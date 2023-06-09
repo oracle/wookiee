@@ -3,9 +3,23 @@ package com.oracle.infy.wookiee.component.helidon.web.http
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.{getContent, oneOff}
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{CorsWhiteList, EndpointOptions, EndpointType}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{
+  CorsWhiteList,
+  EndpointOptions,
+  EndpointType,
+  Headers,
+  WookieeRequest
+}
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
+import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import io.helidon.webserver.{ServerRequest, ServerResponse}
+
+import scala.concurrent.duration._
+import java.net.URI
+import java.util
+import javax.websocket.{ClientEndpointConfig, DeploymentException, Session}
+import scala.concurrent.{Await, Promise}
 
 class CORSSpec extends EndpointTestHelper {
 
@@ -45,6 +59,23 @@ class CORSSpec extends EndpointTestHelper {
           )
       )
     )
+
+    HelidonManager.registerWebsocket(new WookieeWebsocket {
+      override def path: String = "/ws/cors"
+
+      override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit =
+        sendText(s"Got message: [$text],Default-Header: [${request.headers.mappings("Default-Header").head}]")
+
+      override def endpointType: EndpointType = EndpointType.BOTH
+
+      override def endpointOptions: EndpointOptions =
+        EndpointOptions
+          .default
+          .copy(
+            defaultHeaders = Headers(Map("Default-Header" -> List("default"))),
+            allowedHeaders = Some(CorsWhiteList(List("Header-1", "Header-2")))
+          )
+    })
   }
 
   "Wookiee Helidon endpoint CORS support" should {
@@ -119,6 +150,77 @@ class CORSSpec extends EndpointTestHelper {
 
       response.headers().value("Access-Control-Allow-Origin").get() mustEqual "http://origin.safe"
       response.headers().value("Access-Control-Allow-Credentials").get() mustEqual "true"
+    }
+
+    "websockets have support for CORS" in {
+      val response =
+        oneOff(
+          s"http://localhost:$externalPort",
+          "/ws/cors",
+          "OPTIONS",
+          """{"key":"value"}""",
+          Map("Origin" -> "http://origin.safe", "Access-Control-Request-Headers" -> "Header-1,Header-2,Bad-Header")
+        )
+      response.headers().value("Access-Control-Allow-Origin").get() mustEqual "http://origin.safe"
+      response.headers().value("Access-Control-Allow-Credentials").get() mustEqual "true"
+      response.headers().value("Access-Control-Allow-Methods").get() mustEqual "WS"
+      response.headers().value("Access-Control-Allow-Headers").get() mustEqual "Header-1,Header-2"
+
+      val promise = Promise[String]()
+
+      // Define the WebSocket client endpoint
+      val endpoint = clientEndpoint(promise)
+
+      val cec = ClientEndpointConfig
+        .Builder
+        .create()
+        .configurator(new ClientEndpointConfig.Configurator {
+          override def beforeRequest(headers: util.Map[String, util.List[String]]): Unit = {
+            headers.put("Header-1", util.Arrays.asList("value1"))
+            headers.put("Header-2", util.Arrays.asList("value2"))
+            headers.put("Origin", util.Arrays.asList("http://origin.safe"))
+            ()
+          }
+        })
+        .build()
+
+      // Connect to the server endpoint
+      val session =
+        clientManager.connectToServer(endpoint, cec, new URI(s"ws://localhost:$externalPort/ws/cors"))
+
+      session.getBasicRemote.sendText("Hello from client!")
+
+      // Wait for the server to send a message
+      val messageFromServer = Await.result(promise.future, 10.seconds)
+      session.close()
+
+      assert(messageFromServer == "Got message: [Hello from client!],Default-Header: [default]")
+
+    }
+
+    "rejects WS call if origin is unallowed" in {
+      val promise = Promise[String]()
+
+      // Define the WebSocket client endpoint
+      val endpoint = clientEndpoint(promise)
+
+      val cec = ClientEndpointConfig
+        .Builder
+        .create()
+        .configurator(new ClientEndpointConfig.Configurator {
+          override def beforeRequest(headers: util.Map[String, util.List[String]]): Unit = {
+            headers.put("Header-1", util.Arrays.asList("value1"))
+            headers.put("Header-2", util.Arrays.asList("value2"))
+            headers.put("Origin", util.Arrays.asList("http://bad.origin"))
+            ()
+          }
+        })
+        .build()
+
+      // Fail as origin isn't in whitelist
+      intercept[DeploymentException] {
+        clientManager.connectToServer(endpoint, cec, new URI(s"ws://localhost:$externalPort/ws/cors"))
+      }
     }
   }
 }

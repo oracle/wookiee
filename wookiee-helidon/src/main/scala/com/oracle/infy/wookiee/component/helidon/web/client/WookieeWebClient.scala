@@ -1,6 +1,5 @@
 package com.oracle.infy.wookiee.component.helidon.web.client
 
-import com.oracle.infy.wookiee.component.helidon.web.util.WebUtil.getQueryParams
 import io.helidon.common.http.DataChunk
 import io.helidon.common.reactive.Single
 import io.helidon.webclient.{WebClient, WebClientRequestBuilder, WebClientResponse}
@@ -63,4 +62,17 @@ object WookieeWebClient {
       case _         => client.get()
     }
   }
+
+  // Helper method to get query params from a URL
+  def getQueryParams(query: String): Map[String, String] =
+    query
+      .drop(query.indexOf("?") + 1)
+      .split("&")
+      .flatMap { param =>
+        param.split("=") match {
+          case Array(key, value) => Some(key -> value)
+          case _                 => None
+        }
+      }
+      .toMap
 }

@@ -1,9 +1,10 @@
 package com.oracle.infy.wookiee.component.helidon.web.ws.tyrus
 
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointOptions
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.FLUSH_BUFFER
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver.tyrus.TyrusWriterPublisher
-import io.helidon.webserver.{Handler, ServerRequest, ServerResponse}
+import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.glassfish.tyrus.core.{RequestContext, TyrusUpgradeResponse}
 import org.glassfish.tyrus.spi.WebSocketEngine
 
@@ -12,10 +13,11 @@ import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util
 import javax.websocket.server.HandshakeRequest
+import scala.jdk.CollectionConverters._
 
-class WookieeTyrusHandler(engine: WebSocketEngine) extends Handler with LoggingAdapter {
+class WookieeTyrusHandler(engine: WebSocketEngine) extends LoggingAdapter {
 
-  override def accept(req: ServerRequest, res: ServerResponse): Unit = {
+  def acceptWithContext(req: ServerRequest, res: ServerResponse, endpointOpts: EndpointOptions): Unit = {
     // Skip this handler if not an upgrade request
     val secWebSocketKey = req.headers().value(HandshakeRequest.SEC_WEBSOCKET_KEY)
     if (secWebSocketKey.isEmpty) {
@@ -40,6 +42,13 @@ class WookieeTyrusHandler(engine: WebSocketEngine) extends Handler with LoggingA
     req.headers().toMap.forEach { (key, value) =>
       requestContext.getHeaders.put(key, value)
       ()
+    }
+
+    endpointOpts.defaultHeaders.mappings.foreach {
+      case (key, value) =>
+        res.headers().add(key, value.asJava)
+        requestContext.getHeaders.put(key, value.asJava)
+        ()
     }
 
     // Use Tyrus to process a WebSocket upgrade request
