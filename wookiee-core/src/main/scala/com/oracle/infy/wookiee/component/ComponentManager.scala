@@ -37,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.jdk.CollectionConverters._
 import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
@@ -50,7 +50,8 @@ case class ReloadComponent(file: File, classLoader: Option[HarnessClassLoader] =
 case class ComponentStarted(name: String)
 case class GetComponent(name: String)
 
-object ComponentManager extends Mediator[ConcurrentHashMap[(String, ActorSystem), ComponentInfo]] {
+// Mediator: Keyed off of the component name and the instance id
+object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo]] {
   import ComponentState._
   private val externalLogger = log
 
@@ -74,11 +75,73 @@ object ComponentManager extends Mediator[ConcurrentHashMap[(String, ActorSystem)
 
   // Returns a single Component (if present) on one ActorSystem
   def getComponent(compName: String)(implicit actorSystem: ActorSystem): Option[ComponentInfo] =
-    Option(getMediator(getInstanceId(actorSystem.settings.config)).get((compName, actorSystem)))
+    getComponentByName(compName)(actorSystem.settings.config)
+
+  // Returns a single Component (if present) on one Instance ID
+  def getComponentByName(compName: String)(implicit config: Config): Option[ComponentInfo] =
+    Option(getMediator(getInstanceId(config)).get(compName))
+
+  /**
+    * A message can be sent from any where in the system to any component, there will be no response
+    *
+    * @param name name of the Component (e.g. "wookiee-zookeeper")
+    * @param msg  message to send to component, it will see the inner `msg.msg`
+    */
+  def messageToComponent[T](name: String, msg: ComponentMessage[T])(implicit config: Config): Unit = {
+    getComponentByName(name)(config) match {
+      case Some(info: ComponentInfoAkka) =>
+        info.actorRef ! msg
+      case Some(info: ComponentInfoV2) =>
+        tryAndLogError(
+          info.component.onMessage(msg.msg),
+          Some(s"Component [$name] message handling failed, message: [${msg.msg}]")
+        )
+        ()
+      case _ =>
+        log.error(s"Didn't find component $name for messaging")
+    }
+  }
+
+  /**
+    * A request can be sent from any where in the system to any component and get a response
+    * The response is a future that could contain any type wrapped in `ComponentResponse`
+    *
+    * @param name name of the Component (e.g. "wookiee-zookeeper")
+    * @param msg  message to send to component, it will see the inner `msg.msg`
+    */
+  def requestToComponent[T](
+      name: String,
+      msg: ComponentRequest[T]
+  )(implicit config: Config, ec: ExecutionContext): Future[ComponentResponse[_]] = {
+    val p = Promise[ComponentResponse[_]]()
+    getComponentByName(name)(config) match {
+      case Some(info: ComponentInfoAkka) =>
+        val actorResp = (info.actorRef ? msg)(15.seconds).mapTo[ComponentResponse[Any]]
+        actorResp onComplete {
+          case Success(resp) => p success resp
+          case Failure(f)    => p failure f
+        }
+
+      case Some(info: ComponentInfoV2) =>
+        val compResp = info.component.onRequest(msg.msg)
+        compResp match {
+          case fut: Future[Any] =>
+            p completeWith fut.map {
+              case resp: ComponentResponse[_] => resp
+              case any                        => ComponentResponse(any)
+            }
+          case cr: ComponentResponse[_] => p success cr
+          case any                      => p success ComponentResponse(any)
+        }
+
+      case _ =>
+        p failure ComponentNotFoundException("ComponentManager", s"Didn't find component $name for requests")
+    }
+    p.future
+  }
 
   /**
     * Checks to see if there are any components that have failed
-    *
     * @return Option, if failed will contain name of first component that failed
     */
   def failedComponents(implicit system: ActorSystem): Option[String] = {
@@ -238,7 +301,7 @@ object ComponentManager extends Mediator[ConcurrentHashMap[(String, ActorSystem)
   }
 
   protected[oracle] def setComponentInfo(compInfo: ComponentInfo)(implicit system: ActorSystem): Unit = {
-    getMediator(getInstanceId(system.settings.config)).put((compInfo.name, system), compInfo)
+    getMediator(getInstanceId(system.settings.config)).put(compInfo.name, compInfo)
     ()
   }
 }
@@ -247,7 +310,7 @@ class ComponentManager extends PrepareForShutdown {
   import ComponentManager._
   import context.dispatcher
 
-  registerMediator(getInstanceId(config), new ConcurrentHashMap[(String, ActorSystem), ComponentInfo]())
+  registerMediator(getInstanceId(config), new ConcurrentHashMap[String, ComponentInfo]())
 
   private val componentTimeout: Timeout = AkkaUtil
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
@@ -394,32 +457,11 @@ class ComponentManager extends PrepareForShutdown {
     }
   }
 
-  def message[T](name: String, msg: ComponentMessage[T]): Unit = {
-    // first check to see if
-    context.child(name) match {
-      case Some(ref) => ref ! msg
-      case None      => log.error(s"Didn't find component $name for messaging")
-    }
-  }
+  def message[T](name: String, msg: ComponentMessage[T]): Unit =
+    messageToComponent(name, msg)(config)
 
-  /**
-    * A message can be sent from any where in the system to any component and get a response
-    * @param name name of actor component
-    * @param msg message to send to component
-    */
-  def request[T, U](name: String, msg: ComponentRequest[T]): Future[ComponentResponse[U]] = {
-    val p = Promise[ComponentResponse[U]]()
-    context.child(name) match {
-      case Some(ref) =>
-        val actorResp = (ref ? msg)(msg.timeout).mapTo[ComponentResponse[U]]
-        actorResp onComplete {
-          case Success(resp) => p success resp
-          case Failure(f)    => p failure f
-        }
-      case None => p failure ComponentNotFoundException("ComponentManager", s"Didn't find component $name for requests")
-    }
-    p.future
-  }
+  def request[T](name: String, msg: ComponentRequest[T]): Future[ComponentResponse[_]] =
+    requestToComponent[T](name, msg)(config, context.dispatcher)
 
   private def validateComponentStartup(): Unit = {
     // Wait for the child actors above to be loaded before calling on the services

@@ -17,24 +17,15 @@ package com.oracle.infy.wookiee.component
 
 import akka.actor.{ActorRef, Status}
 import akka.pattern.ask
-import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.HActor
 import com.oracle.infy.wookiee.app.HarnessActor.{ConfigChange, PrepareForShutdown, SystemReady}
 import com.oracle.infy.wookiee.component.ComponentState.ComponentState
 
-import scala.annotation.nowarn
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
-sealed class ComponentMessages()
 case class StartComponent() extends ComponentMessages
-
-case class ComponentRequest[T](msg: T, name: Option[String] = None, timeout: Timeout = 5.seconds)
-    extends ComponentMessages
-case class ComponentMessage[T](msg: T, name: Option[String] = None) extends ComponentMessages
-
-case class ComponentResponse[T](resp: T)
 case class ComponentInfoAkka(name: String, state: ComponentState, actorRef: ActorRef) extends ComponentInfo
 
 /**
@@ -56,11 +47,11 @@ abstract case class Component(override val name: String) extends WookieeComponen
     case ConfigChange() => // User can receive to do something
     case ComponentReady(info: ComponentInfo) =>
       onComponentReady(info)
-    case ComponentRequest(msg, name, timeout) =>
+    case ComponentRequest(msg, name) =>
       val caller = sender()
       getChildActor(name) match {
         case Some(a) =>
-          (a ? msg)(timeout) onComplete {
+          (a ? msg)(15.seconds) onComplete {
             case Success(s) => caller ! ComponentResponse(s)
             case Failure(f) => caller ! Status.Failure(f)
           }

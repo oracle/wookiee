@@ -42,7 +42,8 @@ import scala.util.Try
 object MetricsActor {
   def props(settings: MonitoringSettings): Props = Props(new MetricsActor(settings))
 
-  var health: HealthComponent = HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Metrics not started yet.")
+  var health: HealthComponent =
+    HealthComponent(MetricsManager.MetricsName, ComponentState.NORMAL, "Metrics not started yet.")
 }
 
 class MetricsActor(settings: MonitoringSettings) extends Actor with LoggingAdapter with ActorHealth {
@@ -175,16 +176,17 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with LoggingAdapt
     MetricsActor.health = Try({
       if (settings.GraphiteEnabled) {
         HealthComponent(
-          Metrics.MetricsName,
+          MetricsManager.MetricsName,
           ComponentState.NORMAL,
           "Currently sending metrics to graphite at %s:%d"
             .format(settings.GraphiteHost, settings.GraphitePort)
         )
-      } else HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Currently not sending metrics to graphite")
+      } else
+        HealthComponent(MetricsManager.MetricsName, ComponentState.NORMAL, "Currently not sending metrics to graphite")
     }).recover({
         case e: Exception =>
           HealthComponent(
-            Metrics.MetricsName,
+            MetricsManager.MetricsName,
             ComponentState.CRITICAL,
             "An error occurred checking the metrics health: ".concat(e.getMessage)
           )

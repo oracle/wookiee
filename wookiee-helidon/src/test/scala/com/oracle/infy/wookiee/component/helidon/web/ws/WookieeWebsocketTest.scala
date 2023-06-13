@@ -157,7 +157,7 @@ class WookieeWebsocketTest extends EndpointTestHelper {
       override def path: String = "/ws/test"
 
       override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit = {
-        sendText(s"Got message: [$text]")
+        reply(s"Got message: [$text]")
       }
 
       override def endpointType: EndpointType = EndpointType.BOTH
@@ -167,7 +167,7 @@ class WookieeWebsocketTest extends EndpointTestHelper {
       override def path: String = "/ws/headers"
 
       override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit =
-        sendText(
+        reply(
           s"Got message: [$text], Header-1=${request.headers.mappings("Header-1").head}, Header-2=${request.headers.mappings("Header-2").head}"
         )
 
@@ -178,7 +178,7 @@ class WookieeWebsocketTest extends EndpointTestHelper {
       override def path: String = "/ws/$param1/$param2"
 
       override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit =
-        sendText(
+        reply(
           s"Got message: [$text], param1=[${request.pathSegments("param1")}], " +
             s"param2=[${request.pathSegments("param2")}], param3=[${request.queryParameters("param3")}]"
         )

@@ -20,8 +20,8 @@ import akka.actor.{Actor, ActorRef}
 import akka.pattern.ask
 import akka.util.Timeout
 import com.oracle.infy.wookiee.HarnessConstants
-import com.oracle.infy.wookiee.command.CommandHelper
 import com.oracle.infy.wookiee.app.HarnessClassLoader
+import com.oracle.infy.wookiee.command.CommandHelper
 
 import java.io.File
 import scala.concurrent.duration._
@@ -108,7 +108,7 @@ trait ComponentHelper extends CommandHelper {
     */
   def componentRequest[T, U](name: String, msg: ComponentRequest[T]): Future[ComponentResponse[U]] =
     initComponentHelper.flatMap { cm =>
-      (cm ? Request(name, msg))(msg.timeout).mapTo[ComponentResponse[U]]
+      (cm ? Request(name, msg))(15.seconds).mapTo[ComponentResponse[U]]
     }
 
   def selfMessage(name: String, msg: Any): Unit =

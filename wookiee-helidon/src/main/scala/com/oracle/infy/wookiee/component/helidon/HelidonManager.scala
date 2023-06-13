@@ -2,7 +2,6 @@ package com.oracle.infy.wookiee.component.helidon
 
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
-import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.{
   BOTH,
@@ -14,8 +13,13 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter._
 import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
+import com.oracle.infy.wookiee.component.messages.StatusRequest
+import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentV2}
+import com.oracle.infy.wookiee.health.HealthCheckActor
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.helidon.webserver._
+import org.joda.time.{DateTime, DateTimeZone}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
@@ -82,9 +86,35 @@ object HelidonManager extends Mediator[HelidonManager] {
     registerEndpoint(command)
   }
 
-  // TODO Add corresponding functional WS endpoint
+//  // TODO Fill in the handling of the message to be similar to akka-http
+//  def registerWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
+//      path: String,
+//      endpointType: EndpointType,
+//      authHandler: WookieeRequest => Future[A],
+////                        textToInput: (A, String) => Future[I],
+//      handleInMessage: (I, WebsocketInterface[I, O, A]) => Unit,
+////                        outputToText: O => String,
+//      onClose: (A, Option[I]) => Unit = { (_: A, _: Option[I]) =>
+//        ()
+//      },
+//      authErrorHandler: WookieeRequest => PartialFunction[Throwable, WookieeResponse],
+//      wsErrorHandler: PartialFunction[Throwable, WookieeResponse],
+//      endpointOptions: EndpointOptions = EndpointOptions.default
+//  )(implicit config: Config, formats: Formats): Unit = {
+//    val wsPath = path
+//    val wsEndpointType = endpointType
+//    val wsEndpointOptions = endpointOptions
+//
+//    val websocket = new WookieeWebsocket {
+//      override def path: String = wsPath
+//      override def endpointType: EndpointType = wsEndpointType
+//      override def endpointOptions: EndpointOptions = wsEndpointOptions
+//
+//      override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit = ???
+//    }
+//  }
 
-  def registerWebsocket(helidonWebsocket: WookieeWebsocket)(implicit config: Config, ec: ExecutionContext): Unit = {
+  def registerWebsocket(helidonWebsocket: WookieeWebsocket)(implicit config: Config): Unit = {
     val mediator = getMediator(config)
     mediator.registerEndpoint(
       helidonWebsocket.path,
@@ -135,6 +165,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
 
     internalServer = startServer(new WookieeRouter(internalOrigins), internalPort)
     externalServer = startServer(new WookieeRouter(externalOrigins), externalPort)
+    registerInternalEndpoints()
   }
 
   // Call on shutdown
@@ -175,5 +206,60 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
   override def prepareForShutdown(): Unit = {
     stopService()
     log.info("Helidon Server shutdown complete")
+  }
+
+  private def registerInternalEndpoints(): Unit = {
+    implicit val ec: ExecutionContext = ThreadUtil.createEC("internal-endpoint-pool")
+    implicit val conf: Config = config
+
+    internalRegister("healthcheck", { _ =>
+      HealthCheckActor.getHealthFull.map { health =>
+        WookieeResponse(Content(health.toJson))
+      }
+    })
+    internalRegister("healthcheck/full", { _ =>
+      HealthCheckActor.getHealthFull.map { health =>
+        WookieeResponse(Content(health.toJson))
+      }
+    })
+    internalRegister("healthcheck/lb", { _ =>
+      HealthCheckActor.getHealthLB.map { health =>
+        WookieeResponse(Content(health))
+      }
+    })
+    internalRegister("healthcheck/nagios", { _ =>
+      HealthCheckActor.getHealthNagios.map { health =>
+        WookieeResponse(Content(health))
+      }
+    })
+    internalRegister("ping", { _ =>
+      Future.successful {
+        WookieeResponse(Content(s"pong: ${new DateTime(System.currentTimeMillis(), DateTimeZone.UTC)}"))
+      }
+    })
+    internalRegister("favicon.ico", { _ =>
+      Future.successful {
+        WookieeResponse(Content(""), StatusCode(204))
+      }
+    })
+    internalRegister(
+      "metrics", { _ =>
+        ComponentManager.requestToComponent("wookiee-metrics", ComponentRequest(StatusRequest("string"))).map { resp =>
+          WookieeResponse(Content(resp.resp.toString))
+        }
+      }
+    )
+  }
+
+  private def internalRegister(cmdPath: String, execution: WookieeRequest => Future[WookieeResponse])(
+      implicit ec: ExecutionContext,
+      conf: Config
+  ): Unit = {
+    HelidonManager.registerEndpoint(new HttpCommand {
+      override def method: String = "GET"
+      override def path: String = cmdPath
+      override def endpointType: EndpointType = EndpointType.BOTH
+      override def execute(input: WookieeRequest): Future[WookieeResponse] = execution(input)
+    })
   }
 }

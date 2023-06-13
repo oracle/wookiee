@@ -31,7 +31,7 @@ import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.AkkaUtil._
 import com.oracle.infy.wookiee.utils.ConfigUtil
-import com.oracle.infy.wookiee.{HarnessConstants, health}
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator, health}
 import com.typesafe.config.Config
 
 import java.util.concurrent.ConcurrentHashMap
@@ -40,7 +40,7 @@ import scala.concurrent.{Future, Promise}
 import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
-object HarnessActor {
+object HarnessActor extends Mediator[ActorSystem] {
   def props(): Props = Props[HarnessActor]()
 
   @SerialVersionUID(2L) case class ShutdownSystem()
@@ -83,6 +83,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
   import context.dispatcher
 
   private val config = context.system.settings.config
+  HarnessActor.registerMediator(config, context.system)
   val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
   implicit val checkTimeout: Timeout =

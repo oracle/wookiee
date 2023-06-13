@@ -139,8 +139,8 @@ lazy val `wookiee-helidon` = project
   .settings(
     libraryDependencies ++= Deps.build.wookieeHelidon
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`)
-  .aggregate(`wookiee-core`, `wookiee-test`)
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
 lazy val `basic-service` = project
   .in(file("examples/basic-service"))

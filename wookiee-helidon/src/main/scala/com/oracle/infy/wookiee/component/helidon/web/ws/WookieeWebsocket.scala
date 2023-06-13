@@ -18,13 +18,14 @@ abstract class WookieeWebsocket extends Endpoint with WookieeMonitor {
   def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit
 
   // Call this to send back a message to the client
-  def sendText(message: String)(implicit session: Session): Unit =
+  def reply(message: String)(implicit session: Session): Unit =
     session.getBasicRemote.sendText(message)
 
   // List of segments in `path` that start with '$
   lazy val pathKeys: List[String] = path.split("/").filter(_.nonEmpty).filter(_.startsWith("$")).map(_.drop(1)).toList
 
   // Internal-only, will forward messages on to the handleText method
+  // If override is necessary be sure to call super.onOpen
   override def onOpen(session: Session, config: EndpointConfig): Unit =
     try {
       val headers = config.getUserProperties.asScala.toMap.get(REQUEST_HEADERS) match {

@@ -7,7 +7,7 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
 import com.oracle.infy.wookiee.component.TestComponentV2._
-import com.oracle.infy.wookiee.health.{ComponentState => CState, HealthComponent, WookieeMonitor}
+import com.oracle.infy.wookiee.health.{HealthComponent, WookieeMonitor, ComponentState => CState}
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
@@ -16,8 +16,8 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.atomic.AtomicBoolean
-import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 object TestComponentV2 {
   val wasStarted: AtomicBoolean = new AtomicBoolean(false)
@@ -29,6 +29,7 @@ object TestComponentV2 {
   val innerShutdown: AtomicBoolean = new AtomicBoolean(false)
   val innerStart: AtomicBoolean = new AtomicBoolean(false)
   val innerCompReady: AtomicBoolean = new AtomicBoolean(false)
+  val gotMessage: AtomicBoolean = new AtomicBoolean(false)
 }
 
 class TestComponentV2(name: String, config: Config) extends ComponentV2(name, config) {
@@ -69,6 +70,12 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
 
   override def prepareForShutdown(): Unit =
     wasShutdown.set(true)
+
+  override def onRequest[T](msg: T): Any =
+    Future.successful("request-reply")
+
+  override def onMessage[T](msg: T): Unit =
+    gotMessage.set(true)
 }
 
 class ComponentV2Spec
@@ -154,6 +161,19 @@ class ComponentV2Spec
       })
       res mustBe true
       ThreadUtil.awaitResult({ if (innerShutdown.get()) Some(true) else None }) mustBe true
+    }
+
+    "receive a message" in {
+      componentManager ! Message("component-v2", ComponentMessage("test"))
+      ThreadUtil.awaitResult({ if (gotMessage.get()) Some(true) else None }) mustBe true
+    }
+
+    "receive a request" in {
+      val reply = Await.result(
+        (componentManager ? Request("component-v2", ComponentRequest("test"))).mapTo[ComponentResponse[String]],
+        15.seconds
+      )
+      reply.resp mustEqual "request-reply"
     }
   }
 }

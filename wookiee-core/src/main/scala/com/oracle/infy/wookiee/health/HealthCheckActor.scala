@@ -15,15 +15,39 @@
  */
 package com.oracle.infy.wookiee.health
 
-import akka.actor.{Props, Status}
-import com.oracle.infy.wookiee.HarnessConstants
+import akka.actor.{ActorRef, Props, Status}
+import akka.pattern.ask
+import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.oracle.infy.wookiee.utils.{AkkaUtil, ConfigUtil}
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
+import com.typesafe.config.Config
 
+import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
-object HealthCheckActor {
+object HealthCheckActor extends Mediator[ActorRef] {
   def props: Props = Props[HealthCheckActor]()
+
+  implicit def checkTimeout(implicit config: Config): Timeout =
+    AkkaUtil.getDefaultTimeout(
+      config,
+      HarnessConstants.KeyDefaultTimeout,
+      Timeout(30.seconds)
+    )
+
+  // Full health check object with all child statuses
+  def getHealthFull(implicit config: Config): Future[ApplicationHealth] =
+    (getMediator(config) ? HealthRequest(HealthResponseType.FULL)).mapTo[ApplicationHealth]
+
+  // Load balancer health which will return either "DOWN" or "UP"
+  def getHealthLB(implicit config: Config): Future[String] =
+    (getMediator(config) ? HealthRequest(HealthResponseType.LB)).mapTo[String]
+
+  // Nagios health summary, in the format "{state}|{details}", for example "CRITICAL|Wookiee failed on startup"
+  def getHealthNagios(implicit config: Config): Future[String] =
+    (getMediator(config) ? HealthRequest(HealthResponseType.NAGIOS)).mapTo[String]
 
   // These objects will be temporary enough, favoring time complexity concerns over space concerns
   protected[health] def collectHealthStates(
@@ -60,6 +84,7 @@ object HealthCheckActor {
 }
 
 class HealthCheckActor extends HActor with HealthCheckProvider {
+  HealthCheckActor.registerMediator(config, self)
 
   private var previousCheck: Option[ApplicationHealth] = None
 
