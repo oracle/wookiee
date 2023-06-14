@@ -66,7 +66,10 @@ object HttpObjects {
       pathSegments: Map[String, String],
       queryParameters: Map[String, String],
       headers: Headers
-  )
+  ) {
+    private val createdTime: Long = System.currentTimeMillis()
+    def getCreatedTime: Long = createdTime
+  }
 
   // Object holding all of the response information
   case class WookieeResponse(content: Content, statusCode: StatusCode = StatusCode(), headers: Headers = Headers())

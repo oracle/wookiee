@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.component.helidon
 
 import com.oracle.infy.wookiee.Mediator
-import com.oracle.infy.wookiee.command.WookieeCommandExecutive
+import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.{
   BOTH,
@@ -12,7 +12,6 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointTy
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter._
-import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentV2}
 import com.oracle.infy.wookiee.health.HealthCheckActor
@@ -23,106 +22,9 @@ import org.joda.time.{DateTime, DateTimeZone}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
-import scala.reflect.ClassTag
-import scala.reflect.runtime.universe._
 
 object HelidonManager extends Mediator[HelidonManager] {
   val ComponentName = "wookiee-helidon"
-
-  /**
-    * Primary 'object-oriented' entry point for registering an HTTP endpoint using Wookiee Helidon.
-    * Will pull various functions and properties off of the WookieeHttpHandler and use them to
-    * construct a handler registered at the specified path
-    */
-  def registerEndpoint(command: HttpCommand)(implicit config: Config, ec: ExecutionContext): Unit = {
-    val mediator = getMediator(config)
-    WookieeCommandExecutive.getMediator(config).registerCommand(command)
-    val handler = handlerFromCommand(command)
-
-    mediator.registerEndpoint(command.path, command.endpointType, command.method, handler)
-  }
-
-  /**
-    * Primary 'functional' entry point for registering an HTTP endpoint using Wookiee Helidon.
-    * Will compose the input functions in order of their passing into a WookieeHttpHandler object.
-    * This object will then be automatically hosted on the specified web server
-    */
-  def registerEndpoint[Input <: Product: ClassTag: TypeTag, Output: ClassTag: TypeTag](
-      name: String, // Unique name that will also expose this command via the WookieeCommandExecutive
-      path: String, // HTTP path to host this endpoint, segments starting with '$' will be treated as wildcards
-      method: String, // e.g. GET, POST, PATCH, OPTIONS, etc.
-      endpointType: EndpointType.EndpointType, // Host this endpoint on internal or external port?
-      requestHandler: WookieeRequest => Future[Input], // Marshall the WookieeRequest into any generic Input type
-      businessLogic: Input => Future[Output], // Main business logic, Output is any generic type
-      responseHandler: Output => WookieeResponse, // Marshall the generic Output type into a WookieeResponse
-      errorHandler: Throwable => WookieeResponse, // If any errors happen at any point, how shall we respond
-      endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
-  )(
-      implicit config: Config, // This just need to have 'instance-id' set to any string
-      ec: ExecutionContext
-  ): Unit = {
-
-    val cmdName = name
-    val cmdMethod = method.toUpperCase
-    val cmdPath = path
-    val cmdType = endpointType
-    val cmdErrors = errorHandler
-    val cmdOptions = endpointOptions
-    val command = new HttpCommand {
-      override def commandName: String = cmdName
-      override def method: String = cmdMethod
-      override def path: String = cmdPath
-      override def endpointType: EndpointType = cmdType
-      override def errorHandler(ex: Throwable): WookieeResponse = cmdErrors(ex)
-      override def endpointOptions: EndpointOptions = cmdOptions
-
-      override def execute(input: WookieeRequest): Future[WookieeResponse] = {
-        requestHandler(input)
-          .flatMap(businessLogic)
-          .map(responseHandler)
-      }
-    }
-
-    registerEndpoint(command)
-  }
-
-//  // TODO Fill in the handling of the message to be similar to akka-http
-//  def registerWebsocket[I: ClassTag, O <: Product: ClassTag, A <: Product: ClassTag](
-//      path: String,
-//      endpointType: EndpointType,
-//      authHandler: WookieeRequest => Future[A],
-////                        textToInput: (A, String) => Future[I],
-//      handleInMessage: (I, WebsocketInterface[I, O, A]) => Unit,
-////                        outputToText: O => String,
-//      onClose: (A, Option[I]) => Unit = { (_: A, _: Option[I]) =>
-//        ()
-//      },
-//      authErrorHandler: WookieeRequest => PartialFunction[Throwable, WookieeResponse],
-//      wsErrorHandler: PartialFunction[Throwable, WookieeResponse],
-//      endpointOptions: EndpointOptions = EndpointOptions.default
-//  )(implicit config: Config, formats: Formats): Unit = {
-//    val wsPath = path
-//    val wsEndpointType = endpointType
-//    val wsEndpointOptions = endpointOptions
-//
-//    val websocket = new WookieeWebsocket {
-//      override def path: String = wsPath
-//      override def endpointType: EndpointType = wsEndpointType
-//      override def endpointOptions: EndpointOptions = wsEndpointOptions
-//
-//      override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit = ???
-//    }
-//  }
-
-  def registerWebsocket(helidonWebsocket: WookieeWebsocket)(implicit config: Config): Unit = {
-    val mediator = getMediator(config)
-    mediator.registerEndpoint(
-      helidonWebsocket.path,
-      helidonWebsocket.endpointType,
-      "WS",
-      WebsocketHandler(helidonWebsocket)
-    )
-  }
 }
 
 // Main Helidon Component, manager of all things Helidon but for now mainly HTTP and Websockets
@@ -178,8 +80,8 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
   // Main internal entry point for registration of HTTP endpoints
   def registerEndpoint(path: String, endpointType: EndpointType, method: String, handler: WookieeHandler): Unit = {
     val actualMethod = handler match {
-      case _: WebsocketHandler => "WS"
-      case _                   => method
+      case _: WebsocketHandler[_] => "WS"
+      case _                      => method
     }
 
     val slashPath = if (path.startsWith("/")) path else s"/$path"
@@ -255,7 +157,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
       implicit ec: ExecutionContext,
       conf: Config
   ): Unit = {
-    HelidonManager.registerEndpoint(new HttpCommand {
+    WookieeEndpoints.registerEndpoint(new HttpCommand {
       override def method: String = "GET"
       override def path: String = cmdPath
       override def endpointType: EndpointType = EndpointType.BOTH

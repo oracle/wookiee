@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.component.helidon.web.http
 
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
+import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.{getContent, oneOff}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
@@ -54,10 +55,12 @@ class CORSSpec extends EndpointTestHelper {
       )
     )
 
-    HelidonManager.registerWebsocket(new WookieeWebsocket {
+    WookieeEndpoints.registerWebsocket(new WookieeWebsocket[Any] {
       override def path: String = "/ws/cors"
 
-      override def handleText(text: String, request: WookieeRequest)(implicit session: Session): Unit =
+      override def handleText(text: String, request: WookieeRequest, authInfo: Option[Any])(
+          implicit session: Session
+      ): Unit =
         reply(s"Got message: [$text],Default-Header: [${request.headers.mappings("Default-Header").head}]")
 
       override def endpointType: EndpointType = EndpointType.BOTH

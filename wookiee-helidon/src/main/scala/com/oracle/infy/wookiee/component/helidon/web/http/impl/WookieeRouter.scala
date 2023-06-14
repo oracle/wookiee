@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusConta
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver._
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
+import com.oracle.infy.wookiee.component.helidon.web.AccessLog
 
 import java.nio.ByteBuffer
 import java.util.Collections
@@ -16,6 +17,7 @@ import javax.websocket.server.{HandshakeRequest, ServerEndpointConfig}
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
+import scala.reflect.ClassTag
 
 /**
   * This support object for WookieeRouter contains the handler creation logic that Helidon needs
@@ -34,7 +36,7 @@ object WookieeRouter extends LoggingAdapter {
   case class HttpHandler(handler: Handler, endpointOptions: EndpointOptions = EndpointOptions.default)
       extends WookieeHandler
 
-  case class WebsocketHandler(handler: WookieeWebsocket) extends WookieeHandler {
+  case class WebsocketHandler[Auth <: Any: ClassTag](handler: WookieeWebsocket[Auth]) extends WookieeHandler {
     override val endpointOptions: EndpointOptions = handler.endpointOptions
   }
 
@@ -116,15 +118,18 @@ object WookieeRouter extends LoggingAdapter {
                     respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
                     res.status(response.statusCode.code)
                     res.send(response.content.value)
+                    AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                   .recover {
                     case e: Throwable =>
                       WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                      AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                 ()
               } catch {
                 case e: Throwable =>
                   WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                  AccessLog.logAccess(None, command.method, actualPath, res.status().code)
               }
           }
 
@@ -184,11 +189,11 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     // In the last segment, store the method and handler
     currentNode.handlers.put(upperMethod, handler)
     handler match {
-      case wsHandler: WebsocketHandler =>
+      case wsHandler: WebsocketHandler[_] =>
         // This trick allows us to use an instantiated HelidonWebsocket
         val serverEndpointConfig = ServerEndpointConfig
           .Builder
-          .create(wsHandler.handler.getClass, convertPath(wsHandler.handler.path))
+          .create(wsHandler.handler.getEndpointInstance.getClass, convertPath(wsHandler.handler.path))
           .extensions(Collections.singletonList(new PerMessageDeflateExtension()))
           .configurator(new ServerEndpointConfig.Configurator {
             // This takes the headers from the request and passes them along to the websocket
@@ -203,8 +208,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
               ()
             }
 
-            override def getEndpointInstance[T](endpointClass: Class[T]): T =
-              wsHandler.handler.asInstanceOf[T]
+            override def getEndpointInstance[T](endpointClass: Class[T]): T = {
+              log.info("Getting endpoint instance")
+              wsHandler.handler.getEndpointInstance.asInstanceOf[T]
+            }
           })
           .build()
 
@@ -297,6 +304,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // Didn't match CORS Origin requirements
         if (!isOriginAllowed) {
           res.status(403).send("Origin not permitted.")
+          AccessLog.logAccess(None, method, path, 403)
           return
         }
 
@@ -308,7 +316,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Credentials", "true")
             httpHandler.handler.accept(req, res)
 
-          case Some(wsHandler: WebsocketHandler) => // Websocket handling
+          case Some(wsHandler: WebsocketHandler[_]) => // Websocket handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
             websocketHandler.acceptWithContext(req, res, wsHandler.endpointOptions)

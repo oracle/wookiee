@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.component.helidon
 
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.util.TestObjects.{InputObject, OutputObject}
+import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
@@ -33,7 +34,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       })
     )
 
-    HelidonManager.registerEndpoint[InputObject, OutputObject](
+    WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
       "basic-endpoint",
       "/basic/endpoint",
       "POST",
@@ -55,7 +56,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       }
     )
 
-    HelidonManager.registerEndpoint[InputObject, OutputObject](
+    WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
       "segment-endpoint",
       "/api/$segment/endpoint",
       "POST",
@@ -95,7 +96,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
       }
     }
 
-    HelidonManager.registerEndpoint(new BasicGet)
+    WookieeEndpoints.registerEndpoint(new BasicGet)
 
     class ErrorBomb extends HttpCommand {
       override def method: String = "get"

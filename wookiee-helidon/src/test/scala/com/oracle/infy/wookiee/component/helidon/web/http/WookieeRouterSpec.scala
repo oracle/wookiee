@@ -85,10 +85,12 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       val rt = WookieeRouter.ServiceHolder(null, new WookieeRouter)
       WookieeRouter.ServiceHolder.unapply(rt) must not be None
 
-      val rt2 = WookieeRouter.WebsocketHandler(new WookieeWebsocket {
+      val rt2 = WookieeRouter.WebsocketHandler(new WookieeWebsocket[Any] {
         override def path: String = "/"
         override def endpointType: EndpointType = EndpointType.BOTH
-        override def handleText(text: String, request: HttpObjects.WookieeRequest)(implicit session: Session): Unit =
+        override def handleText(text: String, request: HttpObjects.WookieeRequest, authInfo: Option[Any])(
+            implicit session: Session
+        ): Unit =
           ???
       })
       WookieeRouter.WebsocketHandler.unapply(rt2) must not be None
