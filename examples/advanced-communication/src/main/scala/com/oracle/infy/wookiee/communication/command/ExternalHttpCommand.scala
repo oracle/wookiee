@@ -1,11 +1,7 @@
 package com.oracle.infy.wookiee.communication.command
 
 import com.oracle.infy.wookiee.communication.command.ExternalHttpCommand.businessLogicToCallInternalCommand
-import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.{
-  InputHolder,
-  OutputHolder,
-  getInternalConfig
-}
+import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.{InputHolder, OutputHolder, getInternalConfig}
 import com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandExecution
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType

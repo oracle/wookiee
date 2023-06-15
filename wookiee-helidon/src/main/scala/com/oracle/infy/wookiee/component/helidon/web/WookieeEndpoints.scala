@@ -4,12 +4,7 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{
-  EndpointOptions,
-  EndpointType,
-  WookieeRequest,
-  WookieeResponse
-}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointOptions, EndpointType, WookieeRequest, WookieeResponse}
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{WebsocketHandler, handlerFromCommand}
 import com.oracle.infy.wookiee.component.helidon.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
@@ -19,6 +14,12 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
 
+/**
+  * This class is the main helper for registering HTTP and WS endpoints with Wookiee Helidon.
+  * Examples of usage for each of these methods can be found in the 'advanced-communication' example project.
+  *
+  * For both HTTP and WS there are provided both 'object-oriented' and 'functional' entry points.
+  */
 object WookieeEndpoints {
 
   /**

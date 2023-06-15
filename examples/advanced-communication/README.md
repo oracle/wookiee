@@ -10,6 +10,21 @@ messaged via gRPC, and one that is external (with HTTP and WS support) that send
 4. Hit the HTTP GET endpoint with a browser or curl, the returned message will have been sent back and forth between the two services
    1. The first HTTP GET endpoint is at http://localhost:8081/external/first-input
    2. The second HTTP GET endpoint is at http://localhost:8081/external/second-input/functional
+5. Hit the WS endpoint with a websocket tool like https://www.piesocket.com/websocket-tester
+   1. The first WS endpoint is at ws://localhost:8080/ws/user-id-input
+   2. The second WS endpoint is at ws://localhost:8080/ws/user-id-input/functional
 
 Note: Whichever Service is started first will create a local Zookeeper instance. If this Service is restarted then
 the other Service will need to be restarted too to get the new Zookeeper connection.
+
+## Run Configurations
+If the run configurations are not loaded in, you can create them by following these steps:
+Name: Example External Wookiee
+Main Class: com.oracle.infy.wookiee.app.HarnessService
+Module: advanced-communication
+Program Arguments: -Dconfig.file=src/main/resources/application.conf
+Environmental Variables: -DserviceClass=ExternalWookieeService
+
+Copy the above configuration and change the following:
+Name: Example Internal Wookiee
+Environmental Variables: -DserviceClass=InternalWookieeService

@@ -11,6 +11,7 @@ import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import java.nio.ByteBuffer
 import javax.websocket.{Endpoint, EndpointConfig, MessageHandler, Session}
 import scala.concurrent.{ExecutionContext, Promise}
 
@@ -54,6 +55,13 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
       override def onMessage(message: String): Unit = {
         promise.success(message)
+      }
+    })
+
+    session.addMessageHandler(new MessageHandler.Whole[ByteBuffer] {
+
+      override def onMessage(message: ByteBuffer): Unit = {
+        promise.success(new String(message.array()))
       }
     })
 

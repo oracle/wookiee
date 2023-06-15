@@ -12,11 +12,13 @@ import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 import org.glassfish.tyrus.spi.{Connection, ReadHandler, Writer}
 
 import java.net.URI
+import java.nio.ByteBuffer
 import java.util
 import java.util.Collections
 import java.util.concurrent.Flow
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.websocket._
+import javax.websocket.server.ServerEndpointConfig
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, Promise}
 import scala.jdk.CollectionConverters._
@@ -245,6 +247,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         )
       session.getBasicRemote.sendText("fail")
 
+      // Session should be closed
       ThreadUtil.awaitResult({ if (!session.isOpen) Some(true) else None }) mustBe true
 
       // Connect to the server endpoint
@@ -255,6 +258,42 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
       session.getBasicRemote.sendText("other-fail")
 
       ThreadUtil.awaitResult({ if (!session.isOpen) Some(true) else None }) mustBe true
+    }
+
+    "provide a usable interface" in {
+      val promise = Promise[String]()
+
+      // Define the WebSocket client endpoint
+      val endpoint = clientEndpoint(promise)
+
+      // Connect to the server endpoint
+      val session =
+        clientManager.connectToServer(
+          endpoint,
+          new URI(s"ws://localhost:$internalPort/ws/test/interface?param=value")
+        )
+
+      session.getBasicRemote.sendText("Hello from client!")
+
+      // Wait for the server to send a message
+      val messageFromServer = Await.result(promise.future, 10.seconds)
+
+      assert(
+        messageFromServer == "Got message: [Hello from client!], param = [test], query = [value]"
+      )
+      ThreadUtil.awaitResult({ if (!session.isOpen) Some(true) else None }) mustBe true
+    }
+
+    "has working tyrus implementors" in {
+      val cont = new WookieeTyrusContainer
+      intercept[UnsupportedOperationException] {
+        cont.register(
+          ServerEndpointConfig
+            .Builder
+            .create(getClass, "/")
+            .build()
+        )
+      }
     }
   }
 
@@ -369,6 +408,19 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
           interface.reply(
             s"Got error: [${t.getMessage}]"
           )
+      }
+    )
+
+    WookieeEndpoints.registerWebsocket[AuthHolder](
+      "/ws/$segment/interface",
+      EndpointType.BOTH,
+      (text: String, interface: WebsocketInterface, _: Option[AuthHolder]) => {
+        val queryParam = interface.getQueryParams("param")
+        val pathParam = interface.getPathSegments("segment")
+        interface.reply(
+          ByteBuffer.wrap(s"Got message: [$text], param = [$pathParam], query = [$queryParam]".getBytes)
+        )
+        interface.stop()
       }
     )
   }

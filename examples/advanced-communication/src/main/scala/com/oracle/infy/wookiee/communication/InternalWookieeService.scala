@@ -4,9 +4,9 @@ import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.InputHolder
 import com.oracle.infy.wookiee.component.discovery.command.{DiscoverableCommandHelper, WookieeDiscoverableService}
 import com.typesafe.config.Config
-import scala.jdk.CollectionConverters._
 
 import scala.concurrent.ExecutionContext
+import scala.jdk.CollectionConverters._
 
 class InternalWookieeService(config: Config) extends WookieeDiscoverableService(config) {
   override val name: String = "Internal Wookiee Service"
