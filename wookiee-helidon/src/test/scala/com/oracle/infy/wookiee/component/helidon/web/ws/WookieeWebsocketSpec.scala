@@ -334,10 +334,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         case e: IllegalStateException =>
           super.handleError(request, authInfo)(session)(e)
           reply(s"Got error: [${e.getMessage}]")
-          WookieeWebsocket.stop(Some(("error", 1000)))
+          close(Some(("error", 1000)))
         case e: Exception =>
           reply(s"Got error: [${e.getMessage}]")
-          WookieeWebsocket.stop()
+          close()
       }
 
       override def endpointType: EndpointType = EndpointType.BOTH

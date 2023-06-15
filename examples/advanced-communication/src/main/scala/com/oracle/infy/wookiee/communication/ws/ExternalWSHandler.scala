@@ -14,18 +14,21 @@ object ExternalWSHandler {
 
 }
 
+// This is an example of a websocket handler that will be hosted on both internal and external ports
 class ExternalWSHandler(implicit ec: ExecutionContext) extends WookieeWebsocket[AuthHolder] {
   // WS path to host this endpoint, segments starting with '$' will be treated as wildcards
   def path: String = "/ws/$userId"
   // Host this endpoint on internal and external ports
   def endpointType: EndpointType = EndpointType.BOTH
 
+  // This is an example of how to set default headers for all incoming requests
   override def endpointOptions: HttpObjects.EndpointOptions = {
     super
       .endpointOptions
       .copy(defaultHeaders = HttpObjects.Headers(Map("Default-Wookiee-Header" -> List("Default Header Value"))))
   }
 
+  // Main method to handle incoming messages
   override def handleText(text: String, request: HttpObjects.WookieeRequest, authInfo: Option[AuthHolder])(
       implicit session: Session
   ): Unit = {
@@ -76,7 +79,7 @@ class ExternalWSHandler(implicit ec: ExecutionContext) extends WookieeWebsocket[
       implicit session: Session
   ): Throwable => Unit = {
     case _: IllegalArgumentException =>
-      WookieeWebsocket.stop(Some(("You must be authenticated to use this websocket", 1008)))
+      WookieeWebsocket.close(Some(("You must be authenticated to use this websocket", 1008)))
     case _: Throwable =>
       log.error(s"Unexpected error handling websocket message to path [$path], skipping message")
       reply("Unexpected error handling websocket message, skipping message")

@@ -110,6 +110,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
     log.info("Helidon Server shutdown complete")
   }
 
+  // Register internal healthcheck and metrics endpoints
   private def registerInternalEndpoints(): Unit = {
     implicit val ec: ExecutionContext = ThreadUtil.createEC("internal-endpoint-pool")
     implicit val conf: Config = config
@@ -153,6 +154,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
     )
   }
 
+  // Helper for registering simple internal endpoints like healthcheck
   private def internalRegister(cmdPath: String, execution: WookieeRequest => Future[WookieeResponse])(
       implicit ec: ExecutionContext,
       conf: Config

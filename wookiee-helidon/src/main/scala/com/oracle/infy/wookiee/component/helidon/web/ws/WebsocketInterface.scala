@@ -34,7 +34,7 @@ class WebsocketInterface(
     *                    to Websocket standards and can be found here: [[javax.websocket.CloseReason.CloseCodes]]
     */
   def stop(closeReason: Option[(String, Int)] = None): Unit =
-    WookieeWebsocket.stop(closeReason)
+    WookieeWebsocket.close(closeReason)
 
   // The query parameters from the request (i.e. ?param1=value1&param2=value2)
   def getQueryParams: Map[String, String] = request.queryParameters

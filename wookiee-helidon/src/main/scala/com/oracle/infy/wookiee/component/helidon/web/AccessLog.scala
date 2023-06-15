@@ -6,6 +6,7 @@ import com.oracle.infy.wookiee.logging.LoggingAdapter
 import java.time.format.DateTimeFormatter
 import java.time.{Instant, ZoneId}
 
+// Will be called after each request to log the access
 object AccessLog extends LoggingAdapter {
   val host: String = java.net.InetAddress.getLocalHost.getHostName
 

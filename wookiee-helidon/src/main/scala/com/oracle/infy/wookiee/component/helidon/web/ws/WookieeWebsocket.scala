@@ -22,7 +22,7 @@ object WookieeWebsocket {
     * The optional `closeReason` will return a code (defaults to 1000) and message to the client. Available codes correspond
     * to Websocket standards and can be found here: [[javax.websocket.CloseReason.CloseCodes]]
     */
-  def stop(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
+  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
     case None =>
       session.close()
     case Some((message, code)) =>
@@ -35,6 +35,7 @@ object WookieeWebsocket {
   }
 }
 
+// Main class to extend for creating a websocket endpoint, pass this along to WookieeEndpoints.registerWebsocket
 abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   /* OVERRIDEABLE METHODS */
 
@@ -66,10 +67,15 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def reply(message: String)(implicit session: Session): Unit =
     session.getBasicRemote.sendText(message)
 
+  // Call this to close the current websocket session
+  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit =
+    WookieeWebsocket.close(closeReason)
+
   /* INTERNAL ONLY */
 
   def getEndpointInstance: Endpoint = new InternalEndpoint
 
+  // A new instance of this is created for each new websocket session
   protected[oracle] class InternalEndpoint extends Endpoint {
     val authInfo: AtomicReference[Option[Auth]] = new AtomicReference[Option[Auth]](None)
 
