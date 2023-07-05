@@ -420,7 +420,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         interface.reply(
           ByteBuffer.wrap(s"Got message: [$text], param = [$pathParam], query = [$queryParam]".getBytes)
         )
-        interface.stop()
+        interface.close()
       }
     )
   }

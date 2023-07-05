@@ -32,9 +32,10 @@ wookiee-grpc-component {
 ```
 
 ### Registration
-To register a command, you must first create a class that implements the [`DiscoverableCommand`](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommand.scala) interface.
+To register a command, you must first create a class that implements the [DiscoverableCommand](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommand.scala) interface.
 This interface requires you to implement the `name` and `execute` methods to set a name we can use to call this command from elsewhere, and to define the behavior of the command, respectively.
-Once you have your command, you can register it with the [`DiscoverableCommandHelper`](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommandHelper.scala) object by calling `registerDiscoverableCommand` using the newly implemented `DiscoverableCommand`.
+Once you have your command, you can register it with the [DiscoverableCommandHelper](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommandHelper.scala) object by calling `registerDiscoverableCommand` using the newly implemented `DiscoverableCommand`.
+See an example at [InternalDiscoverableCommand](../examples/advanced-communication/src/main/scala/com/oracle/infy/wookiee/communication/command/InternalDiscoverableCommand.scala).
 ```scala
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommand
 
@@ -83,7 +84,7 @@ DiscoverableCommandHelper.registerDiscoverableCommand(new MyCommand, "my-auth-to
 ```
 
 ### Execution
-Once you have registered your command, you can execute it from anywhere in the cluster (including from the hosting Service) by calling `executeDiscoverableCommand` on the [`DiscoverableCommandExecution`](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommandExecution.scala) object.
+Once you have registered your command, you can execute it from anywhere in the cluster (including from the hosting Service) by calling `executeDiscoverableCommand` on the [DiscoverableCommandExecution](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommandExecution.scala) object.
 ```scala
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
 
@@ -98,5 +99,5 @@ DiscoverableCommandHelper.executeDiscoverableCommand(
 ```
 
 #### SSL
-If you want to use SSL, you must first create a [`SSLClientSettings`](../wookiee-grpc/src/main/scala/com/oracle/infy/wookiee/grpc/settings/SSLClientSettings.scala) object.
+If you want to use SSL, you must first create a [SSLClientSettings](../wookiee-grpc/src/main/scala/com/oracle/infy/wookiee/grpc/settings/SSLClientSettings.scala) object.
 Pass this along wrapped in a Some to the `executeDiscoverableCommand` method.

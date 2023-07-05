@@ -72,7 +72,7 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
         log.info(s"Closing websocket session from user [${auth.map(_.userId).getOrElse("no-auth")}]"),
       wsErrorHandler = (interface: WebsocketInterface, _: Option[AuthHolder]) => {
         case _: IllegalArgumentException =>
-          interface.stop(Some(("You must be authenticated to use this websocket", 1008)))
+          interface.close(Some(("You must be authenticated to use this websocket", 1008)))
         case _: Throwable =>
           log.error(s"Unexpected error handling websocket message, skipping message")
           interface.reply("Unexpected error handling websocket message, skipping message")
