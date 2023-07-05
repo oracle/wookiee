@@ -2,8 +2,8 @@ package com.oracle.infy.wookiee.component.helidon.web.ws
 
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
+import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.oneOff
-import com.oracle.infy.wookiee.component.helidon.web.{WookieeEndpoints, WookieeHttpServiceSpec}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointType, WookieeRequest}
 import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusSubscriber}

@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.helidon.web.http.impl
 
+import com.oracle.infy.wookiee.component.helidon.web.AccessLog
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
@@ -7,7 +8,6 @@ import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusConta
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver._
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
-import com.oracle.infy.wookiee.component.helidon.web.AccessLog
 
 import java.nio.ByteBuffer
 import java.util.Collections
