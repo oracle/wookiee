@@ -76,8 +76,8 @@ object WookieeRouter extends LoggingAdapter {
       // Go into error handling
       val response = errorHandler(e)
       res.status(response.statusCode.code)
-      response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
       res.headers().add("Content-Type", response.contentType)
+      response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
       res.send(response.content.value)
       ()
     } catch {
@@ -114,13 +114,14 @@ object WookieeRouter extends LoggingAdapter {
 
                 command
                   .execute(wookieeRequest) // main business logic
-                  .map { response =>
-                    val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
-                    respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
-                    res.headers().add("Content-Type", response.contentType)
-                    res.status(response.statusCode.code)
-                    res.send(response.content.value)
-                    AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
+                  .map {
+                    response =>
+                      val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
+                      res.headers().add("Content-Type", response.contentType)
+                      respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
+                      res.status(response.statusCode.code)
+                      res.send(response.content.value)
+                      AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                   .recover {
                     case e: Throwable =>

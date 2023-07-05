@@ -75,6 +75,7 @@ object HttpObjects {
       content: Content,
       statusCode: StatusCode = StatusCode(),
       headers: Headers = Headers(),
+      // If specified in `headers`, that value will take precedence
       contentType: String = "application/json"
   )
 }
