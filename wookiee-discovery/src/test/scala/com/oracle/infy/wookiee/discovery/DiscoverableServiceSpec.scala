@@ -1,14 +1,14 @@
-package com.oracle.infy.wookiee.component.discovery
+package com.oracle.infy.wookiee.discovery
 
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicBoolean
 import com.oracle.infy.wookiee.component.ComponentState
-import com.oracle.infy.wookiee.component.discovery.command.{DiscoverableCommandExecution, WookieeDiscoverableService}
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.typesafe.config.{Config, ConfigFactory}
 import com.oracle.infy.wookiee.component.ComponentInfoV2
+import com.oracle.infy.wookiee.discovery.command.{DiscoverableCommandExecution, WookieeDiscoverableService}
 
 import scala.concurrent.ExecutionContext
 

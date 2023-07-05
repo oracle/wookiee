@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.component.discovery.command.grpc
+package com.oracle.infy.wookiee.discovery.command.grpc
 
 import com.google.protobuf.StringValue
 import io.grpc.protobuf.ProtoUtils

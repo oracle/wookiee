@@ -11,6 +11,9 @@ object AccessLog extends LoggingAdapter {
   val host: String = java.net.InetAddress.getLocalHost.getHostName
 
   def logAccess(request: Option[WookieeRequest], method: String, path: String, status: Int): Unit = {
+    // Don't log default endpoint requests
+    if (path.contains("favicon.ico") || path.contains("healthcheck") || path.contains("metrics")) return
+
     val responseTimestamp: Long = System.currentTimeMillis()
     val requestTimestamp: Long = request.map(_.getCreatedTime).getOrElse(responseTimestamp)
     val elapsedTime: Long = responseTimestamp - requestTimestamp

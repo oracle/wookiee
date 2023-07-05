@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.communication
 
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.InputHolder
-import com.oracle.infy.wookiee.component.discovery.command.{DiscoverableCommandHelper, WookieeDiscoverableService}
+import com.oracle.infy.wookiee.discovery.command.{DiscoverableCommandHelper, WookieeDiscoverableService}
 import com.typesafe.config.Config
 
 import scala.concurrent.ExecutionContext

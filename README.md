@@ -206,6 +206,8 @@ wookiee-system {
   * Provides Zookeeper connection management and service discovery
 * [Akka Http Component](wookiee-akka-http)
   * Legacy Component for HTTP/WS services
+* [Discovery Library](wookiee-discovery)
+  * Allows communications between Wookiee Services running in a cluster
 
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform

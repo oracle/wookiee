@@ -3,10 +3,10 @@ package com.oracle.infy.wookiee.communication
 import com.oracle.infy.wookiee.communication.command.ExternalHttpCommand
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.{InputHolder, OutputHolder}
 import com.oracle.infy.wookiee.communication.ws.{AuthHolder, ExternalWSHandler}
-import com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandExecution
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.ws.WebsocketInterface
 import com.oracle.infy.wookiee.component.helidon.web.{WookieeEndpoints, WookieeHttpService}
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import org.json4s.{DefaultFormats, Formats}

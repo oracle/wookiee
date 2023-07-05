@@ -34,15 +34,18 @@ object HttpObjects {
     def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
+  // Trait for the allowed origins hosts
   trait CorsWhiteList {
     def allowed(toCheck: List[String]): List[String]
     def allowed(toCheck: String): List[String] = allowed(List(toCheck))
   }
 
+  // Let in anything, will always return the true for any hosts list
   case class AllowAll() extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck
   }
 
+  // Only let in the hosts specified in the white list
   case class AllowSome(whiteList: List[String]) extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck.intersect(whiteList)
   }
@@ -72,5 +75,10 @@ object HttpObjects {
   }
 
   // Object holding all of the response information
-  case class WookieeResponse(content: Content, statusCode: StatusCode = StatusCode(), headers: Headers = Headers())
+  case class WookieeResponse(
+      content: Content,
+      statusCode: StatusCode = StatusCode(),
+      headers: Headers = Headers(),
+      contentType: String = "application/json"
+  )
 }

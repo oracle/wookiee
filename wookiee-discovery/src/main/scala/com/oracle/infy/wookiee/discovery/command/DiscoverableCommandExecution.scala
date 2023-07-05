@@ -1,15 +1,15 @@
-package com.oracle.infy.wookiee.component.discovery.command
+package com.oracle.infy.wookiee.discovery.command
 
 import com.google.protobuf.StringValue
-import com.oracle.infy.wookiee.component.discovery.command.grpc.GrpcDiscoverableStub
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
+import com.oracle.infy.wookiee.discovery.command.grpc.GrpcDiscoverableStub
 import com.oracle.infy.wookiee.grpc.settings.SSLClientSettings
 import com.oracle.infy.wookiee.utils.ClassUtil
 import com.typesafe.config.Config
 import org.json4s.Formats
 import org.json4s.jackson.JsonMethods._
-import scala.util.Try
 
+import scala.util.Try
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._

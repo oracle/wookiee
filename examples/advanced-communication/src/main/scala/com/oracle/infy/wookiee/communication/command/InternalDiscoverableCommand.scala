@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.communication.command
 
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.{InputHolder, OutputHolder}
-import com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommand
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommand
 import com.typesafe.config.Config
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -16,9 +16,12 @@ object InternalDiscoverableCommand {
 }
 
 class InternalDiscoverableCommand extends DiscoverableCommand[InputHolder, OutputHolder] {
+  // Must be unique for each command
   override def commandName: String = InternalDiscoverableCommand.commandName
 
+  // Main business logic
   override def execute(args: InputHolder): Future[OutputHolder] = Future {
+    log.info(s"Executing command: $commandName, [${args.input}]")
     OutputHolder(args.input + ", Output: Hello World!")
   }
 }

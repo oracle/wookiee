@@ -1,7 +1,7 @@
-package com.oracle.infy.wookiee.component.discovery.command.grpc
+package com.oracle.infy.wookiee.discovery.command.grpc
 
 import com.google.protobuf.StringValue
-import com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommand
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommand
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ClassUtil
 import io.grpc.Status.Code

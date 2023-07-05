@@ -1,10 +1,10 @@
-package com.oracle.infy.wookiee.component.discovery.command
+package com.oracle.infy.wookiee.discovery.command
 
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
-import com.oracle.infy.wookiee.component.discovery.command.grpc.GrpcJITService
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.GrpcDefinition
+import com.oracle.infy.wookiee.discovery.command.grpc.GrpcJITService
 import com.oracle.infy.wookiee.grpc.settings.ServiceAuthSettings
 import com.typesafe.config.Config
 import io.grpc.ServerInterceptor
@@ -29,7 +29,7 @@ trait DiscoverableCommandHelper {
 object DiscoverableCommandHelper {
 
   /**
-    * Wrapper that allows services to add commands to the command manager with a single discoverable command
+    * Static method that allows services to add commands to the command manager with a single discoverable command
     * @param command The command to register
     * @param authToken The gRPC auth token to use for the command
     * @param intercepts The gRPC interceptors to use for the command

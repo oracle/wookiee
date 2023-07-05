@@ -77,6 +77,7 @@ object WookieeRouter extends LoggingAdapter {
       val response = errorHandler(e)
       res.status(response.statusCode.code)
       response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
+      res.headers().add("Content-Type", response.contentType)
       res.send(response.content.value)
       ()
     } catch {
@@ -116,6 +117,7 @@ object WookieeRouter extends LoggingAdapter {
                   .map { response =>
                     val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
                     respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
+                    res.headers().add("Content-Type", response.contentType)
                     res.status(response.statusCode.code)
                     res.send(response.content.value)
                     AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)

@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.component.discovery.command
+package com.oracle.infy.wookiee.discovery.command
 
 import com.oracle.infy.wookiee.command.WookieeCommand
 import org.json4s.ext.JavaTimeSerializers
@@ -10,9 +10,9 @@ import scala.reflect.runtime.universe._
 
 /**
   *  Interface for discoverable commands. These objects can be passed to the registerDiscoverableCommand method
-  *  in com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandHelper to be registered with the
+  *  in [[com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper]] to be registered with the
   *  command manager and gRPC manager. One can then execute the command remotely using the executeDiscoverableCommand
-  *  method in com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandExecution
+  *  method in [[com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution]]
   */
 abstract class DiscoverableCommand[Input <: Any: TypeTag: ClassTag, +Output <: Any: TypeTag: ClassTag]
     extends WookieeCommand[Input, Output] {

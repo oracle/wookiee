@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.component.discovery.command
+package com.oracle.infy.wookiee.discovery.command
 
 import com.oracle.infy.wookiee.component.ComponentInfo
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
