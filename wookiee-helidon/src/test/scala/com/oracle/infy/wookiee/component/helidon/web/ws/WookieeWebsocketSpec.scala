@@ -2,12 +2,14 @@ package com.oracle.infy.wookiee.component.helidon.web.ws
 
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
-import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
+import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.oneOff
+import com.oracle.infy.wookiee.component.helidon.web.{WookieeEndpoints, WookieeHttpServiceSpec}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointType, WookieeRequest}
 import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusSubscriber}
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import io.helidon.common.http.DataChunk
+import org.glassfish.tyrus.client.ClientProperties
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 import org.glassfish.tyrus.spi.{Connection, ReadHandler, Writer}
 
@@ -200,13 +202,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
 
     "fails gracefully on functional" in {
       val promise = Promise[String]()
-
-      // Define the WebSocket client endpoint
       val endpoint = clientEndpoint(promise)
 
       var cec = confWithHeaders(Map("Authorization" -> List("fail")))
 
-      // Connect to the server endpoint
       var session =
         clientManager.connectToServer(
           endpoint,
@@ -221,7 +220,6 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
 
       cec = confWithHeaders(Map("Authorization" -> List("inner-fail")))
 
-      // Connect to the server endpoint
       session = clientManager.connectToServer(
         endpoint,
         cec,
@@ -235,11 +233,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
 
     "fails gracefully on object oriented" in {
       val promise = Promise[String]()
-
-      // Define the WebSocket client endpoint
       val endpoint = clientEndpoint(promise)
-
-      // Connect to the server endpoint
       var session =
         clientManager.connectToServer(
           endpoint,
@@ -250,7 +244,6 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
       // Session should be closed
       ThreadUtil.awaitResult({ if (!session.isOpen) Some(true) else None }) mustBe true
 
-      // Connect to the server endpoint
       session = clientManager.connectToServer(
         endpoint,
         new URI(s"ws://localhost:$internalPort/ws/test")
@@ -262,11 +255,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
 
     "provide a usable interface" in {
       val promise = Promise[String]()
-
-      // Define the WebSocket client endpoint
       val endpoint = clientEndpoint(promise)
-
-      // Connect to the server endpoint
       val session =
         clientManager.connectToServer(
           endpoint,
@@ -293,6 +282,46 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
             .create(getClass, "/")
             .build()
         )
+      }
+    }
+
+    "can reject non-ws handshakes" in {
+      val result = oneOff(
+        s"http://localhost:$testWSPort",
+        "/ws/test",
+        "GET",
+        "",
+        Map()
+      )
+
+      result.status.code() mustBe 404
+    }
+
+    "handle upgrade request failures gracefully" in {
+      val promise = Promise[String]()
+      val endpoint = clientEndpoint(promise)
+
+      try {
+        intercept[DeploymentException] {
+          clientManager
+            .getProperties
+            .put(
+              ClientProperties.HANDSHAKE_TIMEOUT,
+              Integer.valueOf(1000)
+            )
+          clientManager.connectToServer(
+            endpoint,
+            new URI(s"ws://localhost:$testWSPort/ws")
+          )
+        }
+      } finally {
+        clientManager
+          .getProperties
+          .put(
+            ClientProperties.HANDSHAKE_TIMEOUT,
+            Integer.valueOf(30000)
+          )
+        ()
       }
     }
   }

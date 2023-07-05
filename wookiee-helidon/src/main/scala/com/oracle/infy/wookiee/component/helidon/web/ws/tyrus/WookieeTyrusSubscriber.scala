@@ -33,6 +33,7 @@ class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[Dat
     try {
       item.data().toList.foreach(submitBuffer)
     } finally {
+      item.flush()
       item.release()
     }
 

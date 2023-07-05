@@ -75,9 +75,8 @@ class WookieeTyrusHandler(engine: WebSocketEngine) extends LoggingAdapter {
     // Write reason for failure if not successful
     if (upgradeInfo.getStatus != WebSocketEngine.UpgradeStatus.SUCCESS) {
       val reason = upgradeResponse.getReasonPhrase
-      if (reason != null) {
-        publisherWriter.write(ByteBuffer.wrap(reason.getBytes(UTF_8)), null)
-      }
+      val reasonPhrase = Option(reason).getOrElse("Upgrade failed")
+      publisherWriter.write(ByteBuffer.wrap(reasonPhrase.getBytes(UTF_8)), null)
     }
 
     // Flush upgrade response

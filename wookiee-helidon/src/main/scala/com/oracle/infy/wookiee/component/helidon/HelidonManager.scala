@@ -43,7 +43,7 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
       val routing = Routing
         .builder()
         .register("/", routingService)
-        .build() // Add Tyrus support for WebSocket
+        .build()
 
       val server = WebServer
         .builder()

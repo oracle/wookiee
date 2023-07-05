@@ -2,9 +2,12 @@ package com.oracle.infy.wookiee.component.helidon.util
 
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointOptions
+import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.test.TestHarness.getFreePort
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
+import io.helidon.webserver.{Routing, Service, WebServer}
 import org.glassfish.tyrus.client.ClientManager
 import org.json4s.{DefaultFormats, Formats}
 import org.scalatest.BeforeAndAfterAll
@@ -39,6 +42,21 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
   val clientManager: ClientManager = ClientManager.createClient()
 
+  val testEngine: WookieeTyrusContainer = new WookieeTyrusContainer()
+  val testHandler: WookieeTyrusHandler = new WookieeTyrusHandler(testEngine.getWebSocketEngine)
+  val testWSPort: Int = getFreePort
+
+  class TestWSRouter extends Service {
+
+    override def update(rules: Routing.Rules): Unit = {
+      rules
+        .any((req, res) => {
+          testHandler.acceptWithContext(req, res, EndpointOptions.default)
+        })
+      ()
+    }
+  }
+
   def externalOrigins: List[String] = List("*")
 
   override protected def beforeAll(): Unit = {
@@ -46,6 +64,20 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
     manager = new HelidonManager("wookiee-helidon", conf)
     manager.start()
     registerEndpoints(manager)
+
+    val routing = Routing
+      .builder()
+      .register("/", new TestWSRouter)
+      .build()
+
+    val server = WebServer
+      .builder()
+      .routing(routing)
+      .port(testWSPort)
+      .build()
+
+    server.start()
+    ()
   }
 
   def registerEndpoints(manager: HelidonManager): Unit
