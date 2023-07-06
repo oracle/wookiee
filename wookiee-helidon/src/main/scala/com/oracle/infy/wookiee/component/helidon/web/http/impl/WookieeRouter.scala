@@ -205,9 +205,8 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
                 request: HandshakeRequest,
                 response: HandshakeResponse
             ): Unit = {
-              sec
-                .getUserProperties
-                .put(REQUEST_HEADERS, Headers(request.getHeaders.asScala.view.mapValues(_.asScala.toList).toMap))
+              val headersMap = request.getHeaders.asScala.toMap.map { case (k, v) => (k, v.asScala.toList) }
+              sec.getUserProperties.put(REQUEST_HEADERS, Headers(headersMap))
               ()
             }
 

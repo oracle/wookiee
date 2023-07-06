@@ -90,7 +90,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
         val headers = config.getUserProperties.asScala.toMap.apply(REQUEST_HEADERS).asInstanceOf[Headers]
 
         val allParamsRaw = session.getRequestParameterMap.asScala
-        val allParams = allParamsRaw.toMap.view.mapValues(_.asScala.mkString(",")).toMap
+        val allParams = allParamsRaw.toMap.map { case (k, v) => (k, v.asScala.mkString(",")) }
 
         // Separate out query params vs path params
         val (pathParams, queryParams) = allParams.partition { case (key, _) => pathKeys.contains(key) }
