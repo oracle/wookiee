@@ -14,7 +14,7 @@ import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import javax.websocket.HandshakeResponse
 import javax.websocket.server.{HandshakeRequest, ServerEndpointConfig}
-import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
@@ -235,7 +235,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     var currentNode = Option(root)
     // Will be used to store wildcard nodes that we encounter
     // in case we need to backtrack
-    val wildcardNodes = new mutable.Stack[(PathNode, Int)]()
+    val wildcardNodes = new ListBuffer[(PathNode, Int)]()
     var i = 0
 
     // Goes down the trie until we find a handler or we run out of trie
@@ -244,14 +244,14 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         case Some(PathNode(children, _)) if children.containsKey(segments(i)) =>
           currentNode = Some(children.get(segments(i)))
           if (children.containsKey("*"))
-            wildcardNodes.push((children.get("*"), i))
+            wildcardNodes += ((children.get("*"), i))
           i += 1
         case Some(PathNode(children, _)) if children.containsKey("*") =>
           currentNode = Some(children.get("*"))
           i += 1
         case _ =>
           if (wildcardNodes.nonEmpty) {
-            val (node, index) = wildcardNodes.pop()
+            val (node, index) = wildcardNodes.remove(wildcardNodes.length - 1)
             currentNode = Some(node)
             i = index + 1
           } else {
