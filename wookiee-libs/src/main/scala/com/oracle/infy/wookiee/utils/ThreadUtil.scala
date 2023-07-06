@@ -137,4 +137,30 @@ object ThreadUtil extends LoggingAdapter {
 
     throw new RuntimeException("Timed out waiting for result")
   }
+
+  // A helper method to wait for a true evaluation, great for testing
+  def awaitEvent(
+      f: => Boolean,
+      waitMs: Long = 15000L,
+      ignoreError: Boolean = true
+  ): Unit = {
+    val goUntil = System.currentTimeMillis + waitMs
+    while (System.currentTimeMillis < goUntil) {
+      try {
+        if (f)
+          return
+        else
+          Thread.sleep(500L)
+      } catch {
+        case e: Exception =>
+          if (ignoreError && System.currentTimeMillis < goUntil) {
+            Thread.sleep(500L)
+          } else {
+            throw e
+          }
+      }
+    }
+
+    throw new RuntimeException("Timed out waiting for result")
+  }
 }

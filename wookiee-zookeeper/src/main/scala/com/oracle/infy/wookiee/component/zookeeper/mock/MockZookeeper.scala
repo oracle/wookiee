@@ -81,6 +81,11 @@ object MockZookeeper {
   }
 
   def stop(implicit system: ActorSystem): Unit = {
-    ZookeeperService.getZkActor.foreach(_ ! PoisonPill)
+    ZookeeperService
+      .maybeGetMediator(
+        ZookeeperService
+          .getInstanceId(system.settings.config)
+      )
+      .foreach(_ ! PoisonPill)
   }
 }

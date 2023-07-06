@@ -15,10 +15,11 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.ActorSystem
-import com.oracle.infy.wookiee.app.HActor
+import akka.actor.{ActorSystem, PoisonPill}
+import com.oracle.infy.wookiee.app.HarnessActor
+import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
-import com.oracle.infy.wookiee.utils.ActorWaitHelper
+import com.oracle.infy.wookiee.utils.{ActorWaitHelper, ThreadUtil}
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings._
 import com.typesafe.config.ConfigFactory
@@ -32,8 +33,8 @@ import java.util.concurrent.atomic.AtomicReference
 import scala.util.Try
 
 trait Zookeeper {
-  this: HActor =>
-  implicit val system: ActorSystem = context.system
+  this: ComponentV2 =>
+  implicit lazy val system: ActorSystem = HarnessActor.getMediator(config)
 
   private val resources: AtomicReference[(Closeable, Option[String])] =
     new AtomicReference[(Closeable, Option[String])]()
@@ -75,14 +76,17 @@ trait Zookeeper {
       // Start up ZK Actor as per normal, not mocking
       ActorWaitHelper.awaitActor(
         ZookeeperActor.props(zookeeperSettings(None), clusterEnabled),
-        context.system,
+        system,
         Some(Zookeeper.ZookeeperName)
       )
     }
     ()
   }
 
-  def stopZookeeper(): Unit =
+  def stopZookeeper(): Unit = {
+    ZookeeperService.getMediator(system) ! PoisonPill
+    // Wait for the actor to stop before closing the server as it needs ZK for unregistering
+    ThreadUtil.awaitEvent(ZookeeperService.maybeGetMediator(ZookeeperService.getInstanceId(config)).isEmpty, 5000L)
     Option(resources.get()) match {
       case Some((server, None)) =>
         log.info("Stopping Zookeeper Client...")
@@ -96,6 +100,7 @@ trait Zookeeper {
       case None =>
         log.info("Zookeeper Mock Server Not Running...")
     }
+  }
 
   protected def zookeeperSettings(quorum: Option[String]): ZookeeperSettings = {
     if (isMock(config)) {

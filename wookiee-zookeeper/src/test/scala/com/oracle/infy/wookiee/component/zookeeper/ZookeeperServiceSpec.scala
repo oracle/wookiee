@@ -40,7 +40,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
     zkServer.set(new TestingServer())
     system.set(ActorSystem("zk-test", loadConfig))
     service.set(MockZookeeper(zkServer.get().getConnectString)(system.get()))
-    zkActor.set(ZookeeperService.getZkActor(system.get()).get)
+    zkActor.set(ZookeeperService.getMediator(system.get()))
     system.get().actorOf(Props(new ZKEventWatcher()), "zk-event-watcher-test")
     ()
   }
@@ -164,6 +164,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
 
   def loadConfig: Config = {
     ConfigFactory.parseString("""
+      instance-id = "zk-test"
       discoverability {
         set-weight-interval = 2s
       }

@@ -94,7 +94,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
 
     Try({
       // Register as a handler
-      ZookeeperService.registerMediator(self)(context.system)
+      ZookeeperService.registerMediator(context.system.settings.config, self)
       startCurator()
 
       context
@@ -546,12 +546,11 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     }
   }
 
-  private def startCurator(): Unit = {
+  private def startCurator(): Unit =
     curator.start(Some(this))
-  }
 
   /**
-    * This method can be overriden to provide additional functionality when stopping curator
+    * This method can be overridden to provide additional functionality when stopping curator
     */
   def stoppingCurator(): Unit = {}
 
