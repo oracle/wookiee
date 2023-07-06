@@ -36,10 +36,16 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
   implicit val dur: FiniteDuration = FiniteDuration(2, TimeUnit.SECONDS)
   new File("services/test/conf").mkdirs()
   writeFile("original = \"value\"")
-  System.setProperty("config.file", "services/test/conf/test.conf")
-  implicit val sys: ActorSystem = ActorSystem("system", ConfigFactory.parseString("""
-    services { path = "services" }
-    """).withFallback(ConfigFactory.load()))
+
+  implicit val sys: ActorSystem = ActorSystem(
+    "system",
+    ConfigFactory.parseString("""
+    services {
+     path = "services"
+     config-file = "services/test/conf/test.conf"
+    }
+    """).withFallback(ConfigFactory.load())
+  )
 
   implicit val ec: ExecutionContextExecutor = sys.dispatcher
 

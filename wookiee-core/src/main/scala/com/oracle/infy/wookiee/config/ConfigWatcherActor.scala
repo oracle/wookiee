@@ -38,8 +38,8 @@ class ConfigWatcherActor extends HActor {
 
   override def preStart(): Unit = {
     super.preStart()
-    System.getProperty("config.file") match {
-      case s: String =>
+    Option(System.getProperty("config.file")).orElse(Try(config.getString("services.config-file")).toOption) match {
+      case Some(s: String) =>
         val cPath = new File(s)
         if (cPath.exists()) {
           Try(cPath.getParentFile.toPath) foreach { path =>
@@ -56,7 +56,7 @@ class ConfigWatcherActor extends HActor {
             }
           }
         }
-      case null =>
+      case None =>
         log.info("Prop config.file not set, not watching for config changes")
     }
   }
