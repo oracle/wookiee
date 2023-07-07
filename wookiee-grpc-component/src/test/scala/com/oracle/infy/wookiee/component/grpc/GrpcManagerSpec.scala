@@ -1,18 +1,11 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.testkit.TestProbe
 import cats.effect.unsafe.implicits.global
 import com.google.protobuf.StringValue
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResponse, GrpcDefinition}
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
-import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{
-  GrpcMockStub,
-  GrpcServiceFour,
-  GrpcServiceOne,
-  GrpcServiceThree,
-  GrpcServiceTwo
-}
+import com.oracle.infy.wookiee.component.grpc.utils.TestModels._
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils
 import com.oracle.infy.wookiee.service.Service
@@ -23,10 +16,16 @@ import org.apache.curator.framework.imps.CuratorFrameworkState
 import org.apache.curator.retry.RetryForever
 import org.apache.curator.test.TestingServer
 import org.scalatest.BeforeAndAfterAll
+import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with BeforeAndAfterAll {
+class GrpcManagerSpec
+    extends BaseWookieeTest
+    with AnyWordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with ScalaFutures {
   lazy val zkPort: Int = TestHarness.getFreePort
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer = new TestingServer(zkPort)
@@ -37,6 +36,7 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
   override protected def afterAll(): Unit = {
     super.afterAll()
     testWookiee.stop()
+    zkServer.stop()
   }
 
   override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
@@ -46,7 +46,7 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       )
     )
 
-  override def componentMap: Option[Map[String, Class[_ <: Component]]] =
+  override def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] =
     Some(
       Map(
         "wookiee-grpc-component" -> classOf[GrpcManager]
@@ -55,12 +55,14 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
 
   "gRPC Manager" should {
     "load up fully" in {
-      val probe = TestProbe()
-      val testComp = testWookiee.getComponent("wookiee-grpc-component")
+      val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      testComp.foreach(comp => probe.send(comp, CleanCheck()))
-      CleanResponse(false) shouldEqual probe.expectMsgType[CleanResponse]
+      whenReady(testComp.get ? CleanCheck()) {
+        case resp: CleanResponse =>
+          resp.clean shouldEqual false
+        case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+      }
     }
 
     "register a simple gRPC service" in {

@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.command
 
+import com.oracle.infy.wookiee.actor.WookieeOperations
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
-import com.oracle.infy.wookiee.utils.WookieeOperations
 
 import scala.concurrent.Future
 import scala.reflect.runtime.universe._

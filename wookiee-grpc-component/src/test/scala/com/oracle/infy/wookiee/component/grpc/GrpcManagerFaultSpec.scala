@@ -1,9 +1,8 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.testkit.TestProbe
 import cats.effect.unsafe.implicits.global
 import com.google.protobuf.StringValue
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResponse, GrpcDefinition}
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels._
@@ -14,14 +13,20 @@ import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.typesafe.config.Config
 import org.apache.curator.test.TestingServer
-import org.scalatest.{Assertion, BeforeAndAfterAll}
+import org.scalatest.concurrent.{PatienceConfiguration, ScalaFutures}
 import org.scalatest.matchers.should.Matchers
+import org.scalatest.time.{Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
-import scala.concurrent.duration._
+import org.scalatest.{Assertion, BeforeAndAfterAll}
 
 import java.util.concurrent.atomic.AtomicReference
 
-class GrpcManagerFaultSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with BeforeAndAfterAll {
+class GrpcManagerFaultSpec
+    extends BaseWookieeTest
+    with AnyWordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with ScalaFutures {
   lazy val zkPort: Int = TestHarness.getFreePort
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer: AtomicReference[TestingServer] = new AtomicReference(new TestingServer(zkPort))
@@ -47,7 +52,7 @@ class GrpcManagerFaultSpec extends BaseWookieeTest with AnyWordSpecLike with Mat
       )
     )
 
-  override def componentMap: Option[Map[String, Class[_ <: Component]]] =
+  override def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] =
     Some(
       Map(
         "wookiee-grpc-component" -> classOf[GrpcManager]
@@ -56,12 +61,14 @@ class GrpcManagerFaultSpec extends BaseWookieeTest with AnyWordSpecLike with Mat
 
   "gRPC Manager" should {
     "load up fully" in {
-      val probe = TestProbe()
-      val testComp = testWookiee.getComponent("wookiee-grpc-component")
+      val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      testComp.foreach(comp => probe.send(comp, CleanCheck()))
-      CleanResponse(false) shouldEqual probe.expectMsgType[CleanResponse]
+      whenReady(testComp.get ? CleanCheck()) {
+        case resp: CleanResponse =>
+          resp.clean shouldEqual false
+        case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+      }
     }
 
     "recover from zk going down during registration" in {
@@ -75,7 +82,6 @@ class GrpcManagerFaultSpec extends BaseWookieeTest with AnyWordSpecLike with Mat
       println("Stopping zk server")
       zkServer.get().stop()
       GrpcManager.initializeGrpcNow(system)
-      Thread.sleep(3000L) // scalafix:ok
       checkHealth(ComponentState.CRITICAL)
 
       println("Starting zk server again")
@@ -96,11 +102,13 @@ class GrpcManagerFaultSpec extends BaseWookieeTest with AnyWordSpecLike with Mat
 
   def checkHealth(expectedState: ComponentState): Assertion = {
     println("Checking health of grpc component")
-    val probe = TestProbe()
-    val testComp = testWookiee.getComponent("wookiee-grpc-component")
+    val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
     assert(testComp.isDefined, "gRPC Manager wasn't registered")
-    testComp.foreach(comp => probe.send(comp, CheckHealth))
-    val health = probe.expectMsgType[HealthComponent](25.seconds)
-    HealthComponent(GrpcManager.ComponentName, expectedState, health.details) shouldEqual health
+    whenReady(testComp.get ? CheckHealth, PatienceConfiguration.Timeout(Span(15, Seconds))) {
+      case health: HealthComponent =>
+        HealthComponent(GrpcManager.ComponentName, expectedState, health.details) shouldEqual health
+      case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+    }
+
   }
 }

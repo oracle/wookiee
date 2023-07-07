@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.component.grpc.utils
 
 import com.google.protobuf.StringValue
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.typesafe.config.{Config, ConfigFactory}
 import io.grpc.protobuf.ProtoUtils
 import io.grpc.stub.ClientCalls.blockingUnaryCall
@@ -8,7 +9,7 @@ import io.grpc.stub.ServerCalls.asyncUnaryCall
 import io.grpc.stub.{AbstractStub, ServerCalls, StreamObserver}
 import io.grpc.{BindableService, CallOptions, Channel, ServerServiceDefinition}
 
-object TestModels {
+object TestModels extends LoggingAdapter {
   def conf(zkPort: Int, grpcPort: Int): Config = ConfigFactory.parseString(s"""
        |wookiee-system {
        |  wookiee-zookeeper {
@@ -60,8 +61,11 @@ object TestModels {
           basicMethod(serviceName),
           asyncUnaryCall(new ServerCalls.UnaryMethod[StringValue, StringValue]() {
             override def invoke(request: StringValue, responseObserver: StreamObserver[StringValue]): Unit = {
-              println(s"Invoked [$serviceName] with request [${request.getValue}]")
-              responseObserver.onNext(StringValue.of(s"${request.getValue}:$serviceName"))
+              val reqValue = request.getValue
+              log.info(
+                s"Invoked [$serviceName] with request [${reqValue.substring(0, Math.min(2000, reqValue.length))}]"
+              )
+              responseObserver.onNext(StringValue.of(s"$reqValue:$serviceName"))
               responseObserver.onCompleted()
             }
           })

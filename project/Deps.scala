@@ -191,7 +191,8 @@ object Deps {
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
       logbackClassic,
-      scalaCollectionCompat
+      scalaCollectionCompat,
+      test.scalatest
     ) ++ curatorLibs ++ cats ++ json4sLibs
 
     val wookieeAkkaHttp: Seq[ModuleID] = Seq(

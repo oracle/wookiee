@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.discovery
 
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.discovery.command.{
@@ -95,7 +95,7 @@ class DiscoverableCommandSpec
     zkServer.get().stop()
   }
 
-  override def componentMap: Option[Map[String, Class[_ <: Component]]] =
+  override def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] =
     Some(
       Map(
         "wookiee-grpc-component" -> classOf[GrpcManager]

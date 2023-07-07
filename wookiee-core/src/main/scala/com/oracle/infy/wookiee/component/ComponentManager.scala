@@ -350,6 +350,7 @@ class ComponentManager extends PrepareForShutdown {
 
   override def prepareForShutdown(): Unit = {
     super.prepareForShutdown()
+    log.info("Preparing components for shutdown...")
     componentsForSystem
       .collect {
         case ci2: ComponentInfoV2 => ci2

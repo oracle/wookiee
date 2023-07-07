@@ -1,14 +1,14 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.actor.{ActorRef, ActorSystem}
-import akka.pattern.ask
-import akka.util.Timeout
+import akka.actor.ActorSystem
 import cats.data.{EitherT, NonEmptyList}
 import cats.effect.IO
 import cats.effect.std.Dispatcher
 import cats.implicits._
 import com.oracle.infy.wookiee.Mediator
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
@@ -41,13 +41,13 @@ import scala.util.Try
 object GrpcChannelManager extends Mediator[TrieMap[ChannelKey, WookieeGrpcChannel]]
 case class ChannelKey(zkPath: String, zkConnect: String, bearerToken: String)
 
-object GrpcManager extends Mediator[ActorRef] {
+object GrpcManager extends Mediator[GrpcManager] {
   val ComponentName = "wookiee-grpc-component"
 
-  // Actor of type GrpcManager
+  // This instance of GrpcManager
   // @throws IllegalStateException if manager has not been registered
-  def getGrpcManager(system: ActorSystem): ActorRef = getGrpcManager(system.settings.config)
-  def getGrpcManager(config: Config): ActorRef = getMediator(getInstanceId(config))
+  def getGrpcManager(system: ActorSystem): GrpcManager = getGrpcManager(system.settings.config)
+  def getGrpcManager(config: Config): GrpcManager = getMediator(getInstanceId(config))
 
   /**
     * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
@@ -91,7 +91,6 @@ object GrpcManager extends Mediator[ActorRef] {
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up
   def waitForManager(config: Config, waitForClean: Boolean, secondsToWait: Int): Unit = {
     log.info("WGM300: Waiting for grpc manager to report clean")
-    implicit val timeout: Timeout = Timeout(5.seconds)
     import scala.concurrent.ExecutionContext.Implicits.global
 
     def cleanCheck(): Boolean = {
@@ -255,7 +254,7 @@ object GrpcManager extends Mediator[ActorRef] {
   * Note for maintainers: Everything in this class is synchronous and that is taken for granted in the design,
   * any additional functionality should be similarly blocking on each message that comes in.
   */
-class GrpcManager(name: String) extends Component(name) with GrpcServer {
+class GrpcManager(name: String, config: Config) extends ComponentV2(name, config) with GrpcServer with WookieeActor {
   import GrpcManager._
 
   private val server: AtomicReference[Option[WookieeGrpcServer]] = new AtomicReference(None)
@@ -263,20 +262,21 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
   private val healthRef: AtomicReference[HealthComponent] = new AtomicReference(
     HealthComponent(name, ComponentState.NORMAL, "gRPC Manager awaiting service definitions")
   )
-  private val retryDuration = Try(config.getInt(s"${GrpcManager.ComponentName}.retry-delay-sec")).getOrElse(5).seconds
+
+  private val retryDuration =
+    Try(config.getInt(s"${GrpcManager.ComponentName}.grpc.retry-delay-sec")).getOrElse(5).seconds
 
   override def preStart(): Unit = {
     super.preStart()
 
     log.info(s"WGM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
     // Register this actor so others can access it
-    GrpcManager.registerMediator(getInstanceId(config), self)
+    GrpcManager.registerMediator(getInstanceId(config), this)
     GrpcChannelManager.registerMediator(getInstanceId(config), new TrieMap[ChannelKey, WookieeGrpcChannel]())
-    context.become(clean(Map(), None))
+    become(clean(Map(), None))
   }
 
   override def postStop(): Unit = {
-    implicit val disp: ExecutionContext = context.dispatcher
     super.postStop()
 
     log.info(s"WGM400: Stopping the gRPC Manager and shutting down server..")
@@ -325,14 +325,13 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
           log.info(s"WGM104: Successfully started gRPC Manager's services")
           // Server came up, can now transition to clean state
           this.server.set(newServer)
-          context.become(clean(defs, newServer))
+          become(clean(defs, newServer))
           // Flip health to normal
           healthRef.set(HealthComponent(name, ComponentState.NORMAL, "gRPC Manager started and ready for requests"))
         } else {
-          import context.dispatcher
           // If failed to register gRPC server, reschedule to try again
           log.warn(s"WGM204: Failed to start gRPC Manager's services, retrying in $retryDuration")
-          context.system.scheduler.scheduleOnce(retryDuration, self, InitializeServers())
+          scheduleOnce(retryDuration, self, InitializeServers())
           // Flip health to critical until we can start gRPC server
           healthRef.set(
             HealthComponent(
@@ -369,15 +368,14 @@ class GrpcManager(name: String) extends Component(name) with GrpcServer {
       newDefs: List[GrpcDefinition],
       initialize: Boolean
   ): Unit = {
-    import context.dispatcher
 
     log.info(s"WGM102: Entity [$groupName] wants to load ${newDefs.size} gRPC service definitions..")
-    context.become(dirty(currentDefs.updated(groupName, newDefs.map { defin: GrpcDefinition =>
+    become(dirty(currentDefs.updated(groupName, newDefs.map { defin: GrpcDefinition =>
       (defin.definition, defin.authSettings, defin.interceptors)
     }), server))
 
     if (initialize)
-      context.system.scheduler.scheduleOnce(10.seconds, self, InitializeServers())
+      scheduleOnce(10.seconds, self, InitializeServers())
 
     sender() ! GrpcDefinitionsAck()
   }

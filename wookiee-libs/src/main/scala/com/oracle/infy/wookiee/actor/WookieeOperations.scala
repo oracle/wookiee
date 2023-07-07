@@ -1,4 +1,4 @@
-package com.oracle.infy.wookiee.utils
+package com.oracle.infy.wookiee.actor
 
 trait WookieeOperations {
   val lock: AnyRef = new Object()
