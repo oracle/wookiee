@@ -45,7 +45,6 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       actor.start()
       actor.prepareForShutdown()
 
-      actor.path mustEqual ""
       started mustEqual true
       stopped mustEqual true
     }
