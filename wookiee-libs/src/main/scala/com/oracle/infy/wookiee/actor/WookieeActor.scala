@@ -80,10 +80,13 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
     future.onComplete({
       case Success(message) =>
         toSend ! message
-      case Failure(ex) if toSend.isInstanceOf[AskInterceptor] =>
-        toSend ! ex
       case Failure(ex) =>
-        log.error("WA500: Error in processing of message", ex)
+        toSend match {
+          case _: AskInterceptor =>
+            toSend ! ex
+          case _ =>
+            log.error("WA501: Error in processing of message", ex)
+        }
     })
   }
 
