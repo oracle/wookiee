@@ -105,7 +105,7 @@ class DiscoverableCommandSpec
   "Discoverable Commands" should {
     val zkPath = testConfig.getString(s"${GrpcManager.ComponentName}.grpc.zk-discovery-path")
 
-    "be able to be discovered and executed" in {
+    "be able to be discovered and executed" in ec.synchronized {
       val command = WookieeCommandExecutive.getMediator(testWookiee.getInstanceId).getCommand("test-command-main")
       command.isDefined mustBe true
 
@@ -123,7 +123,7 @@ class DiscoverableCommandSpec
       result mustBe TestOutput("test-command-main-input-output")
     }
 
-    "has support for auth tokens" in {
+    "has support for auth tokens" in ec.synchronized {
       val command = WookieeCommandExecutive.getMediator(testWookiee.getInstanceId).getCommand("test-command-token")
       command.isDefined mustBe true
 
@@ -157,7 +157,7 @@ class DiscoverableCommandSpec
       exception.getMessage mustEqual "UNAUTHENTICATED"
     }
 
-    "has support for interceptors" in {
+    "has support for interceptors" in ec.synchronized {
       val result = Await.result(
         executeDiscoverableCommand[TestInput, TestOutput](
           zkPath,
@@ -173,7 +173,7 @@ class DiscoverableCommandSpec
       wasIntercepted.get() mustBe true
     }
 
-    "have support for generic stubs that can take anything" in {
+    "have support for generic stubs that can take anything" in ec.synchronized {
       val stub = getGenericStub(
         zkPath,
         s"localhost:$zkPort",
@@ -185,7 +185,7 @@ class DiscoverableCommandSpec
       stub.build(channel.managedChannel, CallOptions.DEFAULT)
     }
 
-    "fail gracefully inside of the execute future" in {
+    "fail gracefully inside of the execute future" in ec.synchronized {
       val ex = intercept[StatusRuntimeException] {
         Await.result(
           executeDiscoverableCommand[TestInput, TestOutput](
@@ -203,7 +203,7 @@ class DiscoverableCommandSpec
       ex.getMessage mustEqual "INTERNAL: Failed gRPC execution: 'inner-fail'"
     }
 
-    "fail gracefully outside of the execute future" in {
+    "fail gracefully outside of the execute future" in ec.synchronized {
       val ex = intercept[StatusRuntimeException] {
         Await.result(
           executeDiscoverableCommand[TestInput, TestOutput](
