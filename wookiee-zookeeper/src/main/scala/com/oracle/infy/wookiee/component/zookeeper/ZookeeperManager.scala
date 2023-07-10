@@ -27,7 +27,6 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration.DurationInt
 
 class ZookeeperManager(name: String, config: Config) extends ComponentV2(name, config) with Zookeeper {
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("zookeeper-manager-ec")
 
   override def start(): Unit = {
     if (!isClusterEnabled) {
