@@ -18,12 +18,12 @@
  */
 package com.oracle.infy.wookiee.component.memcache
 
-import com.twitter.finagle.memcached.Client
-import com.twitter.io.Buf
-import com.twitter.util.{Future, Promise}
 import com.oracle.infy.wookiee.component.cache.CacheConfig
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
 import com.oracle.infy.wookiee.component.metrics.metrictype.Histogram
+import com.twitter.finagle.memcached.Client
+import com.twitter.io.Buf
+import com.twitter.util.{Future, Promise}
 
 import scala.util.Try
 

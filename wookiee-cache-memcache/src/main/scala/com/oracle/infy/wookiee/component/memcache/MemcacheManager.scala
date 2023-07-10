@@ -18,17 +18,17 @@
  */
 package com.oracle.infy.wookiee.component.memcache
 
-import java.util.concurrent.TimeUnit
-
+import com.oracle.infy.wookiee.component.cache.{Cache, CacheConfig}
+import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.twitter.finagle.Memcached
 import com.twitter.finagle.memcached._
 import com.twitter.io.Buf
 import com.twitter.io.Buf.ByteArray
 import com.twitter.util.{Duration, Return, Throw, Future => TwitterFuture}
-import com.oracle.infy.wookiee.component.cache.{Cache, CacheConfig}
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
+import com.typesafe.config.Config
 import upickle.default._
 
+import java.util.concurrent.TimeUnit
 import scala.collection.mutable
 import scala.concurrent._
 import scala.util.{Failure, Success}
@@ -50,9 +50,7 @@ object MemcacheManager {
 @SerialVersionUID(11L)
 case class CacheWrapper(expirationTime: Long, data: Array[Byte]) extends Serializable
 
-class MemcacheManager(name: String) extends Cache(name) with MemcacheConstants {
-
-  import context.dispatcher
+class MemcacheManager(name: String, config: Config) extends Cache(name, config) with MemcacheConstants {
   def caches: mutable.Map[String, Memcache] = MemcacheManager.caches
 
   override def postStop(): Unit = {
@@ -235,29 +233,29 @@ class MemcacheManager(name: String) extends Cache(name) with MemcacheConstants {
   override def checkHealth: Future[HealthComponent] = {
     val p = Promise[HealthComponent]()
     if (caches.isEmpty) {
-      p success HealthComponent(self.path.name, ComponentState.NORMAL, "Managing %d caches".format(0))
+      p success HealthComponent(path, ComponentState.NORMAL, "Managing %d caches".format(0))
     } else {
       val statuses = caches.map {
         case (_, v) => fromTwitter(v.checkHealth()).mapTo[CacheStatus]
       }
       Future.sequence(statuses) onComplete {
         case Success(result) =>
-          val comp = HealthComponent(self.path.name, ComponentState.NORMAL, "Managing %d caches".format(result.size))
+          val comp = HealthComponent(path, ComponentState.NORMAL, "Managing %d caches".format(result.size))
           result.zipWithIndex.foreach {
             case (status, i) =>
               status match {
                 case CacheStatus(true, info) =>
                   comp.addComponent(
-                    HealthComponent(self.path.name + " Cache Connection " + i, ComponentState.NORMAL, info)
+                    HealthComponent(path + " Cache Connection " + i, ComponentState.NORMAL, info)
                   )
                 case CacheStatus(false, info) =>
                   comp.addComponent(
-                    HealthComponent(self.path.name + " Cache Connection " + i, ComponentState.CRITICAL, info)
+                    HealthComponent(path + " Cache Connection " + i, ComponentState.CRITICAL, info)
                   )
               }
           }
           p success comp
-        case Failure(f) => p success HealthComponent(self.path.name, ComponentState.CRITICAL, f.getMessage)
+        case Failure(f) => p success HealthComponent(path, ComponentState.CRITICAL, f.getMessage)
       }
     }
     p.future

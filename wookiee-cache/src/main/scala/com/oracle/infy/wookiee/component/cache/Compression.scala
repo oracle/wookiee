@@ -18,11 +18,10 @@
  */
 package com.oracle.infy.wookiee.component.cache
 
-import java.nio.charset.StandardCharsets
-import java.util.zip.{Deflater, Inflater}
-
 import org.json4s.jackson.Serialization
 
+import java.nio.charset.StandardCharsets
+import java.util.zip.{Deflater, Inflater}
 import scala.collection.mutable.ArrayBuffer
 
 /**
