@@ -64,11 +64,14 @@ class GrpcManagerFaultSpec
       val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      whenReady(testComp.get ? CleanCheck()) {
-        case resp: CleanResponse =>
-          resp.clean shouldEqual false
-        case _ => fail("gRPC Manager didn't respond with a CleanResponse")
-      }
+      testComp.foreach(
+        tc =>
+          whenReady(tc ? CleanCheck()) {
+            case resp: CleanResponse =>
+              resp.clean shouldEqual false
+            case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+          }
+      )
     }
 
     "recover from zk going down during registration" in {
@@ -104,11 +107,16 @@ class GrpcManagerFaultSpec
     println("Checking health of grpc component")
     val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
     assert(testComp.isDefined, "gRPC Manager wasn't registered")
-    whenReady(testComp.get ? CheckHealth, PatienceConfiguration.Timeout(Span(15, Seconds))) {
-      case health: HealthComponent =>
-        HealthComponent(GrpcManager.ComponentName, expectedState, health.details) shouldEqual health
-      case _ => fail("gRPC Manager didn't respond with a CleanResponse")
-    }
+    testComp
+      .map(
+        tc =>
+          whenReady(tc ? CheckHealth, PatienceConfiguration.Timeout(Span(15, Seconds))) {
+            case health: HealthComponent =>
+              HealthComponent(GrpcManager.ComponentName, expectedState, health.details) shouldEqual health
+            case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+          }
+      )
+      .getOrElse(fail("gRPC Manager wasn't registered"))
 
   }
 }

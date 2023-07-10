@@ -58,11 +58,14 @@ class GrpcManagerSpec
       val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      whenReady(testComp.get ? CleanCheck()) {
-        case resp: CleanResponse =>
-          resp.clean shouldEqual false
-        case _ => fail("gRPC Manager didn't respond with a CleanResponse")
-      }
+      testComp.foreach(
+        tc =>
+          whenReady(tc ? CleanCheck()) {
+            case resp: CleanResponse =>
+              resp.clean shouldEqual false
+            case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+          }
+      )
     }
 
     "register a simple gRPC service" in {
