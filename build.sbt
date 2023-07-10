@@ -49,6 +49,7 @@ val commonScalacOptions =
 
 def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   Test / parallelExecution := false,
+  javaOptions += "-Dlogback.configurationFile=wookiee-core/src/test/resources/logback.xml",
   concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
   scalaVersion := LatestScalaVersion,
   crossScalaVersions := ScalaVersions,
