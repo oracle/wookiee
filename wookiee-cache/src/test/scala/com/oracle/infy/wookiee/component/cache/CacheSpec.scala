@@ -19,11 +19,12 @@
 package com.oracle.infy.wookiee.component.cache
 
 import com.oracle.infy.wookiee.component.cache.BaseSpecCache.ns
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import scala.concurrent.duration._
-import scala.concurrent.Await
+import scala.concurrent.{Await, ExecutionContext}
 
 case class SimpleData(a: Int = 0, b: String = "", c: Double = 0.0) extends Cacheable[SimpleData] {
   override def namespace: String = ns
@@ -41,7 +42,7 @@ case class SerialData(a: Int = 0, b: String = "", c: Double = 0.0) extends Cache
 
 class CacheSpec extends BaseSpecCache with AnyWordSpecLike with Matchers {
   "A cacheable object" should {
-    import system.dispatcher
+    implicit val ec: ExecutionContext = ThreadUtil.createEC("cache-test")
 
     "be cacheable" in {
       val obj = SimpleData(1, "two", 3.0)

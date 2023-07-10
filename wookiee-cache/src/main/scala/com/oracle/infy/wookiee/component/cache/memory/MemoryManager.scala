@@ -20,10 +20,11 @@ package com.oracle.infy.wookiee.component.cache.memory
 
 import com.oracle.infy.wookiee.component.cache.{Cache, CacheConfig}
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
+import com.typesafe.config.Config
 
-import scala.concurrent._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.concurrent._
 import scala.concurrent.duration.Duration
 
 /**
@@ -41,11 +42,9 @@ object MemoryManager {
     mutable.Map[String, mutable.Map[String, TimedChannelBuffer]]()
 }
 
-class MemoryManager(name: String) extends Cache(name) {
+class MemoryManager(name: String, config: Config) extends Cache(name, config) {
 
   def caches = MemoryManager.caches
-
-  import context.dispatcher
 
   protected val DEFAULT_TTL_SEC = if (config.hasPath(s"$name.ttl")) {
     config.getLong(s"$name.ttl")
@@ -55,13 +54,12 @@ class MemoryManager(name: String) extends Cache(name) {
 
   private val expireInterval = Duration(DEFAULT_TTL_SEC, "seconds")
 
-  private[this] val scheduler = context.system.scheduler
   private[this] var taskRunning: Boolean = false
 
   private[this] def scheduleTimer(): Unit = synchronized {
     require(!taskRunning)
     taskRunning = true
-    val _ = scheduler.scheduleOnce(expireInterval)(timeout())
+    val _ = scheduleOnce(expireInterval)(timeout())
 
     ()
   }
@@ -142,7 +140,7 @@ class MemoryManager(name: String) extends Cache(name) {
 
   override def getHealth: Future[HealthComponent] =
     Future {
-      HealthComponent(self.path.name, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size))
+      HealthComponent(self.path, ComponentState.NORMAL, "All Good, managing %d caches".format(caches.size))
     }
 
   /**
