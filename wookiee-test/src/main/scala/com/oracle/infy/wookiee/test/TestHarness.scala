@@ -83,12 +83,17 @@ object TestHarness extends Mediator[TestHarness] {
 
   // Use this to shutdown TestHarness
   def shutdown()(implicit system: ActorSystem): Unit =
-    maybeGetMediator(getInstanceId(system.settings.config)) match {
+    maybeGetMediator(system.settings.config) match {
       case Some(h) =>
         h.stop()
-        unregisterMediator(getInstanceId(system.settings.config))
+        unregisterMediator(system.settings.config)
       case None => // ignore
     }
+
+  def setLogLevel(level: Level): Unit = {
+    val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
+    loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
+  }
 
   def defaultConfig: Config = {
     ConfigFactory.parseString(s"""
@@ -172,7 +177,7 @@ class TestHarness(
       TestHarness.log.info("Managers all accounted for")
   }
 
-  setLogLevel(logLevel)
+  TestHarness.setLogLevel(logLevel)
   if (componentMap.isDefined) {
     loadComponents(componentMap.get)
   }
@@ -187,11 +192,6 @@ class TestHarness(
       // wait a second to make sure it shutdown correctly
       Thread.sleep(1000)
     }
-
-  def setLogLevel(level: Level): Unit = {
-    val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
-    loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
-  }
 
   def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
     while (!timeOut.isOverdue() && !Await
@@ -238,24 +238,6 @@ class TestHarness(
     components.get(componentName).collectFirst {
       case ComponentInfoAkka(_, _, actorRef) => actorRef
     }
-  }
-
-  // For legacy Components, will eventually be removed
-  def getComponentOrDie(component: String): ActorRef = {
-    getComponentAkka(component).getOrElse(
-      throw new IllegalStateException(
-        s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"
-      )
-    )
-  }
-
-  // For legacy Components, will eventually be removed
-  def getComponentOrDieV2(component: String): ComponentV2 = {
-    getComponentV2(component).getOrElse(
-      throw new IllegalStateException(
-        s"No such V2 component registered: $component, available components: ${components.keySet.mkString(",")}"
-      )
-    )
   }
 
   def loadComponents(componentMap: Map[String, Class[_ <: WookieeComponent]]): Unit = {

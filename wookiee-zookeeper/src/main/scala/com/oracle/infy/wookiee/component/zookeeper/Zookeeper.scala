@@ -58,7 +58,7 @@ trait Zookeeper {
             case _: Throwable =>
               log.info("^^^ Ignore above error if using multiple mock servers")
               val mockZk = new TestingServer(port)
-              ZookeeperSettings.registerMediator(port.toString, mockZk)
+              ZookeeperSettings.registerMediator(config, mockZk)
               resources.set((mockZk, Some(port.toString)))
               mockZk.getConnectString
           } finally {
@@ -86,16 +86,16 @@ trait Zookeeper {
   def stopZookeeper(): Unit = {
     ZookeeperService.getMediator(system) ! PoisonPill
     // Wait for the actor to stop before closing the server as it needs ZK for unregistering
-    ThreadUtil.awaitEvent(ZookeeperService.maybeGetMediator(ZookeeperService.getInstanceId(config)).isEmpty, 5000L)
+    ThreadUtil.awaitEvent(ZookeeperService.maybeGetMediator(config).isEmpty, 5000L)
     Option(resources.get()) match {
       case Some((server, None)) =>
         log.info("Stopping Zookeeper Client...")
         server.close()
         resources.set(null)
-      case Some((server, Some(port))) =>
+      case Some((server, Some(_))) =>
         log.info("Stopping Zookeeper Mock Server...")
         server.close()
-        ZookeeperSettings.unregisterMediator(port)
+        ZookeeperSettings.unregisterMediator(config)
         resources.set(null)
       case None =>
         log.info("Zookeeper Mock Server Not Running...")

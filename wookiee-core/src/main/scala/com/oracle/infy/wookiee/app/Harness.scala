@@ -119,7 +119,7 @@ object Harness extends Mediator[HarnessMeta] with LoggingAdapter {
       fut.onComplete {
         case Success(_) =>
           // Remove from map of running Wookiees
-          unregisterMediator(getInstanceId(system.settings.config))
+          unregisterMediator(system.settings.config)
           externalLogger.debug("The actor system has terminated")
           // Call the passed function
           f

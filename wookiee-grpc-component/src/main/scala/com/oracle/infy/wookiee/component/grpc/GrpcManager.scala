@@ -47,7 +47,7 @@ object GrpcManager extends Mediator[GrpcManager] {
   // This instance of GrpcManager
   // @throws IllegalStateException if manager has not been registered
   def getGrpcManager(system: ActorSystem): GrpcManager = getGrpcManager(system.settings.config)
-  def getGrpcManager(config: Config): GrpcManager = getMediator(getInstanceId(config))
+  def getGrpcManager(config: Config): GrpcManager = getMediator(config)
 
   /**
     * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
@@ -271,8 +271,8 @@ class GrpcManager(name: String, config: Config) extends ComponentV2(name, config
 
     log.info(s"WGM100: Starting up CDR Extension gRPC Manager at path [${self.path}]")
     // Register this actor so others can access it
-    GrpcManager.registerMediator(getInstanceId(config), this)
-    GrpcChannelManager.registerMediator(getInstanceId(config), new TrieMap[ChannelKey, WookieeGrpcChannel]())
+    GrpcManager.registerMediator(config, this)
+    GrpcChannelManager.registerMediator(config, new TrieMap[ChannelKey, WookieeGrpcChannel]())
     become(clean(Map(), None))
   }
 
@@ -280,9 +280,9 @@ class GrpcManager(name: String, config: Config) extends ComponentV2(name, config
     super.postStop()
 
     log.info(s"WGM400: Stopping the gRPC Manager and shutting down server..")
-    GrpcManager.unregisterMediator(getInstanceId(config))
-    GrpcChannelManager.maybeGetMediator(getInstanceId(config)).foreach(_.values.foreach(_.shutdown(true)))
-    GrpcChannelManager.unregisterMediator(getInstanceId(config))
+    GrpcManager.unregisterMediator(config)
+    GrpcChannelManager.maybeGetMediator(config).foreach(_.values.foreach(_.shutdown(true)))
+    GrpcChannelManager.unregisterMediator(config)
     server
       .get()
       .map(_.shutdown().unsafeToFuture())

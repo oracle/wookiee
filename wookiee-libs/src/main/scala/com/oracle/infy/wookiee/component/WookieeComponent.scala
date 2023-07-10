@@ -11,9 +11,9 @@ trait ComponentInfo {
 case class ComponentReady(info: ComponentInfo)
 trait ComponentMessages
 
-// @name is deprecated, only used in legacy akka Components
+// @name is deprecated, only used in legacy actor Components
 case class ComponentRequest[T](msg: T, name: Option[String] = None) extends ComponentMessages
-// @name is deprecated, only used in legacy akka Components
+// @name is deprecated, only used in legacy actor Components
 case class ComponentMessage[T](msg: T, name: Option[String] = None) extends ComponentMessages
 
 case class ComponentResponse[T](resp: T)
