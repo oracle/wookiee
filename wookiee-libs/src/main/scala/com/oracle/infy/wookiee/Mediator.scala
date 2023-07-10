@@ -38,9 +38,14 @@ trait Mediator[T] extends LoggingAdapter {
     }
 
   // Useful when polling for the mediator to be registered
+  def maybeGetMediator(config: Config): Option[T] = maybeGetMediator(getInstanceId(config))
+
   def maybeGetMediator(instanceId: String): Option[T] = mediatorMap.get(instanceId)
 
   // If not present, register the mediator using the 'create' function
+  def getOrCreateMediator(config: Config, create: => T)(implicit classTag: ClassTag[T]): T =
+    getOrCreateMediator(Mediator.getInstanceId(config), create)
+
   def getOrCreateMediator(instanceId: String, create: => T)(implicit classTag: ClassTag[T]): T =
     mediatorMap.synchronized {
       mediatorMap.get(instanceId) match {

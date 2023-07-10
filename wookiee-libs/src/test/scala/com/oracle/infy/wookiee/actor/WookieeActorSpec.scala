@@ -7,8 +7,8 @@ import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import scala.concurrent.{Await, Future, Promise}
 import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, Future, Promise}
 
 class WookieeActorSpec extends AnyWordSpec with Matchers {
   "WookieeActor" must {
@@ -87,6 +87,24 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       replyReceived mustEqual true
     }
 
+    "handles messages in order" in {
+      val iters = 2000
+      var iter = 0
+      var inOrder = true
+      val actor = new WookieeActor {
+        override protected def receive: Receive = {
+          case i: Int =>
+            inOrder = inOrder && i == iter
+            iter += 1
+        }
+      }
+
+      // Send events and ensure they are received in order
+      0.until(iters).foreach(i => actor ! i)
+      ThreadUtil.awaitEvent({ iters - 1 <= iter })
+      inOrder mustEqual true
+    }
+
     "can be sent requests" in {
       val actor = new WookieeActor {
         override def receive: Receive = {
@@ -96,6 +114,28 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       }
       val reply = Await.result(actor ? "test", 5.seconds)
       reply mustEqual "reply"
+    }
+
+    var gotReply = false
+    val replyActor = new WookieeActor {
+      override def receive: Receive = {
+        case _ =>
+          sender() ! "reply"
+          sender() ! "reply-2"
+      }
+    }
+
+    "can handle extra messages after request" in {
+      implicit val receiveActor: WookieeActor = new WookieeActor {
+        override protected def receive: Receive = {
+          case _ =>
+            gotReply = true
+        }
+      }
+
+      val reply = Await.result(replyActor ? "test", 5.seconds)
+      reply mustEqual "reply"
+      ThreadUtil.awaitEvent({ gotReply })
     }
 
     "can fail gracefully during requests" in {
@@ -123,9 +163,11 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
           case _ => messageReceived = true
         }
       }
+      val timeStarted = System.currentTimeMillis()
       actor.scheduleOnce(100.millis, actor, "test")
       ThreadUtil.awaitEvent({ messageReceived })
       messageReceived mustEqual true
+      System.currentTimeMillis() - timeStarted > 100 mustEqual true
     }
 
     "can schedule recurring events and get them" in {
@@ -140,6 +182,13 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
         messages >= 3
       })
       messages >= 3 mustEqual true
+    }
+
+    "can schedule any function to execute" in {
+      val actor = new WookieeActor {}
+      var wasExecuted = false
+      actor.scheduleOnce(10.millis)({ wasExecuted = true })
+      ThreadUtil.awaitEvent({ wasExecuted })
     }
 
     "can return health" in {
@@ -167,7 +216,7 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
     }
 
     "unapply on interceptor" in {
-      val inter = AskInterceptor(Promise[Any]())
+      val inter = AskInterceptor(Promise[Any](), None)
       AskInterceptor.unapply(inter).isDefined mustEqual true
     }
   }
