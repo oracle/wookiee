@@ -1,4 +1,6 @@
-package com.oracle.infy.wookiee.actor
+package com.oracle.infy.wookiee.actor.mailbox
+
+import com.oracle.infy.wookiee.actor.WookieeActor
 
 import java.util.concurrent.ConcurrentLinkedQueue
 

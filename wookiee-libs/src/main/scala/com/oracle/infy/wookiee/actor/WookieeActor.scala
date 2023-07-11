@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.actor
 
 import com.oracle.infy.wookiee.actor.WookieeActor._
+import com.oracle.infy.wookiee.actor.mailbox.WookieeDefaultMailbox
 import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.service.messages._
 import com.oracle.infy.wookiee.utils.ThreadUtil
