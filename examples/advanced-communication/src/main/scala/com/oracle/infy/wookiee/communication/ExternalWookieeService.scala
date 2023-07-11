@@ -7,15 +7,12 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.ws.WebsocketInterface
 import com.oracle.infy.wookiee.component.helidon.web.{WookieeEndpoints, WookieeHttpService}
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
-import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import org.json4s.{DefaultFormats, Formats}
 
 import scala.concurrent.{ExecutionContext, Future}
 
 class ExternalWookieeService(config: Config) extends WookieeHttpService(config) with DiscoverableCommandExecution {
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("external-wookiee-service")
-
   override val name: String = "External Wookiee Service"
 
   override def addCommands(implicit conf: Config, ec: ExecutionContext): Unit = {
