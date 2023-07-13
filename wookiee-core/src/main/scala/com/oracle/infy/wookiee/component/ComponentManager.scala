@@ -24,22 +24,20 @@ import com.oracle.infy.wookiee.app.HarnessActor.{
   PrepareForShutdown,
   SystemReady
 }
-import com.oracle.infy.wookiee.app.{Harness, HarnessActorSystem, HarnessClassLoader, PrepareForShutdown}
+import com.oracle.infy.wookiee.app._
+import com.oracle.infy.wookiee.component.WookieeComponent._
 import com.oracle.infy.wookiee.health.WookieeMonitor
-import com.oracle.infy.wookiee.service.HawkClassLoader
 import com.oracle.infy.wookiee.utils.{AkkaUtil, ClassUtil, ConfigUtil, FileUtil}
 import com.oracle.infy.wookiee.{HarnessConstants, Mediator}
-import com.typesafe.config.{Config, ConfigException, ConfigFactory, ConfigValueType}
+import com.typesafe.config.{Config, ConfigException, ConfigValueType}
 
 import java.io.File
-import java.nio.file.FileSystems
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.jdk.CollectionConverters._
-import scala.util.control.Exception._
 import scala.util.{Failure, Success, Try}
 
 case class Request[T](name: String, msg: ComponentRequest[T])
@@ -53,7 +51,6 @@ case class GetComponent(name: String)
 // Mediator: Keyed off of the component name and the instance id
 object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo]] {
   import ComponentState._
-  private val externalLogger = log
 
   val ComponentRef = "self"
 
@@ -158,110 +155,6 @@ object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo
   val KeyEnabled = "enabled"
 
   /**
-    * NOTE:: This loads all JARs into the given class loader, don't use a loader here that you want to keep isolated
-    * You can create an empty loader like so: 'HarnessClassLoader(new URLClassLoader(Array.empty[URL]))'
-    * @param replace When true we will replace current class loaders with the ones discovered in this method
-    */
-  def loadComponentJars(sysConfig: Config, loader: HarnessClassLoader, replace: Boolean): Unit = {
-    getComponentPath(sysConfig) match {
-      case Some(dir) =>
-        log.debug(s"Looking for Component JARs at ${dir.getAbsolutePath}")
-        val hawks = dir.listFiles.collect(getHawkClassLoader(loader)).flatten
-
-        log.info(s"Created Hawk Class Loaders:\n ${hawks.map(_.entityName).mkString("[", ", ", "]")}")
-        hawks.foreach(f => loader.addChildLoader(f, replace = replace))
-      case None => // ignore
-    }
-  }
-
-  protected[oracle] def getHawkClassLoader(loader: HarnessClassLoader): PartialFunction[File, Option[HawkClassLoader]] = {
-    case file if file.isDirectory =>
-      val componentName = file.getName
-      try {
-        val co = validateComponentDir(componentName, file)
-        // get list of all JARS and load each one
-        Some(
-          HawkClassLoader(
-            componentName,
-            co._2
-              .listFiles
-              .filter(f => FileUtil.getExtension(f).equalsIgnoreCase("jar"))
-              .map(_.getCanonicalFile.toURI.toURL)
-              .toList,
-            loader
-          )
-        )
-      } catch {
-        case e: IllegalArgumentException =>
-          externalLogger.warn(e.getMessage)
-          None
-      }
-
-    case file if FileUtil.getExtension(file).equalsIgnoreCase("jar") =>
-      Some(HawkClassLoader(jarComponentName(file), Seq(file.getCanonicalFile.toURI.toURL), loader))
-  }
-
-  /**
-    * This function will load all the component Jars from the component location
-    * It will check to make sure the structure of the component is valid and return a list
-    * of valid enabled configs
-    */
-  def loadComponentInfo(sysConfig: Config): Seq[Config] = {
-    getComponentPath(sysConfig) match {
-      case Some(dir) =>
-        val configs = dir.listFiles.filter(_.isDirectory) flatMap { f =>
-          val componentName = f.getName
-          try {
-            val co = validateComponentDir(componentName, f)
-            // reload config at this point so that it gets the defaults from the JARs
-            val conf = allCatch either ConfigFactory.parseFile(co._1) match {
-              case Left(fail) =>
-                externalLogger.warn(s"Failed to parse config file ${co._1.getAbsoluteFile}", fail); None
-              case Right(value) => Some(value)
-            }
-            conf
-          } catch {
-            case e: IllegalArgumentException =>
-              externalLogger.warn(e.getMessage)
-              None
-          }
-        }
-        configs.toList
-      case None => Seq[Config]()
-    }
-  }
-
-  def getComponentPath(config: Config): Option[File] = {
-    val compDir = FileSystems
-      .getDefault
-      .getPath(ConfigUtil.getDefaultValue(HarnessConstants.KeyPathComponents, config.getString, ""))
-      .toFile
-    if (compDir.exists()) {
-      Some(compDir)
-    } else None
-  }
-
-  /**
-    * Will validate a component directory and return the location of the component library dir
-    *
-    * @param componentName name of component .conf file
-    * @param folder folder in which configs can be found
-    * @throws IllegalArgumentException if configuration file is not found, or the lib directory is not there
-    */
-  def validateComponentDir(componentName: String, folder: File): (File, File) = {
-    val confFile = folder.listFiles.filter(_.getName.equalsIgnoreCase("reference.conf"))
-    require(confFile.length == 1, "Conf file not found.")
-    // check the config file and if disabled then fail
-    val config = ConfigFactory.parseFile(confFile(0))
-    if (config.hasPath(s"$componentName.enabled")) {
-      require(config.getBoolean(s"$componentName.enabled"), s"$componentName not enabled")
-    }
-    val libDir = folder.listFiles.filter(f => f.isDirectory && f.getName.equalsIgnoreCase("lib"))
-    require(libDir.length == 1, "Lib directory not found.")
-    (confFile(0), libDir(0))
-  }
-
-  /**
     * This function will attempt various ways to find the component name of the jar.
     * 1. Will check to see if the jar filename is the component name
     * 2. Will check the mapping list from the config to see if the jar filename maps to a component name
@@ -291,13 +184,6 @@ object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo
         }
       }
     }
-  }
-
-  def jarComponentName(file: File): String = {
-    val name = file.getName
-    val segments = name.split("-")
-    // example wookiee-zookeeper-1.0-SNAPSHOT.jar
-    segments(0) + "-" + segments(1).replace(".jar", "")
   }
 
   protected[oracle] def setComponentInfo(compInfo: ComponentInfo)(implicit system: ActorSystem): Unit = {
@@ -345,6 +231,10 @@ class ComponentManager extends PrepareForShutdown {
     case ConfigChange() =>
       log.debug("Sending config change message to all components...")
       context.children.foreach(ref => ref ! ConfigChange())
+      componentsForSystem
+        .collect({ case ci2: ComponentInfoV2 => ci2 })
+        .foreach(ci => ci.component.propagateRenewConfiguration())
+      ()
     case _ => // Ignore
   }
 
@@ -497,7 +387,7 @@ class ComponentManager extends PrepareForShutdown {
     * prior to anything else happening. This function will only be executed once.
     */
   private def initializeComponents(): Unit = {
-    val cList = ComponentManager.getComponentPath(config) match {
+    val cList = getComponentPath(config) match {
       case Some(dir) => dir.listFiles.filter(x => x.isDirectory || FileUtil.getExtension(x).equalsIgnoreCase("jar"))
       case None      => Array[File]()
     }
@@ -693,7 +583,7 @@ class ComponentManager extends PrepareForShutdown {
         s"Manager for component '$componentName' not found in config."
       )
       val className = compConfig.getString(ComponentManager.KeyManagerClass)
-      loadComponentClass(componentName, className, Some(HarnessActorSystem.loader))
+      loadComponentClass(componentName, className, Some(WookieeSupervisor.loader))
       ()
     }
   }

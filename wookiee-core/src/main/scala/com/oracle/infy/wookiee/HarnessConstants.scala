@@ -15,6 +15,7 @@
  */
 package com.oracle.infy.wookiee
 
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.health.Health
 
 object HarnessConstants {
@@ -41,7 +42,7 @@ object HarnessConstants {
   val KeyInternalHttpEnabled = "internal-http.enabled"
 
   // constants for components
-  val KeyPathComponents = "components.path"
+  val KeyPathComponents: String = WookieeComponent.KeyPathComponents
   val KeyComponentMapping = "components.mappings"
   val KeyComponents = "components.lib-components"
   val KeyComponentStartTimeout = "components.start-timeout"
@@ -49,7 +50,6 @@ object HarnessConstants {
   val KeyDynamicLoading = "components.dynamic-loading"
 
   // constants for services
-  val KeyServicePath = "services.path"
   val KeyInternalService = "services.internal"
 
   val LogHealthCheckDiffs = "logging.health-check.diff-compare"

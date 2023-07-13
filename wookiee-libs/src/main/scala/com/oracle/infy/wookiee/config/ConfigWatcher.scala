@@ -16,29 +16,33 @@
 
 package com.oracle.infy.wookiee.config
 
-import akka.actor.Props
-import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
+import com.oracle.infy.wookiee.Mediator
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.sun.nio.file.SensitivityWatchEventModifier
+import com.typesafe.config.Config
 
 import java.io.{File, IOException}
 import java.nio.file.StandardWatchEventKinds._
 import java.nio.file._
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.jdk.CollectionConverters._
 import scala.util.Try
 
-class ConfigWatcherActor extends HActor {
-  val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
-  var configDir: Path = Paths.get(".")
-  val watchThread = new Thread(new DirectoryWatcher)
-  var configExists = false
+object ConfigWatcher extends Mediator[Config]
+
+class ConfigWatcher(initialConfig: Config, notifySystem: => Unit) extends WookieeActor {
+  ConfigWatcher.registerMediator(initialConfig, initialConfig)
+
+  private val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
+  private val configDir: Path = Paths.get(".")
+  private val watchThread = new Thread(new DirectoryWatcher)
+  private var configExists = false
 
   override def preStart(): Unit = {
     super.preStart()
-    Option(System.getProperty("config.file")).orElse(Try(config.getString("services.config-file")).toOption) match {
+    Option(System.getProperty("config.file"))
+      .orElse(Try(initialConfig.getString("services.config-file")).toOption) match {
       case Some(s: String) =>
         val cPath = new File(s)
         if (cPath.exists()) {
@@ -69,7 +73,7 @@ class ConfigWatcherActor extends HActor {
     }
   }
 
-  override def checkHealth: Future[HealthComponent] = {
+  override def getHealth: Future[HealthComponent] = {
     Future {
       if (!configExists || (watchThread.isAlive && !watchThread.isInterrupted)) {
         HealthComponent("Config Watcher Health", ComponentState.NORMAL, "Config being watched as expected")
@@ -106,7 +110,7 @@ class ConfigWatcherActor extends HActor {
                 "Config file change detected, {}, sending message to services/components to reload if applicable.",
                 filename.toString
               )
-              context.parent ! ConfigChange()
+              notifySystem
             } else {
               log.debug("Ignoring change to {} as it is not a .conf file", child.toString)
             }
@@ -124,8 +128,4 @@ class ConfigWatcherActor extends HActor {
       }
     }
   }
-}
-
-object ConfigWatcherActor {
-  def props: Props = Props[ConfigWatcherActor]()
 }

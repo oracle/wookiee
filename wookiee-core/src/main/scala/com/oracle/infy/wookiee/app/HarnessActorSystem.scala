@@ -16,18 +16,15 @@
 package com.oracle.infy.wookiee.app
 
 import akka.actor.ActorSystem
-import com.oracle.infy.wookiee.component.ComponentManager
+import com.oracle.infy.wookiee.app.WookieeSupervisor.loader
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.logging.LoggingAdapter
-import com.oracle.infy.wookiee.service.ServiceManager
 import com.typesafe.config.{Config, ConfigFactory, ConfigRenderOptions}
 
 import java.io.InputStream
 import scala.io.Source
 
 object HarnessActorSystem extends LoggingAdapter {
-
-  lazy val loader: HarnessClassLoader = HarnessClassLoader(Thread.currentThread.getContextClassLoader)
-  private val externalLogger = log
 
   def apply(config: Config): ActorSystem = {
     ActorSystem.create("server", config, loader)
@@ -47,7 +44,7 @@ object HarnessActorSystem extends LoggingAdapter {
       }
     }
 
-    ComponentManager.loadComponentJars(sysConfig, loader, replace = replace)
+    WookieeComponent.loadComponentJars(sysConfig, loader, replace = replace)
     for (child <- loader.getChildLoaders) {
       def readRefConf(): Option[Config] = {
         val re = child.getResources("reference.conf")
@@ -56,7 +53,7 @@ object HarnessActorSystem extends LoggingAdapter {
           if (next.getPath.contains(child.entityName)) {
             val confStr = Source.fromInputStream(next.getContent.asInstanceOf[InputStream]).mkString
             val childConf = ConfigFactory.parseString(confStr)
-            externalLogger.info(
+            log.info(
               s"New config for extension '${child.entityName}', jar: '${child.urls.head.getPath}': " +
                 s"\n${printConf(childConf)}"
             )
@@ -70,22 +67,22 @@ object HarnessActorSystem extends LoggingAdapter {
         case Some(conf) =>
           sysConfig = sysConfig.withFallback(conf)
         case None =>
-          externalLogger.warn(s"Didn't find 'reference.conf' in jar file '${child.urls.head.getPath}'")
+          log.warn(s"Didn't find 'reference.conf' in jar file '${child.urls.head.getPath}'")
       }
     }
     ConfigFactory.load
 
-    externalLogger.debug("Loading the service configs")
-    val configs = ServiceManager.loadConfigs(sysConfig)
+    log.debug("Loading the service configs")
+    val configs = WookieeSupervisor.loadConfigs(sysConfig)
     if (configs.nonEmpty)
-      externalLogger.info(
+      log.info(
         s"${configs.size} service config(s) have been loaded: \n${configs.map(printConf).mkString(", ")}"
       )
 
-    externalLogger.debug("Loading the component configs")
-    val compConfigs = ComponentManager.loadComponentInfo(sysConfig)
+    log.debug("Loading the component configs")
+    val compConfigs = WookieeComponent.loadComponentInfo(sysConfig)
     if (compConfigs.nonEmpty)
-      externalLogger.info(
+      log.info(
         s"${compConfigs.size} component config(s) have been loaded: \n${compConfigs.map(printConf).mkString(", ")}\nIf 0 could be due to config loaded from component JARs."
       )
 
@@ -96,7 +93,7 @@ object HarnessActorSystem extends LoggingAdapter {
       if (allConfigs.isEmpty) sysConfig
       else allConfigs.reduce(_.withFallback(_)).withFallback(sysConfig)
     val finalConf = conf.resolve()
-    externalLogger.debug(s"Used configuration: \n${printConf(finalConf)}")
+    log.debug(s"Used configuration: \n${printConf(finalConf)}")
     finalConf
   }
 }

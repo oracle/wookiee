@@ -15,22 +15,7 @@
  */
 package com.oracle.infy.wookiee.functional.syntax
 
-import com.oracle.infy.wookiee.functional.{
-  Alternative,
-  AlternativeOps,
-  Applicative,
-  ApplicativeOps,
-  ContravariantFunctor,
-  ContravariantFunctorOps,
-  FunctionalBuilderOps,
-  FunctionalCanBuild,
-  Functor,
-  FunctorOps,
-  InvariantFunctor,
-  InvariantFunctorOps,
-  Monoid,
-  MonoidOps
-}
+import com.oracle.infy.wookiee.functional._
 
 import scala.language.implicitConversions
 

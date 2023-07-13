@@ -17,7 +17,6 @@ package com.oracle.infy.wookiee.service
 
 import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
-import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.HarnessActor.{ConfigChange, SystemReady}
 import com.oracle.infy.wookiee.app.PrepareForShutdown
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
@@ -26,15 +25,11 @@ import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.ServiceManager.{RestartService, ServicesReady}
 import com.oracle.infy.wookiee.service.messages.{LoadService, Ready}
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDataV2}
-import com.typesafe.config.{Config, ConfigFactory}
 
-import java.io.{File, FilenameFilter}
-import java.nio.file._
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
-import scala.util.control.Exception._
 
 class ServiceManager extends PrepareForShutdown with ServiceLoader {
   val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
@@ -108,9 +103,13 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
 
     case ConfigChange() =>
       log.debug("Sending config change message to service...")
-      context.children foreach { p =>
-        p ! ConfigChange()
-      }
+      tryAndLogError(
+        oldAndNewLogic(
+          akkaRef => akkaRef ! ConfigChange(),
+          service => service.propagateRenewConfiguration()
+        )
+      )
+      ()
 
     case ready: ComponentReady =>
       log.debug(s"Service Manager got Component Ready for [${ready.info.name}]")
@@ -162,56 +161,5 @@ object ServiceManager extends LoggingAdapter {
   @SerialVersionUID(2L) case class RestartService()
 
   def props: Props = Props[ServiceManager]()
-
-  /**
-    * Load the configuration files for the deployed services
-    * @param sysConfig System level config for wookiee
-    */
-  def loadConfigs(sysConfig: Config): Seq[Config] = {
-    serviceDir(sysConfig) match {
-      case Some(s) =>
-        val dirs = s.listFiles.filter(_.isDirectory)
-
-        val configs = dirs flatMap { dir =>
-          val path = dir.getPath.concat("/conf")
-          log.info("Checking the directory {} for any *.conf files to load", path)
-          for {
-            file <- getConfigFiles(path)
-            conf = allCatch either ConfigFactory.parseFile(file) match {
-              case Left(fail)   => log.error(s"Could not load the config file ${file.getAbsolutePath}", fail); None
-              case Right(value) => Some(value)
-            }
-            if conf.isDefined
-          } yield conf.get
-        }
-        configs.toList
-      case None => Seq()
-    }
-  }
-
-  /**
-    * Get the services directory
-    * @param config The systems main config
-    * @return The service root path, this is option, so if none then not found
-    */
-  def serviceDir(config: Config): Option[File] = {
-    val file = FileSystems.getDefault.getPath(config.getString(HarnessConstants.KeyServicePath)).toFile
-    if (file.exists()) {
-      Some(file)
-    } else {
-      None
-    }
-  }
-
-  private def getConfigFiles(path: String): Seq[File] = {
-    val root = new File(path)
-    if (root.exists) {
-      root
-        .listFiles(new FilenameFilter {
-          def accept(dir: File, name: String): Boolean = name.endsWith(".conf")
-        })
-        .toList
-    } else Seq.empty
-  }
 
 }

@@ -135,33 +135,33 @@ trait WookieeMonitor extends LoggingAdapter {
 
   // Internal but called from outside, will call prepareForShutdown() on this and all dependents
   protected[oracle] def propagateOnComponentReady(info: ComponentInfo): Unit =
-    propogateCall({ mon =>
+    propagateCall({ mon =>
       mon.onComponentReady(info)
     }, "Failure in onComponentReady() execution")
 
   // Internal but called from outside, will call prepareForShutdown() on this and all dependents
   protected[oracle] def propagatePrepareForShutdown(): Unit =
-    propogateCall({ mon =>
+    propagateCall({ mon =>
       mon.prepareForShutdown()
     }, "Error in prepareForShutdown() execution")
 
   // Internal but called from outside, will call start() on this and all dependents
   protected[oracle] def propagateStart(): Unit =
-    propogateCall({ mon =>
+    propagateCall({ mon =>
       mon.start()
     }, "Failure in start() execution")
 
   // Internal but called from outside, will call systemReady() on this and all dependents
   protected[oracle] def propagateSystemReady(): Unit =
-    propogateCall({ mon =>
+    propagateCall({ mon =>
       mon.systemReady()
     }, "Failure in systemReady() execution")
 
   // Useful util to iterate through all dependents and call a function
-  protected[oracle] def propogateCall(call: WookieeMonitor => Unit, errorMsg: String): Unit =
+  protected[oracle] def propagateCall(call: WookieeMonitor => Unit, errorMsg: String): Unit =
     try {
       call(this)
-      getDependents.foreach(dep => dep.propogateCall(call, errorMsg))
+      getDependents.foreach(dep => dep.propagateCall(call, errorMsg))
     } catch {
       case ex: Throwable =>
         log.error(s"WM404: Unexpected exception in [$name]: $errorMsg", ex)

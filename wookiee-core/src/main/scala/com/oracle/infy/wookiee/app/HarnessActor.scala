@@ -77,7 +77,7 @@ trait PrepareForShutdown extends HActor {
   }
 }
 
-class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatcher with InternalHTTP {
+class HarnessActor extends Actor with LoggingAdapter with Health with InternalHTTP {
 
   import HarnessActor._
   import context.dispatcher
@@ -113,7 +113,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
   var dispatchManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
-  var configWatcherActor: Option[ActorRef] = None
+  var configWatcher: Option[ConfigWatcher] = None
 
   override def preStart(): Unit = initialize()
 
@@ -170,7 +170,8 @@ class HarnessActor extends Actor with LoggingAdapter with Health with ConfigWatc
   private def initialize(): Unit =
     try {
       startHealth
-      startConfigWatcher
+      configWatcher = Some(new ConfigWatcher(config, { self ! ConfigChange() }))
+      configWatcher.foreach(_.start())
       if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(
             HarnessConstants.KeyCommandsEnabled
           )) {

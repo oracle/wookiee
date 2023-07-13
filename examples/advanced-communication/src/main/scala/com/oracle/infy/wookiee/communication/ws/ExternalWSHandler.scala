@@ -46,12 +46,10 @@ class ExternalWSHandler(implicit ec: ExecutionContext) extends WookieeWebsocket[
       return
     }
 
-    session
-      .getBasicRemote
-      .sendText(
-        s"Received message [$text] from user [${authInfo.map(_.userId).getOrElse("no-auth")}], " +
-          s"with auth token [${authInfo.map(_.token).getOrElse("no-auth")}]"
-      )
+    reply(
+      s"Received message [$text] from user [${authInfo.map(_.userId).getOrElse("no-auth")}], " +
+        s"with auth token [${authInfo.map(_.token).getOrElse("no-auth")}]"
+    )
   }
 
   // Send along 'token' as a query parameter to authenticate

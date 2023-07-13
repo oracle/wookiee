@@ -8,21 +8,14 @@ are applied to some of the calls and are labeled in the table below.
 
 ## Available Endpoints
 
-| Description            | Verb  | URL                             | Description   | Example   | CIDR Rules    |
-| :--------------------- | :---- | :------------------------------ | ------------- | --------- | ----------    |
-| Ping                   | GET   | /ping                           |               |           | No            |
-| Health Check (Full)    | GET   | /healthcheck                    |               |           | Yes           |
-| Health Check (Nagios)  | GET   | /healthcheck/nagios             |               |           | Yes           |
-| Health Check (LB)      | GET   | /healthcheck/lb                 |               |           | Yes           |
-| Services               | GET   | /services                       |               |           | Yes           |
-| Services               | GET   | /services/{service name}        |               |           | Yes           |
-| Services (restart)     | POST  | /services/{service name}/restart|               |           | Yes           |
-| Metrics                | GET   | /metrics                        |               |           | Yes           |
-| Cluster                | GET   | /cluster                        |               |           | Yes           |
-| Cluster (discovery)    | GET   | /cluster/discovery              |               |           | Yes           |
-| Cluster (rejoin)       | POST  | /cluster/rejoin                 |               |           | Yes           |
-| Restart                | POST  | /restart                        |               |           | Yes           |
-| Shutdown               | POST  | /shutdown                       |               |           | Yes           |
+| Description           | Verb  | URL                 | Description   | Example   | CIDR Rules    |
+|:----------------------| :---- |:--------------------| ------------- | --------- | ----------    |
+| Ping                  | GET   | /ping               |               |           | No            |
+| Health Check (Full)   | GET   | /healthcheck        |               |           | Yes           |
+| Health Check (Nagios) | GET   | /healthcheck/nagios |               |           | Yes           |
+| Health Check (LB)     | GET   | /healthcheck/lb     |               |           | Yes           |
+| Metrics               | GET   | /metrics            |               |           | Yes           |
+| Favicon               | GET   | /favicon.ico        |               |           | Yes           |
 
 
 ## CIDR (Classless Inter-Domain Routing) Rules

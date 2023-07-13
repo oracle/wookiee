@@ -15,21 +15,22 @@
  */
 package com.oracle.infy.wookiee
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
-import akka.testkit.TestProbe
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
 import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
-import com.oracle.infy.wookiee.config.ConfigWatcherActor
-import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.service.messages.CheckHealth
-import com.typesafe.config.ConfigFactory
+import com.oracle.infy.wookiee.config.ConfigWatcher
+import com.oracle.infy.wookiee.health.WookieeMonitor
+import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest.BeforeAndAfterAll
-import org.scalatest.matchers.should.Matchers
+import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.io.{BufferedWriter, File, FileWriter}
 import java.util.concurrent.TimeUnit
-import scala.concurrent.ExecutionContextExecutor
-import scala.concurrent.duration.FiniteDuration
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.concurrent.Await
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.reflect.io.{Directory, Path}
 
 class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
@@ -37,47 +38,51 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
   new File("services/test/conf").mkdirs()
   writeFile("original = \"value\"")
 
-  implicit val sys: ActorSystem = ActorSystem(
-    "system",
+  implicit val config: Config =
     ConfigFactory.parseString("""
+    instance-id = "config-spec"
     services {
      path = "services"
      config-file = "services/test/conf/test.conf"
     }
     """).withFallback(ConfigFactory.load())
-  )
 
-  implicit val ec: ExecutionContextExecutor = sys.dispatcher
+  val gotConfigChange: AtomicBoolean = new AtomicBoolean(false)
 
-  val probe: TestProbe = TestProbe()
+  val parent: WookieeActor = new WookieeActor {
 
-  val parent: ActorRef = sys.actorOf(Props(new Actor {
-    val child: ActorRef = context.actorOf(ConfigWatcherActor.props, "child")
+    val child: ConfigWatcher = new ConfigWatcher(config, {
+      self ! ConfigChange()
+    })
+    child.start()
 
-    def receive: Receive = {
-      case x if sender() == child => probe.ref forward x
-      case x                      => child forward x
+    override def getDependents: Iterable[WookieeMonitor] = List(child)
+
+    override def receive: Receive = health orElse {
+      case _: ConfigChange =>
+        gotConfigChange.set(true)
+      case x =>
+        child ! x
     }
-  }))
+  }
 
   "Config " should {
     "be in good health" in {
-      probe.send(parent, CheckHealth)
-      val msg = probe.expectMsgClass(classOf[HealthComponent])
-      msg.state equals ComponentState.NORMAL
+      val health = Await.result(parent.checkHealth, 5.seconds)
+      health.components.head.details mustEqual "Config being watched as expected"
     }
 
     "detect changes in config" in {
       writeFile("test = \"value\"")
-      val msg = probe.expectMsgClass(classOf[ConfigChange])
-      msg.isInstanceOf[ConfigChange] //scalafix:ok
+      ThreadUtil.awaitEvent({
+        gotConfigChange.get()
+      })
     }
   }
 
   override protected def afterAll(): Unit = {
-    sys.terminate().onComplete { _ =>
-      Directory(Path(new File("services"))).deleteRecursively()
-    }
+    Directory(Path(new File("services"))).deleteRecursively()
+    ()
   }
 
   def writeFile(toWrite: String): Unit = {
