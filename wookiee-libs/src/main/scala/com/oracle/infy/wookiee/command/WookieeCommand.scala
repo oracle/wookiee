@@ -1,6 +1,8 @@
 package com.oracle.infy.wookiee.command
 
-import com.oracle.infy.wookiee.actor.WookieeOperations
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.actor.{WookieeActor, WookieeOperations}
+import com.oracle.infy.wookiee.command.WookieeCommandExecutive.ExecuteCommand
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 
 import scala.concurrent.Future
@@ -13,7 +15,8 @@ import scala.reflect.runtime.universe._
   */
 abstract class WookieeCommand[Input <: Any: TypeTag, +Output <: Any: TypeTag]
     extends WookieeMonitor
-    with WookieeOperations {
+    with WookieeOperations
+    with WookieeActor {
   def commandName: String = name
 
   /**
@@ -25,4 +28,9 @@ abstract class WookieeCommand[Input <: Any: TypeTag, +Output <: Any: TypeTag]
   // Override for custom health check logic
   override def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(commandName, ComponentState.NORMAL, s"Command [$commandName] is healthy."))
+
+  override protected def receive: Receive = super.receive orElse {
+    case ExecuteCommand(input) =>
+      pipe(execute(input.asInstanceOf[Input]))
+  }
 }

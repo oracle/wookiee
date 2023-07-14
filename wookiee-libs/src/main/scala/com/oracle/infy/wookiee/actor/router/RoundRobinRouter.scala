@@ -1,5 +1,7 @@
 package com.oracle.infy.wookiee.actor.router
 import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.health.HealthComponent
+import com.oracle.infy.wookiee.service.messages.CheckHealth
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.Future
@@ -23,4 +25,7 @@ class RoundRobinRouter(routees: Int) extends WookieeActorRouter {
     val i = currentRoutee.getAndUpdate(old => (old + 1) % routees)
     routeeActors(i).?(message)(sender)
   }
+
+  // Asks a random routee for its health
+  override protected def getHealth: Future[HealthComponent] = ?(CheckHealth).mapTo[HealthComponent]
 }

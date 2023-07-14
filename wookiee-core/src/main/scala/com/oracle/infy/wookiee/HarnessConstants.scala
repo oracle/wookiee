@@ -15,6 +15,7 @@
  */
 package com.oracle.infy.wookiee
 
+import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.health.Health
 
@@ -35,7 +36,7 @@ object HarnessConstants {
   val KeyStartupTimeout = "startup-timeout"
   val KeyDefaultTimeout = "default-timeout"
   val KeyCommandsEnabled = "commands.enabled"
-  val KeyCommandsNrRoutees = "commands.default-nr-routees"
+  val KeyCommandsNrRoutees: String = WookieeCommandExecutive.KeyCommandsNrRoutees
   val PrepareToShutdownTimeout = "prepare-to-shutdown-timeout"
 
   val KeyInternalHttpPort = "internal-http.port"

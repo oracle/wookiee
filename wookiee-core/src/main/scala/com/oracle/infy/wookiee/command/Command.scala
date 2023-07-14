@@ -19,6 +19,7 @@ package com.oracle.infy.wookiee.command
 import akka.pattern.pipe
 import com.oracle.infy.wookiee.app.HActor
 
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
 
@@ -28,19 +29,18 @@ import scala.reflect.runtime.universe._
   * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
   * deal with any storage or caching or anything like that.
   */
-abstract class Command[Input <: Any: TypeTag: ClassTag, Output <: Any: TypeTag]
-    extends WookieeCommand[Input, Output]
-    with HActor
-    with CommandHelper {
+abstract class Command[Input <: Any: TypeTag: ClassTag, Output <: Any: TypeTag] extends HActor with CommandHelper {
   import context.dispatcher
 
   override def receive: Receive =
-    super.receive orElse ({
+    health orElse ({
       case ExecuteCommand(_, bean: Input, _) =>
         pipe(execute(bean)) to sender()
         ()
       case _ => // ignore all other messages to this actor
     }: Receive)
+
+  def execute(bean: Input): Future[Output]
 }
 
 object CommandBeanHelper {

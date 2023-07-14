@@ -122,7 +122,7 @@ object TestHarness extends Mediator[TestHarness] {
         commands {
           # generally this should be enabled
           enabled = true
-          default-nr-routees = 1
+          default-nr-routees = 5
         }
       """)
   }

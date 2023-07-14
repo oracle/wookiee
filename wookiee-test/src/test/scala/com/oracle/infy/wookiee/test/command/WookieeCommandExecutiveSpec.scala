@@ -9,6 +9,7 @@ import com.typesafe.config.Config
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 
@@ -53,6 +54,25 @@ class WookieeCommandExecutiveSpec extends BaseWookieeTest with AnyWordSpecLike w
         HealthComponent("basic-command-1", ComponentState.NORMAL, "Command [basic-command-1] is healthy."),
         HealthComponent("basic-command-2", ComponentState.NORMAL, "Command [basic-command-2] is healthy.")
       )
+    }
+
+    "actually create multiple command instances" in {
+      val commandNum = new AtomicInteger(0)
+      val nrRoutees = testWookiee.config.getInt(KeyCommandsNrRoutees)
+      val seenMessage = Array.fill(nrRoutees)(false)
+      WookieeCommandExecutive.registerCommand(new WookieeCommand[TestInput, TestOutput] {
+        lazy val thisCommandNum: Int = commandNum.getAndIncrement()
+        override def commandName: String = "test-command"
+
+        override def execute(args: TestInput): Future[TestOutput] = {
+          seenMessage(thisCommandNum) = true
+          Future.successful(TestOutput(args.value + "-output"))
+        }
+      })
+
+      1.to(nrRoutees)
+        .foreach(_ => WookieeCommandExecutive.executeCommand[TestOutput]("test-command", TestInput("test")))
+      ThreadUtil.awaitEvent({ seenMessage.forall(_ == true) })
     }
   }
 }
