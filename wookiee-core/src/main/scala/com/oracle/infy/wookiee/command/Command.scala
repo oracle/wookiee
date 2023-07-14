@@ -35,7 +35,7 @@ abstract class Command[Input <: Any: TypeTag: ClassTag, Output <: Any: TypeTag]
   import context.dispatcher
 
   override def receive: Receive =
-    health orElse ({
+    super.receive orElse ({
       case ExecuteCommand(_, bean: Input, _) =>
         pipe(execute(bean)) to sender()
         ()

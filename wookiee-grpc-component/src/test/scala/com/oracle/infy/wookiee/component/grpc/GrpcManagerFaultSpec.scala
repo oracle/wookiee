@@ -60,7 +60,7 @@ class GrpcManagerFaultSpec
     )
 
   "gRPC Manager" should {
-    "load up fully" in {
+    "load up fully" in zkPort.synchronized {
       val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
@@ -74,7 +74,7 @@ class GrpcManagerFaultSpec
       )
     }
 
-    "recover from zk going down during registration" in {
+    "recover from zk going down during registration" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "manager-spec",

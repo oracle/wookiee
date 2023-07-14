@@ -5,6 +5,7 @@ import com.oracle.infy.wookiee.command.{WookieeCommand, WookieeCommandExecutive}
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.oracle.infy.wookiee.test.BaseWookieeTest
 import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.typesafe.config.Config
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -24,24 +25,26 @@ class WookieeCommandExecutiveSpec extends BaseWookieeTest with AnyWordSpecLike w
   }
 
   "Wookiee Command Manager" should {
-    val commandManager =
-      ThreadUtil.awaitResult[WookieeCommandExecutive](Some(getMediator(getWookieeInstanceId)), ignoreError = true)
+    implicit lazy val conf: Config = testWookiee.config
+    ThreadUtil.awaitResult[WookieeCommandExecutive](Some(getMediator(getWookieeInstanceId)), ignoreError = true)
 
     "register a basic command and serve it up" in {
-      commandManager.registerCommand(BasicCommand(1))
+      WookieeCommandExecutive.registerCommand(BasicCommand(1))
+      // Shouldn't error out
+      WookieeCommandExecutive.registerCommand(BasicCommand(1))
       val result = Await
         .result(
-          commandManager.executeCommand[TestOutput]("basic-command-1", TestInput("basic")),
+          WookieeCommandExecutive.executeCommand[TestOutput]("basic-command-1", TestInput("basic")),
           5.seconds
         )
       result.value mustEqual "basic-output"
     }
 
     "get healths of all commands" in {
-      commandManager.registerCommand(BasicCommand(2))
+      WookieeCommandExecutive.registerCommand(BasicCommand(2))
       val result = Await
         .result(
-          commandManager.checkHealth,
+          WookieeCommandExecutive.getMediator(conf).checkHealth,
           5.seconds
         )
       result.name mustEqual "wookiee-commands"

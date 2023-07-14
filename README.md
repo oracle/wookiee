@@ -284,6 +284,31 @@ wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support
 libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "2.2.8"
 ```
 
+## Wookiee Actors
+Wookiee formerly ran on akka Actors (and still will until version 2.5). There is an interface called the WookieeActor
+that emulates the functionality of an akka Actor. This can be used from anywhere in the Wookiee Platform and has all
+the same methods and behavior as an akka Actor. This is useful for when you want to use the Wookiee Platform but don't
+want to use akka Actors.
+
+```scala
+import com.oracle.infy.wookiee.actors.WookieeActor
+
+class MyActor extends WookieeActor {
+  override def receive: Receive = {
+    case "hello" => sender() ! "world"
+  }
+}
+```
+These WookieeActors have all the akka functionality including the ability to `become(receiver)` and use schedulers.
+One can also create a router of actors using the `WookieeActor.withRouter` method.
+
+```scala
+import com.oracle.infy.wookiee.actors.WookieeActor
+import com.oracle.infy.wookiee.actors.router.RoundRobinRouter
+
+// Will create 10 instances of MyActor and round robin between them
+WookieeActor.withRouter(new MyActor, new RoundRobinRouter(10))
+```
 
 ## Setup ScalaPB
 We use [ScalaPB](https://github.com/scalapb/ScalaPB) to generate source code from a `.proto` file. You can use

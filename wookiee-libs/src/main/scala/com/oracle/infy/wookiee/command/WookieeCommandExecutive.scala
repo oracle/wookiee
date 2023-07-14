@@ -9,7 +9,23 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
 
 // Since this extends Mediator, can be accessed to retrieve current instance of WookieeCommandManager
-object WookieeCommandExecutive extends Mediator[WookieeCommandExecutive]
+object WookieeCommandExecutive extends Mediator[WookieeCommandExecutive] {
+  case class ExecuteCommand(input: Any)
+
+  // Call this to execute a previously registered command, which returns a Future[CommandOutput]
+  // Be sure to specify the type of CommandOutput, otherwise it will be Any
+  def executeCommand[O <: Any](name: String, input: Any)(implicit config: Config): Future[O] =
+    getMediator(config).executeCommand[O](name, input)
+
+  /**
+    * Registers a command with the manager, if the command has already been registered
+    * it will not be re-registered
+    *
+    * @param command The command to register which has an execute() method
+    */
+  def registerCommand(command: => WookieeCommand[_ <: Any, _ <: Any])(implicit config: Config): Unit =
+    getMediator(config).registerCommand(command)
+}
 
 // This is the class that will be used to store and execute V2 commands
 class WookieeCommandExecutive(override val name: String, config: Config)(implicit ec: ExecutionContext)
@@ -19,8 +35,8 @@ class WookieeCommandExecutive(override val name: String, config: Config)(implici
 
   protected[command] val commands = new ConcurrentHashMap[String, WookieeCommand[Any, Any]]()
 
-  // Call this to execute a previously registered command, which returns a Future[CommandOutput].
-  // Be sure to specify the type of CommandOutput, otherwise it will be Any.
+  // Call this to execute a previously registered command, which returns a Future[CommandOutput]
+  // Be sure to specify the type of CommandOutput, otherwise it will be Any
   def executeCommand[O <: Any](name: String, input: Any): Future[O] = {
     getCommand(name) match {
       case Some(command) =>
@@ -34,10 +50,10 @@ class WookieeCommandExecutive(override val name: String, config: Config)(implici
 
   /**
     * Registers a command with the manager, if the command has already been registered
-    * it will not be re-registered.
+    * it will not be re-registered
     * @param command The command to register which has an execute() method
     */
-  def registerCommand(command: WookieeCommand[_ <: Any, _ <: Any]): Unit = {
+  def registerCommand(command: => WookieeCommand[_ <: Any, _ <: Any]): Unit = {
     getCommand(command.commandName) match {
       case Some(_) =>
         log.warn(s"Command [${command.commandName}] has already been added, not re-adding it.")

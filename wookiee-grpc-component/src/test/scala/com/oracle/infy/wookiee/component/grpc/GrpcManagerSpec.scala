@@ -54,7 +54,7 @@ class GrpcManagerSpec
     )
 
   "gRPC Manager" should {
-    "load up fully" in {
+    "load up fully" in zkPort.synchronized {
       val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
@@ -68,7 +68,7 @@ class GrpcManagerSpec
       )
     }
 
-    "register a simple gRPC service" in {
+    "register a simple gRPC service" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "manager-spec",
@@ -94,7 +94,7 @@ class GrpcManagerSpec
       } finally channel.shutdown(true).unsafeRunSync()
     }
 
-    "handle a message over the default 4MB with max-message-size configured" in {
+    "handle a message over the default 4MB with max-message-size configured" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "message-size-spec",
@@ -118,7 +118,7 @@ class GrpcManagerSpec
       } finally channel.shutdown(true).unsafeRunSync()
     }
 
-    "allow closing of curators in channels" in {
+    "allow closing of curators in channels" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "closing-spec",

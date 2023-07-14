@@ -2,6 +2,7 @@ package com.oracle.infy.wookiee.actor
 
 import com.oracle.infy.wookiee.actor.WookieeActor._
 import com.oracle.infy.wookiee.actor.mailbox.WookieeDefaultMailbox
+import com.oracle.infy.wookiee.actor.router.{RoundRobinRouter, WookieeActorRouter}
 import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.service.messages._
 import com.oracle.infy.wookiee.utils.ThreadUtil
@@ -12,6 +13,16 @@ import scala.util.{Failure, Success}
 
 object WookieeActor {
   type Receive = PartialFunction[Any, Unit]
+
+  // Use this to create a WookieeActorRouter which will route messages to multiple actors
+  // Useful for when parallelism is needed but you don't want to create a new actor for each message
+  def withRouter(
+      actorMaker: => WookieeActor,
+      router: WookieeActorRouter = new RoundRobinRouter(5)
+  ): WookieeActorRouter = {
+    router.initialize(actorMaker)
+    router
+  }
 
   protected[oracle] val futureExecutor: ExecutionContext = ThreadUtil.createEC("WookieeActorFutureExecutor")
 
@@ -46,7 +57,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
   implicit val ec: ExecutionContext = futureExecutor
   private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
-  private lazy val receiver: AtomicReference[Receive] =
+  protected[wookiee] lazy val receiver: AtomicReference[Receive] =
     new AtomicReference[Receive](receive)
 
   /* Overrideable Classic Actor Methods */
