@@ -4,12 +4,15 @@ import cats.effect.IO
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import cats.effect.unsafe.implicits.global
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
 import java.util.concurrent._
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.DurationLong
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.reflect.ClassTag
 
 object ThreadUtil extends LoggingAdapter {
 
@@ -163,4 +166,12 @@ object ThreadUtil extends LoggingAdapter {
 
     throw new RuntimeException("Timed out waiting for result")
   }
+
+  // A helper method to ask an actor and wait for a response, great for testing
+  def awaitResponse[T: ClassTag](
+      actor: WookieeActor,
+      message: Any,
+      waitMs: Long = 5000L
+  ): T =
+    Await.result((actor ? message).mapTo[T], waitMs.millis)
 }

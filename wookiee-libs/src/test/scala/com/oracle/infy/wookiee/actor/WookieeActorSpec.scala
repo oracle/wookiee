@@ -192,7 +192,7 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
 
     "can return health" in {
       val actor = new WookieeActor {}
-      Await.result((actor ? CheckHealth).mapTo[HealthComponent], 3.seconds).state mustEqual ComponentState.NORMAL
+      ThreadUtil.awaitResponse[HealthComponent](actor, CheckHealth).state mustEqual ComponentState.NORMAL
     }
 
     "can become different states" in {

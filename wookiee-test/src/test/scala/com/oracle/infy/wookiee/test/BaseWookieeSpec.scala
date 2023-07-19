@@ -3,12 +3,10 @@ package com.oracle.infy.wookiee.test
 import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.Ready
 import com.oracle.infy.wookiee.service.meta.ServiceMetaDataV2
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.Inspectors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
-
-import scala.concurrent.Await
-import scala.concurrent.duration.DurationInt
 
 class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with Inspectors {
 
@@ -25,7 +23,7 @@ class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
         val testService = sysToUse.getService("testservice")
         assert(testService.isDefined, "Test service was not registered")
         val ready =
-          Await.result((testService.get.asInstanceOf[ServiceMetaDataV2].service ? Ready()).mapTo[Ready], 5.seconds)
+          ThreadUtil.awaitResponse[Ready](testService.get.asInstanceOf[ServiceMetaDataV2].service, Ready())
         ready shouldBe Ready()
       }
 
