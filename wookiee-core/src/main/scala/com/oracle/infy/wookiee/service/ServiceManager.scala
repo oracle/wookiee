@@ -17,11 +17,11 @@ package com.oracle.infy.wookiee.service
 
 import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
+import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.app.HarnessActor.{ConfigChange, SystemReady}
 import com.oracle.infy.wookiee.app.PrepareForShutdown
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
-import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.ServiceManager.{RestartService, ServicesReady}
 import com.oracle.infy.wookiee.service.messages.{LoadService, Ready}
 import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDataV2}
@@ -31,7 +31,20 @@ import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.jdk.CollectionConverters._
 
+object ServiceManager extends Mediator[ActorRef] {
+
+  val ServiceManagerName = "service-manager"
+
+  @SerialVersionUID(1L) case class ServicesReady()
+
+  @SerialVersionUID(2L) case class RestartService()
+
+  def props: Props = Props[ServiceManager]()
+
+}
+
 class ServiceManager extends PrepareForShutdown with ServiceLoader {
+  ServiceManager.registerMediator(context.system.settings.config, self)
   val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
   import context.dispatcher
@@ -150,16 +163,4 @@ class ServiceManager extends PrepareForShutdown with ServiceLoader {
       }
     }
   }
-}
-
-object ServiceManager extends LoggingAdapter {
-
-  val ServiceManagerName = "service-manager"
-
-  @SerialVersionUID(1L) case class ServicesReady()
-
-  @SerialVersionUID(2L) case class RestartService()
-
-  def props: Props = Props[ServiceManager]()
-
 }

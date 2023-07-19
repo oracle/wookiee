@@ -18,8 +18,10 @@ package com.oracle.infy.wookiee.test
 
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor.SystemReady
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.messages.StatusRequest
+import com.typesafe.config.Config
 
 import scala.concurrent.duration._
 
@@ -31,15 +33,13 @@ object TestComponent {
   * woods
   * 12/31/14
   */
-class TestComponent(name: String) extends Component(name) with ShutdownListener {
+class TestComponent(name: String, config: Config) extends ComponentV2(name, config) with ShutdownListener {
   implicit val timeout: Timeout = Timeout(2.seconds)
 
   /**
     * Components will typically receive a couple type of messages
     * 1. Start - Will execute after all components have loaded
     * 2. Stop - Will execute prior to shutdown of the harness
-    *
-    * @return
     */
   override def receive: Receive =
     (shutdownReceive orElse {
