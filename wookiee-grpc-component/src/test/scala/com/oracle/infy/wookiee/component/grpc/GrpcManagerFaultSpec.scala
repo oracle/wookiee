@@ -8,7 +8,7 @@ import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels._
 import com.oracle.infy.wookiee.health.ComponentState.ComponentState
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.typesafe.config.Config
@@ -45,7 +45,7 @@ class GrpcManagerFaultSpec
     zkServer.get().stop()
   }
 
-  override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
+  override def servicesMap: Option[Map[String, Class[_ <: WookieeService]]] =
     Some(
       Map(
         "test-fault-service" -> classOf[TestService]

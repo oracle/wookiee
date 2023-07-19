@@ -8,7 +8,7 @@ import com.oracle.infy.wookiee.component.grpc.utils.TestModels
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels._
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
@@ -39,7 +39,7 @@ class GrpcManagerSpec
     zkServer.stop()
   }
 
-  override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
+  override def servicesMap: Option[Map[String, Class[_ <: WookieeService]]] =
     Some(
       Map(
         "testservice" -> classOf[TestService]
