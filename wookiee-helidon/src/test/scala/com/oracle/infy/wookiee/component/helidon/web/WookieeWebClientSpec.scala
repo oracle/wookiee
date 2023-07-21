@@ -13,7 +13,8 @@ import io.helidon.webserver.{Handler, Routing, WebServer}
 import org.json4s.jackson.Serialization
 
 import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.Future
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration.DurationInt
 
 class WookieeWebClientSpec extends EndpointTestHelper {
   val proxyPort: Int = TestHarness.getFreePort
@@ -25,7 +26,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
 
     "handle a one-off" in {
       val jsonContent = """{"content":"test"}"""
-      val response = oneOff(s"http://localhost:$internalPort", "/basic/endpoint", "GET", "test")
+      val response = oneOff(s"http://localhost:$internalPort", "GET", "/basic/endpoint", "test")
       response.contentString() mustEqual jsonContent
       Serialization.write(response.contentJson()) mustEqual jsonContent
       response.code() mustEqual 200
@@ -33,14 +34,15 @@ class WookieeWebClientSpec extends EndpointTestHelper {
     }
 
     "handle a basic request in the client" in {
-      val response = webClient.request("/basic/endpoint", "GET")
+      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
       response.contentString() mustEqual """{"content":""}"""
       response.code() mustEqual 200
       response.headerMap()("Content-Type").head mustEqual "application/json"
     }
 
     "handle a basic object request in the client" in {
-      val response = WookieeWebClient.request(webClient.helidonClient, "/basic/endpoint", "GET", "test")
+      val response =
+        Await.result(WookieeWebClient.request(webClient.helidonClient, "GET", "/basic/endpoint", "test"), 5.seconds)
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
       response.headerMap()("Content-Type").head mustEqual "application/json"
@@ -49,7 +51,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
     "handle a proxy request in the client" in {
       val webClient = WookieeWebClient(s"http://localhost:$internalPort", Some(ProxyConfig("localhost", proxyPort)))
       val currentCount = requestsSeen.get()
-      val response = webClient.request("/basic/endpoint", "GET")
+      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
       response.code() mustEqual 404
       response.headerMap()("Content-Type").head mustEqual "text/plain"
       ThreadUtil.awaitEvent({ requestsSeen.get() > currentCount })
@@ -57,7 +59,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
 
     "allow extension of client like" in {
       val client = new WebClientMock
-      val response = client.request("/basic/endpoint", "GET")
+      val response = Await.result(client.request("GET", "/basic/endpoint"), 5.seconds)
       response.contentString() mustEqual "test"
     }
   }
@@ -110,15 +112,15 @@ object ProxyServer {
   class WebClientMock extends WebClientLike {
 
     override def request(
-        path: String,
         method: String,
+        path: String,
         content: String,
         queryParams: Map[String, String],
         headers: Map[String, String],
         log: Boolean,
         contentType: String
-    ): WookieeResponse =
-      WookieeResponse(Content("test"))
+    ): Future[WookieeResponse] =
+      Future.successful(WookieeResponse(Content("test")))
   }
 
   def handleProxy(
@@ -126,7 +128,7 @@ object ProxyServer {
   ): Handler = { (request, response) =>
     val reqContent = request.content().as(classOf[String]).await()
     val targetResponse =
-      oneOff(s"http://localhost:$targetPort", "/basic/endpoint", "GET", reqContent)
+      oneOff(s"http://localhost:$targetPort", "GET", "/basic/endpoint", reqContent)
     response.addHeader("Content-Type", "application/json")
     response.status(targetResponse.code()).send()
     ()

@@ -130,8 +130,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/api/test/endpoint",
           "GET",
+          "/api/test/endpoint",
           jsonPayload,
           Map()
         )
@@ -144,8 +144,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$externalPort",
-          "/api/test/endpoint",
           "GET",
+          "/api/test/endpoint",
           jsonPayload,
           Map()
         )
@@ -158,8 +158,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/endpoint",
           "POST",
+          "/basic/endpoint",
           jsonPayload,
           Map()
         )
@@ -172,8 +172,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/endpoint",
           "POST",
+          "/basic/endpoint",
           "parse-fail",
           Map()
         )
@@ -184,8 +184,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent2 = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/endpoint",
           "POST",
+          "/basic/endpoint",
           "business-fail",
           Map()
         )
@@ -196,8 +196,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent3 = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/endpoint",
           "POST",
+          "/basic/endpoint",
           "output-fail",
           Map()
         )
@@ -208,8 +208,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val content = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/endpoint",
           "POST",
+          "/basic/endpoint",
           "error-fail",
           Map()
         )
@@ -222,8 +222,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$externalPort",
-          "/api/segment/endpoint?query=param",
           "POST",
+          "/api/segment/endpoint?query=param",
           jsonPayload,
           Map("header" -> "value")
         )
@@ -249,8 +249,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/command",
           "GET",
+          "/basic/command",
           jsonPayload,
           Map()
         )
@@ -263,8 +263,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/basic/command",
           "GET",
+          "/basic/command",
           "fail",
           Map()
         )
@@ -300,8 +300,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
-          "/error/bomb",
           "GET",
+          "/error/bomb",
           "fail",
           Map()
         )
@@ -314,8 +314,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$internalPort",
-          "/does/not/exist",
           "GET",
+          "/does/not/exist",
           "fail",
           Map()
         )

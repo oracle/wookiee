@@ -2,7 +2,9 @@ package com.oracle.infy.wookiee.component.helidon.web.client
 
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.ProxyConfig
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
+import com.oracle.infy.wookiee.component.helidon.web.util.HelidonUtil
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import io.helidon.common.http.DataChunk
 import io.helidon.common.reactive.Single
 import io.helidon.webclient.Proxy.ProxyType
@@ -10,6 +12,8 @@ import io.helidon.webclient.{Proxy, WebClient, WebClientRequestBuilder, WebClien
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
+import scala.concurrent.duration.{Duration, DurationInt}
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
 
 // Useful client for interacting with any endpoint, powered by Helidon
@@ -20,29 +24,31 @@ object WookieeWebClient {
   // Not super performant since it has to build the client each time
   def oneOff(
       host: String,
-      path: String,
       method: String,
+      path: String,
       payload: String,
-      headers: Map[String, String] = Map()
+      headers: Map[String, String] = Map(),
+      timeout: Duration = 15.seconds
   ): WookieeResponse = {
     // This client doesn't need to be shutdown
     val client = WebClient
       .builder()
       .baseUri(host)
       .build()
+    implicit val ec: ExecutionContext = ExecutionContext.global
 
-    request(client, path, method, payload, headers, getQueryParams(path))
+    Await.result(request(client, method, path, payload, headers, getQueryParams(path)), timeout)
   }
 
   // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
   def request(
       client: WebClient,
-      path: String,
       method: String,
+      path: String,
       payload: String,
       headers: Map[String, String] = Map(),
       queryParams: Map[String, String] = Map()
-  ): WookieeResponse = {
+  )(implicit ec: ExecutionContext): Future[WookieeResponse] = {
     val withHeaders =
       headers.foldLeft(methodRequested(client, method))((builder, header) => builder.addHeader(header._1, header._2))
     val withQueryParams =
@@ -53,22 +59,25 @@ object WookieeWebClient {
     val responseRef = new AtomicReference[WebClientResponse]()
     val data = DataChunk.create(payload.getBytes(StandardCharsets.UTF_8))
 
-    val _ = withQueryParams
-      .path(path)
-      .submit(Single.just(data)) // submit the payload here
-      .thenAccept(response => {
-        responseRef.set(response) // store the response
-      })
-      .await()
-
-    val resp = responseRef.get() // return the stored response
-
-    WookieeResponse(
-      Content(resp.content().as(classOf[String]).await()),
-      StatusCode(resp.status().code()),
-      headerConversion(resp),
-      resp.headers().value("Content-Type").orElse("application/json")
+    val future = HelidonUtil.completionToFuture(
+      withQueryParams
+        .path(path)
+        .submit(Single.just(data)) // submit the payload here
+        .thenAccept(response => {
+          responseRef.set(response) // store the response
+        })
     )
+
+    future.map(_ => {
+      val resp = responseRef.get() // return the stored response
+
+      WookieeResponse(
+        Content(resp.content().as(classOf[String]).await()),
+        StatusCode(resp.status().code()),
+        headerConversion(resp),
+        resp.headers().value("Content-Type").orElse("application/json")
+      )
+    })
   }
 
   // Useful method to get the actual content from a response
@@ -116,19 +125,20 @@ object WookieeWebClient {
 trait WebClientLike {
 
   def request(
-      path: String,
       method: String,
+      path: String,
       content: String = "",
       queryParams: Map[String, String] = Map(),
       headers: Map[String, String] = Map(),
       log: Boolean = true,
       contentType: String = "application/json"
-  ): WookieeResponse
+  ): Future[WookieeResponse]
 }
 
 case class WookieeWebClient(baseUri: String, proxyConfig: Option[ProxyConfig] = None)
     extends WebClientLike
     with LoggingAdapter {
+  implicit val ec: ExecutionContext = ThreadUtil.createEC("wookiee-webclient")
 
   protected[wookiee] val helidonClient: WebClient =
     (proxyConfig match {
@@ -146,21 +156,21 @@ case class WookieeWebClient(baseUri: String, proxyConfig: Option[ProxyConfig] = 
 
   // Can make any request using the Helidon WebClient
   override def request(
-      path: String, // The path to the endpoint (e.g. '/api/v1/endpoint')
       method: String, // GET, POST, PUT, etc.
+      path: String, // The path to the endpoint (e.g. '/api/v1/endpoint')
       content: String = "", // Payload, can be empty
       queryParams: Map[String, String] = Map(), // Will be appended to the path
       headers: Map[String, String] = Map(), // Headers to be sent with the request
       log: Boolean = true,
       contentType: String = "application/json"
-  ): WookieeResponse = {
+  ): Future[WookieeResponse] = {
     if (log) this.log.info(s"Sending [$method] to: [$path] with: [$content]")
     val withContentType = if (headers.contains("Content-Type")) headers else headers + ("Content-Type" -> contentType)
 
     WookieeWebClient.request(
       helidonClient,
-      path,
       method,
+      path,
       if (content == null) "" else content,
       withContentType,
       queryParams

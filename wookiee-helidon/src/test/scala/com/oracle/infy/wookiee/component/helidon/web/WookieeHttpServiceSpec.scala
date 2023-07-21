@@ -29,8 +29,8 @@ class WookieeHttpServiceSpec extends AnyWordSpec with Matchers with BaseWookieeT
     getContent(
       oneOff(
         s"http://localhost:$internalPort",
-        path,
         "GET",
+        path,
         "",
         Map()
       )

@@ -80,8 +80,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$internalPort",
-          "/api/v1/endpoint",
           "OPTIONS",
+          "/api/v1/endpoint",
           """{"key":"value"}""",
           Map()
         )
@@ -95,8 +95,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$internalPort",
-          "/api/v1/endpoint",
           "OPTIONS",
+          "/api/v1/endpoint",
           """{"key":"value"}""",
           Map("Access-Control-Request-Headers" -> "valid-header-1,valid-header-2,invalid-header-1")
         )
@@ -111,8 +111,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$externalPort",
-          "/api/v1/endpoint",
           "OPTIONS",
+          "/api/v1/endpoint",
           """{"key":"value"}""",
           Map("Origin" -> "http://origin.safe")
         )
@@ -125,8 +125,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$externalPort",
-          "/api/v1/endpoint",
           "OPTIONS",
+          "/api/v1/endpoint",
           """{"key":"value"}""",
           Map("Origin" -> "http://bad.news")
         )
@@ -139,8 +139,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$externalPort",
-          "/api/v1/endpoint",
           "OPTIONS",
+          "/api/v1/endpoint",
           """{"key":"value"}""",
           Map("Origin" -> "http://origin.safe")
         )
@@ -153,8 +153,8 @@ class CORSSpec extends EndpointTestHelper {
       val response =
         oneOff(
           s"http://localhost:$externalPort",
-          "/ws/cors",
           "OPTIONS",
+          "/ws/cors",
           """{"key":"value"}""",
           Map("Origin" -> "http://origin.safe", "Access-Control-Request-Headers" -> "Header-1,Header-2,Bad-Header")
         )
