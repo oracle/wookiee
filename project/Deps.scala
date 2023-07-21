@@ -186,7 +186,7 @@ object Deps {
 
     val wookieeHelidon: Seq[ModuleID] = Seq(
       test.scalatest
-    ) ++ helidon ++ tyrus
+    ) ++ helidon ++ tyrus ++ json4sLibs
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,

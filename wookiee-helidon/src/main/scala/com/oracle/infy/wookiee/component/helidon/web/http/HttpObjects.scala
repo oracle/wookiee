@@ -1,5 +1,8 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
+import org.json4s.JValue
+import org.json4s.jackson.JsonMethods.parse
+
 import java.nio.charset.Charset
 
 object HttpObjects {
@@ -68,6 +71,9 @@ object HttpObjects {
   ) {
     private val createdTime: Long = System.currentTimeMillis()
     def getCreatedTime: Long = createdTime
+
+    def contentString(): String = content.asString
+    def headerMap(): Map[String, List[String]] = headers.mappings
   }
 
   // Object holding all of the response information
@@ -77,5 +83,10 @@ object HttpObjects {
       headers: Headers = Headers(),
       // If specified in `headers`, that value will take precedence
       contentType: String = "application/json"
-  )
+  ) {
+    def code(): Int = statusCode.code
+    def contentString(): String = content.asString
+    def headerMap(): Map[String, List[String]] = headers.mappings
+    def contentJson(): JValue = parse(contentString())
+  }
 }

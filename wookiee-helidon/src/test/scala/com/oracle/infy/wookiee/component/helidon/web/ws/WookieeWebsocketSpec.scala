@@ -294,7 +294,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         Map()
       )
 
-      result.status.code() mustBe 404
+      result.code() mustBe 404
     }
 
     "handle upgrade request failures gracefully" in {

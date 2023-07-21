@@ -9,6 +9,7 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
 import com.oracle.infy.wookiee.component.helidon.web.http.{HttpCommand, HttpObjects}
+import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
 import scala.concurrent.Future
@@ -233,8 +234,13 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
     "check client can parse all method types" in {
       val methods = List("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "OTHER")
+      val client = WebClient
+        .builder()
+        .baseUri(s"http://localhost:$externalPort")
+        .build()
+
       methods.foreach { method =>
-        methodRequested("localhost", method)
+        methodRequested(client, method)
         "passed" mustEqual "passed"
       }
     }
@@ -269,6 +275,8 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
     "gets coverage on case class objects" in {
       val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers(Map()))
+      req.contentString() mustEqual "test"
+      req.headerMap() mustEqual Map()
       WookieeRequest.unapply(req) must not be None
 
       val cors = AllowSome(List())
@@ -283,6 +291,9 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
       val con = Content("test")
       Content.unapply(con) must not be None
+
+      val pConf = ProxyConfig("test", 1234)
+      ProxyConfig.unapply(pConf) must not be None
     }
 
     "hit error handling in handler for commands" in {
@@ -310,7 +321,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
         )
 
       getContent(response) mustBe "Endpoint not found."
-      response.status().code() mustEqual 404
+      response.code() mustEqual 404
     }
   }
 }
