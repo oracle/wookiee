@@ -41,7 +41,10 @@ class WookieeWebClientSpec extends EndpointTestHelper {
     }
 
     "handle a basic byte request in the client" in {
-      val response = Await.result(WookieeWebClient.request(webClient.getClient, "GET", "/basic/endpoint", "test".getBytes), 5.seconds)
+      val response = Await.result(
+        WookieeWebClient.request(webClient.getClient, "GET", "/basic/endpoint", "test".getBytes),
+        5.seconds
+      )
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
       response.headerMap()("Content-Type").head mustEqual "application/json"
