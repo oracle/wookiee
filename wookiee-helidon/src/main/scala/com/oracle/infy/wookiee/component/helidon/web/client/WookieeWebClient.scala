@@ -40,14 +40,37 @@ object WookieeWebClient {
     Await.result(request(client, method, path, payload, headers, getQueryParams(path)), timeout)
   }
 
+  def request(client: WebClient, method: String, path: String, payload: String)(
+      implicit ec: ExecutionContext
+  ): Future[WookieeResponse] =
+    request(client, method, path, payload, Map(), Map())
+
   // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
   def request(
       client: WebClient,
       method: String,
       path: String,
       payload: String,
-      headers: Map[String, String] = Map(),
-      queryParams: Map[String, String] = Map()
+      headers: Map[String, String],
+      queryParams: Map[String, String]
+  )(
+      implicit ec: ExecutionContext
+  ): Future[WookieeResponse] =
+    request(client, method, path, payload.getBytes(StandardCharsets.UTF_8), headers, queryParams)
+
+  def request(client: WebClient, method: String, path: String, payload: Array[Byte])(
+      implicit ec: ExecutionContext
+  ): Future[WookieeResponse] =
+    request(client, method, path, payload, Map(), Map())
+
+  // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
+  def request(
+      client: WebClient,
+      method: String,
+      path: String,
+      payload: Array[Byte],
+      headers: Map[String, String],
+      queryParams: Map[String, String]
   )(implicit ec: ExecutionContext): Future[WookieeResponse] = {
     val withHeaders =
       headers.foldLeft(methodRequested(client, method))((builder, header) => builder.addHeader(header._1, header._2))
@@ -57,7 +80,7 @@ object WookieeWebClient {
       )
 
     val responseRef = new AtomicReference[WebClientResponse]()
-    val data = DataChunk.create(payload.getBytes(StandardCharsets.UTF_8))
+    val data = DataChunk.create(payload)
 
     val future = HelidonUtil.completionToFuture(
       withQueryParams
@@ -153,6 +176,8 @@ case class WookieeWebClient(baseUri: String, proxyConfig: Option[ProxyConfig] = 
           .builder()
     }).baseUri(baseUri)
       .build()
+
+  def getClient: WebClient = helidonClient
 
   // Can make any request using the Helidon WebClient
   override def request(
