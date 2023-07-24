@@ -56,15 +56,15 @@ object WookieeWebClient {
   )(
       implicit ec: ExecutionContext
   ): Future[WookieeResponse] =
-    request(client, method, path, payload.getBytes(StandardCharsets.UTF_8), headers, queryParams)
+    requestAndRespond(client, method, path, payload.getBytes(StandardCharsets.UTF_8), headers, queryParams)
 
   def request(client: WebClient, method: String, path: String, payload: Array[Byte])(
       implicit ec: ExecutionContext
   ): Future[WookieeResponse] =
-    request(client, method, path, payload, Map(), Map())
+    requestAndRespond(client, method, path, payload, Map(), Map())
 
   // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
-  def request(
+  def requestAndRespond(
       client: WebClient,
       method: String,
       path: String,
