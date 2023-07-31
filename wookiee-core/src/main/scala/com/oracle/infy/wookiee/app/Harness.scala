@@ -61,7 +61,7 @@ object Harness extends Mediator[HarnessMeta] with LoggingAdapter {
   /**
     * Force a shutdown of the ActorSystem and the application's process, if port = None will shutdown all.
     */
-  def shutdown()(implicit system: ActorSystem): Unit = {
+  def shutdown(implicit system: ActorSystem): Unit = {
     log.info("Shutting down Wookiee")
     new Thread("lifecycle") {
       override def run(): Unit = {
@@ -70,6 +70,11 @@ object Harness extends Mediator[HarnessMeta] with LoggingAdapter {
         }
       }
     }.start()
+  }
+
+  def shutdown(implicit config: Config): Unit = {
+    val actorSystem = HarnessActor.getMediator(config)
+    shutdown(actorSystem)
   }
 
   /**

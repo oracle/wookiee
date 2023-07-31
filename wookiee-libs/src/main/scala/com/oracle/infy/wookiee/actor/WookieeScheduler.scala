@@ -13,7 +13,9 @@ trait WookieeScheduler {
   private val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
   // This function provides a non-blocking "sleep" by scheduling the completion of a Promise
-  private def sleep(duration: FiniteDuration): Future[Unit] = {
+  // Note that it uses a single-threaded executor, so functions scheduled with this method
+  // should not block (unless you want them to)
+  def sleep(duration: FiniteDuration): Future[Unit] = {
     val p = Promise[Unit]()
     timer.schedule(new Runnable {
       def run(): Unit = {
@@ -48,9 +50,7 @@ trait WookieeScheduler {
   }
 
   def scheduleOnce(delay: FiniteDuration)(f: => Unit): Unit =
-    scheduleOnce(delay, new Runnable {
-      override def run(): Unit = f
-    })
+    scheduleOnce(delay, () => f)
 
   def scheduleOnce(delay: FiniteDuration, runnable: Runnable): Unit = {
     // Create a non-blocking delay, after which execute the given Runnable task
