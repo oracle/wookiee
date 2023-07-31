@@ -317,7 +317,7 @@ class ComponentManager extends PrepareForShutdown {
   private def shutdownOnFailure(): Unit = ComponentManager.failedComponents match {
     case Some(n) =>
       log.error(s"Failed to load component [$n]")
-      Harness.shutdown()(context.system)
+      Harness.shutdown(config)
     case None => //ignore
   }
 
@@ -365,7 +365,7 @@ class ComponentManager extends PrepareForShutdown {
         case t: Throwable =>
           log.error("Error loading the component actors", t)
           // if the components failed to load then we will need to shutdown the system
-          Harness.shutdown()(context.system)
+          Harness.shutdown(config)
       }
     }
     ()
@@ -560,7 +560,7 @@ class ComponentManager extends PrepareForShutdown {
       validateComponentStartup()
     } else {
       log.info("Failed to startup components: " + ComponentManager.componentsForSystem.toString())
-      Harness.shutdown()(system)
+      Harness.shutdown(config)
     }
   }
 

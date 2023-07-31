@@ -20,7 +20,11 @@ object HttpObjects {
 
   case class EndpointOptions(
       defaultHeaders: Headers = Headers(Map()), // Will show up on all responses
-      allowedHeaders: Option[CorsWhiteList] = None // CORS will report these as available headers, or all if empty
+      allowedHeaders: Option[CorsWhiteList] = None, // CORS will report these as available headers, or all if empty
+      routeTimerLabel: Option[String] = None, // Functional and Object Oriented: Time of entire request
+      requestHandlerTimerLabel: Option[String] = None, // Functional only: Time of requestHandler
+      businessLogicTimerLabel: Option[String] = None, // Functional only: Time of businessLogic
+      responseHandlerTimerLabel: Option[String] = None // Functional only: Time of responseHandler
   )
 
   // The headers that are allowed for a particular endpoint

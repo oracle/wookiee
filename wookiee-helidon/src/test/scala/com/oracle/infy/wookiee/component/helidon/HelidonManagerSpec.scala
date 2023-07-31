@@ -54,7 +54,13 @@ class HelidonManagerSpec extends EndpointTestHelper {
       }, { throwable =>
         if (throwable.getMessage.equals("fail=error")) throw new Exception("fail=error")
         else WookieeResponse(Content(throwable.getMessage))
-      }
+      },
+      endpointOptions = EndpointOptions(
+        routeTimerLabel = Some("route-timer"),
+        requestHandlerTimerLabel = Some("request-handler-timer"),
+        businessLogicTimerLabel = Some("business-logic-timer"),
+        responseHandlerTimerLabel = Some("response-handler-timer")
+      )
     )
 
     WookieeEndpoints.registerEndpoint[InputObject, OutputObject](

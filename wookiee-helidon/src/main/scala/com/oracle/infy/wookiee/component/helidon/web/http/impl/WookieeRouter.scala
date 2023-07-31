@@ -1,10 +1,10 @@
 package com.oracle.infy.wookiee.component.helidon.web.http.impl
 
-import com.oracle.infy.wookiee.component.helidon.web.AccessLog
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
 import com.oracle.infy.wookiee.component.helidon.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
+import com.oracle.infy.wookiee.component.helidon.web.{AccessLog, WookieeEndpoints}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import io.helidon.webserver._
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
@@ -112,8 +112,9 @@ object WookieeRouter extends LoggingAdapter {
                   Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
                 )
 
-                command
-                  .execute(wookieeRequest) // main business logic
+                // Main execution logic for this HTTP command
+                WookieeEndpoints
+                  .maybeTimeF(command.endpointOptions.routeTimerLabel, command.execute(wookieeRequest))
                   .map {
                     response =>
                       val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings

@@ -12,6 +12,7 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{
 }
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{WebsocketHandler, handlerFromCommand}
 import com.oracle.infy.wookiee.component.helidon.web.ws.{WebsocketInterface, WookieeWebsocket}
+import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
 import com.typesafe.config.Config
 
 import javax.websocket.Session
@@ -80,9 +81,17 @@ object WookieeEndpoints {
       override def endpointOptions: EndpointOptions = cmdOptions
 
       override def execute(input: WookieeRequest): Future[WookieeResponse] = {
-        requestHandler(input)
-          .flatMap(businessLogic)
-          .map(responseHandler)
+        maybeTimeF(endpointOptions.requestHandlerTimerLabel, requestHandler(input))
+          .flatMap(input => maybeTimeF(endpointOptions.businessLogicTimerLabel, businessLogic(input)))
+          .map(
+            output =>
+              endpointOptions
+                .responseHandlerTimerLabel
+                .map(label => {
+                  TimerStopwatch.tryWrapper(label)(responseHandler(output))
+                })
+                .getOrElse(responseHandler(output))
+          )
       }
     }
 
@@ -149,5 +158,18 @@ object WookieeEndpoints {
       "WS",
       WebsocketHandler(helidonWebsocket)
     )
+  }
+
+  protected[oracle] def maybeTimeF[T](timerLabel: Option[String], toRun: => Future[T])(
+      implicit ec: ExecutionContext
+  ): Future[T] = {
+    timerLabel match {
+      case Some(label) =>
+        TimerStopwatch.futureWrapper(label)({
+          toRun
+        })
+      case None =>
+        toRun
+    }
   }
 }
