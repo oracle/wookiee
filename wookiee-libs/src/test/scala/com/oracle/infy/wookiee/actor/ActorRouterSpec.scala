@@ -1,12 +1,15 @@
 package com.oracle.infy.wookiee.actor
 
 import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.health.ComponentState
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.duration.DurationInt
 
 class ActorRouterSpec extends AnyWordSpec with Matchers {
   "Wookiee Actor Router" should {
@@ -16,11 +19,12 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
       val router = WookieeActor.withRouter(new WookieeActor {
         val thisActorNum: Int = actorNum.getAndIncrement()
 
-        override def receive: Receive = {
+        override def receive: Receive = super.receive orElse {
           case _ =>
             seenMessages(thisActorNum) = true
         }
       })
+      Await.result(router.checkHealth, 5.seconds).state mustEqual ComponentState.NORMAL
       1.to(5).foreach(_ => router ! "test")
       ThreadUtil.awaitEvent(seenMessages.forall(_ == true))
     }
@@ -31,7 +35,7 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
       val router = WookieeActor.withRouter(new WookieeActor {
         val thisActorNum: Int = actorNum.getAndIncrement()
 
-        override def receive: Receive = {
+        override def receive: Receive = super.receive orElse {
           case _ =>
             sender() ! thisActorNum
         }

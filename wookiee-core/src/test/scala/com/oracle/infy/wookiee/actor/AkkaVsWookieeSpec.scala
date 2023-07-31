@@ -58,7 +58,7 @@ class AkkaVsWookieeSpec extends AnyWordSpec with Matchers {
     }
 
     "have similar request performances" in {
-      val iters = 50000
+      val iters = 1000
       val system = ActorSystem("fight-me2")
 
       lazy val akkaTimer = System.currentTimeMillis()

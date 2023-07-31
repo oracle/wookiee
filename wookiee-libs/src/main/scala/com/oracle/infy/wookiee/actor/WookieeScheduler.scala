@@ -3,14 +3,14 @@ package com.oracle.infy.wookiee.actor
 import com.oracle.infy.wookiee.utils.{ClassUtil, ThreadUtil}
 
 import java.util.concurrent.{Executors, ScheduledExecutorService}
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.{ExecutionContext, Future, Promise}
 
 trait WookieeScheduler {
 
-  private implicit val schedulerEc: ExecutionContext =
+  private implicit lazy val schedulerEc: ExecutionContext =
     ThreadUtil.createEC(s"wookiee-scheduler-${ClassUtil.getSimpleNameSafe(getClass)}")
-  private val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+  private lazy val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
 
   // This function provides a non-blocking "sleep" by scheduling the completion of a Promise
   // Note that it uses a single-threaded executor, so functions scheduled with this method

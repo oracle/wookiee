@@ -27,5 +27,6 @@ class RoundRobinRouter(routees: Int) extends WookieeActorRouter {
   }
 
   // Asks a random routee for its health
-  override protected def getHealth: Future[HealthComponent] = ?(CheckHealth).mapTo[HealthComponent]
+  override protected def getHealth: Future[HealthComponent] =
+    ?(CheckHealth).mapTo[HealthComponent]
 }

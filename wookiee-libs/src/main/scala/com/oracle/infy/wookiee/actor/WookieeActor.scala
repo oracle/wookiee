@@ -25,8 +25,6 @@ object WookieeActor {
     router
   }
 
-  protected[oracle] val futureExecutor: ExecutionContext = ThreadUtil.createEC("WookieeActorFutureExecutor")
-
   // Used by the ask (?) method to intercept the reply and use it to complete our Future
   protected[oracle] case class AskInterceptor(promise: Promise[Any], theSender: Option[WookieeActor])
       extends WookieeActor {
@@ -55,7 +53,7 @@ object WookieeActor {
 trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeScheduler with WookieeDefaultMailbox {
   // Used to send this actor along as the sender() in classic actor methods
   implicit val thisActor: WookieeActor = this
-  implicit val ec: ExecutionContext = futureExecutor
+  implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-actor${if (name.nonEmpty) s"-$name" else ""}")
   private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
@@ -65,6 +63,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
 
   // Classic receive method that will take in messages of any type, one at a time (unless
   // one enters a Future during execution which will cause the next message to begin processing).
+  // For health checks to work, be sure to override with super.receive orElse { ... }
   protected def receive: Receive = health
 
   // Used to swap out the function that constitutes the receive method, useful for changing states
@@ -103,7 +102,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
     })
   }
 
-  private val stashQueue = new ConcurrentLinkedQueue[(Any, WookieeActor)]()
+  private lazy val stashQueue = new ConcurrentLinkedQueue[(Any, WookieeActor)]()
 
   // Stashes messages into a separate queue to be processed later
   // Note that the queue is unbounded so eventually you'll have to unstash or face a memory leak
