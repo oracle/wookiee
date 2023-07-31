@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.service.messages._
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
@@ -100,6 +101,23 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
             log.error("WA501: Error in processing of message", ex)
         }
     })
+  }
+
+  private val stashQueue = new ConcurrentLinkedQueue[(Any, WookieeActor)]()
+
+  // Stashes messages into a separate queue to be processed later
+  protected def stash(message: Any)(implicit sender: WookieeActor = null): Unit = {
+    stashQueue.offer((message, sender))
+    ()
+  }
+
+  // Empty the stash queue into the main messages queue
+  protected def unstashAll(): Unit = lockedOperation {
+    var stashed = Option(stashQueue.poll())
+    while (stashed.isDefined) {
+      stashed.foreach(msg => this.!(msg._1)(msg._2))
+      stashed = Option(stashQueue.poll())
+    }
   }
 
   // Always add this to your receive method to enable health checks

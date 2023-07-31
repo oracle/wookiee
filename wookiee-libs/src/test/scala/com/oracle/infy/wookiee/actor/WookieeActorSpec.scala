@@ -214,6 +214,35 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       state mustEqual "changed"
     }
 
+    "stash and unstash messages" in {
+      val iters = 100
+      var iter = 0
+      var inOrder = true
+      val actor: WookieeActor = new WookieeActor {
+        def process: Receive = {
+          case i: Int =>
+            inOrder = inOrder && i == iter
+            iter += 1
+        }
+
+        override protected def receive: Receive = {
+          case i: Int =>
+            stash(i)
+          case "unstash" =>
+            become(process)
+            unstashAll()
+        }
+      }
+
+      // Send events and ensure they are received in order
+      0.until(iters).foreach(i => actor ! i)
+      actor ! "unstash"
+      ThreadUtil.awaitEvent({
+        iters - 1 <= iter
+      })
+      inOrder mustEqual true
+    }
+
     "unapply on interceptor" in {
       val inter = AskInterceptor(Promise[Any](), None)
       AskInterceptor.unapply(inter).isDefined mustEqual true
