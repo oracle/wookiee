@@ -91,7 +91,7 @@ case class InternalAkkaHttpActor(port: Int, interface: String, httpsPort: Option
         }
       } ~
         path("shutdown") {
-          Harness.shutdown()(system)
+          Harness.shutdown(config)
           complete(s"The system is being shutdown: ${new DateTime(System.currentTimeMillis(), DateTimeZone.UTC)}")
         } ~
         path("restart") {
