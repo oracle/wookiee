@@ -106,6 +106,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
   private val stashQueue = new ConcurrentLinkedQueue[(Any, WookieeActor)]()
 
   // Stashes messages into a separate queue to be processed later
+  // Note that the queue is unbounded so eventually you'll have to unstash or face a memory leak
   protected def stash(message: Any)(implicit sender: WookieeActor = null): Unit = {
     stashQueue.offer((message, sender))
     ()
