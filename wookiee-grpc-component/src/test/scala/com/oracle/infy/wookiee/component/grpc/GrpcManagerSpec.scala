@@ -112,9 +112,10 @@ class GrpcManagerSpec
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "", None, 10000000)
       try {
         val stub = new GrpcMockStub(channel.managedChannel)
-        val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
-
-        resultBig.getValue shouldEqual s"$stringBig:GrpcServiceFour"
+        ThreadUtil.awaitEvent({
+          val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
+          resultBig.getValue.equals(s"$stringBig:GrpcServiceFour")
+        })
       } finally channel.shutdown(true).unsafeRunSync()
     }
 

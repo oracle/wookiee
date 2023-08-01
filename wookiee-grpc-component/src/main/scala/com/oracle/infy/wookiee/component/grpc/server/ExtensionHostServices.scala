@@ -55,7 +55,7 @@ trait ExtensionHostServices extends LoggingAdapter {
   ): CuratorFramework = {
     val retryPeriod = Try(hostConfig.getInt(s"${GrpcManager.ComponentName}.grpc.zk-retry-period-sec"))
       .getOrElse(15000)
-    log.info(s"EHS101: Creating and starting curator framework with retry period of $retryPeriod seconds")
+    log.debug(s"EHS101: Creating and starting curator framework with retry period of $retryPeriod seconds")
 
     val newCurator = GRPCUtils
       .curatorFramework(

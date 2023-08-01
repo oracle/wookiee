@@ -38,9 +38,9 @@ final class WookieeGrpcServer(
 
   def shutdown(): IO[Unit] =
     for {
-      _ <- logger.info("WGS300: Stopping load writing process...")
+      _ <- logger.debug("WGS300: Stopping load writing process...")
       _ <- fiber.cancel
-      _ <- logger.info("WGS401: Shutting down gRPC server...")
+      _ <- logger.debug("WGS401: Shutting down gRPC server...")
       _ <- IO.blocking(server.shutdown())
       _ <- IO(server.awaitTermination())
       _ <- IO(bossEventLoop.shutdownGracefully())
@@ -82,7 +82,7 @@ object WookieeGrpcServer {
       server <- buildServer(serverSettings, host, bossEventLoop, workerEventLoop)
       _ <- IO.blocking { server.start() }
       _ <- logger.info("WGS100: gRPC server started...")
-      _ <- logger.info("WGS101: Registering gRPC server in zookeeper...")
+      _ <- logger.debug("WGS101: Registering gRPC server in zookeeper...")
       queue <- serverSettings.queue
       quarantined <- serverSettings.quarantined
       // Create an object that stores whether or not the server is quarantined.
@@ -181,7 +181,7 @@ object WookieeGrpcServer {
               )
         }
 
-      _ <- logger.info("WGS93: Successfully built gRPC server")
+      _ <- logger.debug("WGS93: Successfully built gRPC server")
       server <- IO { builder3.build() }
 
     } yield server
