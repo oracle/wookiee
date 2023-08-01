@@ -1,11 +1,11 @@
 package com.oracle.infy.wookiee.health
 
+import com.oracle.infy.wookiee.actor.WookieeScheduler
 import com.oracle.infy.wookiee.component.ComponentInfo
 import com.oracle.infy.wookiee.logging.LoggingAdapter
-import com.oracle.infy.wookiee.utils.ClassUtil
+import com.oracle.infy.wookiee.utils.{ClassUtil, ThreadUtil}
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.{Failure, Success}
 
 /**
@@ -14,9 +14,11 @@ import scala.util.{Failure, Success}
   * of Component/Service extensions you can mix this trait into any class to enable health checks
   * as long as that class is in the chain of classes that link down from `getDependentHealths`.
   */
-trait WookieeMonitor extends LoggingAdapter {
+trait WookieeMonitor extends WookieeScheduler with LoggingAdapter {
   // Override this with the name of the health component to show up in the check
   val name: String = ClassUtil.getSimpleNameSafe(this.getClass)
+  // One global thread pool for monitor and actor tasks
+  implicit val ec: ExecutionContext = WookieeMonitor.ec
 
   /**
     * Only hit automatically within Component and Service classes
@@ -166,4 +168,8 @@ trait WookieeMonitor extends LoggingAdapter {
       case ex: Throwable =>
         log.error(s"WM404: Unexpected exception in [$name]: $errorMsg", ex)
     }
+}
+
+object WookieeMonitor {
+  private lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-monitor-ec")
 }

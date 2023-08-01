@@ -4,7 +4,6 @@ import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommand
 import com.typesafe.config.Config
 
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 object InternalDiscoverableCommand {

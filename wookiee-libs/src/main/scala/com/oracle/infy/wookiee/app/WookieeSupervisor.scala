@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.app
 
 import com.oracle.infy.wookiee.Mediator
+import com.oracle.infy.wookiee.actor.WookieeScheduler
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.health.WookieeMonitor
@@ -11,6 +12,7 @@ import java.nio.file.FileSystems
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.ExecutionContext
 import scala.io.Source
+import scala.util.Try
 import scala.util.control.Exception.allCatch
 
 object WookieeSupervisor extends Mediator[WookieeSupervisor] {
@@ -148,6 +150,9 @@ class WookieeSupervisor(config: Config)(implicit ec: ExecutionContext) extends W
 
   def startSupervising(): Unit = {
     log.info("Starting to supervise critical constituents of Wookiee..")
+    // Set the thread pool size for the scheduler
+    WookieeScheduler.setThreads(Try(config.getInt("execution.scheduled-thread-pool-size")).getOrElse(32))
+    // Initialize the Command Executive
     val wookieeCommandManager = new WookieeCommandExecutive("wookiee-commands", config)
     healthComponents.put(wookieeCommandManager.name, wookieeCommandManager)
     log.info("Wookiee now under supervision")

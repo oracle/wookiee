@@ -5,6 +5,7 @@ import com.oracle.infy.wookiee.service.messages.CheckHealth
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.Future
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 // Create this through the WookieeActor.withRouter method
 // This router will route messages to the routees in a round robin fashion
@@ -16,14 +17,16 @@ class RoundRobinRouter(routees: Int) extends WookieeActorRouter {
   override def initialize(actorMaker: => WookieeActor): Unit =
     routeeActors = Array.fill(routees)(actorMaker)
 
-  override def !(message: Any)(implicit sender: WookieeActor = null): Unit = {
+  override def !(message: Any)(implicit sender: WookieeActor = noSender): Unit = {
     val i = currentRoutee.getAndUpdate(old => (old + 1) % routees)
     routeeActors(i).!(message)(sender)
   }
 
-  override def ?(message: Any)(implicit sender: WookieeActor = null): Future[Any] = {
+  override def ?(
+      message: Any
+  )(implicit timeout: FiniteDuration = 60.seconds, sender: WookieeActor = noSender): Future[Any] = {
     val i = currentRoutee.getAndUpdate(old => (old + 1) % routees)
-    routeeActors(i).?(message)(sender)
+    routeeActors(i).?(message)(timeout, sender)
   }
 
   // Asks a random routee for its health

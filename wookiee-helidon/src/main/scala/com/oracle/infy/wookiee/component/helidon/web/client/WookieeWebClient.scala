@@ -29,13 +29,12 @@ object WookieeWebClient {
       payload: String,
       headers: Map[String, String] = Map(),
       timeout: Duration = 15.seconds
-  ): WookieeResponse = {
+  )(implicit ec: ExecutionContext = ExecutionContext.global): WookieeResponse = {
     // This client doesn't need to be shutdown
     val client = WebClient
       .builder()
       .baseUri(host)
       .build()
-    implicit val ec: ExecutionContext = ExecutionContext.global
 
     Await.result(request(client, method, path, payload, headers, getQueryParams(path)), timeout)
   }

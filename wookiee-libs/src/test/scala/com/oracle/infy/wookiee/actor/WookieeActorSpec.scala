@@ -7,7 +7,8 @@ import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import scala.concurrent.duration.DurationInt
+import java.util.concurrent.TimeoutException
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, Future, Promise}
 
 class WookieeActorSpec extends AnyWordSpec with Matchers {
@@ -45,6 +46,7 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       actor.start()
       actor.prepareForShutdown()
 
+      actor.path mustEqual actor.name
       started mustEqual true
       stopped mustEqual true
     }
@@ -155,7 +157,21 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
       actor ! "pipe"
     }
 
+    "can time out gracefully during requests" in {
+      val actor = new WookieeActor {
+        override def receive: Receive = {
+          case _ =>
+            Thread.sleep(50000L)
+        }
+      }
+      implicit val timeout: FiniteDuration = 100.millis
+      intercept[TimeoutException] {
+        Await.result(actor ? "test", 5.seconds)
+      }
+    }
+
     "can schedule single events and get them" in {
+      WookieeScheduler.setThreads(32)
       var messageReceived = false
       val actor = new WookieeActor {
         override def receive: Receive = {

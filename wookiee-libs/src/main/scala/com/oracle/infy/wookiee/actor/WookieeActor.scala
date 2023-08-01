@@ -5,11 +5,11 @@ import com.oracle.infy.wookiee.actor.mailbox.WookieeDefaultMailbox
 import com.oracle.infy.wookiee.actor.router.{RoundRobinRouter, WookieeActorRouter}
 import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.service.messages._
-import com.oracle.infy.wookiee.utils.ThreadUtil
 
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.{Future, Promise, TimeoutException}
 import scala.util.{Failure, Success}
 
 object WookieeActor {
@@ -50,10 +50,9 @@ object WookieeActor {
   *
   * It is possible to mix in another extension of WookieeDefaultMailbox to change the mailbox implementation.
   */
-trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeScheduler with WookieeDefaultMailbox {
+trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDefaultMailbox {
   // Used to send this actor along as the sender() in classic actor methods
   implicit val thisActor: WookieeActor = this
-  implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-actor${if (name.nonEmpty) s"-$name" else ""}")
   private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
@@ -165,9 +164,15 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
   // Classic actor method to request a response from another actor
   // Will succeed when another actor has sent back any message, though further
   // messages may come back which will be handled via the normal receive path.
-  def ?(message: Any)(implicit sender: WookieeActor = null): Future[Any] = {
+  def ?(message: Any)(implicit timeout: FiniteDuration = 60.seconds, sender: WookieeActor = noSender): Future[Any] = {
     val promise: Promise[Any] = Promise[Any]()
     this.!(message)(AskInterceptor(promise, Option(sender)))
+    scheduleOnce(timeout)({
+      promise.tryFailure(
+        new TimeoutException(s"WA503: [$name] Timeout in processing of request [$message] from [${sender.name}] to ")
+      )
+      ()
+    })
     promise.future
   }
 
@@ -181,6 +186,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeSch
 
   // Used to ignoring replies when the sender was not specified
   protected lazy val noSender: WookieeActor = new WookieeActor {
+    override val name: String = "NoSender"
 
     // Discard the reply
     override def receive: Receive = {
