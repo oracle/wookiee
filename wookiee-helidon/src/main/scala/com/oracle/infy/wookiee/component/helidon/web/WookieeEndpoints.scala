@@ -4,7 +4,12 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointOptions, EndpointType, WookieeRequest, WookieeResponse}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{
+  EndpointOptions,
+  EndpointType,
+  WookieeRequest,
+  WookieeResponse
+}
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.{WebsocketHandler, handlerFromCommand}
 import com.oracle.infy.wookiee.component.helidon.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
