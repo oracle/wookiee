@@ -192,6 +192,8 @@ lazy val `wookiee-grpc` = project
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.wookieeGrpc
   )
+  .dependsOn(`wookiee-libs`)
+  .aggregate(`wookiee-libs`)
 
 lazy val `wookiee-grpc-component` = project
   .in(file("wookiee-grpc-component"))
@@ -222,7 +224,6 @@ lazy val `wookiee-grpc-tests` = project
     },
     libraryDependencies ++= Seq(
       Deps.test.curatorTest,
-      Deps.test.log4CatsNoop,
       Deps.test.scalacheck,
       Deps.test.scalatest,
       Deps.test.µTest
@@ -410,8 +411,7 @@ lazy val `wookiee-docs` = project
   )
   .settings(
     libraryDependencies ++= Seq(
-      Deps.test.curatorTest,
-      Deps.test.slf4jLog4jImpl
+      Deps.test.curatorTest
     )
   )
   .dependsOn(root, `wookiee-proto`)

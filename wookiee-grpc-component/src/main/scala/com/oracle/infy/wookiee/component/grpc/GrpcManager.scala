@@ -28,8 +28,6 @@ import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.retry.RetryForever
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.collection.concurrent.TrieMap
@@ -205,7 +203,6 @@ object GrpcManager extends Mediator[GrpcManager] {
       ).withMaxMessageSize(maxMessageSize)
 
     (for {
-      implicit0(logger: Logger[IO]) <- Slf4jLogger.create[IO]
       channel <- WookieeGrpcChannel.of(channelSettings(curatorFramework))
     } yield {
       channel

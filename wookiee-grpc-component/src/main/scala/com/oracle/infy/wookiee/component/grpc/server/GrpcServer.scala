@@ -3,14 +3,12 @@ package com.oracle.infy.wookiee.component.grpc.server
 import cats.data.NonEmptyList
 import cats.effect.IO
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
-import com.oracle.infy.wookiee.grpc.{WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings, ServiceAuthSettings}
+import com.oracle.infy.wookiee.grpc.{WookieeGrpcServer, WookieeGrpcUtils}
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc.{ServerInterceptor, ServerServiceDefinition}
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.util.Try
 
@@ -76,10 +74,6 @@ trait GrpcServer extends ExtensionHostServices {
     )
 
     for {
-      implicit0(logger: Logger[IO]) <- Slf4jLogger
-        .create[IO]
-        .map(l => l: Logger[IO])
-
       server <- WookieeGrpcServer.start(finalServerSettings)
     } yield server
   }

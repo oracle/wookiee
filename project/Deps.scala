@@ -7,12 +7,11 @@ object Deps {
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val scalametaVersion = "4.7.6"
-    val scalafmtDynVersion = "3.7.3"
+    val scalafmtDynVersion = "3.7.11"
 
     val curatorVersion = "5.3.0"
     val catsVersion = "2.9.0"
     val catsEffectVersion = "3.4.8"
-    val log4CatsVersion = "2.5.0"
     // Provides jawn-parser 1.3.2
     val circeVersion = "0.14.5"
     val µTestVersion = "0.8.1"
@@ -20,7 +19,7 @@ object Deps {
     val scalatestVersion = "3.2.15"
     val fs2Version = "3.6.1"
     val junitVersion = "4.13.2"
-    val guavaVersion = "31.0.1-jre"
+    val guavaVersion = "32.1.1-jre"
     val finagleVersion = "22.12.0"
     val upickleVersion = "2.0.0"
     val grpcVersion: String = "1.53.0"
@@ -30,7 +29,6 @@ object Deps {
     val helidonVersion = "2.6.0"
 
     val slf4jVersion = "2.0.5"
-    val slf4jImplVersion = "2.20.0"
     val logbackVersion = "1.3.6"
     val jodaTimeVersion = "2.12.2"
     val scalaCollectionCompatVersion = "2.8.1"
@@ -129,12 +127,6 @@ object Deps {
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
 
-    val log4CatsCore: ModuleID =
-      "org.typelevel" %% "log4cats-core" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
-
-    val log4CatsSlf4J: ModuleID =
-      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
-
     val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
     val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion
 
@@ -221,8 +213,6 @@ object Deps {
 
     val wookieeGrpc: Seq[ModuleID] = curatorLibs ++ Seq(
       scalaCollectionCompat,
-      log4CatsCore,
-      log4CatsSlf4J,
       fs2,
       jacksonDatabind
     ) ++ circe ++ cats ++ grpc
@@ -264,12 +254,7 @@ object Deps {
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
     val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
-    val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion % Test
-    val log4CatsNoop: ModuleID = "org.typelevel" %% "log4cats-noop" % log4CatsVersion % Test
-
     val all: Seq[ModuleID] = Seq(
-      log4CatsNoop,
-      slf4jLog4jImpl,
       scalacheck,
       scalatest,
       akkaTest,

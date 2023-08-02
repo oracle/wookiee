@@ -13,7 +13,6 @@ import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyService
 import io.grpc._
 import org.apache.curator.framework.CuratorFramework
 import org.scalactic.TolerantNumerics
-import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import scala.concurrent.duration.DurationInt
@@ -29,8 +28,7 @@ object GrpcHashLoadBalanceTest extends UTestScalaCheck with ConstableCommon {
       curator: CuratorFramework
   )(
       implicit mainEC: ExecutionContext,
-      dispatcher: Dispatcher[IO],
-      logger: Logger[IO]
+      dispatcher: Dispatcher[IO]
   ): Tests = {
     val testHashLoadBalancer = {
       val bossThreads = 5

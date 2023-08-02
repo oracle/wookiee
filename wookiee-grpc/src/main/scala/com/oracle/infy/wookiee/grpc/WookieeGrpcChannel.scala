@@ -17,6 +17,7 @@ import com.oracle.infy.wookiee.grpc.loadbalancers.WookieeLoadBalancer
 import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy => LBPolicy}
 import com.oracle.infy.wookiee.grpc.model.{Host, LoadBalancers}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, SSLClientSettings}
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import fs2.Stream
 import io.grpc._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NegotiationType, NettyChannelBuilder}
@@ -24,7 +25,6 @@ import io.grpc.netty.shaded.io.netty.channel.socket.nio.NioSocketChannel
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.CuratorCache
-import org.typelevel.log4cats.Logger
 
 import java.io.File
 import java.net.URI
@@ -54,7 +54,7 @@ final class WookieeGrpcChannel(val managedChannel: ManagedChannel, curator: Cura
   override def close(): Unit = shutdownNow()
 }
 
-object WookieeGrpcChannel {
+object WookieeGrpcChannel extends LoggingAdapterIO {
 
   val hashKeyCallOption: CallOptions.Key[String] = CallOptions.Key.create[String]("hash-key")
 
@@ -62,7 +62,6 @@ object WookieeGrpcChannel {
       settings: ChannelSettings
   )(
       implicit
-      logger: Logger[IO],
       dispatcher: Dispatcher[IO]
   ): IO[WookieeGrpcChannel] =
     for {
@@ -149,7 +148,7 @@ object WookieeGrpcChannel {
       maybeClientAuthSettings: Option[ClientAuthSettings],
       maybeInterceptors: Option[List[ClientInterceptor]],
       maxMessageSize: Int
-  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
+  )(implicit dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
       randomScheme <- IO.blocking { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
@@ -189,7 +188,7 @@ object WookieeGrpcChannel {
 
       builder1 <- maybeSSLClientSettings
         .map { sslClientSettings =>
-          logger
+          logIO
             .info(s"gRPC client using trust path '${sslClientSettings.sslCertificateTrustPath}'")
             .as(
               builder0
@@ -203,7 +202,7 @@ object WookieeGrpcChannel {
 
       builder2 <- maybeClientAuthSettings
         .map { authClientSettings =>
-          logger
+          logIO
             .info("gRPC client using bearer token authentication for [" + path + "].")
             .as(
               builder1.intercept(BearerTokenClientProvider(authClientSettings))
@@ -225,7 +224,7 @@ object WookieeGrpcChannel {
       discoveryPath: String,
       maybeSSLClientSettings: Option[SSLClientSettings],
       scheme: String
-  )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO])
+  )(implicit dispatcher: Dispatcher[IO])
       extends NameResolverProvider {
 
     def newNameResolver(notUsedUri: URI, args: NameResolver.Args): NameResolver = {
