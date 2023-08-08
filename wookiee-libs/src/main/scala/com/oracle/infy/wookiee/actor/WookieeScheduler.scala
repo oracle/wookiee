@@ -7,6 +7,7 @@ import com.oracle.infy.wookiee.utils.ThreadUtil
 import java.util.concurrent.{Executors, ScheduledExecutorService}
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.util.Try
 
 object WookieeScheduler extends LoggingAdapter {
 
@@ -16,6 +17,7 @@ object WookieeScheduler extends LoggingAdapter {
   private var timer: ScheduledExecutorService = Executors.newScheduledThreadPool(32)
 
   protected[wookiee] def setThreads(threads: Int): Unit = schedulerEc.synchronized {
+    Try(timer.shutdown())
     timer = Executors.newScheduledThreadPool(threads)
     log.info(s"Wookiee Scheduler Ready for Tasks: Pool Size = [$threads]")
   }
