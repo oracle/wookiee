@@ -147,6 +147,8 @@ object Deps {
         exclude ("javax.websocket", "javax.websocket-api"),
       "io.helidon.config" % "helidon-config" % helidonVersion,
       "io.helidon.common" % "helidon-common-reactive" % helidonVersion,
+      "org.glassfish.tyrus" % "tyrus-client" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
       "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
         exclude ("javax.websocket", "javax.websocket-api")
     )
