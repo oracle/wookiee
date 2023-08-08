@@ -61,6 +61,17 @@ object Deps {
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
 
+    val tyrus: Seq[ModuleID] = Seq(
+      "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-server" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-spi" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-core" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api")
+    )
+
     val curatorLibs: Seq[ModuleID] = Seq(
       nettyAll,
       nettyTC,
@@ -146,11 +157,7 @@ object Deps {
       "io.helidon.webclient" % "helidon-webclient" % helidonVersion
         exclude ("javax.websocket", "javax.websocket-api"),
       "io.helidon.config" % "helidon-config" % helidonVersion,
-      "io.helidon.common" % "helidon-common-reactive" % helidonVersion,
-      "org.glassfish.tyrus" % "tyrus-client" % tyrusVersion
-        exclude ("javax.websocket", "javax.websocket-api"),
-      "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
-        exclude ("javax.websocket", "javax.websocket-api")
+      "io.helidon.common" % "helidon-common-reactive" % helidonVersion
     )
 
     val grpc: Seq[ModuleID] = Seq(
@@ -179,7 +186,7 @@ object Deps {
 
     val wookieeHelidon: Seq[ModuleID] = Seq(
       test.scalatest
-    ) ++ helidon ++ json4sLibs
+    ) ++ helidon ++ tyrus ++ json4sLibs
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
