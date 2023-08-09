@@ -9,7 +9,7 @@ object Deps {
     val scalametaVersion = "4.7.6"
     val scalafmtDynVersion = "3.7.11"
 
-    val curatorVersion = "5.3.0"
+    val curatorVersion = "5.5.0"
     val catsVersion = "2.9.0"
     val catsEffectVersion = "3.4.8"
     // Provides jawn-parser 1.3.2
@@ -28,21 +28,21 @@ object Deps {
     val scalaPbRuntimeVersion: String = "0.11.13"
     val helidonVersion = "2.6.0"
 
-    val slf4jVersion = "2.0.5"
+    val slf4jVersion = "2.0.7"
     val logbackVersion = "1.3.6"
     val jodaTimeVersion = "2.12.2"
-    val scalaCollectionCompatVersion = "2.8.1"
-    val zookeeperVersion = "3.8.1"
+    val scalaCollectionCompatVersion = "2.9.0"
+    val zookeeperVersion = "3.8.2"
     val typesafeVersion = "1.4.2"
     val json4sVersion = "4.0.6"
     val jacksonVersion = "2.14.2"
     val http4sVersion = "0.23.18"
     val http4sBlazeVersion = "0.23.14"
-    val dropwizardVersion = "4.2.17"
+    val dropwizardVersion = "4.2.19"
     val akkaHttpVersion = "10.5.0"
     val akkaHttpJson4sVersion = "1.39.2"
     val akkaHttpCorsVersion = "1.2.0"
-    val tyrusVersion = "1.17"
+    val tyrusVersion = "1.20"
     val mockitoVersion = "5.3.1"
   }
 
