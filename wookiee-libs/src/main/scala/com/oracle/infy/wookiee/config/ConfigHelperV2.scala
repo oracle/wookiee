@@ -23,6 +23,11 @@ trait ConfigHelperV2 extends WookieeMonitor {
   }
 
   def propagateRenewConfiguration(): Unit = {
-    propagateCall({ case x: ConfigHelperV2 => x.renewConfiguration() }, "WCH400: Failed to renew configuration")
+    propagateCall({
+      case x: ConfigHelperV2 =>
+        x.renewConfiguration()
+      case _ =>
+      // Not a ConfigHelperV2, do nothing
+    }, "WCH400: Failed to renew configuration")
   }
 }

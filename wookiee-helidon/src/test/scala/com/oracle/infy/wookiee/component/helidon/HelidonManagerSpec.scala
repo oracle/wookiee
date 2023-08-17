@@ -36,6 +36,21 @@ class HelidonManagerSpec extends EndpointTestHelper {
     )
 
     WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
+      "account-endpoint",
+      "account/$accountId",
+      "GET",
+      EndpointType.INTERNAL, { request =>
+        Future.successful(InputObject(request.pathSegments("accountId")))
+      }, { input =>
+        Future.successful(OutputObject(input.value))
+      }, { output =>
+        WookieeResponse(Content(output.value))
+      }, { throwable =>
+        WookieeResponse(Content(throwable.getMessage))
+      }
+    )
+
+    WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
       "basic-endpoint",
       "/basic/endpoint",
       "POST",
@@ -172,6 +187,20 @@ class HelidonManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe jsonPayload
+    }
+
+    "extract path params properly" in {
+      val responseContent = getContent(
+        oneOff(
+          s"http://localhost:$internalPort",
+          "GET",
+          "/account/50024",
+          jsonPayload,
+          Map()
+        )
+      )
+
+      responseContent mustBe "50024"
     }
 
     "handle failures with error handler" in {

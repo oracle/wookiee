@@ -54,7 +54,12 @@ object WookieeRouter extends LoggingAdapter {
   // Takes the endpoints path template (e.g. /api/$foo/$bar) and the actual segments
   // that were sent (e.g. /api/v1/v2) and returns the Map of segment values (e.g. Map(foo -> v1, bar -> v2))
   def getPathSegments(pathWithVariables: String, actualPath: String): Map[String, String] = {
-    val pathSegments = pathWithVariables.split("/")
+    val pathSegments =
+      if (pathWithVariables.trim.startsWith("/"))
+        pathWithVariables.trim.split("/")
+      else
+        ("/" + pathWithVariables.trim).split("/")
+
     val actualSegments = actualPath.split("/")
     pathSegments
       .zip(actualSegments)
@@ -212,7 +217,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             }
 
             override def getEndpointInstance[T](endpointClass: Class[T]): T = {
-              log.info("Getting endpoint instance")
+              log.debug("Getting endpoint instance")
               wsHandler.handler.getEndpointInstance.asInstanceOf[T]
             }
           })
