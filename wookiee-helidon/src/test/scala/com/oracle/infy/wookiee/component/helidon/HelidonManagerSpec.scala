@@ -12,9 +12,11 @@ import com.oracle.infy.wookiee.component.helidon.web.http.{HttpCommand, HttpObje
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
 
 class HelidonManagerSpec extends EndpointTestHelper {
+  private val directiveHit: AtomicBoolean = new AtomicBoolean(false)
 
   override def registerEndpoints(manager: HelidonManager): Unit = {
     manager.registerEndpoint(
@@ -111,6 +113,11 @@ class HelidonManagerSpec extends EndpointTestHelper {
       override def path: String = "basic/command"
 
       override def endpointType: EndpointType = EndpointType.INTERNAL
+
+      override def requestDirective(request: WookieeRequest): WookieeRequest = {
+        directiveHit.set(true)
+        request
+      }
 
       override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
         if (input.content.asString.equals("fail")) throw new Exception("fail=error")
@@ -291,6 +298,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
         )
       )
 
+      directiveHit.get() mustBe true
       responseContent mustBe jsonPayload
     }
 
