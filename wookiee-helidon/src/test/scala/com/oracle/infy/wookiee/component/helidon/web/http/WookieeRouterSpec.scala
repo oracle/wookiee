@@ -1,7 +1,7 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{EndpointType, WookieeRequest}
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.helidon.web.http.impl.WookieeRouter.HttpHandler
@@ -119,6 +119,21 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       router.addRoute("/api/$version", "GET", handler)
       router.findHandler("/api/version/endpoint", "GET") mustBe None
       router.findHandler("/api", "GET") mustBe None
+    }
+
+    "have request that acts as a bean" in {
+      val bean = WookieeRequest()
+      bean("test") = "test"
+      bean("test") mustEqual "test"
+      bean.getValue[String]("test").get mustEqual "test"
+      bean.getValue[String]("test2").isDefined mustEqual false
+      // wrong type
+      val req: Option[WookieeRequest] = bean.getValue[WookieeRequest]("test")
+      req.isDefined mustEqual false
+      bean.addValue("key", "value")
+      bean("key") mustEqual "value"
+      bean.appendMap(Map("key2" -> "value2"))
+      bean("key2") mustEqual "value2"
     }
 
     "handle tons of registrations and finds" in {

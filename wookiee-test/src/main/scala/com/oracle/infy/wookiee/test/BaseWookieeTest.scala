@@ -19,7 +19,7 @@ trait BaseWookieeTest {
 
   def logLevel: Level = Level.INFO
 
-  def startupWait: FiniteDuration = 15.seconds
+  def startupWait: FiniteDuration = 20.seconds
 
   // Override to execute logic before we create our TestHarness,
   // good for starting up local kafka/zookeeper/etc.

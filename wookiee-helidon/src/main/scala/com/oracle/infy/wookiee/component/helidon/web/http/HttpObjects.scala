@@ -4,6 +4,9 @@ import org.json4s.JValue
 import org.json4s.jackson.JsonMethods.parse
 
 import java.nio.charset.Charset
+import scala.collection.mutable
+import scala.reflect.ClassTag
+import scala.util.Try
 
 object HttpObjects {
 
@@ -66,13 +69,41 @@ object HttpObjects {
   // Response status code
   case class StatusCode(code: Int = 200)
 
+  object WookieeRequest {
+    // Will return an empty request object, mainly useful for testing
+    def apply(): WookieeRequest = WookieeRequest(Content(""), Map(), Map(), Headers())
+  }
+
   // Object holding all of the request information
+  // Note that this object is also a mutable Map and can store any additional information
   case class WookieeRequest(
       content: Content,
       pathSegments: Map[String, String],
       queryParameters: Map[String, String],
       headers: Headers
-  ) {
+  ) extends mutable.LinkedHashMap[String, Any] {
+
+    // Add a map of parameters to the request
+    def appendMap(params: Map[String, Any]): Unit = params foreach {
+      this += _
+    }
+
+    // Add a single parameter to the request
+    def addValue(key: String, value: Any): WookieeRequest = this += key -> value
+
+    // Get a single parameter from the request
+    // Will return None if we couldn't cast the value to the type specified
+    def getValue[T](key: String)(implicit tag: ClassTag[T]): Option[T] = {
+      get(key) match {
+        case Some(v) =>
+          v match {
+            case x: T => Some(x)
+            case _    => None
+          }
+        case None => None
+      }
+    }
+
     private val createdTime: Long = System.currentTimeMillis()
     def getCreatedTime: Long = createdTime
 
