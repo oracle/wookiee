@@ -19,7 +19,7 @@ package com.oracle.infy.wookiee.test
 import akka.util.Timeout
 import com.oracle.infy.wookiee.app.HarnessActor.SystemReady
 import com.oracle.infy.wookiee.actor.WookieeActor.Receive
-import com.oracle.infy.wookiee.component.ComponentV2
+import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentV2}
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.typesafe.config.Config
 
@@ -46,4 +46,12 @@ class TestComponent(name: String, config: Config) extends ComponentV2(name, conf
       case StatusRequest => sender() ! TestComponent.ComponentMessage
       case SystemReady   => log.info("Test component ready for duty")
     }: Receive) orElse super.receive
+
+  override def start(): Unit = {
+    super.start()
+    log.info("Test component started")
+  }
+
+  override def onComponentReady(info: ComponentInfo): Unit =
+    log.info(s"Component [$name] got readiness for component [${info.name}]")
 }

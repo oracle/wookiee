@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.test
 
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.Ready
 import com.oracle.infy.wookiee.service.meta.ServiceMetaDataV2
@@ -9,6 +10,9 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 class BaseWookieeSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with Inspectors {
+
+  override def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] =
+    Some(Map("testcomponent" -> classOf[TestComponent], "testcomponent2" -> classOf[TestComponent]))
 
   override def servicesMap: Option[Map[String, Class[_ <: WookieeService]]] =
     Some(Map("testservice" -> classOf[TestService]))

@@ -310,7 +310,8 @@ class ComponentManager extends PrepareForShutdown {
     context.parent ! ComponentReady(compInfo)
     ComponentManager.componentsForSystem.filter(_.state == ComponentState.Started).foreach { info =>
       sendReady(info, compInfo)
-      sendReady(compInfo, info)
+      if (info.name != compInfo.name)
+        sendReady(compInfo, info)
     }
   }
 
