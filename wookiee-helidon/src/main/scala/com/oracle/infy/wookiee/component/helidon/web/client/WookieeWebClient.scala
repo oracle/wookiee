@@ -5,7 +5,7 @@ import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.util.HelidonUtil
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
-import io.helidon.common.http.DataChunk
+import io.helidon.common.http.{DataChunk, Http}
 import io.helidon.common.reactive.Single
 import io.helidon.webclient.Proxy.ProxyType
 import io.helidon.webclient.{Proxy, WebClient, WebClientRequestBuilder, WebClientResponse}
@@ -109,7 +109,9 @@ object WookieeWebClient {
   // Translates the method string to a Helidon WebClientRequestBuilder
   def methodRequested(client: WebClient, method: String): WebClientRequestBuilder = {
     method.toUpperCase match {
-      case "GET"     => client.get()
+      case "GET" => client.get()
+      // PATCH doesn't have a convenience method yet but this should work
+      case "PATCH"   => client.method(Http.Method.PATCH)
       case "POST"    => client.post()
       case "PUT"     => client.put()
       case "DELETE"  => client.delete()
