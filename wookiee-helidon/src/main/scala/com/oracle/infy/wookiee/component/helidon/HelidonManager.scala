@@ -152,16 +152,22 @@ class HelidonManager(name: String, config: Config) extends ComponentV2(name, con
         WookieeResponse(Content(health.toJson))
       }
     })
-    internalRegister("healthcheck/lb", { _ =>
-      HealthCheckActor.getHealthLB.map { health =>
-        WookieeResponse(Content(health))
+    internalRegister(
+      "healthcheck/lb", { _ =>
+        HealthCheckActor.getHealthLB.map { health =>
+          // Return should have quotes around it (i.e. "UP")
+          WookieeResponse(Content(s""""$health""""))
+        }
       }
-    })
-    internalRegister("healthcheck/nagios", { _ =>
-      HealthCheckActor.getHealthNagios.map { health =>
-        WookieeResponse(Content(health))
+    )
+    internalRegister(
+      "healthcheck/nagios", { _ =>
+        HealthCheckActor.getHealthNagios.map { health =>
+          // Return should have quotes around it (i.e. "NORMAL|Thunderbirds are GO")
+          WookieeResponse(Content(s""""$health""""))
+        }
       }
-    })
+    )
     internalRegister("ping", { _ =>
       Future.successful {
         WookieeResponse(Content(s"pong: ${new DateTime(System.currentTimeMillis(), DateTimeZone.UTC)}"))

@@ -54,9 +54,9 @@ class WookieeHttpServiceSpec extends AnyWordSpec with Matchers with BaseWookieeT
       response = simpleGet("/healthcheck/full")
       response.contains("NORMAL") mustEqual true
       response = simpleGet("/healthcheck/lb")
-      response mustEqual "UP"
+      response mustEqual "\"UP\""
       response = simpleGet("/healthcheck/nagios")
-      response mustEqual "NORMAL|Thunderbirds are GO"
+      response mustEqual "\"NORMAL|Thunderbirds are GO\""
     }
 
     "host all other default endpoints" in {
