@@ -114,9 +114,10 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
       override def endpointType: EndpointType = EndpointType.INTERNAL
 
-      override def requestDirective(request: WookieeRequest): WookieeRequest = {
+      override def requestDirective(request: WookieeRequest): Future[WookieeRequest] = {
         directiveHit.set(true)
-        request
+        if (request.content.asString.equals("fail-request")) throw new Exception("fail=directive")
+        Future.successful(request)
       }
 
       override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
@@ -275,7 +276,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
     }
 
     "check client can parse all method types" in {
-      val methods = List("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "OTHER")
+      val methods = List("PATCH", "GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE", "OTHER")
       val client = WebClient
         .builder()
         .baseUri(s"http://localhost:$externalPort")
@@ -288,6 +289,7 @@ class HelidonManagerSpec extends EndpointTestHelper {
     }
 
     "can handle registering a route using a command" in {
+      directiveHit.set(false)
       val responseContent = getContent(
         oneOff(
           s"http://localhost:$internalPort",
@@ -300,6 +302,22 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
       directiveHit.get() mustBe true
       responseContent mustBe jsonPayload
+    }
+
+    "can fail gracefully in directive step" in {
+      directiveHit.set(false)
+      val responseContent = getContent(
+        oneOff(
+          s"http://localhost:$internalPort",
+          "GET",
+          "/basic/command",
+          "fail-request",
+          Map()
+        )
+      )
+
+      directiveHit.get() mustBe true
+      responseContent mustBe "There was an internal server error."
     }
 
     "can fall into default error handling" in {

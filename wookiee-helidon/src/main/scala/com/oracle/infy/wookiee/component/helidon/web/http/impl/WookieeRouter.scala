@@ -120,8 +120,9 @@ object WookieeRouter extends LoggingAdapter {
                 // Main execution logic for this HTTP command
                 WookieeEndpoints
                   .maybeTimeF(command.endpointOptions.routeTimerLabel, {
-                    val finalRequest = command.requestDirective(wookieeRequest)
-                    command.execute(finalRequest)
+                    command
+                      .requestDirective(wookieeRequest)
+                      .flatMap(command.execute)
                   })
                   .map {
                     response =>

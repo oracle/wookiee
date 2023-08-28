@@ -44,8 +44,8 @@ trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
   }
 
   // Any logic that needs to happen before the request is passed to the execute method
-  def requestDirective(request: WookieeRequest): WookieeRequest =
-    request
+  def requestDirective(request: WookieeRequest): Future[WookieeRequest] =
+    Future.successful(request)
 
   // The main method to implement your business logic and response
   override def execute(input: WookieeRequest): Future[WookieeResponse]
