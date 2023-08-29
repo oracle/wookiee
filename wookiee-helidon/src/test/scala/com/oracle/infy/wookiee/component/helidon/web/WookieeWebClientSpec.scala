@@ -67,6 +67,16 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       ThreadUtil.awaitEvent({ requestsSeen.get() > currentCount })
     }
 
+    "gracefully fail outside of future" in {
+      val webClient = WookieeWebClient(s"http://localhost:$internalPort", Some(ProxyConfig("localhost", proxyPort)))
+      intercept[NullPointerException] {
+        Await.result(
+          WookieeWebClient.requestAndRespond(webClient.helidonClient, "GET", "/basic/endpoint", Array(), null, null),
+          5.seconds
+        )
+      }
+    }
+
     "allow extension of client like" in {
       val client = new WebClientMock
       val response = Await.result(client.request("GET", "/basic/endpoint"), 5.seconds)

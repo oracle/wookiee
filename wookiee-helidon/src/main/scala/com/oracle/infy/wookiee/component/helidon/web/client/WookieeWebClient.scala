@@ -70,37 +70,42 @@ object WookieeWebClient {
       payload: Array[Byte],
       headers: Map[String, String],
       queryParams: Map[String, String]
-  )(implicit ec: ExecutionContext): Future[WookieeResponse] = {
-    val withHeaders =
-      headers.foldLeft(methodRequested(client, method))((builder, header) => builder.addHeader(header._1, header._2))
-    val withQueryParams =
-      queryParams.foldLeft(withHeaders)(
-        (builder, queryParam) => builder.queryParam(queryParam._1, queryParam._2)
+  )(implicit ec: ExecutionContext): Future[WookieeResponse] =
+    try {
+      val withHeaders =
+        headers.foldLeft(methodRequested(client, method))((builder, header) => builder.addHeader(header._1, header._2))
+      val withQueryParams =
+        queryParams.foldLeft(withHeaders)(
+          (builder, queryParam) => builder.queryParam(queryParam._1, queryParam._2)
+        )
+
+      val responseRef = new AtomicReference[WebClientResponse]()
+      val data = DataChunk.create(payload)
+
+      val future = HelidonUtil.completionToFuture(
+        withQueryParams
+          .path(path)
+          .submit(Single.just(data)) // submit the payload here
+          .thenAccept(response => {
+            responseRef.set(response) // store the response
+          })
       )
 
-    val responseRef = new AtomicReference[WebClientResponse]()
-    val data = DataChunk.create(payload)
+      future.map(_ => {
+        val resp = responseRef.get() // return the stored response
 
-    val future = HelidonUtil.completionToFuture(
-      withQueryParams
-        .path(path)
-        .submit(Single.just(data)) // submit the payload here
-        .thenAccept(response => {
-          responseRef.set(response) // store the response
-        })
-    )
-
-    future.map(_ => {
-      val resp = responseRef.get() // return the stored response
-
-      WookieeResponse(
-        Content(resp.content().as(classOf[String]).await()),
-        StatusCode(resp.status().code()),
-        headerConversion(resp),
-        resp.headers().value("Content-Type").orElse("application/json")
-      )
-    })
-  }
+        WookieeResponse(
+          Content(resp.content().as(classOf[String]).await()),
+          StatusCode(resp.status().code()),
+          headerConversion(resp),
+          resp.headers().value("Content-Type").orElse("application/json")
+        )
+      })
+    } catch {
+      case ex: Throwable =>
+        // Wrap failures in a future
+        Future.failed(ex)
+    }
 
   // Useful method to get the actual content from a response
   def getContent(response: WookieeResponse): String =

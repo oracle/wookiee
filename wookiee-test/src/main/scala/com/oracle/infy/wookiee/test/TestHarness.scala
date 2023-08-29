@@ -90,9 +90,13 @@ object TestHarness extends Mediator[TestHarness] {
       case None => // ignore
     }
 
+  // Can use this to set the logging level to something other than INFO
   def setLogLevel(level: Level): Unit = {
-    val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
-    loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
+    Try {
+      val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
+      loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
+    }
+    ()
   }
 
   def defaultConfig: Config = {
