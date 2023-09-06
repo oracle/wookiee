@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.helidon
 
+import com.oracle.infy.wookiee.component.helidon.HelidonManager.WookieeWebException
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.util.TestObjects.{InputObject, OutputObject}
 import com.oracle.infy.wookiee.component.helidon.web.WookieeEndpoints
@@ -355,6 +356,9 @@ class HelidonManagerSpec extends EndpointTestHelper {
 
       val pConf = ProxyConfig("test", 1234)
       ProxyConfig.unapply(pConf) must not be None
+
+      val webEx = WookieeWebException("test", None, None)
+      WookieeWebException.unapply(webEx) must not be None
     }
 
     "hit error handling in handler for commands" in {

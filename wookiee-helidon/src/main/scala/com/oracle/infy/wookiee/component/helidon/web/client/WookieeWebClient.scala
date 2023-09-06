@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.helidon.web.client
 
+import com.oracle.infy.wookiee.component.helidon.HelidonManager.WookieeWebException
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient.ProxyConfig
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.helidon.web.util.HelidonUtil
@@ -9,6 +10,7 @@ import io.helidon.common.http.{DataChunk, Http}
 import io.helidon.common.reactive.Single
 import io.helidon.webclient.Proxy.ProxyType
 import io.helidon.webclient.{Proxy, WebClient, WebClientRequestBuilder, WebClientResponse}
+import org.json4s.{DefaultFormats, Formats}
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicReference
@@ -61,6 +63,31 @@ object WookieeWebClient {
       implicit ec: ExecutionContext
   ): Future[WookieeResponse] =
     requestAndRespond(client, method, path, payload, Map(), Map())
+
+  // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
+  def requestAndExtract[T: Manifest](
+      client: WebClient,
+      method: String,
+      path: String,
+      payload: String
+  )(
+      implicit ec: ExecutionContext
+  ): Future[T] =
+    requestAndExtract[T](client, method, path, payload, Map.empty[String, String], Map.empty[String, String])
+
+  // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
+  def requestAndExtract[T: Manifest](
+      client: WebClient,
+      method: String,
+      path: String,
+      payload: String,
+      headers: Map[String, String],
+      queryParams: Map[String, String]
+  )(
+      implicit ec: ExecutionContext
+  ): Future[T] =
+    requestAndRespond(client, method, path, payload.getBytes(StandardCharsets.UTF_8), headers, queryParams)
+      .map(WookieeWebClient.extractObject[T](_))
 
   // General request method, should use this via WookieeWebClient or WookieeWebClient.oneOff
   def requestAndRespond(
@@ -140,6 +167,29 @@ object WookieeWebClient {
       }
       .toMap
 
+  // Extract out a case class from a response
+  // If response will not be code 200-299, set expectedStatus to the expected status code
+  // @throws WookieeWebException if response code is not expectedStatus
+  def extractObject[T: Manifest](resp: WookieeResponse, expectedStatus: Option[Int] = None)(
+      implicit formats: Formats = DefaultFormats
+  ): T = {
+    resp match {
+      // If expected status is empty, check for 200-299
+      case resp: WookieeResponse
+          if (expectedStatus.isEmpty && resp.code() >= 200 && resp.code() < 300) ||
+            expectedStatus.contains(resp.code()) =>
+        resp.contentJson().extract[T]
+      case resp: WookieeResponse =>
+        throw WookieeWebException(
+          s"Unexpected status code: [${resp.code()}]. " +
+            s"Expected: [${expectedStatus.map(_.toString).getOrElse("200-299")}]. " +
+            s"Response: [${resp.contentString()}]",
+          None,
+          Some(resp.code())
+        )
+    }
+  }
+
   private def headerConversion(response: WebClientResponse): Headers =
     Headers(
       response
@@ -207,4 +257,17 @@ case class WookieeWebClient(baseUri: String, proxyConfig: Option[ProxyConfig] = 
       queryParams
     )
   }
+
+  // Will extract the response into a case class
+  def requestAndExtract[T: Manifest](
+      method: String,
+      path: String,
+      content: String = "",
+      queryParams: Map[String, String] = Map(),
+      headers: Map[String, String] = Map(),
+      log: Boolean = true,
+      contentType: String = "application/json"
+  )(implicit format: Formats): Future[T] =
+    request(method, path, content, queryParams, headers, log, contentType)
+      .map(WookieeWebClient.extractObject[T](_))
 }

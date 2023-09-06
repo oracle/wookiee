@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.component.helidon.web.http
 
 import com.oracle.infy.wookiee.command.WookieeCommand
+import com.oracle.infy.wookiee.component.helidon.HelidonManager.WookieeWebException
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects._
 
 import scala.concurrent.Future
@@ -34,13 +35,23 @@ trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
 
   // Any uncaught errors from the execute method or anywhere else in processing will
   // be passed to this handler to be converted into a response.
+  // If a WookieeWebException is thrown we'll use its information to create the response.
   def errorHandler(ex: Throwable): WookieeResponse = {
     log.warn(s"WHH400: Error in HTTP handling of path [$path], method [$method]", ex)
-    WookieeResponse(
-      Content("There was an internal server error."),
-      HttpObjects.StatusCode(500),
-      endpointOptions.defaultHeaders
-    )
+    ex match {
+      case WookieeWebException(msg, _, code) =>
+        WookieeResponse(
+          Content(msg),
+          HttpObjects.StatusCode(code.getOrElse(500)),
+          endpointOptions.defaultHeaders
+        )
+      case _ =>
+        WookieeResponse(
+          Content("There was an internal server error."),
+          HttpObjects.StatusCode(500),
+          endpointOptions.defaultHeaders
+        )
+    }
   }
 
   // Any logic that needs to happen before the request is passed to the execute method

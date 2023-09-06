@@ -28,6 +28,9 @@ import scala.jdk.CollectionConverters._
 
 object HelidonManager extends Mediator[HelidonManager] {
   val ComponentName = "wookiee-helidon"
+
+  case class WookieeWebException(msg: String, cause: Option[Throwable], code: Option[Int] = None)
+      extends Exception(msg, cause.orNull)
 }
 
 // Main Helidon Component, manager of all things Helidon but for now mainly HTTP and Websockets

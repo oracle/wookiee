@@ -1,22 +1,26 @@
 package com.oracle.infy.wookiee.component.helidon.web
 
 import com.oracle.infy.wookiee.component.helidon.HelidonManager
+import com.oracle.infy.wookiee.component.helidon.HelidonManager.WookieeWebException
 import com.oracle.infy.wookiee.component.helidon.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.helidon.util.TestObjects.{InputObject, OutputObject}
 import com.oracle.infy.wookiee.component.helidon.web.ProxyServer.WebClientMock
 import com.oracle.infy.wookiee.component.helidon.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.helidon.web.client.{WebClientLike, WookieeWebClient}
+import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.{Content, EndpointType, WookieeResponse}
+import com.oracle.infy.wookiee.component.helidon.web.http.{HttpCommand, HttpObjects}
 import com.oracle.infy.wookiee.test.TestHarness
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import io.helidon.webserver.{Handler, Routing, WebServer}
 import org.json4s.jackson.Serialization
 
 import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.{Await, Future}
 import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, Future}
 
 class WookieeWebClientSpec extends EndpointTestHelper {
+  case class TestObject(content: String)
   val proxyPort: Int = TestHarness.getFreePort
   val proxyServer: WebServer = ProxyServer.startServer(proxyPort, internalPort)
   val requestsSeen: AtomicInteger = new AtomicInteger(0)
@@ -82,6 +86,23 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       val response = Await.result(client.request("GET", "/basic/endpoint"), 5.seconds)
       response.contentString() mustEqual "test"
     }
+
+    "handle an extract via the object" in {
+      var response =
+        Await.result(
+          WookieeWebClient.requestAndExtract[TestObject](webClient.helidonClient, "GET", "/basic/endpoint", "test"),
+          5.seconds
+        )
+      response.content mustEqual "test"
+      response = Await.result(webClient.requestAndExtract[TestObject]("GET", "/basic/endpoint"), 5.seconds)
+      response.content mustEqual ""
+    }
+
+    "throw an error when code is not 200-299" in {
+      intercept[WookieeWebException] {
+        Await.result(webClient.requestAndExtract("GET", "/basic/command", "fail"), 5.seconds)
+      }
+    }
   }
 
   override protected def afterAll(): Unit = {
@@ -96,7 +117,8 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       "/basic/endpoint",
       "GET",
       EndpointType.INTERNAL, { request =>
-        Future.successful(InputObject(s"""{"content":"${request.content.asString}"}"""))
+        if (request.contentString().equals("fail")) Future.failed(new Exception("intentional-fail"))
+        else Future.successful(InputObject(s"""{"content":"${request.content.asString}"}"""))
       }, { input =>
         requestsSeen.incrementAndGet()
         Future.successful(OutputObject(input.value))
@@ -106,6 +128,23 @@ class WookieeWebClientSpec extends EndpointTestHelper {
         WookieeResponse(Content(throwable.getMessage))
       }
     )
+
+    class BasicGet extends HttpCommand {
+      override def commandName: String = "basic-get-command"
+
+      override def method: String = "get"
+
+      override def path: String = "basic/command"
+
+      override def endpointType: EndpointType = EndpointType.INTERNAL
+
+      override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
+        if (input.content.asString.equals("fail")) throw WookieeWebException("fail=error", None, Some(500))
+        else WookieeResponse(input.content)
+      }
+    }
+
+    WookieeEndpoints.registerEndpoint(new BasicGet)
   }
 }
 
