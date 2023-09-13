@@ -1,7 +1,4 @@
 import java.io.File
-import sbt.Keys.{libraryDependencies, _}
-import sbt._
-
 import scala.language.postfixOps
 import scala.util.Try
 
@@ -134,11 +131,11 @@ lazy val `wookiee-discovery` = project
   .aggregate(`wookiee-grpc-component`)
 
 // For HTTP/WS support, use instead of wookiee-akka-http
-lazy val `wookiee-helidon` = project
-  .in(file("wookiee-helidon"))
+lazy val `wookiee-web` = project
+  .in(file("wookiee-web"))
   .settings(commonSettings(false))
   .settings(
-    libraryDependencies ++= Deps.build.wookieeHelidon
+    libraryDependencies ++= Deps.build.wookieeWeb
   )
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
@@ -158,8 +155,8 @@ lazy val `advanced-communication` = project
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`, `wookiee-zookeeper`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-helidon`, `wookiee-zookeeper`)
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-web`, `wookiee-zookeeper`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-web`, `wookiee-zookeeper`)
 
 lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))
@@ -341,7 +338,7 @@ lazy val root = project
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
-    `wookiee-helidon`,
+    `wookiee-web`,
     `wookiee-health`,
     `wookiee-test`,
     `wookiee-zookeeper`,
@@ -361,7 +358,7 @@ lazy val root = project
     `wookiee-grpc-tests`,
     `wookiee-proto`,
     `wookiee-health`,
-    `wookiee-helidon`,
+    `wookiee-web`,
     `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,

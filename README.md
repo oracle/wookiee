@@ -207,7 +207,7 @@ wookiee-system {
 ```
 
 
-* [Helidon Component](wookiee-helidon)
+* [Webservice Component](wookiee-web)
   * Most modern Component for HTTP/WS services
 * [Cache Component](wookiee-cache)
   * Provides a Cache implementation for Wookiee

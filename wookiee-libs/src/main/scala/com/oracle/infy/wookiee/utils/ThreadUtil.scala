@@ -2,17 +2,19 @@ package com.oracle.infy.wookiee.utils
 
 import cats.effect.IO
 import cats.effect.std.Dispatcher
-import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import cats.effect.unsafe.implicits.global
+import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
 import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
 import java.util.concurrent._
+import scala.annotation.tailrec
 import scala.concurrent.duration.DurationLong
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.reflect.ClassTag
+import scala.util.{Failure, Success, Try}
 
 object ThreadUtil extends LoggingAdapter {
 
@@ -165,6 +167,41 @@ object ThreadUtil extends LoggingAdapter {
     }
 
     throw new RuntimeException("Timed out waiting for result")
+  }
+
+  // A helper method to wait for a future to be true, great for testing
+  // `f` has to be a function that returns a future, so that it re-evaluates every time
+  // Example:
+  // def futureToTest(): Future[Boolean] = Future { true }
+  // awaitFuture(futureToTest)
+  // @throws RuntimeException if the future never returns true
+  def awaitFuture(
+      f: () => Future[Boolean],
+      waitMs: Long = 15000L,
+      retryIntervalMs: Long = 500L,
+      ignoreError: Boolean = true
+  ): Unit = {
+    val goUntil = System.currentTimeMillis + waitMs
+
+    @tailrec
+    def retry(): Unit = {
+      if (System.currentTimeMillis < goUntil) {
+        val futureResult = Try(Await.result(f(), retryIntervalMs.milliseconds))
+
+        futureResult match {
+          case Success(true)             => return
+          case Success(false)            => Thread.sleep(retryIntervalMs)
+          case Failure(_) if ignoreError => Thread.sleep(retryIntervalMs)
+          case Failure(exception)        => throw exception
+        }
+
+        retry()
+      } else {
+        throw new RuntimeException("Timed out waiting for result")
+      }
+    }
+
+    retry()
   }
 
   // A helper method to ask an actor and wait for a response, great for testing

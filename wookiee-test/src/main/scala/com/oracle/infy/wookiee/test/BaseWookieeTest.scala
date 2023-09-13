@@ -2,12 +2,13 @@ package com.oracle.infy.wookiee.test
 
 import akka.actor.ActorSystem
 import ch.qos.logback.classic.Level
-import com.oracle.infy.wookiee.component.{Component, WookieeComponent}
-import com.oracle.infy.wookiee.service.{Service, WookieeService}
+import com.oracle.infy.wookiee.component.WookieeComponent
+import com.oracle.infy.wookiee.service.WookieeService
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
 
-import scala.concurrent.duration._
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.{FiniteDuration, _}
 
 // Add 'with WordSpecLike with MustMatchers' or 'with SpecificationLike' depending on scalatest/specs2
 trait BaseWookieeTest {
@@ -27,11 +28,12 @@ trait BaseWookieeTest {
 
   beforeTestWookiee()
 
-  val testWookiee: TestHarness =
+  implicit val testWookiee: TestHarness =
     TestHarness(config, servicesMap, componentMap, logLevel, startupWait)
 
   Thread.sleep(1000)
   implicit val system: ActorSystem = testWookiee.system
+  implicit val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
 
   def getWookieeInstanceId: String = testWookiee.getInstanceId
   def shutdown(): Unit = TestHarness.shutdown()

@@ -10,7 +10,6 @@ import com.oracle.infy.wookiee.discovery.command.{
   DiscoverableCommandHelper
 }
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness}
-import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.grpc._
 import org.apache.curator.test.TestingServer
@@ -22,7 +21,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, Future}
 import scala.jdk.CollectionConverters._
 
 case class TestInput(value: String)
@@ -51,7 +50,6 @@ class DiscoverableCommandSpec
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer: AtomicReference[TestingServer] = new AtomicReference(new TestingServer(zkPort))
   implicit lazy val testConfig: Config = testWookiee.config
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("test-discoverable-command-ec")
   implicit def format: Formats = DefaultFormats ++ JavaTimeSerializers.all
 
   val wasIntercepted: AtomicBoolean = new AtomicBoolean(false)

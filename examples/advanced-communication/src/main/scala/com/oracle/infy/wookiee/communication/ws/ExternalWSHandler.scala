@@ -1,9 +1,9 @@
 package com.oracle.infy.wookiee.communication.ws
 
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType
-import com.oracle.infy.wookiee.component.helidon.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.helidon.web.ws.WookieeWebsocket
+import com.oracle.infy.wookiee.component.web.http.HttpObjects
+import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType
+import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
+import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
 
 import javax.websocket.Session
 import scala.concurrent.{ExecutionContext, Future}

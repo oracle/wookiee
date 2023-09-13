@@ -25,10 +25,13 @@ import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.app.Harness
 import com.oracle.infy.wookiee.app.HarnessActor.{GetManagers, ReadyCheck}
 import com.oracle.infy.wookiee.component._
+import com.oracle.infy.wookiee.health.ComponentState
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.LoadService
 import com.oracle.infy.wookiee.service.meta.WookieeServiceMeta
 import com.oracle.infy.wookiee.test.TestHarness.defaultConfig
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
 import org.slf4j.LoggerFactory
@@ -36,7 +39,7 @@ import org.slf4j.LoggerFactory
 import java.lang.management.ManagementFactory
 import java.net.ServerSocket
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Random, Try}
 
 object TestHarness extends Mediator[TestHarness] {
@@ -138,14 +141,13 @@ class TestHarness(
     componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None,
     logLevel: Level = Level.ERROR,
     timeToWait: FiniteDuration = 30.seconds
-) {
+) extends LoggingAdapter {
 
   var services: Map[String, WookieeServiceMeta] = Map[String, WookieeServiceMeta]()
-  var components: Map[String, ComponentInfo] = Map[String, ComponentInfo]()
   var serviceManager: Option[ActorRef] = None
   var componentManager: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
-  var config: Config = conf.withFallback(defaultConfig)
+  implicit var config: Config = conf.withFallback(defaultConfig)
 
   private val instanceId: String = Try(TestHarness.getInstanceId(config)).getOrElse("wookiee") match {
     case "wookiee" =>
@@ -224,23 +226,44 @@ class TestHarness(
     )
 
   // @deprecated("Use getComponentAkka instead", "2.4.0")
-  def getComponent(component: String): Option[ActorRef] = {
+  def getComponent(component: String): Option[ActorRef] =
     getComponentAkka(component)
-  }
 
   // Returns the ComponentV2 if it exists
-  def getComponentV2(componentName: String): Option[ComponentV2] = {
-    components
-      .get(componentName)
-      .collectFirst {
-        case ComponentInfoV2(_, _, component) => component
-      }
-  }
+  def getComponentV2(componentName: String): Option[ComponentV2] =
+    ComponentManager
+      .getComponentByName(componentName)
+      .collect({
+        case c: ComponentInfoV2 => c.component
+      })
 
   // For legacy Components, will eventually be removed
-  def getComponentAkka(componentName: String): Option[ActorRef] = {
-    components.get(componentName).collectFirst {
-      case ComponentInfoAkka(_, _, actorRef) => actorRef
+  def getComponentAkka(componentName: String): Option[ActorRef] =
+    ComponentManager
+      .getComponentByName(componentName)
+      .collectFirst({
+        case ComponentInfoAkka(_, _, actorRef) => actorRef
+      })
+
+  def awaitComponent(name: String, waitMs: Long = 15000L): ComponentV2 =
+    ThreadUtil.awaitResult(getComponentV2(name), waitMs)
+
+  // Will wait for a component to be up and its health check to return NORMAL
+  def isComponentUp(
+      name: String,
+      waitMs: Long = 15000L
+  )(implicit ec: ExecutionContext): Boolean = {
+    def checkComponent(): Future[Boolean] =
+      getComponentV2(name).get.checkHealth.map { health =>
+        health.state == ComponentState.NORMAL
+      }
+
+    Try {
+      ThreadUtil.awaitFuture(checkComponent, waitMs)
+      true
+    }.getOrElse {
+      log.warn(s"Component [$name] did not return a NORMAL health check in time")
+      false
     }
   }
 
@@ -258,12 +281,10 @@ class TestHarness(
 
   private def componentReady(componentName: String, componentClass: String): Unit = {
     Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
-      case Some(m) =>
-        val component = m.asInstanceOf[ComponentInfo]
+      case Some(_) =>
         TestHarness.log.info(s"Loaded component $componentName")
-        components += (componentName -> component)
       case None =>
-        throw new Exception("Component not returned")
+        throw new Exception(s"Component $componentName not returned")
     }
   }
 
@@ -274,7 +295,7 @@ class TestHarness(
         TestHarness.log.info(s"Loaded service $serviceName")
         services += (serviceName -> service)
       case None =>
-        throw new Exception("Service not returned")
+        throw new Exception(s"Service $serviceName not returned")
     }
   }
 }

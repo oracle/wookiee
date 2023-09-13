@@ -26,7 +26,8 @@ object Deps {
     val nettyVersion: String = "4.1.86.Final"
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
-    val helidonVersion = "2.6.0"
+    val helidonVersion = "2.6.3"
+    val kafkaVersion = "3.5.1"
 
     val slf4jVersion = "2.0.7"
     val logbackVersion = "1.3.6"
@@ -160,6 +161,10 @@ object Deps {
       "io.helidon.common" % "helidon-common-reactive" % helidonVersion
     )
 
+    val helidonKafka
+        : ModuleID = "io.helidon.messaging.kafka" % "helidon-messaging-kafka" % helidonVersion exclude ("org.slf4j", "slf4j-jdk14")
+    val kafkaClient: ModuleID = "org.apache.kafka" % "kafka-clients" % kafkaVersion
+
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
       grpcProtoBuf,
@@ -184,9 +189,15 @@ object Deps {
 
     val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
 
-    val wookieeHelidon: Seq[ModuleID] = Seq(
+    val wookieeWeb: Seq[ModuleID] = Seq(
       test.scalatest
     ) ++ helidon ++ tyrus ++ json4sLibs
+
+    val wookieeKafka: Seq[ModuleID] = Seq(
+      test.scalatest,
+      helidonKafka,
+      kafkaClient
+    )
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
