@@ -24,7 +24,6 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
   protected lazy val internalPort: Int = getFreePort
   protected lazy val externalPort: Int = getFreePort
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
   implicit def conf: Config = ConfigFactory.parseString(s"""
        |instance-id = "helidon-test-$internalPort"
        |wookiee-web {
