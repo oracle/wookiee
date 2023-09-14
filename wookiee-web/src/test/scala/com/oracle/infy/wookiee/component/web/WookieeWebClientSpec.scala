@@ -16,9 +16,10 @@ import org.json4s.jackson.Serialization
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 class WookieeWebClientSpec extends EndpointTestHelper {
+  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
   case class TestObject(content: String)
   val proxyPort: Int = TestHarness.getFreePort
   val proxyServer: WebServer = ProxyServer.startServer(proxyPort, internalPort)

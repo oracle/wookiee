@@ -5,7 +5,6 @@ import com.oracle.infy.wookiee.component.web.WebManager
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointOptions
 import com.oracle.infy.wookiee.component.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.test.TestHarness.getFreePort
-import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
 import io.helidon.webserver.{Routing, Service, WebServer}
 import org.glassfish.tyrus.client.ClientManager
@@ -16,7 +15,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.nio.ByteBuffer
 import javax.websocket.{Endpoint, EndpointConfig, MessageHandler, Session}
-import scala.concurrent.{ExecutionContext, Promise}
+import scala.concurrent.Promise
 
 trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAll {
   implicit val formats: Formats = DefaultFormats

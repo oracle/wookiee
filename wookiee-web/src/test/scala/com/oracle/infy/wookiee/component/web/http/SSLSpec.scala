@@ -4,12 +4,14 @@ import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, OutputObject}
 import com.oracle.infy.wookiee.component.web.{WebManager, WookieeEndpoints}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
 
 import java.nio.file.Paths
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 class SSLSpec extends EndpointTestHelper {
+  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
 
   override implicit def conf: Config =
     super

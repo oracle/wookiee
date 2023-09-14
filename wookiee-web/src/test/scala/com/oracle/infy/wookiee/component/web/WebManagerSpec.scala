@@ -9,13 +9,15 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.HttpHandler
 import com.oracle.infy.wookiee.component.web.http.{HttpCommand, HttpObjects}
 import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, OutputObject}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
 import java.util.concurrent.atomic.AtomicBoolean
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 class WebManagerSpec extends EndpointTestHelper {
+  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
   private val directiveHit: AtomicBoolean = new AtomicBoolean(false)
 
   override def registerEndpoints(manager: WebManager): Unit = {
