@@ -15,8 +15,8 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
 import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.oracle.infy.wookiee.zookeeper.{Curator, ZookeeperSettings}
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.curator.framework.imps.CuratorFrameworkState
 import org.apache.curator.test.TestingServer

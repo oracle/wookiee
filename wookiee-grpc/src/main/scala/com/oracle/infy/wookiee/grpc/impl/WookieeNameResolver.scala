@@ -9,9 +9,9 @@ import com.oracle.infy.wookiee.grpc.contract.{HostnameServiceContract, ListenerC
 import com.oracle.infy.wookiee.grpc.errors.Errors.WookieeGrpcError
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.utils.implicits._
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import fs2._
 import io.grpc.{Attributes, EquivalentAddressGroup, NameResolver}
-import org.typelevel.log4cats.Logger
 
 import java.net.InetSocketAddress
 
@@ -22,14 +22,15 @@ protected[grpc] class WookieeNameResolver(
     hostNameService: HostnameServiceContract[IO, Stream],
     discoveryPath: String,
     serviceAuthority: String
-)(implicit logger: Logger[IO], dispatcher: Dispatcher[IO])
-    extends NameResolver {
+)(implicit dispatcher: Dispatcher[IO])
+    extends NameResolver
+    with LoggingAdapterIO {
 
   override def getServiceAuthority: String = serviceAuthority
 
   override def shutdown(): Unit = {
     val computation = for {
-      _ <- logger.info("Shutdown was called on NameResolver")
+      _ <- logIO.info("Shutdown was called on NameResolver")
       maybeFiber <- fiberRef.get
       maybeListenerContract <- listenerRef.get
       _ <- maybeListenerContract match {
@@ -60,7 +61,7 @@ protected[grpc] class WookieeNameResolver(
   override def start(listener: NameResolver.Listener2): Unit = {
 
     val computation = for {
-      _ <- logger.info("Start was called on NameResolver")
+      _ <- logIO.info("Start was called on NameResolver")
       wookieeListener <- new WookieeGrpcHostListener(listenerCallback(listener), hostNameService, discoveryPath)
         .pure[IO]
 
@@ -69,12 +70,12 @@ protected[grpc] class WookieeNameResolver(
       fiber <- wookieeListener
         .startListening
         .leftFlatMap { err =>
-          EitherT(logger.error(s"Error on listen start: $err").map(_ => err.asLeft[Unit]))
+          EitherT(logIO.error(s"Error on listen start: $err").map(_ => err.asLeft[Unit]))
         }
         .value
         .start
       _ <- fiberRef.set(Some(fiber))
-      _ <- logger.info("Running listener in the background")
+      _ <- logIO.info("Running listener in the background")
     } yield ()
 
     dispatcher.unsafeRunSync(semaphore.acquire.bracket(_ => computation)(_ => semaphore.release))

@@ -19,22 +19,26 @@ package com.oracle.infy.wookiee.test
 import akka.actor.{ActorRef, ActorSystem}
 import akka.testkit.TestProbe
 import akka.util.Timeout
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
 import com.oracle.infy.wookiee.app.HarnessActorSystem
 import com.oracle.infy.wookiee.command._
 import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.service.messages.Ready
-import com.oracle.infy.wookiee.test.TestSystemActor.RegisterShutdownListener
+import com.oracle.infy.wookiee.service.meta.ServiceMetaDataV2
 import com.oracle.infy.wookiee.test.command.{WeatherCommand, WeatherData}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.Inspectors
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.TimeUnit
-import scala.concurrent.Future
-import scala.concurrent.duration.Duration
+import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.Await
+import scala.concurrent.duration.{Duration, DurationInt}
 
 class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
-  implicit val timeout: Timeout = Timeout(5000, TimeUnit.MILLISECONDS)
+  implicit val timeout: Timeout = Timeout(10000, TimeUnit.MILLISECONDS)
 
   val sys: TestHarness = TestHarness(
     HarnessActorSystem.renewConfigsAndClasses(None),
@@ -53,17 +57,17 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
 
   "test harnesses " should {
     "start up service manager for both " in {
-      sys.serviceManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
-      sys2.serviceManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
+      sys.serviceManager.isDefined shouldBe true
+      sys2.serviceManager.isDefined shouldBe true
     }
 
     "load both test services " in {
       def checkReady(sysToUse: TestHarness) = {
-        val probe = TestProbe()
         val testService = sysToUse.getService("testservice")
         assert(testService.isDefined, "Test service was not registered")
-        probe.send(testService.get, Ready)
-        Ready shouldBe probe.expectMsg(Ready)
+        val ready =
+          Await.result((testService.get.asInstanceOf[ServiceMetaDataV2].service ? Ready()).mapTo[Ready], 5.seconds)
+        ready shouldBe Ready()
       }
 
       checkReady(sys)
@@ -71,17 +75,16 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
     }
 
     "start up component manager on both " in {
-      sys.componentManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
-      sys2.componentManager.get.isInstanceOf[ActorRef] shouldBe true //scalafix:ok
+      sys.componentManager.isDefined shouldBe true
+      sys2.componentManager.isDefined shouldBe true
     }
 
     "load test components " in {
       def loadComponent(sysToUse: TestHarness) = {
-        val probe = TestProbe()
-        val testComponent = sysToUse.getComponent("testcomponent")
+        val testComponent = sysToUse.getComponentV2("testcomponent")
         assert(testComponent.isDefined, "Test component was not registered")
-        probe.send(testComponent.get, StatusRequest)
-        TestComponent.ComponentMessage shouldBe probe.expectMsg(TestComponent.ComponentMessage)
+        val reply = Await.result(testComponent.get ? StatusRequest, 5.seconds)
+        TestComponent.ComponentMessage shouldBe reply
       }
 
       loadComponent(sys)
@@ -93,20 +96,8 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
     )
 
     "load command managers and commands size equals 1 for both" in {
-      val probe1 = new TestProbe(actorSystem)
-      val probe2 = new TestProbe(actorSystem2)
-      val commandManager = sys.commandManager
-      val commandManager2 = sys2.commandManager
-      assert(commandManager.isDefined, "Command Manager was not registered")
-      assert(commandManager2.isDefined, "Command Manager was not registered")
-
-      probe1.send(commandManager.get, GetCommands())
-      val commands1 = probe1.expectMsgType[Map[String, ActorRef]]
-      commands1.size shouldBe 1
-
-      probe2.send(commandManager2.get, GetCommands())
-      val commands2 = probe2.expectMsgType[Map[String, ActorRef]]
-      commands2.size shouldBe 1
+      WookieeCommandExecutive.getMediator(sys.config).getCommand("TestCommand").isDefined shouldBe true
+      WookieeCommandExecutive.getMediator(sys2.config).getCommand("TestCommand").isDefined shouldBe true
     }
 
     "load test command and get weather" in {
@@ -128,39 +119,49 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
       assert(commandManager.isDefined, "Command Manager was not registered")
       probe.send(
         commandManager.get,
-        ExecuteRemoteCommand[WeatherData, String]("WeatherCommand", bean, { (id: String, input: WeatherData) =>
-          Future.successful(s"$id-${input.name}-remote")
-        }, timeout)
+        ExecuteCommand[WeatherData, String]("WeatherCommand", bean, timeout)
       )
 
       val reply = probe.expectMsgType[String](Duration(15, TimeUnit.SECONDS))
-      reply shouldBe "WeatherCommand-Seattle, WA-remote"
+      reply shouldBe "Weather: 47.608013,-122.335167|current"
     }
 
     "shutdown services and components" in {
-      val probe1 = new TestProbe(actorSystem)
-      val probe2 = new TestProbe(actorSystem2)
+      val shutdownsSeen = new AtomicInteger(0)
+      val shutdownsSeen2 = new AtomicInteger(0)
+      val probe1 = new WookieeActor {
+        override protected def receive: Receive = {
+          case "GotShutdown" =>
+            shutdownsSeen.incrementAndGet()
+            ()
+        }
+      }
+      val probe2 = new WookieeActor {
+        override protected def receive: Receive = {
+          case "GotShutdown" =>
+            shutdownsSeen2.incrementAndGet()
+            ()
+        }
+      }
       val testService = sys.getService("testservice")
-      val testComponent = sys.getComponent("testcomponent")
+      val testComponent = sys.getComponentV2("testcomponent")
       val testService2 = sys2.getService("testservice")
-      val testComponent2 = sys2.getComponent("testcomponent")
+      val testComponent2 = sys2.getComponentV2("testcomponent")
 
-      probe1.send(testService.get, RegisterShutdownListener(probe1.ref))
-      probe1.send(testComponent.get, RegisterShutdownListener(probe1.ref))
-      probe2.send(testService2.get, RegisterShutdownListener(probe2.ref))
-      probe2.send(testComponent2.get, RegisterShutdownListener(probe2.ref))
+      testService.get.asInstanceOf[ServiceMetaDataV2].service !
+        ShutdownListener.RegisterShutdownListener(probe1)
+      testComponent.get ! ShutdownListener.RegisterShutdownListener(probe1)
+
+      testService2.get.asInstanceOf[ServiceMetaDataV2].service !
+        ShutdownListener.RegisterShutdownListener(probe2)
+      testComponent2.get ! ShutdownListener.RegisterShutdownListener(probe2)
+      Thread.sleep(500L)
 
       sys.stop()(actorSystem)
-      val results = probe1.receiveN(2, timeout.duration)
-
       sys2.stop()(actorSystem2)
-      val results2 = probe2.receiveN(2, timeout.duration)
 
-      TestHarness.log.debug(s"Results $results,  $results2")
-      results should have size 2
-      results should contain("GotShutdown")
-      results2 should have size 2
-      results2 should contain("GotShutdown")
+      ThreadUtil.awaitEvent({ shutdownsSeen.get() == 2 })
+      ThreadUtil.awaitEvent({ shutdownsSeen2.get() == 2 })
     }
   }
 }

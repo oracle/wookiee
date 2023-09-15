@@ -11,13 +11,11 @@ import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings._
 import io.grpc._
 //wookiee-grpc imports
-import org.typelevel.log4cats.Logger
 // This is from ScalaPB generated code
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.test.TestingServer
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -46,8 +44,6 @@ object Example {
       override def unsafeToFutureCancelable[A](fa: IO[A]): (Future[A], () => Future[Unit]) =
         fa.unsafeToFutureCancelable()
     }
-
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zookeeperDiscoveryPath = "/discovery"
 

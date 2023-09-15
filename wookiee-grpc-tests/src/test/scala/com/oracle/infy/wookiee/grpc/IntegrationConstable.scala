@@ -14,8 +14,6 @@ import com.oracle.infy.wookiee.grpc.utils.implicits._
 import fs2.Stream
 import org.apache.curator.framework.recipes.cache.CuratorCache
 import org.apache.curator.test.TestingServer
-import org.typelevel.log4cats.Logger
-import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.ExecutionContext
 
@@ -26,8 +24,6 @@ object IntegrationConstable extends ConstableCommon {
     implicit val ec: ExecutionContext = mainExecutionContext(mainECParallelism)
 
     val blockingEC: ExecutionContext = blockingExecutionContext("integration-test")
-
-    implicit val logger: Logger[IO] = Slf4jLogger.create[IO].unsafeRunSync()
 
     val zkFake = new TestingServer()
     val connStr = zkFake.getConnectString
@@ -44,7 +40,6 @@ object IntegrationConstable extends ConstableCommon {
         queue <- Queue.unbounded[IO, Set[Host]]
         killSwitch <- Deferred[IO, Either[Throwable, Unit]]
 
-        logger <- Slf4jLogger.create[IO]
         hostProducerCurator <- IO {
           val curator = curatorFactory(connStr)
           curator.start()
@@ -73,9 +68,9 @@ object IntegrationConstable extends ConstableCommon {
               semaphore,
               Fs2CloseableImpl(Stream.repeatEval(queue.take), killSwitch),
               queue.offer
-            )(dispatcher, logger),
+            )(dispatcher),
             discoveryPath = discoveryPath
-          )(logger)
+          )
 
         val cleanup: () => IO[Unit] = () => {
           IO {

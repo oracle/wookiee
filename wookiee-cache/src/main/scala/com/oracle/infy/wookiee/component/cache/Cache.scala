@@ -18,8 +18,11 @@
  */
 package com.oracle.infy.wookiee.component.cache
 
-import akka.pattern._
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.Mediator
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.component.ComponentV2
+import com.typesafe.config.Config
+
 import scala.concurrent.Future
 
 // Messages for Caching
@@ -39,20 +42,19 @@ case class Clear(namespace: String)
   * Interface trait that handles the messaging for any caching classes. Then the user would just need to implement
   * the internal functions
   */
-abstract class Cache(name: String) extends Component(name) {
-
-  import context.dispatcher
+abstract class Cache(name: String, config: Config) extends ComponentV2(name, config) {
+  Cache.registerMediator(config, this)
 
   override def receive: Receive = super.receive orElse {
     case CreateCache(config)                    => sender() ! createCache(config)
     case DeleteCache(namespace)                 => sender() ! deleteCache(namespace)
-    case Get(namespace, key)                    => pipe(get(namespace, key)) to sender(); ()
-    case Add(namespace, key, value, ttlSec)     => pipe(add(namespace, key, value, ttlSec)) to sender(); ()
-    case Delete(namespace, key)                 => pipe(delete(namespace, key)) to sender(); ()
-    case Decrement(namespace, key, decrementBy) => pipe(decrement(namespace, key, decrementBy)) to sender(); ()
-    case Increment(namespace, key, incrementBy) => pipe(increment(namespace, key, incrementBy)) to sender(); ()
-    case Contains(namespace, key)               => pipe(contains(namespace, key)) to sender(); ()
-    case Clear(namespace)                       => pipe(clear(namespace)) to sender(); ()
+    case Get(namespace, key)                    => pipe(get(namespace, key))
+    case Add(namespace, key, value, ttlSec)     => pipe(add(namespace, key, value, ttlSec))
+    case Delete(namespace, key)                 => pipe(delete(namespace, key))
+    case Decrement(namespace, key, decrementBy) => pipe(decrement(namespace, key, decrementBy))
+    case Increment(namespace, key, incrementBy) => pipe(increment(namespace, key, incrementBy))
+    case Contains(namespace, key)               => pipe(contains(namespace, key))
+    case Clear(namespace)                       => pipe(clear(namespace))
   }
 
   // Functions to implement for any cache managers using the ICache interface
@@ -70,6 +72,6 @@ abstract class Cache(name: String) extends Component(name) {
   protected def clear(namespace: String): Future[Boolean]
 }
 
-object Cache {
+object Cache extends Mediator[Cache] {
   val ComponentName = "wookiee-cache"
 }

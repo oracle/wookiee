@@ -18,17 +18,14 @@
  */
 package com.oracle.infy.wookiee.component.cache
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
-import java.nio.charset.StandardCharsets
-
-import akka.actor.{ActorRef, ActorSelection}
-import akka.pattern.Patterns
-import akka.util.Timeout
 import com.oracle.infy.wookiee.utils.Loan._
+import com.typesafe.config.Config
 import org.json4s.ext.JodaTimeSerializers
 import org.json4s.jackson.Serialization
 import org.json4s.{DefaultFormats, Formats, NoTypeHints}
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
+import java.nio.charset.StandardCharsets
 import scala.concurrent._
 import scala.util.{Failure, Success}
 
@@ -113,36 +110,26 @@ trait Cacheable[T] extends Serializable {
     }
   }
 
-  def readFromCacheSelect(
-      cacheRef: ActorSelection,
+  // Need a config that has the 'instance-id' of this Wookiee instance
+  def readFromCacheConfig(
+      config: Config,
       cacheKey: Option[CacheKey] = None
-  )(implicit timeout: Timeout, executor: ExecutionContext, m: Manifest[T]): Future[Option[T]] = {
-    val p = Promise[Option[T]]()
-    cacheRef.resolveOne() onComplete {
-      case Success(s) =>
-        readFromCache(s, cacheKey)(timeout, executor, m) onComplete {
-          case Success(result) => p success result
-          case Failure(f)      => p failure f
-        }
-      case Failure(f) => p failure f
-    }
-    p.future
-  }
+  )(implicit executor: ExecutionContext, m: Manifest[T]): Future[Option[T]] =
+    readFromCache(Cache.getMediator(config), cacheKey)(executor, m)
 
   /**
     * Looks in the supplied cache for the current object
     *
     * @param cacheRef This is a reference to the cache actor
-    * @param timeout Timeout for the cache read
     * @return
     */
   def readFromCache(
-      cacheRef: ActorRef,
+      cacheRef: Cache,
       cacheKey: Option[CacheKey] = None
-  )(implicit timeout: Timeout, executor: ExecutionContext, m: Manifest[T]): Future[Option[T]] = {
+  )(implicit executor: ExecutionContext, m: Manifest[T]): Future[Option[T]] = {
     val ck = getCacheKey(cacheKey)
     val p = Promise[Option[T]]()
-    val future = Patterns.ask(cacheRef, Get(namespace, ck), timeout).mapTo[Option[Array[Byte]]]
+    val future = (cacheRef ? Get(namespace, ck)).mapTo[Option[Array[Byte]]]
     future onComplete {
       case Success(Some(d)) => p success extract(d)
       case Success(None)    => p success None
@@ -151,82 +138,45 @@ trait Cacheable[T] extends Serializable {
     p.future
   }
 
-  def writeInCacheSelect(
-      cacheRef: ActorSelection,
+  // Need a config that has the 'instance-id' of this Wookiee instance
+  def writeInCacheConfig(
+      config: Config,
       cacheKey: Option[CacheKey] = None,
       ttlSec: Option[Int] = dataTimeout.map(_.toInt / 1000)
-  )(implicit timeout: Timeout, executor: ExecutionContext): Future[Boolean] = {
-    val p = Promise[Boolean]()
-    cacheRef.resolveOne() onComplete {
-      case Success(s) =>
-        writeInCache(s, cacheKey, ttlSec)(timeout, executor) onComplete {
-          case Success(_) => p success true
-          case Failure(f) => p failure f
-        }
-      case Failure(f) => p failure f
-    }
-    p.future
-  }
+  ): Future[Boolean] =
+    writeInCache(Cache.getMediator(config), cacheKey, ttlSec)
 
   /**
     * Writes the current object to the supplied cache
     *
     * @param cacheRef This is a reference to the cache actor
-    * @param timeout Timeout for the cache read
-    * @return
     */
   def writeInCache(
-      cacheRef: ActorRef,
+      cacheRef: Cache,
       cacheKey: Option[CacheKey] = None,
       ttlSec: Option[Int] = dataTimeout.map(_.toInt / 1000)
-  )(implicit timeout: Timeout, executor: ExecutionContext): Future[Boolean] = {
-    val p = Promise[Boolean]()
-    val future =
-      Patterns.ask(cacheRef, Add(namespace, getCacheKey(cacheKey), this.getBytes, ttlSec), timeout).mapTo[Boolean]
-    future onComplete {
-      case Success(_) => p success true
-      case Failure(f) => p failure f
-    }
-    p.future
-  }
+  ): Future[Boolean] =
+    (cacheRef ? Add(namespace, getCacheKey(cacheKey), this.getBytes, ttlSec)).mapTo[Boolean]
 
   /**
     * Deletes the current item from the cache
     *
     * @param cacheRef The is a reference to the cache actor
     * @param cacheKey Optional key, usually this is managed by the object itself
-    * @param timeout timeout for the cache delete response
     * @param executor the executor
     * @return true if delete was successful
     */
   def deleteFromCache(
-      cacheRef: ActorRef,
+      cacheRef: Cache,
       cacheKey: Option[CacheKey] = None
-  )(implicit timeout: Timeout, executor: ExecutionContext): Future[Boolean] = {
-    val p = Promise[Boolean]()
-    val future = Patterns.ask(cacheRef, Delete(namespace, getCacheKey(cacheKey)), timeout).mapTo[Boolean]
-    future onComplete {
-      case Success(_) => p success true
-      case Failure(f) => p failure f
-    }
-    p.future
-  }
+  )(implicit executor: ExecutionContext): Future[Boolean] =
+    (cacheRef ? Delete(namespace, getCacheKey(cacheKey))).mapTo[Boolean]
 
-  def deleteFromCacheSelect(
-      cacheRef: ActorSelection,
+  def deleteFromCacheConfig(
+      config: Config,
       cacheKey: Option[CacheKey] = None
-  )(implicit timeout: Timeout, executor: ExecutionContext): Future[Boolean] = {
-    val p = Promise[Boolean]()
-    cacheRef.resolveOne() onComplete {
-      case Success(succ) =>
-        deleteFromCache(succ, cacheKey)(timeout, executor) onComplete {
-          case Success(_) => p success true
-          case Failure(f) => p failure f
-        }
-      case Failure(f) => p failure f
-    }
-    p.future
-  }
+  )(implicit executor: ExecutionContext): Future[Boolean] =
+    deleteFromCache(Cache.getMediator(config), cacheKey)(executor)
 
   def deserialize(data: Array[Byte])(implicit m: Manifest[T]): Option[T] = {
     extract(data)

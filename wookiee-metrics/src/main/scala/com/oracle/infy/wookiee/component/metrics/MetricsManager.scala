@@ -18,28 +18,53 @@
  */
 package com.oracle.infy.wookiee.component.metrics
 
-import akka.actor.ActorRef
-import com.oracle.infy.wookiee.component.Component
+import akka.actor.{ActorRef, PoisonPill}
+import akka.pattern.ask
+import akka.util.Timeout
+import com.oracle.infy.wookiee.app.HarnessActor
+import com.oracle.infy.wookiee.component.ComponentV2
+import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.component.metrics.monitoring.MonitoringSettings
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
 import com.oracle.infy.wookiee.utils.ConfigUtil
+import com.typesafe.config.Config
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.util.Try
 
-class MetricsManager(name: String) extends Component(name) with Metrics {
+class MetricsManager(name: String, config: Config) extends ComponentV2(name, config) {
   implicit val monitorSettings: MonitoringSettings = MonitoringSettings(ConfigUtil.prepareSubConfig(config, name))
+  private val metricsActor: AtomicReference[ActorRef] = new AtomicReference[ActorRef]()
+  private implicit val timeout: Timeout = Timeout(15.seconds)
 
-  override protected def defaultChildName: Option[String] = Some(Metrics.MetricsName)
+  override def onRequest[T](msg: T): Any = msg match {
+    case sr: StatusRequest =>
+      Option(metricsActor.get()) match {
+        case Some(actor) =>
+          actor ? sr
+        case None =>
+          Future.failed(new IllegalStateException("Metrics actor not initialized"))
+      }
+  }
 
   /**
     * Starts the component
     */
   override def start(): Unit = {
-    startMetrics
+    // Hookup the main communication actor
+    metricsActor.set(
+      HarnessActor.getMediator(config).actorOf(MetricsActor.props(monitorSettings), MetricsManager.MetricsName)
+    )
     super.start()
   }
 
-  override protected def getHealthChildren: Iterable[ActorRef] = List()
+  override def prepareForShutdown(): Unit = {
+    super.prepareForShutdown()
+    Try(metricsActor.get() ! PoisonPill)
+    ()
+  }
 
   override protected def getHealth: Future[HealthComponent] = {
     Future.successful {
@@ -56,4 +81,5 @@ class MetricsManager(name: String) extends Component(name) with Metrics {
 
 object MetricsManager {
   val ComponentName = "wookiee-metrics"
+  val MetricsName = "metrics"
 }

@@ -20,29 +20,15 @@ import akka.actor.Actor
 import com.oracle.infy.wookiee.app.HarnessActorSystem
 import com.typesafe.config.{Config, ConfigFactory}
 import com.oracle.infy.wookiee.app.HarnessActor.ConfigChange
+import com.oracle.infy.wookiee.health.WookieeMonitor
 
-/**
-  * This helper class will keep track of a configuration local to your service/component and update
-  * the configuration whenever ConfigWatcherActor detects changes in any of our config files.
-  *
-  * @author Spencer Wood
-  */
-trait ConfigHelper {
+trait ConfigHelper extends ConfigHelperV2 {
   this: Actor =>
 
-  var renewableConfig: Config = context.system.settings.config
-
-  /**
-    * Should override this method and use it when ConfigChange is received, be sure
-    * to call super.renewConfiguration() though to ensure you get the new values
-    */
-  def renewConfiguration(): Unit = {
-    ConfigFactory.invalidateCaches()
-    renewableConfig = HarnessActorSystem.renewConfigsAndClasses(None)
-  }
+  override var renewableConfig: Config = context.system.settings.config
 
   def configReceive: Receive = {
     case ConfigChange() =>
-      renewConfiguration()
+      propagateRenewConfiguration()
   }
 }

@@ -3,14 +3,12 @@ package com.oracle.infy.wookiee.grpc
 import cats.effect.std.{Dispatcher, Queue}
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO}
-import cats.implicits._
 import com.oracle.infy.wookiee.grpc.common.ConstableCommon
 import com.oracle.infy.wookiee.grpc.contract.ListenerContract
 import com.oracle.infy.wookiee.grpc.impl.{Fs2CloseableImpl, WookieeGrpcHostListener}
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.tests.{GrpcListenerTest, SerdeTest}
 import fs2.Stream
-import org.typelevel.log4cats.noop.NoOpLogger
 import wookiee.grpc.impl.MockHostNameService
 
 import scala.concurrent.ExecutionContext
@@ -24,7 +22,6 @@ object UnitTestConstable extends ConstableCommon {
         callback: Set[Host] => IO[Unit]
     ): IO[(Set[Host] => IO[Unit], () => IO[Unit], ListenerContract[IO, Stream])] =
       for {
-        logger <- NoOpLogger.impl[IO].pure[IO]
         queue <- Queue.unbounded[IO, Set[Host]]
         killswitch <- Deferred[IO, Either[Throwable, Unit]]
 
@@ -37,7 +34,7 @@ object UnitTestConstable extends ConstableCommon {
             callback,
             new MockHostNameService(Fs2CloseableImpl(Stream.repeatEval(queue.take), killswitch)),
             discoveryPath = ""
-          )(logger)
+          )
 
         val cleanup: () => IO[Unit] = () => {
           IO(())

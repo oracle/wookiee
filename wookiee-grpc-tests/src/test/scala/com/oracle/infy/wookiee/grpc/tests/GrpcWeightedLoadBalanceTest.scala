@@ -15,7 +15,6 @@ import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
-import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import java.util.Random
@@ -30,8 +29,7 @@ object GrpcWeightedLoadBalanceTest extends UTestScalaCheck with ConstableCommon 
       curator: CuratorFramework
   )(
       implicit mainEC: ExecutionContext,
-      dispatcher: Dispatcher[IO],
-      logger: Logger[IO]
+      dispatcher: Dispatcher[IO]
   ): Tests = {
     val testWeightedLoadBalancer = {
       val bossThreads = 5

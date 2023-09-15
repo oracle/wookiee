@@ -28,7 +28,7 @@ import com.oracle.infy.wookiee.component.messages.StatusRequest
 import com.oracle.infy.wookiee.component.metrics.messages._
 import com.oracle.infy.wookiee.component.metrics.monitoring.MonitoringSettings
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import org.json4s.jackson.JsonMethods._
 
 import java.net.{InetAddress, InetSocketAddress}
@@ -42,10 +42,11 @@ import scala.util.Try
 object MetricsActor {
   def props(settings: MonitoringSettings): Props = Props(new MetricsActor(settings))
 
-  var health: HealthComponent = HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Metrics not started yet.")
+  var health: HealthComponent =
+    HealthComponent(MetricsManager.MetricsName, ComponentState.NORMAL, "Metrics not started yet.")
 }
 
-class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLoggingAdapter with ActorHealth {
+class MetricsActor(settings: MonitoringSettings) extends Actor with LoggingAdapter with ActorHealth {
 
   private[metrics] var jmxReporter: Option[JmxReporter] = None
   private[metrics] var graphiteReporter: Option[GraphiteReporter] = None
@@ -175,16 +176,17 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
     MetricsActor.health = Try({
       if (settings.GraphiteEnabled) {
         HealthComponent(
-          Metrics.MetricsName,
+          MetricsManager.MetricsName,
           ComponentState.NORMAL,
           "Currently sending metrics to graphite at %s:%d"
             .format(settings.GraphiteHost, settings.GraphitePort)
         )
-      } else HealthComponent(Metrics.MetricsName, ComponentState.NORMAL, "Currently not sending metrics to graphite")
+      } else
+        HealthComponent(MetricsManager.MetricsName, ComponentState.NORMAL, "Currently not sending metrics to graphite")
     }).recover({
         case e: Exception =>
           HealthComponent(
-            Metrics.MetricsName,
+            MetricsManager.MetricsName,
             ComponentState.CRITICAL,
             "An error occurred checking the metrics health: ".concat(e.getMessage)
           )

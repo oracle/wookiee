@@ -6,15 +6,15 @@ import cats.implicits._
 import com.oracle.infy.wookiee.grpc.contract._
 import com.oracle.infy.wookiee.grpc.errors.Errors.{ListenerError, WookieeGrpcError}
 import com.oracle.infy.wookiee.grpc.model.Host
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import fs2._
-import org.typelevel.log4cats.Logger
 
 protected[grpc] class WookieeGrpcHostListener(
     listenerCallback: Set[Host] => IO[Unit],
     hostnameServiceContract: HostnameServiceContract[IO, Stream],
     discoveryPath: String
-)(implicit logger: Logger[IO])
-    extends ListenerContract[IO, Stream](hostnameServiceContract) {
+) extends ListenerContract[IO, Stream](hostnameServiceContract)
+    with LoggingAdapterIO {
 
   override def startListening: EitherT[IO, WookieeGrpcError, Unit] =
     for {
@@ -22,7 +22,7 @@ protected[grpc] class WookieeGrpcHostListener(
       r <- EitherT(
         closableStream
           .stream
-          .evalTap(hosts => logger.info(s"Got hosts $hosts on stream"))
+          .evalTap(hosts => logIO.info(s"Got hosts $hosts on stream"))
           .evalTap(hosts => listenerCallback(hosts))
           .compile
           .drain

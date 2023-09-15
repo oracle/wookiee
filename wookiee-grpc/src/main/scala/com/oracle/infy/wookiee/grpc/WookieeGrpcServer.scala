@@ -1,12 +1,14 @@
 package com.oracle.infy.wookiee.grpc
 
 import cats.effect.std.Queue
+import cats.effect.unsafe.implicits.global
 import cats.effect.{FiberIO, IO, Ref, Temporal}
 import com.oracle.infy.wookiee.grpc.impl.BearerTokenAuthenticator
-import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.{eventLoopGroup, _}
+import com.oracle.infy.wookiee.grpc.impl.GRPCUtils._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{SSLServerSettings, ServerSettings}
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import fs2._
 import io.grpc.netty.shaded.io.grpc.netty.{GrpcSslContexts, NettyServerBuilder}
 import io.grpc.netty.shaded.io.netty.channel.EventLoopGroup
@@ -15,7 +17,6 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.{ClientAuth, SslContext, SslCon
 import io.grpc.{Server, ServerInterceptors}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.zookeeper.CreateMode
-import org.typelevel.log4cats.Logger
 
 import java.io.File
 import scala.util.Try
@@ -30,21 +31,19 @@ final class WookieeGrpcServer(
     private val quarantined: Ref[IO, Boolean],
     private val bossEventLoop: EventLoopGroup,
     private val workerEventLoop: EventLoopGroup
-)(
-    implicit
-    logger: Logger[IO]
-) {
+) extends AutoCloseable
+    with LoggingAdapterIO {
 
   def shutdown(): IO[Unit] =
     for {
-      _ <- logger.info("WGS300: Stopping load writing process...")
+      _ <- logIO.debug("WGS300: Stopping load writing process...")
       _ <- fiber.cancel
-      _ <- logger.info("WGS401: Shutting down gRPC server...")
+      _ <- logIO.debug("WGS401: Shutting down gRPC server...")
       _ <- IO.blocking(server.shutdown())
       _ <- IO(server.awaitTermination())
       _ <- IO(bossEventLoop.shutdownGracefully())
       _ <- IO(workerEventLoop.shutdownGracefully())
-      _ <- logger.info("WGS402: Shutdown of gRPC server and event loops complete")
+      _ <- logIO.info("WGS402: Shutdown of gRPC server and event loops complete")
     } yield ()
 
   def assignLoad(load: Int): IO[Unit] =
@@ -64,36 +63,35 @@ final class WookieeGrpcServer(
         WookieeGrpcServer.assignQuarantine(isQuarantined = false, host, discoveryPath, curatorFramework)
       )
 
+  override def close(): Unit =
+    shutdown().unsafeRunSync()
 }
 
-object WookieeGrpcServer {
+object WookieeGrpcServer extends LoggingAdapterIO {
 
-  def start(serverSettings: ServerSettings)(
-      implicit
-      logger: Logger[IO]
-  ): IO[WookieeGrpcServer] =
+  def start(serverSettings: ServerSettings): IO[WookieeGrpcServer] =
     for {
       host <- serverSettings.host
       bossEventLoop = eventLoopGroup(serverSettings.bossExecutionContext, serverSettings.bossThreads)
       workerEventLoop = eventLoopGroup(serverSettings.workerExecutionContext, serverSettings.workerThreads)
       server <- buildServer(serverSettings, host, bossEventLoop, workerEventLoop)
       _ <- IO.blocking { server.start() }
-      _ <- logger.info("WGS100: gRPC server started...")
-      _ <- logger.info("WGS101: Registering gRPC server in zookeeper...")
+      _ <- logIO.info("WGS100: gRPC server started...")
+      _ <- logIO.debug("WGS101: Registering gRPC server in zookeeper...")
       queue <- serverSettings.queue
       quarantined <- serverSettings.quarantined
       // Create an object that stores whether or not the server is quarantined.
       _ <- registerInZookeeper(serverSettings.discoveryPath, serverSettings.curatorFramework, host).recoverWith({
         case e: Exception =>
           // If we fail to register in ZK, shutdown grpc server until we can
-          logger.error(e)(s"WGS102: Failed to register in zookeeper").*> {
+          logIO.error(s"WGS102: Failed to register in zookeeper", e).*> {
             IO.blocking {
               server.shutdown()
               throw e // scalafix:ok
             }
           }
       })
-      _ <- logger.info("WGS103: ZK registration complete, beginning to receive requests")
+      _ <- logIO.info("WGS103: ZK registration complete, beginning to receive requests")
       loadWriteFiber <- streamLoads(
         queue,
         host,
@@ -120,9 +118,9 @@ object WookieeGrpcServer {
       host: Host,
       bossEventLoop: EventLoopGroup,
       workerEventLoop: EventLoopGroup
-  )(implicit logger: Logger[IO]): IO[Server] =
+  ): IO[Server] =
     for {
-      _ <- logger.info("WGS90: Building gRPC server...")
+      _ <- logIO.info("WGS90: Building gRPC server...")
       builder0 = NettyServerBuilder
         .forPort(host.port)
         .maxInboundMessageSize(serverSettings.maxMessageSize())
@@ -147,7 +145,7 @@ object WookieeGrpcServer {
           case (builderIO, (serverServiceDefinition, maybeAuth, maybeInterceptors)) =>
             maybeAuth
               .map { authSettings =>
-                logger
+                logIO
                   .info(
                     s"WGS91: Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] with authentication"
                   )
@@ -162,25 +160,30 @@ object WookieeGrpcServer {
                   }
               }
               .getOrElse(
-                logger
+                logIO
                   .info(
                     s"WGS92: Adding gRPC service [${serverServiceDefinition.getServiceDescriptor.getName}] without authentication"
                   )
                   .*>(builderIO)
                   .map { builder =>
-                    builder.addService(serverServiceDefinition)
+                    val interceptors = maybeInterceptors.getOrElse(
+                      List()
+                    )
+                    builder.addService(
+                      ServerInterceptors.intercept(serverServiceDefinition, interceptors: _*)
+                    )
                   }
               )
         }
 
-      _ <- logger.info("WGS93: Successfully built gRPC server")
+      _ <- logIO.debug("WGS93: Successfully built gRPC server")
       server <- IO { builder3.build() }
 
     } yield server
 
   private def getSslContextBuilder(
       sslServerSettings: SSLServerSettings
-  )(implicit logger: Logger[IO]): IO[SslContext] =
+  ): IO[SslContext] =
     for {
 
       sslClientContextBuilder0 <- IO.blocking {
@@ -204,7 +207,7 @@ object WookieeGrpcServer {
       sslContextBuilder1 <- sslServerSettings
         .sslCertificateTrustPath
         .map { path =>
-          logger
+          logIO
             .info("WGS80: gRPC server will require mTLS for client connections.")
             .as(
               sslClientContextBuilder0
@@ -213,7 +216,7 @@ object WookieeGrpcServer {
             )
         }
         .getOrElse(
-          logger
+          logIO
             .info("WGS81: gRPC server has TLS enabled.")
             .as(sslClientContextBuilder0)
         )
@@ -230,7 +233,7 @@ object WookieeGrpcServer {
       curatorFramework: CuratorFramework,
       serverSettings: ServerSettings,
       quarantined: Ref[IO, Boolean]
-  )(implicit timer: Temporal[IO], logger: Logger[IO]): IO[Unit] = {
+  )(implicit timer: Temporal[IO]): IO[Unit] = {
     val stream = Stream.repeatEval(queue.take)
     stream
       .debounce(serverSettings.loadUpdateInterval)
@@ -238,12 +241,12 @@ object WookieeGrpcServer {
         for {
           isQuarantined <- quarantined.get
           _ <- if (isQuarantined) {
-            logger
+            logIO
               .info(s"WGS70: In quarantine. Not updating load...")
           } else {
             assignLoad(load, host, discoveryPath, curatorFramework)
               .*>(
-                logger
+                logIO
                   .info(s"WGS71: Wrote load to zookeeper: load = $load")
               )
           }

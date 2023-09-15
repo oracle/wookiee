@@ -19,24 +19,30 @@ package com.oracle.infy.wookiee.test
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.{Level, LoggerContext}
 import com.oracle.infy.wookiee.HarnessConstants._
+import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.app.Harness
 import com.oracle.infy.wookiee.app.HarnessActor.{GetManagers, ReadyCheck}
-import com.oracle.infy.wookiee.component.{Component, LoadComponent}
-import com.oracle.infy.wookiee.logging.Logger
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.component._
+import com.oracle.infy.wookiee.health.ComponentState
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.service.messages.LoadService
+import com.oracle.infy.wookiee.service.meta.WookieeServiceMeta
+import com.oracle.infy.wookiee.test.TestHarness.defaultConfig
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.sun.management.UnixOperatingSystemMXBean
 import com.typesafe.config.{Config, ConfigFactory}
+import org.slf4j.LoggerFactory
 
 import java.lang.management.ManagementFactory
 import java.net.ServerSocket
 import scala.concurrent.duration._
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.{Random, Try}
 
-object TestHarness {
-  var harnessMap: Map[ActorSystem, TestHarness] = Map.empty
+object TestHarness extends Mediator[TestHarness] {
 
   /**
     * Create a new instance of the test harness and start all of it's components.
@@ -47,13 +53,12 @@ object TestHarness {
     */
   def apply(
       config: Config,
-      serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-      componentMap: Option[Map[String, Class[_ <: Component]]] = None,
+      serviceMap: Option[Map[String, Class[_ <: WookieeService]]] = None,
+      componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None,
       logLevel: Level = Level.INFO,
       timeToWait: FiniteDuration = 15.seconds
-  ): TestHarness = harnessMap.synchronized {
+  ): TestHarness = {
     val harness = new TestHarness(config, serviceMap, componentMap, logLevel, timeToWait)
-    harnessMap = harnessMap.updated(harness.system, harness)
     harness
   }
 
@@ -77,152 +82,31 @@ object TestHarness {
     }
   }
 
-  def log: Logger = Harness.getLogger
   def rootActor()(implicit system: ActorSystem): Option[ActorRef] = Harness.getRootActor()
 
   // Use this to shutdown TestHarness
-  def shutdown()(implicit system: ActorSystem): Unit = harnessMap.synchronized {
-    harnessMap.get(system) match {
+  def shutdown()(implicit system: ActorSystem): Unit =
+    maybeGetMediator(system.settings.config) match {
       case Some(h) =>
         h.stop()
-        harnessMap = harnessMap - system
+        unregisterMediator(system.settings.config)
       case None => // ignore
     }
-  }
-}
 
-class TestHarness(
-    conf: Config,
-    serviceMap: Option[Map[String, Class[_ <: Service]]] = None,
-    componentMap: Option[Map[String, Class[_ <: Component]]] = None,
-    logLevel: Level = Level.ERROR,
-    timeToWait: FiniteDuration = 15.seconds
-) {
-
-  var services: Map[String, ActorRef] = Map[String, ActorRef]()
-  var components: Map[String, ActorRef] = Map[String, ActorRef]()
-  var serviceManager: Option[ActorRef] = None
-  var componentManager: Option[ActorRef] = None
-  var commandManager: Option[ActorRef] = None
-  var policyManager: Option[ActorRef] = None
-  var config: Config = conf.withFallback(defaultConfig)
-  config = config.withFallback(config.getConfig("wookiee-system")).resolve()
-
-  implicit val timeout: Timeout = Timeout(timeToWait)
-
-  Harness.externalLogger.info("Starting Wookiee...")
-  Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
-
-  implicit val system: ActorSystem = Harness.startActorSystem(Some(config)).actorSystem
-
-  Harness.addShutdownHook()
-  // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
-  harnessReadyCheck(timeToWait.fromNow)
-  Await.result((TestHarness.rootActor().get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
-    case map: Map[String, ActorRef] =>
-      serviceManager = map.get(ServicesName)
-      commandManager = map.get(CommandName)
-      componentManager = map.get(ComponentName)
-      TestHarness.log.info("Managers all accounted for")
-  }
-
-  setLogLevel(logLevel)
-  if (componentMap.isDefined) {
-    loadComponents(componentMap.get)
-  }
-  if (serviceMap.isDefined) {
-    loadServices(serviceMap.get)
-  }
-
-  def stop()(implicit system: ActorSystem): Unit = {
-    Harness.shutdownActorSystem(block = false) {
-      // wait a second to make sure it shutdown correctly
-      Thread.sleep(1000)
+  // Can use this to set the logging level to something other than INFO
+  def setLogLevel(level: Level): Unit = {
+    Try {
+      val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
+      loggerContext.getLoggerList.forEach(logger => logger.setLevel(level))
     }
-  }
-
-  def setLogLevel(level: Level): Unit =
-    TestHarness.log.setLogLevel(level)
-
-  def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
-    while (!timeOut.isOverdue() && !Await
-             .result[Boolean](
-               TestHarness
-                 .rootActor()
-                 .map(act => (act ? ReadyCheck).mapTo[Boolean])
-                 .getOrElse(Future.successful(false)),
-               timeToWait
-             )) {}
-
-    if (timeOut.isOverdue()) {
-      throw new IllegalStateException("HarnessActor did not start up")
-    }
-  }
-
-  def getService(service: String): Option[ActorRef] = {
-    services.get(service)
-  }
-
-  def getServiceOrDie(service: String): ActorRef = {
-    services.getOrElse(
-      service,
-      throw new IllegalStateException(
-        s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"
-      )
-    )
-  }
-
-  def getComponent(component: String): Option[ActorRef] = {
-    components.get(component)
-  }
-
-  def getComponentOrDie(component: String): ActorRef = {
-    components.getOrElse(
-      component,
-      throw new IllegalStateException(
-        s"No such component registered: $component, available components: ${components.keySet.mkString(",")}"
-      )
-    )
-  }
-
-  def loadComponents(componentMap: Map[String, Class[_ <: Component]]): Unit = {
-    componentMap foreach { p =>
-      componentReady(p._1, p._2.getCanonicalName)
-    }
-  }
-
-  def loadServices(serviceMap: Map[String, Class[_ <: Service]]): Unit = {
-    serviceMap foreach { p =>
-      serviceReady(p._1, p._2)
-    }
-  }
-
-  private def componentReady(componentName: String, componentClass: String): Unit = {
-    Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
-      case Some(m) =>
-        val component = m.asInstanceOf[ActorRef]
-        TestHarness.log.info(s"Loaded component $componentName, ${component.path.toString}")
-        components += (componentName -> component)
-      case None =>
-        throw new Exception("Component not returned")
-    }
-  }
-
-  private def serviceReady(serviceName: String, serviceClass: Class[_ <: Service]): Unit = {
-    Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
-      case Some(m) =>
-        val service = m.asInstanceOf[ActorRef]
-        TestHarness.log.info(s"Loaded service $serviceName, ${service.path.toString}")
-        services += (serviceName -> service)
-      case None =>
-        throw new Exception("Service not returned")
-    }
+    ()
   }
 
   def defaultConfig: Config = {
-    ConfigFactory.parseString("""
+    ConfigFactory.parseString(s"""
         wookiee-system {
           prepare-to-shutdown-timeout = 1
+          instance-id = "test-${Random.nextInt(1000000)}"
         }
         services {
           path = ""
@@ -245,8 +129,173 @@ class TestHarness(
         commands {
           # generally this should be enabled
           enabled = true
-          default-nr-routees = 1
+          default-nr-routees = 5
         }
       """)
+  }
+}
+
+class TestHarness(
+    conf: Config,
+    serviceMap: Option[Map[String, Class[_ <: WookieeService]]] = None,
+    componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] = None,
+    logLevel: Level = Level.ERROR,
+    timeToWait: FiniteDuration = 30.seconds
+) extends LoggingAdapter {
+
+  var services: Map[String, WookieeServiceMeta] = Map[String, WookieeServiceMeta]()
+  var serviceManager: Option[ActorRef] = None
+  var componentManager: Option[ActorRef] = None
+  var commandManager: Option[ActorRef] = None
+  implicit var config: Config = conf.withFallback(defaultConfig)
+
+  private val instanceId: String = Try(TestHarness.getInstanceId(config)).getOrElse("wookiee") match {
+    case "wookiee" =>
+      val inst = s"test-${Random.nextInt(1000000)}"
+      config = ConfigFactory
+        .parseString(s"""
+             |wookiee-system.instance-id = "$inst"
+             |instance-id = "$inst"
+             |""".stripMargin)
+        .withFallback(config)
+      inst
+    case other => other
+  }
+  config = config.withFallback(config.getConfig("wookiee-system")).resolve()
+
+  TestHarness.registerMediator(TestHarness.getInstanceId(config), this)
+
+  implicit val timeout: Timeout = Timeout(timeToWait)
+
+  Harness.externalLogger.info("Starting Wookiee...")
+  Harness.externalLogger.info(s"Test Harness Config: ${config.toString}")
+
+  implicit val system: ActorSystem = Harness.startActorSystem(Some(config)).actorSystem
+
+  Harness.addShutdownHook()
+  // after we have started the TestHarness we need to set the serviceManager, ComponentManager and CommandManager from the Harness
+  harnessReadyCheck(timeToWait.fromNow)
+  Await.result((TestHarness.rootActor().get ? GetManagers).mapTo[Map[String, ActorRef]], timeToWait) match {
+    case map: Map[String, ActorRef] =>
+      serviceManager = map.get(ServicesName)
+      commandManager = map.get(CommandName)
+      componentManager = map.get(ComponentName)
+      TestHarness.log.info("Managers all accounted for")
+  }
+
+  TestHarness.setLogLevel(logLevel)
+  if (componentMap.isDefined) {
+    loadComponents(componentMap.get)
+  }
+  if (serviceMap.isDefined) {
+    loadServices(serviceMap.get)
+  }
+
+  def getInstanceId: String = instanceId
+
+  def stop()(implicit system: ActorSystem): Unit =
+    Harness.shutdownActorSystem(block = false) {
+      // wait a second to make sure it shutdown correctly
+      Thread.sleep(1000)
+    }
+
+  def harnessReadyCheck(timeOut: Deadline)(implicit system: ActorSystem): Unit = {
+    while (!timeOut.isOverdue() && !Await
+             .result[Boolean](
+               TestHarness
+                 .rootActor()
+                 .map(act => (act ? ReadyCheck).mapTo[Boolean])
+                 .getOrElse(Future.successful(false)),
+               timeToWait
+             )) {}
+
+    if (timeOut.isOverdue()) {
+      throw new IllegalStateException("HarnessActor did not start up")
+    }
+  }
+
+  def getService(service: String): Option[WookieeServiceMeta] =
+    services.get(service)
+
+  def getServiceOrDie(service: String): WookieeServiceMeta =
+    services.getOrElse(
+      service,
+      throw new IllegalStateException(
+        s"No such service registered: $service, available services: ${services.keySet.mkString(",")}"
+      )
+    )
+
+  // @deprecated("Use getComponentAkka instead", "2.4.0")
+  def getComponent(component: String): Option[ActorRef] =
+    getComponentAkka(component)
+
+  // Returns the ComponentV2 if it exists
+  def getComponentV2(componentName: String): Option[ComponentV2] =
+    ComponentManager
+      .getComponentByName(componentName)
+      .collect({
+        case c: ComponentInfoV2 => c.component
+      })
+
+  // For legacy Components, will eventually be removed
+  def getComponentAkka(componentName: String): Option[ActorRef] =
+    ComponentManager
+      .getComponentByName(componentName)
+      .collectFirst({
+        case ComponentInfoAkka(_, _, actorRef) => actorRef
+      })
+
+  def awaitComponent(name: String, waitMs: Long = 15000L): ComponentV2 =
+    ThreadUtil.awaitResult(getComponentV2(name), waitMs)
+
+  // Will wait for a component to be up and its health check to return NORMAL
+  def isComponentUp(
+      name: String,
+      waitMs: Long = 15000L
+  )(implicit ec: ExecutionContext): Boolean = {
+    def checkComponent(): Future[Boolean] =
+      getComponentV2(name).get.checkHealth.map { health =>
+        health.state == ComponentState.NORMAL
+      }
+
+    Try {
+      ThreadUtil.awaitFuture(checkComponent, waitMs)
+      true
+    }.getOrElse {
+      log.warn(s"Component [$name] did not return a NORMAL health check in time")
+      false
+    }
+  }
+
+  def loadComponents(componentMap: Map[String, Class[_ <: WookieeComponent]]): Unit = {
+    componentMap foreach { p =>
+      componentReady(p._1, p._2.getCanonicalName)
+    }
+  }
+
+  def loadServices(serviceMap: Map[String, Class[_ <: WookieeService]]): Unit = {
+    serviceMap foreach { p =>
+      serviceReady(p._1, p._2)
+    }
+  }
+
+  private def componentReady(componentName: String, componentClass: String): Unit = {
+    Await.result(componentManager.get ? LoadComponent(componentName, componentClass), timeToWait) match {
+      case Some(_) =>
+        TestHarness.log.info(s"Loaded component $componentName")
+      case None =>
+        throw new Exception(s"Component $componentName not returned")
+    }
+  }
+
+  private def serviceReady(serviceName: String, serviceClass: Class[_ <: WookieeService]): Unit = {
+    Await.result(serviceManager.get ? LoadService(serviceName, serviceClass), timeToWait) match {
+      case Some(m) =>
+        val service = m.asInstanceOf[WookieeServiceMeta]
+        TestHarness.log.info(s"Loaded service $serviceName")
+        services += (serviceName -> service)
+      case None =>
+        throw new Exception(s"Service $serviceName not returned")
+    }
   }
 }

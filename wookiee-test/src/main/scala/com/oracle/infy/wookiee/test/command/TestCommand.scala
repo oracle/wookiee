@@ -16,13 +16,14 @@
 
 package com.oracle.infy.wookiee.test.command
 
-import com.oracle.infy.wookiee.command.Command
+import com.oracle.infy.wookiee.command.WookieeCommand
 
 import scala.concurrent.Future
 
 case class TestPayload(name: String)
 
-class TestCommand extends Command[TestPayload, String] {
+class TestCommand extends WookieeCommand[TestPayload, String] {
+  override def commandName: String = TestCommand.CommandName
 
   override def execute(bean: TestPayload): Future[String] = {
     Future.successful(s"Test ${bean.name} OK")

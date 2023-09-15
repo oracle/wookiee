@@ -1,21 +1,14 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.testkit.TestProbe
 import cats.effect.unsafe.implicits.global
 import com.google.protobuf.StringValue
-import com.oracle.infy.wookiee.component.Component
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.{CleanCheck, CleanResponse, GrpcDefinition}
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
-import com.oracle.infy.wookiee.component.grpc.utils.TestModels.{
-  GrpcMockStub,
-  GrpcServiceFour,
-  GrpcServiceOne,
-  GrpcServiceThree,
-  GrpcServiceTwo
-}
+import com.oracle.infy.wookiee.component.grpc.utils.TestModels._
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.test.{BaseWookieeTest, TestHarness, TestService}
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
@@ -23,10 +16,16 @@ import org.apache.curator.framework.imps.CuratorFrameworkState
 import org.apache.curator.retry.RetryForever
 import org.apache.curator.test.TestingServer
 import org.scalatest.BeforeAndAfterAll
+import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers with BeforeAndAfterAll {
+class GrpcManagerSpec
+    extends BaseWookieeTest
+    with AnyWordSpecLike
+    with Matchers
+    with BeforeAndAfterAll
+    with ScalaFutures {
   lazy val zkPort: Int = TestHarness.getFreePort
   lazy val grpcPort: Int = TestHarness.getFreePort
   lazy val zkServer = new TestingServer(zkPort)
@@ -37,16 +36,17 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
   override protected def afterAll(): Unit = {
     super.afterAll()
     testWookiee.stop()
+    zkServer.stop()
   }
 
-  override def servicesMap: Option[Map[String, Class[_ <: Service]]] =
+  override def servicesMap: Option[Map[String, Class[_ <: WookieeService]]] =
     Some(
       Map(
         "testservice" -> classOf[TestService]
       )
     )
 
-  override def componentMap: Option[Map[String, Class[_ <: Component]]] =
+  override def componentMap: Option[Map[String, Class[_ <: WookieeComponent]]] =
     Some(
       Map(
         "wookiee-grpc-component" -> classOf[GrpcManager]
@@ -54,16 +54,21 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
     )
 
   "gRPC Manager" should {
-    "load up fully" in {
-      val probe = TestProbe()
-      val testComp = testWookiee.getComponent("wookiee-grpc-component")
+    "load up fully" in zkPort.synchronized {
+      val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      testComp.foreach(comp => probe.send(comp, CleanCheck()))
-      CleanResponse(false) shouldEqual probe.expectMsgType[CleanResponse]
+      testComp.foreach(
+        tc =>
+          whenReady(tc ? CleanCheck()) {
+            case resp: CleanResponse =>
+              resp.clean shouldEqual false
+            case _ => fail("gRPC Manager didn't respond with a CleanResponse")
+          }
+      )
     }
 
-    "register a simple gRPC service" in {
+    "register a simple gRPC service" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "manager-spec",
@@ -89,7 +94,7 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       } finally channel.shutdown(true).unsafeRunSync()
     }
 
-    "handle a message over the default 4MB with max-message-size configured" in {
+    "handle a message over the default 4MB with max-message-size configured" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "message-size-spec",
@@ -107,13 +112,14 @@ class GrpcManagerSpec extends BaseWookieeTest with AnyWordSpecLike with Matchers
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "", None, 10000000)
       try {
         val stub = new GrpcMockStub(channel.managedChannel)
-        val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
-
-        resultBig.getValue shouldEqual s"$stringBig:GrpcServiceFour"
+        ThreadUtil.awaitEvent({
+          val resultBig = stub.sayHello(StringValue.of(stringBig), classOf[GrpcServiceFour].getSimpleName)
+          resultBig.getValue.equals(s"$stringBig:GrpcServiceFour")
+        })
       } finally channel.shutdown(true).unsafeRunSync()
     }
 
-    "allow closing of curators in channels" in {
+    "allow closing of curators in channels" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
         system,
         "closing-spec",

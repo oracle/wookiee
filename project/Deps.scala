@@ -3,16 +3,15 @@ import sbt._
 object Deps {
 
   object versions {
-    val akkaVersion = "2.7.0"
+    val akkaVersion = "2.6.20"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
     val scalametaVersion = "4.7.6"
-    val scalafmtDynVersion = "3.7.3"
+    val scalafmtDynVersion = "3.7.11"
 
-    val curatorVersion = "5.3.0"
+    val curatorVersion = "5.5.0"
     val catsVersion = "2.9.0"
     val catsEffectVersion = "3.4.8"
-    val log4CatsVersion = "2.5.0"
     // Provides jawn-parser 1.3.2
     val circeVersion = "0.14.5"
     val µTestVersion = "0.8.1"
@@ -20,28 +19,32 @@ object Deps {
     val scalatestVersion = "3.2.15"
     val fs2Version = "3.6.1"
     val junitVersion = "4.13.2"
-    val guavaVersion = "31.0.1-jre"
+    val guavaVersion = "32.1.1-jre"
     val finagleVersion = "22.12.0"
     val upickleVersion = "2.0.0"
     val grpcVersion: String = "1.53.0"
     val nettyVersion: String = "4.1.86.Final"
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
+    val helidonVersion = "2.6.3"
+    val kafkaVersion = "3.5.1"
 
-    val slf4jVersion = "2.0.5"
-    val slf4jImplVersion = "2.20.0"
+    val slf4jVersion = "2.0.7"
     val logbackVersion = "1.3.6"
     val jodaTimeVersion = "2.12.2"
-    val scalaCollectionCompatVersion = "2.8.1"
-    val zookeeperVersion = "3.8.1"
+    val scalaCollectionCompatVersion = "2.9.0"
+    val zookeeperVersion = "3.8.2"
+    val typesafeVersion = "1.4.2"
     val json4sVersion = "4.0.6"
     val jacksonVersion = "2.14.2"
     val http4sVersion = "0.23.18"
     val http4sBlazeVersion = "0.23.14"
-    val dropwizardVersion = "4.2.17"
+    val dropwizardVersion = "4.2.19"
     val akkaHttpVersion = "10.5.0"
     val akkaHttpJson4sVersion = "1.39.2"
     val akkaHttpCorsVersion = "1.2.0"
+    val tyrusVersion = "1.20"
+    val mockitoVersion = "5.3.1"
   }
 
   object build {
@@ -51,10 +54,24 @@ object Deps {
     val zookeeper
         : ModuleID = "org.apache.zookeeper" % "zookeeper" % zookeeperVersion exclude ("org.slf4j", "slf4j-log4j12")
 
+    // https://mvnrepository.com/artifact/com.typesafe/config
+    val typesafe: ModuleID = "com.typesafe" % "config" % typesafeVersion
+
     val curator
         : ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper")
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
+
+    val tyrus: Seq[ModuleID] = Seq(
+      "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-server" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-spi" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "org.glassfish.tyrus" % "tyrus-core" % tyrusVersion
+        exclude ("javax.websocket", "javax.websocket-api")
+    )
 
     val curatorLibs: Seq[ModuleID] = Seq(
       nettyAll,
@@ -115,12 +132,6 @@ object Deps {
 
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
 
-    val log4CatsCore: ModuleID =
-      "org.typelevel" %% "log4cats-core" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
-
-    val log4CatsSlf4J: ModuleID =
-      "org.typelevel" %% "log4cats-slf4j" % log4CatsVersion exclude ("org.typelevel", "cats-effect") exclude ("org.typelevel", "cats-core") exclude ("org.typelevel", "cats-effect-std")
-
     val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
     val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion
 
@@ -136,6 +147,23 @@ object Deps {
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sBlazeVersion
     val http4sDsl: ModuleID = "org.http4s" %% "http4s-dsl" % http4sVersion
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
+
+    val helidon: Seq[ModuleID] = Seq(
+      "io.helidon.webserver" % "helidon-webserver" % helidonVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "io.helidon.webserver" % "helidon-webserver-tyrus" % helidonVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "io.helidon.webserver" % "helidon-webserver-cors" % helidonVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "io.helidon.webclient" % "helidon-webclient" % helidonVersion
+        exclude ("javax.websocket", "javax.websocket-api"),
+      "io.helidon.config" % "helidon-config" % helidonVersion,
+      "io.helidon.common" % "helidon-common-reactive" % helidonVersion
+    )
+
+    val helidonKafka
+        : ModuleID = "io.helidon.messaging.kafka" % "helidon-messaging-kafka" % helidonVersion exclude ("org.slf4j", "slf4j-jdk14")
+    val kafkaClient: ModuleID = "org.apache.kafka" % "kafka-clients" % kafkaVersion
 
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
@@ -160,6 +188,23 @@ object Deps {
         : ModuleID = "org.scala-lang.modules" %% "scala-collection-compat" % scalaCollectionCompatVersion
 
     val wookieeFuncMetrics: Seq[ModuleID] = Seq(scalaCollectionCompat) ++ circe ++ dropWizardLibs
+
+    val wookieeWeb: Seq[ModuleID] = Seq(
+      test.scalatest
+    ) ++ helidon ++ tyrus ++ json4sLibs
+
+    val wookieeKafka: Seq[ModuleID] = Seq(
+      test.scalatest,
+      helidonKafka,
+      kafkaClient
+    )
+
+    val wookieeLibs: Seq[ModuleID] = Seq(
+      typesafe,
+      logbackClassic,
+      scalaCollectionCompat,
+      test.scalatest
+    ) ++ curatorLibs ++ cats ++ json4sLibs
 
     val wookieeAkkaHttp: Seq[ModuleID] = Seq(
       test.scalatest,
@@ -187,8 +232,6 @@ object Deps {
 
     val wookieeGrpc: Seq[ModuleID] = curatorLibs ++ Seq(
       scalaCollectionCompat,
-      log4CatsCore,
-      log4CatsSlf4J,
       fs2,
       jacksonDatabind
     ) ++ circe ++ cats ++ grpc
@@ -230,12 +273,7 @@ object Deps {
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
     val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
-    val slf4jLog4jImpl: ModuleID = "org.apache.logging.log4j" % "log4j-slf4j-impl" % slf4jImplVersion % Test
-    val log4CatsNoop: ModuleID = "org.typelevel" %% "log4cats-noop" % log4CatsVersion % Test
-
     val all: Seq[ModuleID] = Seq(
-      log4CatsNoop,
-      slf4jLog4jImpl,
       scalacheck,
       scalatest,
       akkaTest,

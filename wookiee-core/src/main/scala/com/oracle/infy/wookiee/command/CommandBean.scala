@@ -41,7 +41,9 @@ object Bean {
   }
 }
 
-case class MapBean(map: Map[String, Any]) extends Bean
+case class MapBean(map: Map[String, Any]) extends Bean {
+  def getValue[T](key: String): Option[T] = map.get(key).map(_.asInstanceOf[T])
+}
 case class ArrayBean(array: Array[Any]) extends Bean
 
 trait ClassSpawner {

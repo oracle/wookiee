@@ -3,13 +3,13 @@ package com.oracle.infy.wookiee.grpc.srcgen
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGen._
 import com.oracle.infy.wookiee.grpc.srcgen.GrpcSourceGenRenderScala._
 import com.oracle.infy.wookiee.grpc.srcgen.SourceGen.{RPC, RPCType, Service, scalafmt}
-import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel.{Model, ScalaFileSource, ScalaSource, ScalaTextSource}
+import com.oracle.infy.wookiee.grpc.srcgen.SourceGenModel._
 import com.oracle.infy.wookiee.grpc.srcgen.implicits._
 import org.scalafmt.interfaces.Scalafmt
 
 import java.nio.file.Paths
 import scala.meta.inputs.Input
-import scala.meta.{Defn, Init, Mod, Source, Type}
+import scala.meta.{Defn, Mod, Source, Type}
 
 trait SourceGen {
 
@@ -35,13 +35,13 @@ trait SourceGen {
             }
             .collect {
               case node: Defn.Trait if !node.mods.exists {
-                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
+                    case Mod.Annot(CustomInit(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                    case _                                         => false
                   } =>
                 node
               case node: Defn.Class if !node.mods.exists {
-                    case Mod.Annot(Init(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
-                    case _                                   => false
+                    case Mod.Annot(CustomInit(Type.Name(t), _, _)) => t === "srcGenIgnoreClass"
+                    case _                                         => false
                   } =>
                 node
             }

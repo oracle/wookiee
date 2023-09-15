@@ -15,23 +15,29 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.ActorSystem
-import com.oracle.infy.wookiee.app.HActor
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
+import akka.actor.{ActorSystem, PoisonPill}
+import com.oracle.infy.wookiee.app.HarnessActor
+import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
-import com.oracle.infy.wookiee.utils.ActorWaitHelper
-import com.typesafe.config.{Config, ConfigFactory}
+import com.oracle.infy.wookiee.utils.{ActorWaitHelper, ThreadUtil}
+import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
+import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings._
+import com.typesafe.config.ConfigFactory
 import org.apache.curator.framework.CuratorFrameworkFactory
 import org.apache.curator.retry.RetryNTimes
 import org.apache.curator.test.TestingServer
 
+import java.io.Closeable
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import scala.util.Try
 
 trait Zookeeper {
-  this: HActor =>
-  import Zookeeper._
-  implicit val system: ActorSystem = context.system
+  this: ComponentV2 =>
+  implicit lazy val system: ActorSystem = HarnessActor.getMediator(config)
+
+  private val resources: AtomicReference[(Closeable, Option[String])] =
+    new AtomicReference[(Closeable, Option[String])]()
 
   // Generally clusterEnabled is only used by wookiee-cluster, also mocking support built
   // into this method for when mock-enabled or mock-port are set in wookiee-zookeeper
@@ -39,29 +45,38 @@ trait Zookeeper {
     // Load the zookeeper actor
     if (isMock(config)) {
       log.info("Zookeeper Mock Mode Enabled, Starting Local Test Server...")
-      getMockPort(config) match {
+      val quorum = getMockPort(config) match {
         case Some(port) =>
           val testCurator = CuratorFrameworkFactory.newClient(s"127.0.0.1:$port", 5000, 5000, new RetryNTimes(3, 100))
           try {
             testCurator.start()
             testCurator.blockUntilConnected(2, TimeUnit.SECONDS)
             assert(testCurator.getZookeeperClient.isConnected)
+            resources.set((testCurator, None))
+            s"127.0.0.1:$port"
           } catch {
             case _: Throwable =>
               log.info("^^^ Ignore above error if using multiple mock servers")
-              mockZkServer = Some(new TestingServer(port))
+              val mockZk = new TestingServer(port)
+              ZookeeperSettings.registerMediator(config, mockZk)
+              resources.set((mockZk, Some(port.toString)))
+              mockZk.getConnectString
           } finally {
             testCurator.close()
           }
-        case None => mockZkServer = Some(new TestingServer())
+        case None =>
+          val mockZk = new TestingServer()
+          registerMediator(mockZk.getPort.toString, mockZk)
+          resources.set((mockZk, Some(mockZk.getPort.toString)))
+          mockZk.getConnectString
       }
 
-      MockZookeeper(zookeeperSettings, clusterEnabled)
+      MockZookeeper(zookeeperSettings(Some(quorum)), clusterEnabled)
     } else {
       // Start up ZK Actor as per normal, not mocking
       ActorWaitHelper.awaitActor(
-        ZookeeperActor.props(zookeeperSettings, clusterEnabled),
-        context.system,
+        ZookeeperActor.props(zookeeperSettings(None), clusterEnabled),
+        system,
         Some(Zookeeper.ZookeeperName)
       )
     }
@@ -69,23 +84,30 @@ trait Zookeeper {
   }
 
   def stopZookeeper(): Unit = {
-    mockZkServer foreach {
-      _.close()
+    ZookeeperService.getMediator(system) ! PoisonPill
+    // Wait for the actor to stop before closing the server as it needs ZK for unregistering
+    ThreadUtil.awaitEvent(ZookeeperService.maybeGetMediator(config).isEmpty, 5000L)
+    Option(resources.get()) match {
+      case Some((server, None)) =>
+        log.info("Stopping Zookeeper Client...")
+        server.close()
+        resources.set(null)
+      case Some((server, Some(_))) =>
+        log.info("Stopping Zookeeper Mock Server...")
+        server.close()
+        ZookeeperSettings.unregisterMediator(config)
+        resources.set(null)
+      case None =>
+        log.info("Zookeeper Mock Server Not Running...")
     }
   }
 
-  protected def zookeeperSettings: ZookeeperSettings = {
+  protected def zookeeperSettings(quorum: Option[String]): ZookeeperSettings = {
     if (isMock(config)) {
-      if (getMockPort(config).isEmpty && mockZkServer.isEmpty)
-        throw new IllegalStateException("Call startZookeeper() to create mockZkServer")
-      val connect = getMockPort(config) match {
-        case Some(port) if mockZkServer.isEmpty => s"127.0.0.1:$port"
-        case _                                  => mockZkServer.get.getConnectString
-      }
       val conf = ConfigFactory
         .parseString(
           ZookeeperManager.ComponentName +
-            s""".quorum="$connect""""
+            s""".quorum="${quorum.getOrElse("")}""""
         )
         .withFallback(config)
       ZookeeperSettings(conf)
@@ -101,14 +123,4 @@ trait Zookeeper {
 
 object Zookeeper {
   val ZookeeperName = "zookeeper"
-  var mockZkServer: Option[TestingServer] = None
-
-  def isMock(config: Config): Boolean = {
-    Try(config.getBoolean(ZookeeperManager.ComponentName + ".mock-enabled")).getOrElse(false)
-  }
-
-  def getMockPort(config: Config): Option[Int] = {
-    if (isMock(config)) Try(config.getInt(ZookeeperManager.ComponentName + ".mock-port")).toOption
-    else None
-  }
 }

@@ -59,7 +59,7 @@ class CachingExample extends Service {
    * to handle specific messages
    */
   override def serviceReceive: Receive = ({
-    case Ready(_) =>
+    case Ready() =>
       log.info("I received a Ready message from the outside world")
       executeManualCaching()
       executeObjectCaching()

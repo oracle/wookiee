@@ -11,10 +11,10 @@ import com.oracle.infy.wookiee.grpc.impl.ZookeeperHostnameService._
 import com.oracle.infy.wookiee.grpc.json.HostSerde
 import com.oracle.infy.wookiee.grpc.model.Host
 import com.oracle.infy.wookiee.grpc.utils.implicits._
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import fs2._
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, CuratorCacheListener}
-import org.typelevel.log4cats.Logger
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -37,8 +37,9 @@ protected[grpc] class ZookeeperHostnameService(
     s: Semaphore[IO],
     closableStream: CloseableStreamContract[IO, Set[Host], Stream],
     pushHosts: Set[Host] => IO[Unit]
-)(implicit dispatcher: Dispatcher[IO], logger: Logger[IO])
-    extends HostnameServiceContract[IO, Stream] {
+)(implicit dispatcher: Dispatcher[IO])
+    extends HostnameServiceContract[IO, Stream]
+    with LoggingAdapterIO {
 
   override def shutdown: EitherT[IO, Errors.WookieeGrpcError, Unit] = {
     val closeZKResources = (for {
@@ -53,7 +54,7 @@ protected[grpc] class ZookeeperHostnameService(
       s.acquire
         .bracket(_ => (closeZKResources *> shutdownStream).value)(_ => {
           s.release.flatMap { _ =>
-            logger.info("Zookeeper Hostname Service has been shutdown")
+            logIO.info("Zookeeper Hostname Service has been shutdown")
           }
         })
     )
@@ -68,7 +69,7 @@ protected[grpc] class ZookeeperHostnameService(
     val state = new ConcurrentHashMap[String, CachedNodeReference]()
 
     val computation = for {
-      _ <- logger.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
+      _ <- logIO.info(s"GRPC Service Discovery has started... Looking for services under path $rootPath")
       cache <- IO.blocking(
         CuratorCache
           .build(curator, rootPath)
@@ -80,7 +81,7 @@ protected[grpc] class ZookeeperHostnameService(
       )
       _ <- cacheRef.set(Some(cache))
       _ <- IO.blocking(cache.start())
-      _ <- logger.info("GRPC Service Discovery curator cache has started")
+      _ <- logIO.info("GRPC Service Discovery curator cache has started")
     } yield {
       closableStream
     }
@@ -128,7 +129,7 @@ protected[grpc] class ZookeeperHostnameService(
       .forInitialized(() => {
         lock.synchronized {
           dispatcher.unsafeRunSync(
-            logger
+            logIO
               .info(
                 s"State has been initialized. All nodes read in from zookeeper: ${toHostList(state)}"
               )
@@ -143,7 +144,7 @@ protected[grpc] class ZookeeperHostnameService(
       pushHosts: Set[Host] => IO[Unit],
       state: ConcurrentHashMap[String, CachedNodeReference]
   ): Unit = {
-    dispatcher.unsafeRunSync(logger.info(s"Sending hosts on stream: $state"))
+    dispatcher.unsafeRunSync(logIO.info(s"Sending hosts on stream: $state"))
     dispatcher.unsafeRunSync(pushHosts(toHostList(state)))
   }
 
@@ -163,16 +164,16 @@ protected[grpc] class ZookeeperHostnameService(
       HostSerde.deserialize(zkData.getData) match {
         // TODO: Healthcheck should go into degraded state
         case Left(err) =>
-          dispatcher.unsafeRunSync(logger.error(s"Unable to parse host data from zookeeper: $err"))
+          dispatcher.unsafeRunSync(logIO.error(s"Unable to parse host data from zookeeper: $err"))
         case Right(host) =>
           Option(state.get(zkData.getPath)) match {
             case Some(cachedData) =>
               if (zkData.getStat.getMzxid > cachedData.mzxid) {
-                dispatcher.unsafeRunSync(logger.info(s"Replacing cached node data $cachedData with new host: $host"))
+                dispatcher.unsafeRunSync(logIO.info(s"Replacing cached node data $cachedData with new host: $host"))
                 state.put(zkData.getPath, NodeData(host, zkData.getStat.getMzxid))
               }
             case None =>
-              dispatcher.unsafeRunSync(logger.info(s"Storing new host in map: $host"))
+              dispatcher.unsafeRunSync(logIO.info(s"Storing new host in map: $host"))
               state.put(zkData.getPath, NodeData(host, zkData.getStat.getMzxid))
           }
       }
@@ -189,13 +190,13 @@ protected[grpc] class ZookeeperHostnameService(
 
       Option(state.get(zkData.getPath)) match {
         case Some(cachedData) =>
-          dispatcher.unsafeRunSync(logger.info(s"Putting tombstone in place of: $cachedData"))
+          dispatcher.unsafeRunSync(logIO.info(s"Putting tombstone in place of: $cachedData"))
           // must check greater than or equal on deletes because zxid of delete event is not stored on ChildData
           if (zkData.getStat.getMzxid >= cachedData.mzxid) {
             state.put(zkData.getPath, Tombstone(zkData.getStat.getMzxid))
           }
         case None =>
-          dispatcher.unsafeRunSync(logger.info(s"Putting tombstone on path ${zkData.getPath}"))
+          dispatcher.unsafeRunSync(logIO.info(s"Putting tombstone on path ${zkData.getPath}"))
           state.put(zkData.getPath, Tombstone(zkData.getStat.getMzxid))
       }
     }

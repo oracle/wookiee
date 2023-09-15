@@ -19,13 +19,13 @@ package com.oracle.infy.wookiee.component.akkahttp
 import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.marshalling.PredefinedToEntityMarshallers
 import akka.http.scaladsl.model.HttpHeader.ParsingResult.{Error, Ok}
+import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.{
   HttpOrigin,
   Origin,
   `Access-Control-Allow-Methods`,
   `Access-Control-Request-Method`
 }
-import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives.complete
 import akka.http.scaladsl.server.Route
 import akka.http.scaladsl.testkit.ScalatestRouteTest
@@ -33,15 +33,14 @@ import akka.http.scaladsl.unmarshalling.Unmarshaller
 import ch.megard.akka.http.cors.scaladsl.model.HttpOriginMatcher
 import ch.megard.akka.http.cors.scaladsl.settings.CorsSettings
 import com.oracle.infy.wookiee.command.CommandFactory
-import com.oracle.infy.wookiee.component.akkahttp.util.TestJsonSupport._
 import com.oracle.infy.wookiee.component.akkahttp.routes.{
   AkkaHttpEndpointRegistration,
   AkkaHttpRequest,
   EndpointOptions,
   RouteGenerator
 }
+import com.oracle.infy.wookiee.component.akkahttp.util.TestJsonSupport._
 import com.oracle.infy.wookiee.component.akkahttp.util.{Forbidden, NotAuthorized, RequestInfo}
-import com.oracle.infy.wookiee.logging.Logger
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.Locale
@@ -52,7 +51,6 @@ import scala.concurrent.{ExecutionContext, Future}
 class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with PredefinedToEntityMarshallers {
 
   implicit val actorSystem: ActorSystem = ActorSystem("route-test")
-  implicit val logger: Logger = Logger.getLogger(getClass.getName)
   val responseTo: FiniteDuration = FiniteDuration(10, TimeUnit.MILLISECONDS)
   val toHandler: HttpRequest => HttpResponse = AkkaHttpEndpointRegistration.defaultTimeoutResponse
   val defaultConfig: EndpointOptions = EndpointOptions.default

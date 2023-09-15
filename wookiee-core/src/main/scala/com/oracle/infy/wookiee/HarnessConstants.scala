@@ -15,6 +15,8 @@
  */
 package com.oracle.infy.wookiee
 
+import com.oracle.infy.wookiee.command.WookieeCommandExecutive
+import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.health.Health
 
 object HarnessConstants {
@@ -23,7 +25,6 @@ object HarnessConstants {
   val ServicesName = "services"
   val ComponentName = "component"
   val CommandName = "command"
-  val TypedCommandName = "typedCommand"
   val ComponentReloadName = "component-reloader"
 
   // full actor names
@@ -35,15 +36,14 @@ object HarnessConstants {
   val KeyStartupTimeout = "startup-timeout"
   val KeyDefaultTimeout = "default-timeout"
   val KeyCommandsEnabled = "commands.enabled"
-  val KeyCommandsNrRoutees = "commands.default-nr-routees"
-  val TestMode = "test-mode"
+  val KeyCommandsNrRoutees: String = WookieeCommandExecutive.KeyCommandsNrRoutees
   val PrepareToShutdownTimeout = "prepare-to-shutdown-timeout"
 
   val KeyInternalHttpPort = "internal-http.port"
   val KeyInternalHttpEnabled = "internal-http.enabled"
 
   // constants for components
-  val KeyPathComponents = "components.path"
+  val KeyPathComponents: String = WookieeComponent.KeyPathComponents
   val KeyComponentMapping = "components.mappings"
   val KeyComponents = "components.lib-components"
   val KeyComponentStartTimeout = "components.start-timeout"
@@ -51,12 +51,7 @@ object HarnessConstants {
   val KeyDynamicLoading = "components.dynamic-loading"
 
   // constants for services
-  val KeyServicePath = "services.path"
   val KeyInternalService = "services.internal"
-  val KeyInternalServiceConfig = "services.internal-config"
-  val KeyServiceCheckTimeout = "services.check-timeout"
-  val KeyServiceDistinctClassLoader = "services.distinct-classloader"
-  val KeyServiceClassLoaderName = "service-classloader"
 
   val LogHealthCheckDiffs = "logging.health-check.diff-compare"
 }

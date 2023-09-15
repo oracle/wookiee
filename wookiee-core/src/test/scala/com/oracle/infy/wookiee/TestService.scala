@@ -35,12 +35,10 @@ class TestService extends Service {
 
   // Define the receive function
   override def serviceReceive: Receive = {
-    case Ready =>
-      sender() ! Ready
-      log.info("I am now ready: " + self.path)
-    case Ready(meta) =>
-      metaData = Some(meta)
+    case Ready() =>
+      metaData = Some(ServiceMetaData(name, self))
       log.info("I am now ready, meta data set: " + self.path)
+      sender() ! Ready()
     case TestClass("foo", _) =>
       TestService.gotMessage = true
       sender() ! "gotit"

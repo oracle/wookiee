@@ -15,30 +15,28 @@
  */
 package com.oracle.infy.wookiee.service.meta
 
+import akka.actor.ActorRef
+import com.oracle.infy.wookiee.service.ServiceV2
 import com.oracle.infy.wookiee.utils.{Json, JsonSerializable}
-import org.joda.time.DateTime
+
+trait WookieeServiceMeta {
+  val name: String
+}
+
+case class ServiceMetaDataV2(
+    name: String,
+    service: ServiceV2
+) extends WookieeServiceMeta
 
 case class ServiceMetaData(
     name: String,
-    version: String,
-    loaded: DateTime,
-    path: String,
-    akkaPath: String,
-    jar: String,
-    supportsHttp: Boolean,
-    dependencies: List[String]
-) extends JsonSerializable {
+    actorRef: ActorRef
+) extends WookieeServiceMeta
+    with JsonSerializable {
 
   override def toJson: String = {
     val props = Map[String, Any](
-      "name" -> name,
-      "version" -> version,
-      "loaded" -> loaded.toString,
-      "path" -> path,
-      "akkaPath" -> akkaPath,
-      "jar" -> jar,
-      "supportsHttp" -> supportsHttp,
-      "dependencies" -> dependencies
+      "name" -> name
     )
     Json.build(props).toString
   }

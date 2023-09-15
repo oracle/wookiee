@@ -53,7 +53,7 @@ class MetricsExample extends Service {
    * When the Ready message is received, start generating metrics
    */
   override def serviceReceive: Receive = ({
-    case Ready(_) =>
+    case Ready() =>
       log.info("Ready message received, start generating metrics")
       val thread = new Thread {
         override def run(): Unit = {

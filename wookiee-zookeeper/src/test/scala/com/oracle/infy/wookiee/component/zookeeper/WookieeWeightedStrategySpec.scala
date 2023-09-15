@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.zookeeper
 
+import com.oracle.infy.wookiee.zookeeper.{WookieeServiceDetails, WookieeWeightedStrategy}
 import org.apache.curator.x.discovery.details.InstanceProvider
 import org.apache.curator.x.discovery.{ServiceInstance, UriSpec}
 import org.scalatest.matchers.should.Matchers

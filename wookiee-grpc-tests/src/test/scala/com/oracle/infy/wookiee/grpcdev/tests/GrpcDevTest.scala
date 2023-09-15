@@ -9,13 +9,13 @@ object GrpcDevTest {
 
   def genProtoTest(source: String, expectedProto: String): Boolean = {
     val result = srcGenTestObject.genProto(Nil, Nil, ScalaTextSource(source) :: Nil)
-    val ret = result.trim() === expectedProto.trim()
+    val ret = result.replaceAll("\r", "").trim() === expectedProto.replaceAll("\r", "").trim()
     ret
   }
 
   def genScalaTest(source: String, expectedScala: String): Boolean = {
     val result = srcGenTestObject.genScala(Nil, ScalaTextSource(source) :: Nil)
-    val ret = result.trim() === expectedScala.trim()
+    val ret = result.replaceAll("\r", "").trim() === expectedScala.replaceAll("\r", "").trim()
     ret
   }
 

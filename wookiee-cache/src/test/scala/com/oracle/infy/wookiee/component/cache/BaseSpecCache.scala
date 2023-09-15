@@ -18,16 +18,13 @@
  */
 package com.oracle.infy.wookiee.component.cache
 
-import java.util.concurrent.TimeUnit._
-
-import akka.actor.{ActorSystem, Props}
-import akka.testkit.{TestActorRef, TestKit}
-import akka.util.Timeout
 import com.oracle.infy.wookiee.component.cache.memory.MemoryManager
+import com.typesafe.config.ConfigFactory
 
-class BaseSpecCache extends TestKit(ActorSystem("cache-test")) {
-  val cacheRef: TestActorRef[MemoryManager] = TestActorRef(Props(classOf[MemoryManager], "test-memory-cache"))
-  implicit val timeout: Timeout = Timeout(2, SECONDS)
+class BaseSpecCache {
+  val cacheRef: MemoryManager = new MemoryManager("cache-test", ConfigFactory.parseString("""
+      |instance-id = "test-memory"
+      |""".stripMargin))
 
   cacheRef ! CreateCache(
     CacheConfig(

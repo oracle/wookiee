@@ -24,14 +24,11 @@ import akka.http.scaladsl.settings.ServerSettings
 import akka.pattern.ask
 import com.oracle.infy.wookiee.HarnessConstants
 import com.oracle.infy.wookiee.app.Harness
-import com.oracle.infy.wookiee.component.{ComponentHelper, ComponentRequest}
 import com.oracle.infy.wookiee.component.akkahttp.{AkkaHttpManager, InternalAkkaHttpSettings}
 import com.oracle.infy.wookiee.component.messages.StatusRequest
+import com.oracle.infy.wookiee.component.{ComponentHelper, ComponentRequest}
 import com.oracle.infy.wookiee.health.{ApplicationHealth, ComponentState, HealthRequest, HealthResponseType}
 import com.oracle.infy.wookiee.service.ServiceManager
-import com.oracle.infy.wookiee.service.ServiceManager.GetMetaDataByName
-import com.oracle.infy.wookiee.service.messages._
-import com.oracle.infy.wookiee.service.meta.ServiceMetaData
 import de.heikoseeberger.akkahttpjson4s.Json4sSupport._
 import org.joda.time.{DateTime, DateTimeZone}
 import org.json4s.ext.{EnumNameSerializer, JodaTimeSerializers}
@@ -85,24 +82,16 @@ case class InternalAkkaHttpActor(port: Int, interface: String, httpsPort: Option
             case Success(s) => complete(s.resp)
             case Failure(f) => failWith(f)
           }
-        } ~
-        pathPrefix("services") {
-          pathEnd {
-            complete((serviceActor ? GetMetaData(None)).mapTo[Seq[ServiceMetaData]])
-          } ~
-            path(Segment) { service =>
-              complete((serviceActor ? GetMetaDataByName(service)).mapTo[ServiceMetaData])
-            }
         }
     } ~ post {
       pathPrefix("services") {
         path(Segment / "restart") { service =>
-          serviceActor ! ServiceManager.RestartService(service)
+          serviceActor ! ServiceManager.RestartService()
           complete(s"The service $service has been asked to restart")
         }
       } ~
         path("shutdown") {
-          Harness.shutdown()(system)
+          Harness.shutdown(config)
           complete(s"The system is being shutdown: ${new DateTime(System.currentTimeMillis(), DateTimeZone.UTC)}")
         } ~
         path("restart") {

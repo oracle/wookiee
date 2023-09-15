@@ -24,10 +24,9 @@ import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor._
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.Internal._
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent._
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperService._
-import com.oracle.infy.wookiee.component.zookeeper.config.ZookeeperSettings
-import com.oracle.infy.wookiee.component.zookeeper.discoverable.DiscoverableService._
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.zookeeper.{Curator, ZookeeperSettings}
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.framework.api.{BackgroundCallback, CuratorEvent}
 import org.apache.curator.framework.recipes.atomic.DistributedAtomicLong
@@ -35,7 +34,6 @@ import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCache, Cura
 import org.apache.curator.framework.recipes.leader.{LeaderLatch, LeaderLatchListener}
 import org.apache.curator.framework.state.{ConnectionState, ConnectionStateListener}
 import org.apache.curator.retry.ExponentialBackoffRetry
-import org.apache.curator.x.discovery.{ServiceInstance, UriSpec}
 import org.apache.zookeeper.CreateMode
 import org.apache.zookeeper.KeeperException.{NoNodeException, NodeExistsException}
 import org.json4s.JsonDSL._
@@ -58,7 +56,7 @@ object ZookeeperActor {
 
 class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = false)
     extends Actor
-    with ActorLoggingAdapter
+    with LoggingAdapter
     with ActorHealth
     with ConnectionStateListener
     with CuratorCacheListener
@@ -96,7 +94,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
 
     Try({
       // Register as a handler
-      ZookeeperService.registerMediator(self)(context.system)
+      ZookeeperService.registerMediator(context.system.settings.config, self)
       startCurator()
 
       context
@@ -159,24 +157,6 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     // Delete a node
     case DeleteNode(path, optNamespace) =>
       deleteNode(path, optNamespace)
-    // query for service names
-    case QueryForNames(basePath) =>
-      queryForNames(basePath)
-    // Update weight
-    case UpdateWeight(weight, basePath, id, forceSet) =>
-      updateWeight(weight, basePath, id, forceSet)
-    // query for service instances
-    case QueryForInstances(basePath, id) =>
-      queryForInstances(basePath, id)
-    // make service discoverable
-    case MakeDiscoverable(basePath, id, uriSpec) =>
-      makeDiscoverable(basePath, id, uriSpec)
-    // get a single instance from the provider
-    case GetInstance(basePath, name) =>
-      getInstance(basePath, name)
-    // get all the instances from the provider
-    case GetAllInstances(basePath, name) =>
-      allInstances(basePath, name)
     // get all the instances from the provider
     case _: GetRegistrationPath =>
       sender() ! registrationPath
@@ -216,7 +196,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
       sender() ! nodes.toSeq
     } catch {
       case e: Exception =>
-        log.error(e, "An error occurred trying to fetch children from the path {}", path)
+        log.error(s"An error occurred trying to fetch children from the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -229,7 +209,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
         log.debug("No node found for path {}", path)
         sender() ! Status.Failure(nn)
       case e: Exception =>
-        log.error(e, "An error occurred trying to fetch data from the path {}", path)
+        log.error(s"An error occurred trying to fetch data from the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -249,7 +229,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
       } catch {
         case _: NodeExistsException => path
         case e: Exception =>
-          log.error(e, "An error occurred trying to create a node for the path {}", path)
+          log.error(s"An error occurred trying to create a node for the path [$path]", e)
           path
       }
     }
@@ -265,7 +245,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
       }
     } catch {
       case e: Exception =>
-        log.error(e, "An error occurred trying to set data for the path {}", path)
+        log.error(s"An error occurred trying to set data for the path [$path]", e)
         if (!async) sender() ! Status.Failure(e)
     }
   }
@@ -281,12 +261,12 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
           sender() ! data
         } catch {
           case e: Exception =>
-            log.error(e, "An error occurred trying to get or set data for the path {}", path)
+            log.error(s"An error occurred trying to get or set data for the path [$path]", e)
             sender() ! Status.Failure(e)
         }
 
       case e: Exception =>
-        log.error(e, "An error occurred trying to get or set data for the path {}", path)
+        log.error(s"An error occurred trying to get or set data for the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -297,7 +277,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     } catch {
       case _: NoNodeException => sender().tell(false, self)
       case e: Exception =>
-        log.error(e, "An error occurred trying to create a node for the path {}", path)
+        log.error(s"An error occurred trying to create a node for the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -312,7 +292,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     } catch {
       case _: NodeExistsException => sender() ! path
       case e: Exception =>
-        log.error(e, "An error occurred trying to create a node for the path {}", path)
+        log.error(s"An error occurred trying to create a node for the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -324,18 +304,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     } catch {
       case _: NoNodeException => sender() ! path // Swallow
       case e: Exception =>
-        log.error(e, "An error occurred trying to delete a node for the path {}", path)
-        sender() ! Status.Failure(e)
-    }
-  }
-
-  private def queryForNames(basePath: String): Unit = {
-    try {
-      // List[String]
-      sender() ! curator.discovery(basePath).queryForNames().asScala.toList
-    } catch {
-      case e: Exception =>
-        log.error(e, "An error occurred trying to query for names")
+        log.error(s"An error occurred trying to delete a node for the path [$path]", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -347,7 +316,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
       sender() ! query
     } catch {
       case e: Exception =>
-        log.error(e, "An error occurred trying to query for instances")
+        log.error("An error occurred trying to query for instances", e)
         sender() ! Status.Failure(e)
     }
   }
@@ -381,7 +350,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
         log.info(s"Registering self in zookeeper on path: [$path]")
       } recover {
         case t =>
-          log.error(t, "Failed to create node registration for {}", path)
+          log.error(s"Failed to create node registration for [$path]", t)
       }
       ()
     } else log.info(s"register-self set to 'false', not registering on path [$registrationPath]")
@@ -406,7 +375,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
       }
     } catch {
       case e: Exception =>
-        log.error(e, s"An error occurred while trying to update weight for ${key.basePath}/${key.id}")
+        log.error(s"An error occurred while trying to update weight for ${key.basePath}/${key.id}", e)
     }
   }
 
@@ -421,47 +390,12 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     sender() ! true
   }
 
-  private def makeDiscoverable(basePath: String, id: String, uriSpec: UriSpec): Unit = {
-    try {
-      if (curator.discovery(basePath).queryForInstances(id).isEmpty) {
-        val builder = ServiceInstance
-          .builder[WookieeServiceDetails]()
-          .name(id)
-          .payload(new WookieeServiceDetails(0))
-          .uriSpec(uriSpec)
-
-        val instance = builder.build()
-
-        curator.registerService(basePath, instance)
-        log.info(s"Service is now discoverable ${instance.toString}")
-        sender() ! true
-      } else {
-        log.info(s"Not making {$id} discoverable as it already is")
-        sender() ! false
-      }
-    } catch {
-      case e: Exception =>
-        log.error(e, "An error occurred while trying to make discoverable")
-        sender() ! Status.Failure(e)
-    }
-  }
-
   private def getInstance(basePath: String, name: String): Unit = {
     try {
       sender() ! curator.createServiceProvider(basePath, name).getInstance()
     } catch {
       case e: Exception =>
         log.error(s"An error occurred while trying to get an instance from the discoverable provider: ${e.getMessage}")
-        sender() ! Status.Failure(e)
-    }
-  }
-
-  private def allInstances(basePath: String, name: String): Unit = {
-    try {
-      sender() ! curator.createServiceProvider(basePath, name).getAllInstances.asScala.toList
-    } catch {
-      case e: Exception =>
-        log.error(e, "An error occurred while trying to get all instances from the discoverable provider")
         sender() ! Status.Failure(e)
     }
   }
@@ -586,16 +520,7 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     }
   }
 
-  /**
-    * This is the health of the current object, by default will be NORMAL
-    * In general this should be overridden to define the health of the current object
-    * For objects that simply manage other objects you shouldn't need to do anything
-    * else, as the health of the children components would be handled by their own
-    * CheckHealth function
-    *
-    * @return
-    */
-  override protected def getHealth: Future[HealthComponent] = {
+  override def getHealth: Future[HealthComponent] = {
     val healthy = currentState match {
       case ConnectionState.LOST | ConnectionState.READ_ONLY | ConnectionState.SUSPENDED =>
         false
@@ -621,12 +546,11 @@ class ZookeeperActor(settings: ZookeeperSettings, clusterEnabled: Boolean = fals
     }
   }
 
-  private def startCurator(): Unit = {
+  private def startCurator(): Unit =
     curator.start(Some(this))
-  }
 
   /**
-    * This method can be overriden to provide additional functionality when stopping curator
+    * This method can be overridden to provide additional functionality when stopping curator
     */
   def stoppingCurator(): Unit = {}
 

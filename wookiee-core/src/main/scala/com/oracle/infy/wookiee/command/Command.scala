@@ -21,19 +21,15 @@ import com.oracle.infy.wookiee.app.HActor
 
 import scala.concurrent.Future
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 /**
   * A command should be a business logic that handles messages from some source (like http) then executes
   * the logic that is defined for the end point and returns the response. It should not ever deal with the
   * underlying messaging protocol but rather focus exclusively on the business logic. It should also not
   * deal with any storage or caching or anything like that.
-  *
-  * @author Michael Cuthbert on 12/1/14.
   */
-abstract class Command[Input <: Product: ClassTag, Output <: Any: ClassTag]
-    extends BaseCommand
-    with HActor
-    with CommandHelper {
+abstract class Command[Input <: Any: TypeTag: ClassTag, Output <: Any: TypeTag] extends HActor with CommandHelper {
   import context.dispatcher
 
   override def receive: Receive =
@@ -44,13 +40,9 @@ abstract class Command[Input <: Product: ClassTag, Output <: Any: ClassTag]
       case _ => // ignore all other messages to this actor
     }: Receive)
 
-  /**
-    * The primary entry point for the command, the actor for this command
-    * will ignore all other messaging and only execute through this
-    */
   def execute(bean: Input): Future[Output]
 }
 
 object CommandBeanHelper {
-  def createInput[Input: ClassTag](bean: Bean): Input = Bean.infer[Input](bean)
+  def createInput[Input <: Any: TypeTag: ClassTag](bean: Bean): Input = Bean.infer[Input](bean)
 }

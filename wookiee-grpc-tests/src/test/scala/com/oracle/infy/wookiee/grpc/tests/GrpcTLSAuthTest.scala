@@ -13,24 +13,23 @@ import com.oracle.infy.wookiee.grpc.model.{Host, HostMetadata}
 import com.oracle.infy.wookiee.grpc.settings.{ChannelSettings, ClientAuthSettings, ServerSettings, ServiceAuthSettings}
 import com.oracle.infy.wookiee.grpc.utils.implicits.MultiversalEquality
 import com.oracle.infy.wookiee.grpc.{WookieeGrpcChannel, WookieeGrpcServer, ZookeeperUtils}
+import com.oracle.infy.wookiee.logging.LoggingAdapterIO
 import com.oracle.infy.wookiee.myService.MyServiceGrpc.MyService
 import com.oracle.infy.wookiee.myService.{HelloRequest, HelloResponse, MyServiceGrpc}
 import io.grpc.ServerServiceDefinition
 import org.apache.curator.framework.CuratorFramework
 import org.apache.curator.test.TestingServer
-import org.typelevel.log4cats.Logger
 import utest.{Tests, test}
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.{Executors, ForkJoinPool, ThreadFactory}
 import scala.concurrent.{ExecutionContext, Future}
 
-object GrpcTLSAuthTest {
+object GrpcTLSAuthTest extends LoggingAdapterIO {
 
   def tests(
       implicit implicitEC: ExecutionContext,
-      dispatcher: Dispatcher[IO],
-      logger: Logger[IO]
+      dispatcher: Dispatcher[IO]
   ): Tests = {
 
     val testBody = {
@@ -40,7 +39,7 @@ object GrpcTLSAuthTest {
 
       val uncaughtExceptionHandler = new UncaughtExceptionHandler {
         override def uncaughtException(t: Thread, e: Throwable): Unit =
-          dispatcher.unsafeRunSync(logger.error(e)("Got an uncaught exception on thread " ++ t.getName))
+          dispatcher.unsafeRunSync(logIO.error("Got an uncaught exception on thread " ++ t.getName, e))
       }
 
       val tf = new ThreadFactory {

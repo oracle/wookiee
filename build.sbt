@@ -1,7 +1,4 @@
 import java.io.File
-import sbt.Keys.{libraryDependencies, _}
-import sbt._
-
 import scala.language.postfixOps
 import scala.util.Try
 
@@ -49,6 +46,7 @@ val commonScalacOptions =
 
 def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   Test / parallelExecution := false,
+  javaOptions += "-Dlogback.configurationFile=wookiee-core/src/test/resources/logback.xml",
   concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
   scalaVersion := LatestScalaVersion,
   crossScalaVersions := ScalaVersions,
@@ -101,6 +99,8 @@ lazy val `wookiee-core` = project
   .settings(
     libraryDependencies ++= Deps.build.core ++ Deps.test.all
   )
+  .dependsOn(`wookiee-libs`)
+  .aggregate(`wookiee-libs`)
 
 lazy val `wookiee-test` = project
   .in(file("wookiee-test"))
@@ -111,6 +111,35 @@ lazy val `wookiee-test` = project
   .dependsOn(`wookiee-core`)
   .aggregate(`wookiee-core`)
 
+// For messaging between wookiee services via gRPC
+lazy val `wookiee-libs` = project
+  .in(file("wookiee-libs"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeLibs,
+    libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
+  )
+
+// For messaging between wookiee services via gRPC
+lazy val `wookiee-discovery` = project
+  .in(file("wookiee-discovery"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies += Deps.test.scalatest
+  )
+  .dependsOn(`wookiee-grpc-component`)
+  .aggregate(`wookiee-grpc-component`)
+
+// For HTTP/WS support, use instead of wookiee-akka-http
+lazy val `wookiee-web` = project
+  .in(file("wookiee-web"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.wookieeWeb
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+
 lazy val `basic-service` = project
   .in(file("examples/basic-service"))
   .settings(commonSettings(false))
@@ -119,6 +148,15 @@ lazy val `basic-service` = project
   )
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+
+lazy val `advanced-communication` = project
+  .in(file("examples/advanced-communication"))
+  .settings(commonSettings(false))
+  .settings(
+    libraryDependencies ++= Deps.build.core ++ Deps.test.all
+  )
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-web`, `wookiee-zookeeper`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-discovery`, `wookiee-web`, `wookiee-zookeeper`)
 
 lazy val `basic-extension` = project
   .in(file("examples/basic-extension"))
@@ -151,6 +189,8 @@ lazy val `wookiee-grpc` = project
     scalafixConfig := Some(file(".scalafix_strict.conf")),
     libraryDependencies ++= Deps.build.wookieeGrpc
   )
+  .dependsOn(`wookiee-libs`)
+  .aggregate(`wookiee-libs`)
 
 lazy val `wookiee-grpc-component` = project
   .in(file("wookiee-grpc-component"))
@@ -181,7 +221,6 @@ lazy val `wookiee-grpc-tests` = project
     },
     libraryDependencies ++= Seq(
       Deps.test.curatorTest,
-      Deps.test.log4CatsNoop,
       Deps.test.scalacheck,
       Deps.test.scalatest,
       Deps.test.µTest
@@ -252,10 +291,11 @@ lazy val `wookiee-akka-http` = project
   .in(file("wookiee-akka-http"))
   .settings(commonSettings(false))
   .settings(
-    libraryDependencies ++= Deps.build.wookieeAkkaHttp
+    libraryDependencies ++= Deps.build.wookieeAkkaHttp,
+    libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
+  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
+  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
 
 lazy val `wookiee-cache` = project
   .in(file("wookiee-cache"))
@@ -291,12 +331,14 @@ lazy val root = project
     }
   )
   .dependsOn(
+    `wookiee-libs`,
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc-tests`,
     `wookiee-grpc`,
     `wookiee-proto`,
     `wookiee-http`,
+    `wookiee-web`,
     `wookiee-health`,
     `wookiee-test`,
     `wookiee-zookeeper`,
@@ -305,15 +347,18 @@ lazy val root = project
     `wookiee-akka-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-functional-metrics`,
+    `wookiee-discovery`
   )
   .aggregate(
+    `wookiee-libs`,
     `wookiee-core`,
     `wookiee-grpc-dev`,
     `wookiee-grpc`,
     `wookiee-grpc-tests`,
     `wookiee-proto`,
     `wookiee-health`,
+    `wookiee-web`,
     `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,
@@ -322,7 +367,8 @@ lazy val root = project
     `wookiee-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`,
-    `wookiee-functional-metrics`
+    `wookiee-functional-metrics`,
+    `wookiee-discovery`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
@@ -362,8 +408,7 @@ lazy val `wookiee-docs` = project
   )
   .settings(
     libraryDependencies ++= Seq(
-      Deps.test.curatorTest,
-      Deps.test.slf4jLog4jImpl
+      Deps.test.curatorTest
     )
   )
   .dependsOn(root, `wookiee-proto`)

@@ -20,11 +20,12 @@ package com.oracle.infy.wookiee.component.cache
 
 import com.oracle.infy.wookiee.component.cache.BaseSpecCache.ns
 import com.oracle.infy.wookiee.component.cache.memory.MemoryManager
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.zip.Deflater
-import scala.concurrent.Await
+import scala.concurrent.{Await, ExecutionContext}
 import scala.concurrent.duration._
 import scala.util.Random
 
@@ -39,7 +40,7 @@ case class StandardData(d: String = "") extends Cacheable[CompressedData] {
 
 class CompressionSpec extends BaseSpecCache with AnyWordSpecLike with Matchers {
   "A cacheable object with Compression" should {
-    import system.dispatcher
+    implicit val ec: ExecutionContext = ThreadUtil.createEC("compression-test")
 
     "be cacheable" in {
       val obj = CompressedData("Some data")
@@ -51,18 +52,16 @@ class CompressionSpec extends BaseSpecCache with AnyWordSpecLike with Matchers {
     }
 
     "be compressed when cached" in {
-      val cacheActor = cacheRef.underlyingActor
-
       val bigData = new Random(System.currentTimeMillis()).nextString(2048)
       val uKey = new CacheKey(1, "uncompressed", false)
       val uObj = StandardData(bigData)
-      uObj.writeInCache(cacheRef, Some(uKey))
-      val uSize = cacheActor.caches(ns)(uKey.toString()).buffer.length
+      Await.result(uObj.writeInCache(cacheRef, Some(uKey)), 5.seconds)
+      val uSize = cacheRef.caches(ns)(uKey.toString()).buffer.length
 
       val cKey = new CacheKey(1, "compressed", false)
       val cObj = CompressedData(bigData)
-      cObj.writeInCache(cacheRef, Some(cKey))
-      val cSize = cacheActor.caches(ns)(cKey.toString()).buffer.length
+      Await.result(cObj.writeInCache(cacheRef, Some(cKey)), 5.seconds)
+      val cSize = cacheRef.caches(ns)(cKey.toString()).buffer.length
 
       cSize must be < uSize
       cObj.compressionRatio.get must be > 1.0d

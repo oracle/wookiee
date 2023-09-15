@@ -19,33 +19,28 @@ import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
-import com.typesafe.config.Config
-import HarnessActor.PrepareForShutdown
+import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
-import com.oracle.infy.wookiee.component.{
-  ComponentInfo,
-  ComponentManager,
-  ComponentReady,
-  ComponentReloadActor,
-  InitializeComponents
-}
+import com.oracle.infy.wookiee.component._
 import com.oracle.infy.wookiee.config.ConfigWatcher
-import com.oracle.infy.wookiee.{HarnessConstants, health}
 import com.oracle.infy.wookiee.health.{ActorHealth, ComponentState, Health, HealthComponent}
 import com.oracle.infy.wookiee.http.InternalHTTP
-import com.oracle.infy.wookiee.logging.ActorLoggingAdapter
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.ServiceManager
 import com.oracle.infy.wookiee.service.ServiceManager.ServicesReady
 import com.oracle.infy.wookiee.service.messages.CheckHealth
+import com.oracle.infy.wookiee.utils.AkkaUtil._
 import com.oracle.infy.wookiee.utils.ConfigUtil
-import scala.jdk.CollectionConverters._
+import com.oracle.infy.wookiee.{HarnessConstants, Mediator, health}
+import com.typesafe.config.Config
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
+import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Success, Try}
 
-object HarnessActor {
+object HarnessActor extends Mediator[ActorSystem] {
   def props(): Props = Props[HarnessActor]()
 
   @SerialVersionUID(2L) case class ShutdownSystem()
@@ -60,7 +55,7 @@ object HarnessActor {
 }
 
 // Below are actor traits that are commonly used for actors in the Harness
-trait HActor extends Actor with ActorLoggingAdapter with ActorHealth {
+trait HActor extends Actor with LoggingAdapter with ActorHealth {
   // Globally accessible config loaded from -Dconfig.file=$file_path
   lazy val config: Config = context.system.settings.config
   // By default routes to health check, should make sure to orElse to here if overriding
@@ -71,18 +66,24 @@ trait PrepareForShutdown extends HActor {
 
   override def receive: Receive = health orElse {
     case PrepareForShutdown =>
-      log.debug("Preparing for shutdown of self and children")
+      log.debug(s"Preparing for shutdown of [$name] and children")
+      try {
+        prepareForShutdown()
+      } catch {
+        case e: Exception =>
+          log.error(s"Error preparing for shutdown in [$name]", e)
+      }
       context.children foreach (_ ! PrepareForShutdown)
   }
 }
 
-class HarnessActor extends Actor with ActorLoggingAdapter with Health with ConfigWatcher with InternalHTTP {
+class HarnessActor extends Actor with LoggingAdapter with Health with InternalHTTP {
 
-  import ConfigUtil._
   import HarnessActor._
   import context.dispatcher
 
   private val config = context.system.settings.config
+  HarnessActor.registerMediator(config, context.system)
   val readyComponents = new ConcurrentHashMap[String, ComponentInfo]()
 
   implicit val checkTimeout: Timeout =
@@ -108,10 +109,11 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   var componentActor: Option[ActorRef] = None
   var componentReloadActor: Option[ActorRef] = None
   var commandManager: Option[ActorRef] = None
+  var supervisor: Option[WookieeSupervisor] = None
   var dispatchManager: Option[ActorRef] = None
 
   // The actor that watches for changes in the harness configuration file and sends out messages when config changes are detected
-  var configWatcherActor: Option[ActorRef] = None
+  var configWatcher: Option[ConfigWatcher] = None
 
   override def preStart(): Unit = initialize()
 
@@ -144,7 +146,8 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       List(serviceActor, componentActor, dispatchManager, commandManager)
         .flatten
         .foreach(_ ! SystemReady)
-    case ReadyCheck => sender() ! running
+    case ReadyCheck =>
+      sender() ! running
     case GetManagers =>
       sender() ! Map[String, Option[ActorRef]](
         HarnessConstants.CommandName -> commandManager,
@@ -164,19 +167,29 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
   /**
     * Start the core services
     */
-  private def initialize(): Unit = {
-    startHealth
-    startConfigWatcher
-    if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(HarnessConstants.KeyCommandsEnabled)) {
-      commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
-      log.info("Command Manager started: {}", commandManager.get.path)
+  private def initialize(): Unit =
+    try {
+      startHealth
+      configWatcher = Some(new ConfigWatcher(config, { self ! ConfigChange() }))
+      configWatcher.foreach(_.start())
+      if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(
+            HarnessConstants.KeyCommandsEnabled
+          )) {
+        commandManager = Some(context.actorOf(CommandManager.props, HarnessConstants.CommandName))
+        supervisor = Some(new WookieeSupervisor(config))
+        supervisor.foreach(_.startSupervising())
+        log.info("Command Managers started: {}", commandManager.get.path)
+      }
+      componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
+      log.info("Component Manager started: {}", componentActor.get.path)
+      componentActor.get ! InitializeComponents
+    } catch {
+      case e: Exception =>
+        log.error("Error starting core services", e)
+        shutdownCoreServices()
     }
-    componentActor = Some(context.actorOf(ComponentManager.props, HarnessConstants.ComponentName))
-    log.info("Component Manager started: {}", componentActor.get.path)
-    componentActor.get ! InitializeComponents
-  }
 
-  private def initializationComplete(): Unit = {
+  private def initializationComplete(): Unit =
     // Wait for the child actors above to be loaded before calling on the services
     Future.traverse(context.children)(child => (child ? Identify("xyz123"))(startupTimeout)) onComplete {
       case Success(_) =>
@@ -198,7 +211,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       case Failure(t) =>
         log.error("Error loading the main harness actors", t)
     }
-  }
 
   /**
     * Complete the shutdown process. This will be called after clustering has been shutdown.
@@ -210,6 +222,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       val tmpComp = componentActor
       val tmpCmd = commandManager
       val tmpDis = dispatchManager
+      Try(supervisor.foreach(_.prepareForShutdown()))
       prepareForShutdown(tmpService, tmpDis, tmpCmd, tmpComp) andThen {
         case _ => Try(gracefulShutdown())
       }
@@ -228,7 +241,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       log.warn("Somehow the Service Actor isn't started to get Component Info")
   }
 
-  private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] = {
+  private def prepareForShutdown(actorRefs: Option[ActorRef]*): Future[Unit] =
     Future {
       log.debug(s"Prepare For Shutdown")
       for {
@@ -240,7 +253,6 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       //Give the message time to propagate through the system.
       Thread sleep prepareShutdownTimeout.duration.toMillis
     }
-  }
 
   private def gracefulShutdown(): Unit = {
     def gStop(actOpt: Option[ActorRef]): Future[Boolean] = {
@@ -284,7 +296,7 @@ class HarnessActor extends Actor with ActorLoggingAdapter with Health with Confi
       // Call the sections and get their health
       val future = Future.traverse(context.children) { a: ActorRef =>
         val healthComponent = (a ? CheckHealth).mapTo[HealthComponent].recover {
-          case ex: AskTimeoutException =>
+          case _: AskTimeoutException =>
             HealthComponent(a.path.name, ComponentState.DEGRADED, s"Timeout Occurred")
         }
         healthComponent

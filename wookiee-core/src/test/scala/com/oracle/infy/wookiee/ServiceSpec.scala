@@ -40,8 +40,8 @@ class ServiceSpec extends TestKit(ActorSystem("harness")) with AnyWordSpecLike w
 
     " be able to be loaded and sent a ready message" in {
       val probe = TestProbe()
-      probe.send(act, Ready)
-      Ready shouldBe probe.expectMsg(Ready)
+      probe.send(act, Ready())
+      Ready() shouldBe probe.expectMsg(Ready())
     }
 
     " be able to be loaded and checked" in {

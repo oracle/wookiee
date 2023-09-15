@@ -15,36 +15,17 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.{ActorRef, ActorSystem, PoisonPill}
-import com.oracle.infy.wookiee.logging.LoggingAdapter
+import akka.actor.{ActorRef, ActorSystem}
+import com.oracle.infy.wookiee.Mediator
 import org.apache.zookeeper.CreateMode
 
-import scala.collection.concurrent.TrieMap
+object ZookeeperService extends Mediator[ActorRef] {
 
-object ZookeeperService extends LoggingAdapter {
-  // Actor of type ZookeeperActor
-  def getZkActor(implicit system: ActorSystem): Option[ActorRef] = mediatorMap.get(system)
+  private[oracle] def getMediator(system: ActorSystem): ActorRef =
+    getMediator(system.settings.config)
 
-  private val mediatorMap = TrieMap[ActorSystem, ActorRef]()
-
-  private[oracle] def getMediator(system: ActorSystem): ActorRef = {
-    mediatorMap.get(system) match {
-      case Some(zkActor) => zkActor
-      case None          => throw new IllegalStateException(s"No ZK Actor Registered for System: [$system]")
-    }
-  }
-
-  private[oracle] def registerMediator(actor: ActorRef)(implicit system: ActorSystem) = {
-    log.info(s"Registering mediator: [${actor.path}], for actor system: [$system]")
-    mediatorMap.put(system, actor)
-  }
-
-  private[oracle] def unregisterMediator(system: ActorSystem): Unit = {
-    if (mediatorMap.contains(system)) {
-      log.info(s"Unregistering mediator for actor system: [$system]")
-      mediatorMap.remove(system) foreach (_ ! PoisonPill)
-    }
-  }
+  private[oracle] def unregisterMediator(system: ActorSystem): Unit =
+    unregisterMediator(system.settings.config)
 
   @SerialVersionUID(1L) private[oracle] case class SetPathData(
       path: String,

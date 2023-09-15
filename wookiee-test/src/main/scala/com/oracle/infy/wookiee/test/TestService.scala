@@ -15,16 +15,18 @@
  */
 package com.oracle.infy.wookiee.test
 
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.command.WookieeCommandHelper
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent}
-import com.oracle.infy.wookiee.service.Service
+import com.oracle.infy.wookiee.service.ServiceV2
 import com.oracle.infy.wookiee.service.messages.{GetMetaDetails, Ready}
-import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails}
+import com.oracle.infy.wookiee.service.meta.ServiceMetaDetails
 import com.oracle.infy.wookiee.test.command.TestCommand
+import com.typesafe.config.Config
 
 import scala.concurrent.Future
 
-class TestService extends Service with ShutdownListener {
-  var metaData: Option[ServiceMetaData] = None
+class TestService(implicit config: Config) extends ServiceV2(config) with ShutdownListener with WookieeCommandHelper {
 
   override def checkHealth: Future[HealthComponent] = {
     val comp = HealthComponent("testservice", ComponentState.NORMAL, "test")
@@ -35,23 +37,17 @@ class TestService extends Service with ShutdownListener {
   }
 
   // Define the receive function
-  override def serviceReceive: Receive = shutdownReceive orElse {
-    case Ready =>
-      sender() ! Ready
-      log.info("I am now ready: " + self.path)
-    case Ready(meta) =>
-      metaData = Some(meta)
-      log.info("I am now ready, meta data set: " + self.path)
-    case GetMetaDetails =>
-      sender() ! ServiceMetaDetails(supportsHttp = false)
-  }
+  override def receive: Receive =
+    (shutdownReceive orElse {
+      case _: Ready =>
+        log.info("I am now ready, meta data set: " + self.path)
+        sender() ! Ready()
+      case GetMetaDetails =>
+        sender() ! ServiceMetaDetails(supportsHttp = false)
+    }: Receive) orElse super.receive
 
-  override def addCommands(): Unit = {
-    addCommand(TestCommand.CommandName, classOf[TestCommand])
+  override def start(): Unit = {
+    WookieeCommandHelper.registerCommand(new TestCommand)
     ()
   }
-}
-
-object TestService {
-  var gotMessage: Boolean = false
 }
