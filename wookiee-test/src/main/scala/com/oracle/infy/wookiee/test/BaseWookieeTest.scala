@@ -28,12 +28,13 @@ trait BaseWookieeTest {
 
   beforeTestWookiee()
 
-  implicit val testWookiee: TestHarness =
+  implicit lazy val testWookiee: TestHarness =
     TestHarness(config, servicesMap, componentMap, logLevel, startupWait)
+  testWookiee
 
   Thread.sleep(1000)
-  implicit val system: ActorSystem = testWookiee.system
-  implicit val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
+  implicit lazy val system: ActorSystem = testWookiee.system
+  implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
 
   def getWookieeInstanceId: String = testWookiee.getInstanceId
   def shutdown(): Unit = TestHarness.shutdown()
