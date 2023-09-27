@@ -140,16 +140,6 @@ lazy val `wookiee-web` = project
   .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
   .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
-// For Kafka support
-lazy val `wookiee-kafka` = project
-  .in(file("wookiee-kafka"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.wookieeKafka
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-
 lazy val `java-service` = project
   .in(file("examples/java-service"))
   .settings(commonSettings(false))
@@ -367,8 +357,7 @@ lazy val root = project
     `wookiee-cache`,
     `wookiee-cache-memcache`,
     `wookiee-functional-metrics`,
-    `wookiee-discovery`,
-    `wookiee-kafka`
+    `wookiee-discovery`
   )
   .aggregate(
     `wookiee-libs`,
@@ -388,8 +377,7 @@ lazy val root = project
     `wookiee-cache`,
     `wookiee-cache-memcache`,
     `wookiee-functional-metrics`,
-    `wookiee-discovery`,
-    `wookiee-kafka`
+    `wookiee-discovery`
   )
 
 def readF[A](file: String, func: List[String] => A): A = {
