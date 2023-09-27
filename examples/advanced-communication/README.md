@@ -1,5 +1,5 @@
 # Example of Advanced Communications across Multiple Wookiee Instances
-In this repo we utilize both wookiee-discovery and wookiee-helidon to create a robust-yet-light discovery and communication system.  
+In this repo we utilize both wookiee-discovery and wookiee-web to create a robust-yet-light discovery and communication system.  
 This example will show how to create two Wookiee services: one internal-only that is exposed via wookiee-discovery to be 
 messaged via gRPC, and one that is external (with HTTP and WS support) that sends along messages to the internal-only service.
 

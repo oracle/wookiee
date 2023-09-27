@@ -26,7 +26,7 @@ trait DiscoverableCommandHelper {
   }
 }
 
-object DiscoverableCommandHelper {
+object DiscoverableCommandHelper extends DiscoverableCommandExecution {
 
   /**
     * Static method that allows services to add commands to the command manager with a single discoverable command

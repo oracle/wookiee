@@ -5,6 +5,7 @@ import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.{ComponentInfoV2, ComponentManager}
 import com.oracle.infy.wookiee.service.WookieeService
 import com.oracle.infy.wookiee.test.BaseWookieeTest
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -23,6 +24,7 @@ object WookieeHttpServiceSpec {
 }
 
 class WookieeHttpServiceSpec extends AnyWordSpec with Matchers with BaseWookieeTest with EndpointTestHelper {
+  override implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
 
   def simpleGet(path: String): String = {
     getContent(

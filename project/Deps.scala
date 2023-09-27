@@ -161,9 +161,8 @@ object Deps {
       "io.helidon.common" % "helidon-common-reactive" % helidonVersion
     )
 
-    val helidonKafka
-        : ModuleID = "io.helidon.messaging.kafka" % "helidon-messaging-kafka" % helidonVersion exclude ("org.slf4j", "slf4j-jdk14")
     val kafkaClient: ModuleID = "org.apache.kafka" % "kafka-clients" % kafkaVersion
+    val kafka: ModuleID = "org.apache.kafka" %% "kafka" % kafkaVersion
 
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
@@ -195,8 +194,9 @@ object Deps {
 
     val wookieeKafka: Seq[ModuleID] = Seq(
       test.scalatest,
-      helidonKafka,
-      kafkaClient
+      test.curatorTest,
+      kafkaClient,
+      kafka
     )
 
     val wookieeLibs: Seq[ModuleID] = Seq(
