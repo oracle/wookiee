@@ -7,6 +7,7 @@ import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor.GetSetWeightInterval
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.curator.framework.recipes.cache.CuratorCacheListener
 import org.apache.curator.test.TestingServer
@@ -80,7 +81,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val res =
         Await.result(service.get().createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
       res shouldEqual "/test"
-      checkForEntry(createdNodes, "/test") shouldEqual true
+      ThreadUtil.awaitEvent(checkForEntry(createdNodes, "/test"), 5000L)
     }
 
     "allow callers to create a node for a valid namespace and path" in {
@@ -100,7 +101,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       res shouldEqual "/deleteTest"
       val res2 = Await.result(service.get().deleteNode("/deleteTest"), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
-      checkForEntry(deletedNodes, "/deleteTest") shouldEqual true
+      ThreadUtil.awaitEvent(checkForEntry(deletedNodes, "/deleteTest"), 5000L)
     }
 
     "allow callers to delete a node for a valid namespace and path " in {
@@ -144,7 +145,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       val res2 = Await.result(service.get().getChildren("/test", includeData = true), awaitResultTimeout)
       res2.head._1 shouldEqual "child"
       res2.head._2.get shouldEqual "data".getBytes
-      checkForEntry(changedNodes, "/test/child") shouldEqual true
+      ThreadUtil.awaitEvent(checkForEntry(changedNodes, "/test/child"), 5000L)
     }
 
     " return an error when getting children for an invalid path " in {

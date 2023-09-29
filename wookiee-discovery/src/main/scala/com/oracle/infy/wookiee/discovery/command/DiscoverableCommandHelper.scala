@@ -5,13 +5,14 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.GrpcDefinition
 import com.oracle.infy.wookiee.discovery.command.grpc.GrpcJITService
-import com.oracle.infy.wookiee.grpc.settings.ServiceAuthSettings
+import com.oracle.infy.wookiee.grpc.settings.{SSLClientSettings, ServiceAuthSettings}
 import com.typesafe.config.Config
 import io.grpc.ServerInterceptor
 
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
+import scala.util.Try
 
 // Will usually be extended by a Wookiee Service to register DiscoverableCommands once on startup
 trait DiscoverableCommandHelper {
@@ -27,6 +28,20 @@ trait DiscoverableCommandHelper {
 }
 
 object DiscoverableCommandHelper extends DiscoverableCommandExecution {
+
+  // Convenience method to check all the usual places that the zookeeper server might be configured
+  def getZKConnectConfig(config: Config): Option[String] =
+    Try(config.getString("wookiee-zookeeper.quorum"))
+      .orElse(Try(config.getString("zookeeper-config.connect-string")))
+      .toOption
+
+  // Config for execution of discoverable commands
+  case class ZookeeperConfig(
+      zkPath: String, // In target config: 'wookiee-grpc-component.grpc.zk-discovery-path'
+      zkConnect: String, // e.g. localhost:2181, zoo.wookiee.io:2181
+      bearerToken: String, // If the target server is using auth, put token here. Can leave as any string otherwise
+      sslClientSettings: Option[SSLClientSettings] // In target config: 'wookiee-grpc-component.grpc.ssl'
+  )
 
   /**
     * Static method that allows services to add commands to the command manager with a single discoverable command

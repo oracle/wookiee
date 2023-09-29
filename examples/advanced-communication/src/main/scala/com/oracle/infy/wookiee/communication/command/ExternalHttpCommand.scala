@@ -6,6 +6,7 @@ import com.oracle.infy.wookiee.component.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.{ZookeeperConfig, getZKConnectConfig}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.typesafe.config.Config
 import org.json4s.Formats
@@ -21,10 +22,12 @@ object ExternalHttpCommand extends DiscoverableCommandExecution with LoggingAdap
   ): InputHolder => Future[OutputHolder] = (input: InputHolder) => {
     log.info(s"Executing business logic for input [${input.input}]")
     executeDiscoverableCommand[InputHolder, OutputHolder](
-      getInternalConfig(config, "zk-path"),
-      getZKConnectConfig(config).getOrElse("localhost:3181"),
-      getInternalConfig(config, "bearer-token"),
-      None,
+      ZookeeperConfig(
+        getInternalConfig(config, "zk-path"),
+        getZKConnectConfig(config).getOrElse("localhost:3181"),
+        getInternalConfig(config, "bearer-token"),
+        None
+      ),
       InternalDiscoverableCommand.commandName,
       input.copy(input = "Input: " + input.input)
     )
