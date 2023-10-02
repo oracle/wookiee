@@ -104,7 +104,8 @@ object Deps {
     )
 
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
-    val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion
+
+    val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat")
     val akkaStream: ModuleID = "com.typesafe.akka" %% "akka-stream" % akkaVersion
 
     val akkaHttp: Seq[ModuleID] = Seq(
@@ -251,6 +252,7 @@ object Deps {
     )
 
     val core: Seq[ModuleID] = curatorLibs ++ Seq(
+      scalaCompat,
       akka,
       slf4jApi,
       logbackClassic,
