@@ -28,6 +28,7 @@ object Deps {
     val scalaPbRuntimeVersion: String = "0.11.13"
     val helidonVersion = "2.6.3"
     val kafkaVersion = "3.5.1"
+    val scalaCompatVersion = "1.0.2"
 
     val slf4jVersion = "2.0.7"
     val logbackVersion = "1.3.6"
@@ -163,6 +164,7 @@ object Deps {
 
     val kafkaClient: ModuleID = "org.apache.kafka" % "kafka-clients" % kafkaVersion
     val kafka: ModuleID = "org.apache.kafka" %% "kafka" % kafkaVersion
+    val scalaCompat = "org.scala-lang.modules" %% "scala-java8-compat" % scalaCompatVersion
 
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
@@ -195,6 +197,7 @@ object Deps {
     val wookieeKafka: Seq[ModuleID] = Seq(
       test.scalatest,
       test.curatorTest,
+      scalaCompat,
       kafkaClient,
       kafka
     )
