@@ -219,8 +219,6 @@ wookiee-system {
   * Metrics that can be attached anywhere and sent to a metrics service
 * [Zookeeper Component](wookiee-zookeeper)
   * Provides Zookeeper connection management and service discovery
-* [Akka Http Component](wookiee-akka-http)
-  * Legacy Component for HTTP/WS services
 
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform

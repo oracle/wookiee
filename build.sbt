@@ -130,7 +130,7 @@ lazy val `wookiee-discovery` = project
   .dependsOn(`wookiee-grpc-component`)
   .aggregate(`wookiee-grpc-component`)
 
-// For HTTP/WS support, use instead of wookiee-akka-http
+// For HTTP/WS support
 lazy val `wookiee-web` = project
   .in(file("wookiee-web"))
   .settings(commonSettings(false))
@@ -306,16 +306,6 @@ lazy val `wookiee-metrics` = project
   .dependsOn(`wookiee-core`, `wookiee-test`)
   .aggregate(`wookiee-core`, `wookiee-test`)
 
-lazy val `wookiee-akka-http` = project
-  .in(file("wookiee-akka-http"))
-  .settings(commonSettings(false))
-  .settings(
-    libraryDependencies ++= Deps.build.wookieeAkkaHttp,
-    libraryDependencies += "org.scala-lang" % "scala-reflect" % scalaVersion.value
-  )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`, `wookiee-libs`)
-
 lazy val `wookiee-cache` = project
   .in(file("wookiee-cache"))
   .settings(commonSettings(false))
@@ -363,7 +353,6 @@ lazy val root = project
     `wookiee-zookeeper`,
     `wookiee-grpc-component`,
     `wookiee-metrics`,
-    `wookiee-akka-http`,
     `wookiee-cache`,
     `wookiee-cache-memcache`,
     `wookiee-functional-metrics`,
@@ -379,7 +368,6 @@ lazy val root = project
     `wookiee-proto`,
     `wookiee-health`,
     `wookiee-web`,
-    `wookiee-akka-http`,
     `wookiee-test`,
     `wookiee-zookeeper`,
     `wookiee-grpc-component`,
