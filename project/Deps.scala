@@ -105,7 +105,7 @@ object Deps {
 
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
 
-    val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat")
+    val akka: ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat_2.12") exclude ("org.scala-lang.modules", "scala-java8-compat_2.13")
     val akkaStream: ModuleID = "com.typesafe.akka" %% "akka-stream" % akkaVersion
 
     val akkaHttp: Seq[ModuleID] = Seq(
