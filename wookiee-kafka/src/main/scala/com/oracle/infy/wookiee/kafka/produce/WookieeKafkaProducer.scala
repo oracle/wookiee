@@ -14,7 +14,10 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
   props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
   props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, classOf[ByteArraySerializer].getName)
   props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, classOf[ByteArraySerializer].getName)
-  props.putAll(extraProps)
+  extraProps.forEach { (k, v) =>
+    props.put(k, v)
+    ()
+  }
 
   protected val producer = new KafkaProducer[Array[Byte], Array[Byte]](props)
 

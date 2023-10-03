@@ -27,7 +27,10 @@ case class WookieeKafkaConsumer(
   props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, classOf[ByteArrayDeserializer].getName)
   props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, enableAutoCommit.toString)
   props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, if (resetToLatest) "latest" else "earliest")
-  props.putAll(extraProps)
+  extraProps.forEach { (k, v) =>
+    props.put(k, v)
+    ()
+  }
 
   protected val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](props)
 

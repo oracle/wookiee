@@ -5,6 +5,8 @@ import com.oracle.infy.wookiee.kafka.WookieeKafka.{WookieeRecord, createTopic}
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
+import java.util.Properties
+
 class WookieeKafkaConsumerSpec extends KafkaTestHelper {
   "WookieeKafkaConsumer" should {
     "be able to subscribe in various ways" in {
@@ -25,9 +27,16 @@ class WookieeKafkaConsumerSpec extends KafkaTestHelper {
     "honor commits" in {
       createTopic(adminClient, "commit-topic")
       val producer = WookieeKafkaProducer(s"localhost:$kafkaPort")
-
+      val extraProps = new Properties()
+      extraProps.put("max.poll.records", "1")
       val consumer =
-        WookieeKafkaConsumer(s"localhost:$kafkaPort", "test-group", enableAutoCommit = false, resetToLatest = false)
+        WookieeKafkaConsumer(
+          s"localhost:$kafkaPort",
+          "test-group",
+          enableAutoCommit = false,
+          resetToLatest = false,
+          extraProps = extraProps
+        )
       def pollForRecords(expectedKey: String, commitFunc: WookieeKafkaConsumer => Unit): Unit = {
         consumer.subscribe("commit-topic")
         ThreadUtil.awaitEvent({
