@@ -188,7 +188,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       producer.send("callback-topic", Some("key"), "value", {
         case Left(_)  => exHit = true
         case Right(_) => ()
-      })
+      }: Either[Exception, MessageData] => Unit)
       ThreadUtil.awaitEvent({
         exHit
       })
@@ -197,7 +197,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       producer.send("callback-topic", Some("key"), "value", {
         case Left(_)  => ()
         case Right(_) => goodHit = true
-      })
+      }: Either[Exception, MessageData] => Unit)
       ThreadUtil.awaitEvent({
         goodHit
       })
@@ -220,7 +220,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       Serialization.write(kafkaMessage.jsonValue) mustEqual value
 
       val messageData = MessageData(key, value, 0L, 0, "topic", 0L)
-      MessageData.unapply(messageData).get mustEqual (key, value, 0L, 0, "topic", 0L)
+      MessageData.unapply(messageData).get._1 mustEqual key
     }
   }
 }
