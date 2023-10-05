@@ -39,16 +39,36 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
           stopped = true
         }
 
-        override def receive: Receive = {
+        override def receive: Receive = super.receive orElse {
           case _ =>
         }
       }
-      actor.start()
       actor.prepareForShutdown()
 
       actor.path mustEqual actor.name
+      ThreadUtil.awaitEvent({
+        started
+      })
       started mustEqual true
       stopped mustEqual true
+    }
+
+    "will call its preStart with init'd variables" in {
+      var preStarted = false
+      val actor = new WookieeActor {
+        val test = "test"
+        val test2 = testStr()
+
+        override protected def preStart(): Unit = {
+          preStarted = test.equals("test") && test2.equals("test")
+        }
+
+        def testStr(): String = "test"
+      }
+      ThreadUtil.awaitEvent({
+        preStarted
+      })
+      preStarted mustEqual true
     }
 
     "can be sent messages" in {

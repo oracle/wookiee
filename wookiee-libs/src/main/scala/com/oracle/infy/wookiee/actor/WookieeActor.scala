@@ -14,6 +14,7 @@ import scala.util.{Failure, Success}
 
 object WookieeActor {
   type Receive = PartialFunction[Any, Unit]
+  case class PreStart()
 
   // Use this to create a WookieeActorRouter which will route messages to multiple actors
   // Useful for when parallelism is needed but you don't want to create a new actor for each message
@@ -57,6 +58,9 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
     new AtomicReference[Receive](receive)
+
+  // Call preStart on initialization
+  self ! PreStart()
 
   /* Overrideable Classic Actor Methods */
 
@@ -137,6 +141,9 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
       tryAndLogError[Unit](
         lockedOperation {
           dequeueMessage() match {
+            case (msg: PreStart, _) =>
+              lastSender.set(noSender)
+              preStart()
             case (msg, null) =>
               lastSender.set(noSender)
               receiver.get()(msg)
@@ -179,7 +186,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
   /* Internal Methods */
 
   // Called on actors below a Component or Service that are registered in that entities `getDependents` method
-  override def start(): Unit = preStart()
+  override def start(): Unit = {}
 
   // Called on actors below a Component or Service that are registered in that entities `getDependents` method
   override def prepareForShutdown(): Unit = postStop()
