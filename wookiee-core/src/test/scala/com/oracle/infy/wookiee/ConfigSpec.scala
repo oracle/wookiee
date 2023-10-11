@@ -54,7 +54,6 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
     val child: ConfigWatcher = new ConfigWatcher(config, {
       self ! ConfigChange()
     })
-    child.start()
 
     override def getDependents: Iterable[WookieeMonitor] = List(child)
 

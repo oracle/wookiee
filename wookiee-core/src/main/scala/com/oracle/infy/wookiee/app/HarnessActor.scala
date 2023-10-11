@@ -171,7 +171,6 @@ class HarnessActor extends Actor with LoggingAdapter with Health with InternalHT
     try {
       startHealth
       configWatcher = Some(new ConfigWatcher(config, { self ! ConfigChange() }))
-      configWatcher.foreach(_.start())
       if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(
             HarnessConstants.KeyCommandsEnabled
           )) {
