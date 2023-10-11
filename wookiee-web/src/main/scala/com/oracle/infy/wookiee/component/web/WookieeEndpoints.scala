@@ -34,7 +34,8 @@ object WookieeEndpoints {
     */
   def registerEndpoint(command: HttpCommand)(implicit config: Config, ec: ExecutionContext): Unit = {
     val mediator = WebManager.getMediator(config)
-    WookieeCommandExecutive.getMediator(config).registerCommand(command)
+    // Just one routee, can call this directly afterwards to register more
+    WookieeCommandExecutive.getMediator(config).registerCommand(command, 1)
     val handler = handlerFromCommand(command)
 
     mediator.registerEndpoint(command.path, command.endpointType, command.method, handler)

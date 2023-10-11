@@ -55,9 +55,9 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
 
     "will call its preStart with init'd variables" in {
       var preStarted = false
-      val actor = new WookieeActor {
+      new WookieeActor {
         val test = "test"
-        val test2 = testStr()
+        val test2: String = testStr()
 
         override protected def preStart(): Unit = {
           preStarted = test.equals("test") && test2.equals("test")
@@ -69,6 +69,26 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
         preStarted
       })
       preStarted mustEqual true
+    }
+
+    "will call its postStop on PoisonPill" in {
+      var postStopped = false
+      val actor = new WookieeActor {
+        override protected def postStop(): Unit = {
+          postStopped = true
+        }
+      }
+      actor ! PoisonPill
+      ThreadUtil.awaitEvent({
+        postStopped
+      })
+      postStopped mustEqual true
+      postStopped = false
+      actor ! PoisonPill()
+      ThreadUtil.awaitEvent({
+        postStopped
+      })
+      postStopped mustEqual true
     }
 
     "can be sent messages" in {
@@ -282,6 +302,10 @@ class WookieeActorSpec extends AnyWordSpec with Matchers {
     "unapply on interceptor" in {
       val inter = AskInterceptor(Promise[Any](), None)
       AskInterceptor.unapply(inter).isDefined mustEqual true
+      val preStart = PreStart()
+      PreStart.unapply(preStart) mustEqual true
+      val poisonPill = PoisonPill()
+      PoisonPill.unapply(poisonPill) mustEqual true
     }
   }
 }

@@ -19,7 +19,7 @@ trait DiscoverableCommandHelper {
 
   // Helper method to register a discoverable command, identical to the one in the companion object
   def registerDiscoverableCommand[Input <: Any: ClassTag](
-      command: DiscoverableCommand[Input, _ <: Any],
+      command: => DiscoverableCommand[Input, _ <: Any],
       authToken: Option[String] = None,
       intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
   )(implicit config: Config, ec: ExecutionContext): Unit = {
@@ -55,8 +55,8 @@ object DiscoverableCommandHelper extends DiscoverableCommandExecution {
       intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
   )(implicit config: Config, ec: ExecutionContext): Unit = {
     val wookComExec = WookieeCommandExecutive.getMediator(Mediator.getInstanceId(config))
-    // Register command locally (can be called via WookieeCommandExecutive.executeCommand)
-    wookComExec.registerCommand(command)
+    // Register command locally with one routee (can be called via WookieeCommandExecutive.executeCommand)
+    wookComExec.registerCommand(command, 1)
     // Register command to be accessible via remote gRPC call
     GrpcManager.registerGrpcService(
       config,

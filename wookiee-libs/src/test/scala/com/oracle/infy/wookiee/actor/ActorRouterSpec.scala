@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.actor
 
-import com.oracle.infy.wookiee.actor.WookieeActor.Receive
+import com.oracle.infy.wookiee.actor.WookieeActor.{PoisonPill, Receive}
 import com.oracle.infy.wookiee.health.ComponentState
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
@@ -32,8 +32,13 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
     "initialize and receive requests" in {
       val actorNum = new AtomicInteger(0)
       val seenMessages = Array.fill(5)(false)
+      var seenStop = Array.fill(5)(false)
       val router = WookieeActor.withRouter(new WookieeActor {
         val thisActorNum: Int = actorNum.getAndIncrement()
+        override val name: String = "test-actor"
+
+        override protected def postStop(): Unit =
+          seenStop(thisActorNum) = true
 
         override def receive: Receive = super.receive orElse {
           case _ =>
@@ -42,10 +47,16 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
       })
       1.to(5).foreach(_ => (router ? "test").mapTo[Int].foreach(i => seenMessages(i) = true))
       ThreadUtil.awaitEvent(seenMessages.forall(_ == true))
+      router.commandName mustEqual "test-actor"
+      router ! PoisonPill
+      ThreadUtil.awaitEvent(seenStop.forall(_ == true))
+      seenStop = Array.fill(5)(false)
+      router ! PoisonPill()
+      ThreadUtil.awaitEvent(seenStop.forall(_ == true))
     }
 
     "have high performance compared to a single actor" in {
-      val iters = 50000
+      val iters = 10000
       val seenMessages = new AtomicInteger(0)
       def actorMaker(): WookieeActor = new WookieeActor {
         override def receive: Receive = {

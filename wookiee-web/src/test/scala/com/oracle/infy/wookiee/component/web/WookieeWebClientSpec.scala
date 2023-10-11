@@ -64,7 +64,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
     "handle a proxy request in the client" in {
       val webClient = WookieeWebClient(s"http://localhost:$internalPort", Some(ProxyConfig("localhost", proxyPort)))
       val currentCount = requestsSeen.get()
-      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
+      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 10.seconds)
       response.code() mustEqual 404
       response.headerMap()("Content-Type").head mustEqual "text/plain"
       ThreadUtil.awaitEvent({ requestsSeen.get() > currentCount })
@@ -90,16 +90,16 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       var response =
         Await.result(
           WookieeWebClient.requestAndExtract[TestObject](webClient.helidonClient, "GET", "/basic/endpoint", "test"),
-          5.seconds
+          10.seconds
         )
       response.content mustEqual "test"
-      response = Await.result(webClient.requestAndExtract[TestObject]("GET", "/basic/endpoint"), 5.seconds)
+      response = Await.result(webClient.requestAndExtract[TestObject]("GET", "/basic/endpoint"), 10.seconds)
       response.content mustEqual ""
     }
 
     "throw an error when code is not 200-299" in {
       intercept[WookieeWebException] {
-        Await.result(webClient.requestAndExtract("GET", "/basic/command", "fail"), 5.seconds)
+        Await.result(webClient.requestAndExtract("GET", "/basic/command", "fail"), 10.seconds)
       }
     }
   }

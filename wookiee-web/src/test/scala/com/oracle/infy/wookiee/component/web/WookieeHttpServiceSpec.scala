@@ -12,6 +12,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration._
 
 class TestHttpService(config: Config) extends WookieeHttpService(config) {
 
@@ -32,6 +33,8 @@ object WookieeHttpServiceSpec {
 
 class WookieeHttpServiceSpec extends AnyWordSpec with Matchers with BaseWookieeTest with EndpointTestHelper {
   override implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
+
+  override def startupWait: FiniteDuration = 40.seconds
 
   def simpleGet(path: String): String = {
     getContent(

@@ -14,17 +14,17 @@ import scala.util.{Failure, Success}
 
 object WookieeActor {
   type Receive = PartialFunction[Any, Unit]
-  case class PreStart()
+  sealed trait ManagementMessage
+  case class PreStart() extends ManagementMessage
+  case class PoisonPill() extends ManagementMessage
 
   // Use this to create a WookieeActorRouter which will route messages to multiple actors
   // Useful for when parallelism is needed but you don't want to create a new actor for each message
   def withRouter(
       actorMaker: => WookieeActor,
-      router: WookieeActorRouter = new RoundRobinRouter(5)
-  ): WookieeActorRouter = {
-    router.initialize(actorMaker)
-    router
-  }
+      routees: Int = 5
+  ): WookieeActorRouter =
+    new RoundRobinRouter(routees, actorMaker)
 
   // Used by the ask (?) method to intercept the reply and use it to complete our Future
   protected[oracle] case class AskInterceptor(promise: Promise[Any], theSender: Option[WookieeActor])
@@ -82,6 +82,7 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
   protected def preStart(): Unit = {}
 
   // Classic actor stop method that will be called when WookieeMonitor.prepareForShutdown is called
+  // and hasn't been overridden (call super.prepareForShutdown if you override)
   protected def postStop(): Unit = {}
 
   /* Utility Methods */
@@ -141,9 +142,15 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
       tryAndLogError[Unit](
         lockedOperation {
           dequeueMessage() match {
-            case (msg: PreStart, _) =>
+            case (_: PreStart, _) =>
               lastSender.set(noSender)
               preStart()
+            case (PoisonPill, _) =>
+              lastSender.set(noSender)
+              postStop()
+            case (_: PoisonPill, _) =>
+              lastSender.set(noSender)
+              postStop()
             case (msg, null) =>
               lastSender.set(noSender)
               receiver.get()(msg)
@@ -184,9 +191,6 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
   }
 
   /* Internal Methods */
-
-  // Called on actors below a Component or Service that are registered in that entities `getDependents` method
-  override def start(): Unit = {}
 
   // Called on actors below a Component or Service that are registered in that entities `getDependents` method
   override def prepareForShutdown(): Unit = postStop()
