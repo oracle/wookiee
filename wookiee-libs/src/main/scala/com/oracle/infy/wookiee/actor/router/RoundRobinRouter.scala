@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.actor.router
 import com.oracle.infy.wookiee.actor.WookieeActor
-import com.oracle.infy.wookiee.actor.WookieeActor.{PoisonPill, PreStart}
+import com.oracle.infy.wookiee.actor.WookieeActor.PoisonPill
+import com.oracle.infy.wookiee.command.WookieeCommand
 import com.oracle.infy.wookiee.health.HealthComponent
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 
@@ -18,8 +19,13 @@ class RoundRobinRouter(routees: Int, actorMaker: => WookieeActor) extends Wookie
   protected val routeeActors: Array[WookieeActor] = 0
     .until(routees)
     .map { _ =>
-      val actor = actorMaker
-      innerCommandName.set(actor.name)
+      val actor = WookieeActor.actorOf(actorMaker)
+      actor match {
+        case command: WookieeCommand[_, _] =>
+          innerCommandName.set(command.commandName)
+        case _ =>
+          innerCommandName.set(actor.name)
+      }
       actor
     }
     .toArray
@@ -28,8 +34,6 @@ class RoundRobinRouter(routees: Int, actorMaker: => WookieeActor) extends Wookie
   override def commandName: String = innerCommandName.get()
 
   override def !(message: Any)(implicit sender: WookieeActor = noSender): Unit = message match {
-    case _: PreStart =>
-      preStart() // This router's preStart()
     case _: PoisonPill =>
       stopAll()
     case PoisonPill =>

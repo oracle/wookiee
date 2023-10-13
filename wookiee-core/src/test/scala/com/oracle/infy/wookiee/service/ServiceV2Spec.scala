@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.pattern.ask
 import akka.testkit.TestKit
 import akka.util.Timeout
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.app.HarnessActor._
 import com.oracle.infy.wookiee.app.HarnessClassLoader
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentState => CState, _}
@@ -101,7 +102,11 @@ class ServiceV2Spec
 
     "be alerted when another component has come up" in {
       serviceManager ! ComponentReady(
-        ComponentInfoV2("component-v2", CState.Started, new TestComponentV2("component-v2", system.settings.config))
+        ComponentInfoV2(
+          "component-v2",
+          CState.Started,
+          WookieeActor.actorOf(new TestComponentV2("component-v2", system.settings.config))
+        )
       )
 
       val resOne = ThreadUtil.awaitResult({

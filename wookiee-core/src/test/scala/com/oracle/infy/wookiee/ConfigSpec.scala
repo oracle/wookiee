@@ -49,11 +49,11 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
 
   val gotConfigChange: AtomicBoolean = new AtomicBoolean(false)
 
-  val parent: WookieeActor = new WookieeActor {
+  val parent: WookieeActor = WookieeActor.actorOf(new WookieeActor {
 
-    val child: ConfigWatcher = new ConfigWatcher(config, {
+    val child: ConfigWatcher = WookieeActor.actorOf(new ConfigWatcher(config, {
       self ! ConfigChange()
-    })
+    }))
 
     override def getDependents: Iterable[WookieeMonitor] = List(child)
 
@@ -63,7 +63,7 @@ class ConfigSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll {
       case x =>
         child ! x
     }
-  }
+  })
 
   "Config " should {
     "be in good health" in {

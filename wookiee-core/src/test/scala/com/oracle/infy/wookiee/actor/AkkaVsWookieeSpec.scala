@@ -33,7 +33,7 @@ class AkkaVsWookieeSpec extends AnyWordSpec with Matchers {
         }
       }))
 
-      val wookieeActor = new WookieeActor {
+      val wookieeActor = WookieeActor.actorOf(new WookieeActor {
         override def receive: WookieeActor.Receive = {
           case _ =>
             toReduce -= 1
@@ -41,7 +41,7 @@ class AkkaVsWookieeSpec extends AnyWordSpec with Matchers {
               println(s"Wookiee ms: ${System.currentTimeMillis() - wookieeTimer}")
             }
         }
-      }
+      })
 
       println(s"Starting Akka [$akkaTimer]")
       for (_ <- 1 to iters) {
@@ -71,12 +71,12 @@ class AkkaVsWookieeSpec extends AnyWordSpec with Matchers {
         }
       }))
 
-      val wookieeActor = new WookieeActor {
+      val wookieeActor = WookieeActor.actorOf(new WookieeActor {
         override def receive: WookieeActor.Receive = {
           case _ =>
             sender() ! "message"
         }
-      }
+      })
 
       println(s"Starting Akka [$akkaTimer]")
       implicit val timeout: Timeout = akka.util.Timeout(3.seconds)

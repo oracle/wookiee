@@ -1,6 +1,7 @@
 package com.oracle.infy.wookiee.discovery.command
 
 import com.oracle.infy.wookiee.Mediator
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.component.grpc.GrpcManager.GrpcDefinition
@@ -50,7 +51,7 @@ object DiscoverableCommandHelper extends DiscoverableCommandExecution {
     * @param intercepts The gRPC interceptors to use for the command
     */
   def registerDiscoverableCommand[Input <: Any: ClassTag](
-      command: DiscoverableCommand[Input, _ <: Any],
+      command: => DiscoverableCommand[Input, _ <: Any],
       authToken: Option[String] = None,
       intercepts: java.util.List[ServerInterceptor] = List.empty[ServerInterceptor].asJava
   )(implicit config: Config, ec: ExecutionContext): Unit = {
@@ -58,12 +59,13 @@ object DiscoverableCommandHelper extends DiscoverableCommandExecution {
     // Register command locally with one routee (can be called via WookieeCommandExecutive.executeCommand)
     wookComExec.registerCommand(command, 1)
     // Register command to be accessible via remote gRPC call
+    val instance = WookieeActor.actorOf(command)
     GrpcManager.registerGrpcService(
       config,
-      command.commandName,
+      instance.commandName,
       List(
         new GrpcDefinition(
-          new GrpcJITService(command).bindService(),
+          new GrpcJITService(instance).bindService(),
           authToken.map(ServiceAuthSettings.apply),
           if (intercepts.isEmpty) None else Some(intercepts.asScala.toList)
         )

@@ -18,6 +18,7 @@ package com.oracle.infy.wookiee.component
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.app.HarnessActor.{
   ComponentInitializationComplete,
   ConfigChange,
@@ -194,7 +195,6 @@ object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo
 
 class ComponentManager extends PrepareForShutdown {
   import ComponentManager._
-  import context.dispatcher
 
   registerMediator(getInstanceId(config), new ConcurrentHashMap[String, ComponentInfo]())
 
@@ -519,7 +519,7 @@ class ComponentManager extends PrepareForShutdown {
   def initComponentV2(componentName: String, clazz: Class[_ <: ComponentV2]): ComponentInfoV2 =
     try {
       log.info(s"Loading V2 component [$componentName]")
-      val componentStart = ClassUtil.instantiateClass(clazz, componentName, config)
+      val componentStart = WookieeActor.actorOf(ClassUtil.instantiateClass(clazz, componentName, config))
       componentStart.propagateStart()
       ComponentInfoV2(componentName, ComponentState.Started, componentStart)
     } catch {

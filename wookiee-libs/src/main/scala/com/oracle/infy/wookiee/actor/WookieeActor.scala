@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.actor
 
+import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.actor.WookieeActor._
 import com.oracle.infy.wookiee.actor.mailbox.WookieeDefaultMailbox
 import com.oracle.infy.wookiee.actor.router.{RoundRobinRouter, WookieeActorRouter}
@@ -12,11 +13,45 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Future, Promise, TimeoutException}
 import scala.util.{Failure, Success}
 
+abstract class WookieeActorBase {
+  protected[wookiee] var properlyInitialized: Boolean = WookieeActor.isInsideActorOf.get()
+
+  protected[wookiee] def initializationCheck(): Unit =
+    if (!properlyInitialized) {
+      val error = new IllegalStateException("WookieeActor must be instantiated using WookieeActor.actorOf")
+      Mediator.log.error("WA400: WookieeActor must be instantiated using WookieeActor.actorOf", error)
+      throw error
+    }
+
+  initializationCheck()
+}
+
 object WookieeActor {
   type Receive = PartialFunction[Any, Unit]
   sealed trait ManagementMessage
-  case class PreStart() extends ManagementMessage
   case class PoisonPill() extends ManagementMessage
+
+  // ThreadLocal to check if inside actorOf method
+  private[actor] val isInsideActorOf = new ThreadLocal[Boolean] {
+    override def initialValue() = false
+  }
+
+  def actorOf[T <: WookieeActor](constructor: => T): T = {
+    isInsideActorOf.set(true)
+    try {
+      val instance = constructor
+      instance.preStart()
+      instance
+    } catch {
+      case ex: Throwable =>
+        Mediator.log.error("WA400: Actor failed to come up", ex)
+        throw ex
+    } finally {
+      // Reset the thread local
+      val localRef = isInsideActorOf
+      localRef.set(false)
+    }
+  }
 
   // Use this to create a WookieeActorRouter which will route messages to multiple actors
   // Useful for when parallelism is needed but you don't want to create a new actor for each message
@@ -24,11 +59,13 @@ object WookieeActor {
       actorMaker: => WookieeActor,
       routees: Int = 5
   ): WookieeActorRouter =
-    new RoundRobinRouter(routees, actorMaker)
+    WookieeActor.actorOf(new RoundRobinRouter(routees, actorMaker))
 
   // Used by the ask (?) method to intercept the reply and use it to complete our Future
-  protected[oracle] case class AskInterceptor(promise: Promise[Any], theSender: Option[WookieeActor])
+  protected[actor] case class AskInterceptor(promise: Promise[Any], theSender: Option[WookieeActor])
       extends WookieeActor {
+    // Bypass this for quick startup
+    override protected[wookiee] def initializationCheck(): Unit = {}
 
     protected override def receive: Receive = {
       case ex: Throwable =>
@@ -51,16 +88,13 @@ object WookieeActor {
   *
   * It is possible to mix in another extension of WookieeDefaultMailbox to change the mailbox implementation.
   */
-trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDefaultMailbox {
+trait WookieeActor extends WookieeActorBase with WookieeOperations with WookieeMonitor with WookieeDefaultMailbox {
   // Used to send this actor along as the sender() in classic actor methods
   implicit val thisActor: WookieeActor = this
   private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
     new AtomicReference[Receive](receive)
-
-  // Call preStart on initialization
-  self ! PreStart()
 
   /* Overrideable Classic Actor Methods */
 
@@ -142,9 +176,6 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
       tryAndLogError[Unit](
         lockedOperation {
           dequeueMessage() match {
-            case (_: PreStart, _) =>
-              lastSender.set(noSender)
-              preStart()
             case (PoisonPill, _) =>
               lastSender.set(noSender)
               postStop()
@@ -197,6 +228,9 @@ trait WookieeActor extends WookieeOperations with WookieeMonitor with WookieeDef
 
   // Used to ignoring replies when the sender was not specified
   protected lazy val noSender: WookieeActor = new WookieeActor {
+    // Bypass this for quick startup
+    override protected[wookiee] def initializationCheck(): Unit = {}
+
     override val name: String = "NoSender"
 
     // Discard the reply

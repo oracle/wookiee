@@ -1,15 +1,16 @@
 package com.oracle.infy.wookiee.actor
 
 import com.oracle.infy.wookiee.actor.WookieeActor.{PoisonPill, Receive}
+import com.oracle.infy.wookiee.command.WookieeCommand
 import com.oracle.infy.wookiee.health.ComponentState
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicInteger
-import scala.concurrent.Await
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, Future}
 
 class ActorRouterSpec extends AnyWordSpec with Matchers {
   "Wookiee Actor Router" should {
@@ -27,6 +28,14 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
       Await.result(router.checkHealth, 5.seconds).state mustEqual ComponentState.NORMAL
       1.to(5).foreach(_ => router ! "test")
       ThreadUtil.awaitEvent(seenMessages.forall(_ == true))
+    }
+
+    "initialize a command" in {
+      val router = WookieeActor.withRouter(new WookieeCommand[AnyRef, AnyRef] {
+        override def commandName: String = "wookiee-test-command"
+        override def execute(args: AnyRef): Future[AnyRef] = ???
+      })
+      router.commandName mustEqual "wookiee-test-command"
     }
 
     "initialize and receive requests" in {
@@ -58,13 +67,14 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
     "have high performance compared to a single actor" in {
       val iters = 10000
       val seenMessages = new AtomicInteger(0)
-      def actorMaker(): WookieeActor = new WookieeActor {
-        override def receive: Receive = {
-          case _ =>
-            seenMessages.incrementAndGet()
-            ()
-        }
-      }
+      def actorMaker(): WookieeActor =
+        WookieeActor.actorOf(new WookieeActor {
+          override def receive: Receive = {
+            case _ =>
+              seenMessages.incrementAndGet()
+              ()
+          }
+        })
 
       val router = WookieeActor.withRouter(actorMaker())
 

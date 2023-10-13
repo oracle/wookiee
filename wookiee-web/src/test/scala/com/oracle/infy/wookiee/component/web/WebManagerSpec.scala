@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.web
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
@@ -144,7 +145,7 @@ class WebManagerSpec extends EndpointTestHelper {
       "/error/bomb",
       EndpointType.BOTH,
       "GET",
-      WookieeRouter.handlerFromCommand(new ErrorBomb)
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb))
     )
 
   }

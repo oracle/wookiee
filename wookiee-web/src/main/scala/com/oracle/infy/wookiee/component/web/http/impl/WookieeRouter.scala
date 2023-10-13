@@ -96,7 +96,7 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
+  protected[oracle] def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
     HttpHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different

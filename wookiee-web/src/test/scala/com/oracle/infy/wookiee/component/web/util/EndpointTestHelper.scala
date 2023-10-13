@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.web.util
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.web.WebManager
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointOptions
@@ -59,7 +60,7 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
   override protected def beforeAll(): Unit = {
     new WookieeCommandExecutive("wookiee-command", conf)
-    manager = new WebManager("wookiee-web", conf)
+    manager = WookieeActor.actorOf(new WebManager("wookiee-web", conf))
     manager.start()
     registerEndpoints(manager)
 
