@@ -22,9 +22,13 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
   protected val producer = new KafkaProducer[Array[Byte], Array[Byte]](props)
 
   // Sends a message with a key and value to the topic
-  def send(topic: String, key: Option[Array[Byte]], value: Array[Byte]): Unit = {
-    val finalKey = key.getOrElse(Array())
-    producer.send(new ProducerRecord[Array[Byte], Array[Byte]](topic, finalKey, value))
+  def send(topic: String, key: Option[Array[Byte]], value: Array[Byte]): Unit =
+    send(topic, key, value, None)
+
+  // Sends a message with a key, value, and partition to the topic
+  def send(topic: String, key: Option[Array[Byte]], value: Array[Byte], partition: Option[Int]): Unit = {
+    val record = getRecord(topic, key, value, partition)
+    producer.send(record)
     ()
   }
 
@@ -34,11 +38,12 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
       topic: String,
       key: Option[Array[Byte]],
       value: Array[Byte],
+      partition: Option[Int],
       callback: Either[Exception, MessageData] => Unit
   ): Unit = {
-    val finalKey = key.getOrElse(Array())
+    val record = getRecord(topic, key, value, partition)
     producer.send(
-      new ProducerRecord[Array[Byte], Array[Byte]](topic, finalKey, value),
+      record,
       (metadata: RecordMetadata, exception: Exception) => {
         Option(exception) match {
           case Some(ex) => callback(Left(ex))
@@ -46,7 +51,7 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
             callback(
               Right(
                 MessageData(
-                  new String(finalKey),
+                  new String(record.key()),
                   new String(value),
                   metadata.offset(),
                   metadata.partition(),
@@ -61,14 +66,19 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
     ()
   }
 
+  // The WookieeRecord's key, value, and partition (if not None) will be used in the send
   def send(topic: String, message: WookieeRecord): Unit =
-    send(topic, Some(message.key), message.value)
+    send(topic, Some(message.key), message.value, message.partition)
+
+  // The WookieeRecord's key, value, and partition (if not None) will be used in the send
+  def send(topic: String, message: WookieeRecord, callback: Either[Exception, MessageData] => Unit): Unit =
+    send(topic, Some(message.key), message.value, message.partition, callback)
 
   def send(topic: String, key: Option[String], value: String): Unit =
     send(topic, key.map(_.getBytes()), value.getBytes)
 
   def send(topic: String, key: Option[String], value: String, callback: Either[Exception, MessageData] => Unit): Unit =
-    send(topic, key.map(_.getBytes()), value.getBytes, callback)
+    send(topic, key.map(_.getBytes()), value.getBytes, None, callback)
 
   // Close this producer
   def close(): Unit =
@@ -76,4 +86,17 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
 
   // Avoid using this unless absolutely needed (as it might change if our underlying tech changes)
   def underlying: KafkaProducer[Array[Byte], Array[Byte]] = producer
+
+  private def getRecord(
+      topic: String,
+      key: Option[Array[Byte]],
+      value: Array[Byte],
+      partition: Option[Int]
+  ): ProducerRecord[Array[Byte], Array[Byte]] = {
+    val finalKey = key.getOrElse(Array())
+    partition match {
+      case Some(p) => new ProducerRecord[Array[Byte], Array[Byte]](topic, p, finalKey, value)
+      case None    => new ProducerRecord[Array[Byte], Array[Byte]](topic, finalKey, value)
+    }
+  }
 }

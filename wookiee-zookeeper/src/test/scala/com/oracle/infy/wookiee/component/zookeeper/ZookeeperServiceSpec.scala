@@ -101,7 +101,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
       res shouldEqual "/deleteTest"
       val res2 = Await.result(service.get().deleteNode("/deleteTest"), awaitResultTimeout)
       res2 shouldEqual "/deleteTest"
-      ThreadUtil.awaitEvent(checkForEntry(deletedNodes, "/deleteTest"), 5000L)
+      ThreadUtil.awaitEvent(checkForEntry(deletedNodes, "/deleteTest"))
     }
 
     "allow callers to delete a node for a valid namespace and path " in {

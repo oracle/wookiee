@@ -78,6 +78,30 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       producer.close()
     }
 
+    "produce onto a certain partition" in {
+      createTopic(adminClient, "partition-topic", partitions = Some(3))
+      val expectedPartition = 2
+      @volatile var rightPartition: Boolean = false
+      val (producer, consumer) = getProducerAndConsumer(
+        "basic-group",
+        "partition-topic",
+        msg => {
+          rightPartition = msg.partition.get === expectedPartition
+          ()
+        },
+        resetToLatest = false
+      )
+
+      producer.send("partition-topic", Some("key".getBytes), "value".getBytes, Some(2))
+
+      ThreadUtil.awaitEvent({
+        rightPartition
+      })
+
+      consumer.close()
+      producer.close()
+    }
+
     "fail gracefully on message processing" in {
       createTopic(adminClient, "fail-topic")
       @volatile var receivedKey: String = ""
@@ -193,11 +217,22 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         exHit
       })
       @volatile var goodHit = false
-      createTopic(adminClient, "callback-topic")
+      createTopic(adminClient, "callback-topic", partitions = Some(3))
       producer.send("callback-topic", Some("key"), "value", {
         case Left(_)  => ()
         case Right(_) => goodHit = true
       }: Either[Exception, MessageData] => Unit)
+      ThreadUtil.awaitEvent({
+        goodHit
+      })
+      goodHit = false
+      producer.send(
+        "callback-topic",
+        WookieeRecord("key".getBytes, "value".getBytes, Some(2)), {
+          case Left(_)    => ()
+          case Right(msg) => goodHit = msg.partition === 2
+        }: Either[Exception, MessageData] => Unit
+      )
       ThreadUtil.awaitEvent({
         goodHit
       })
