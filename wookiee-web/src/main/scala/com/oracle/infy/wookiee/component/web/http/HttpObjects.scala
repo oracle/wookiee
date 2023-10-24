@@ -69,8 +69,17 @@ object HttpObjects {
 
   object Headers {
 
+    // For java interop
     def apply(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
-      Headers(mappings.asScala.view.mapValues(_.asScala.toList).toMap)
+      Headers(
+        mappings
+          .asScala
+          .map {
+            case (key, value) =>
+              key -> value.asScala.toList
+          }
+          .toMap
+      )
   }
 
   // Request/Response headers
