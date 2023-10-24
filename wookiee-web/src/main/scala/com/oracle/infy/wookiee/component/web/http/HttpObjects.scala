@@ -85,8 +85,13 @@ object HttpObjects {
 
   // Request/Response headers
   case class Headers(mappings: Map[String, List[String]])
+
+  object StatusCode {
+    def apply(): StatusCode = StatusCode(200)
+  }
+
   // Response status code
-  case class StatusCode(code: Int = 200)
+  case class StatusCode(code: Int)
 
   object WookieeRequest {
     // Will return an empty request object, mainly useful for testing
