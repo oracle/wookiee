@@ -5,6 +5,7 @@ import org.json4s.jackson.JsonMethods.parse
 
 import java.nio.charset.Charset
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 
 object HttpObjects {
@@ -21,7 +22,7 @@ object HttpObjects {
   }
 
   case class EndpointOptions(
-      defaultHeaders: Headers = Headers(Map()), // Will show up on all responses
+      defaultHeaders: Headers = Headers(), // Will show up on all responses
       allowedHeaders: Option[CorsWhiteList] = None, // CORS will report these as available headers, or all if empty
       routeTimerLabel: Option[String] = None, // Functional and Object Oriented: Time of entire request
       requestHandlerTimerLabel: Option[String] = None, // Functional only: Time of requestHandler
@@ -36,12 +37,14 @@ object HttpObjects {
   //   * Allowed origins is set at the global config level under wookiee-web.cors.allowed-origins = []
   object CorsWhiteList {
     def apply(): CorsWhiteList = AllowAll()
+    def apply(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
     def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
   // Trait for the allowed origins hosts
   trait CorsWhiteList {
     def allowed(toCheck: List[String]): List[String]
+    def allowed(toCheck: java.util.Collection[String]): List[String] = allowed(toCheck.asScala.toList)
     def allowed(toCheck: String): List[String] = allowed(List(toCheck))
   }
 
@@ -63,6 +66,13 @@ object HttpObjects {
   case class Content(value: Array[Byte]) {
     def asString: String = new String(value, Charset.forName("UTF-8"))
   }
+
+  object Headers {
+
+    def apply(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
+      Headers(mappings.asScala.view.mapValues(_.asScala.toList).toMap)
+  }
+
   // Request/Response headers
   case class Headers(mappings: Map[String, List[String]] = Map())
   // Response status code

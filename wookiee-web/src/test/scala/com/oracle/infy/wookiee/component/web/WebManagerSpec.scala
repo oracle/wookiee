@@ -12,6 +12,7 @@ import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, OutputObject}
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
+import scala.jdk.CollectionConverters._
 
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
@@ -336,7 +337,7 @@ class WebManagerSpec extends EndpointTestHelper {
     }
 
     "gets coverage on case class objects" in {
-      val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers(Map()))
+      val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers())
       req.contentString() mustEqual "test"
       req.headerMap() mustEqual Map()
       WookieeRequest.unapply(req) must not be None
@@ -359,6 +360,16 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val webEx = WookieeWebException("test", None, None)
       WookieeWebException.unapply(webEx) must not be None
+    }
+
+    "has java support in objects" in {
+      val map = new java.util.HashMap[String, java.util.Collection[String]]()
+      map.put("test", List("header").asJava)
+      val javaHeaders = Headers(map)
+      javaHeaders.mappings("test").mkString(",") mustEqual "header"
+
+      val corsWhiteList = CorsWhiteList(List("test").asJava)
+      corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
     }
 
     "hit error handling in handler for commands" in {
