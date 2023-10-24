@@ -68,6 +68,7 @@ object HttpObjects {
   }
 
   object Headers {
+    def apply(): Headers = Headers(Map.empty[String, List[String]])
 
     // For java interop
     def apply(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
@@ -83,7 +84,7 @@ object HttpObjects {
   }
 
   // Request/Response headers
-  case class Headers(mappings: Map[String, List[String]] = Map())
+  case class Headers(mappings: Map[String, List[String]])
   // Response status code
   case class StatusCode(code: Int = 200)
 
@@ -129,13 +130,29 @@ object HttpObjects {
     def headerMap(): Map[String, List[String]] = headers.mappings
   }
 
+  object WookieeResponse {
+    def apply(): WookieeResponse = WookieeResponse(Content(""), StatusCode(), Headers(), "application/json")
+
+    def apply(content: Content): WookieeResponse =
+      WookieeResponse(content, StatusCode(), Headers(), "application/json")
+
+    def apply(content: Content, statusCode: StatusCode): WookieeResponse =
+      WookieeResponse(content, statusCode, Headers(), "application/json")
+
+    def apply(content: Content, statusCode: StatusCode, headers: Headers): WookieeResponse =
+      WookieeResponse(content, statusCode, headers, "application/json")
+
+    def apply(content: Content, headers: Headers): WookieeResponse =
+      WookieeResponse(content, StatusCode(), headers, "application/json")
+  }
+
   // Object holding all of the response information
   case class WookieeResponse(
       content: Content,
-      statusCode: StatusCode = StatusCode(),
-      headers: Headers = Headers(),
+      statusCode: StatusCode,
+      headers: Headers,
       // If specified in `headers`, that value will take precedence
-      contentType: String = "application/json"
+      contentType: String
   ) {
     def code(): Int = statusCode.code
     def contentString(): String = content.asString

@@ -362,7 +362,7 @@ class WebManagerSpec extends EndpointTestHelper {
       WookieeWebException.unapply(webEx) must not be None
     }
 
-    "has java support in objects" in {
+    "have java support in objects" in {
       val map = new java.util.HashMap[String, java.util.Collection[String]]()
       map.put("test", List("header").asJava)
       val javaHeaders = Headers(map)
@@ -370,6 +370,21 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val corsWhiteList = CorsWhiteList(List("test").asJava)
       corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
+
+      val wookResp = WookieeResponse()
+      wookResp.statusCode.code mustEqual 200
+
+      val wookContResp = WookieeResponse(Content("test"))
+      wookContResp.statusCode.code mustEqual 200
+
+      val wookCodeResp = WookieeResponse(Content("test"), StatusCode(500))
+      wookCodeResp.statusCode.code mustEqual 500
+
+      val wookHeadResp = WookieeResponse(Content("test"), StatusCode(), Headers())
+      wookHeadResp.statusCode.code mustEqual 200
+
+      val wookHeadOnlyResp = WookieeResponse(Content("test"), Headers())
+      wookHeadOnlyResp.statusCode.code mustEqual 200
     }
 
     "hit error handling in handler for commands" in {
