@@ -32,6 +32,7 @@ class WookieeTyrusHandler(engine: WebSocketEngine) extends LoggingAdapter {
       paramsMap.put(key, value.toArray(new Array[String](0)))
       ()
     }
+
     val requestContext = RequestContext
       .Builder
       .create()
@@ -44,7 +45,7 @@ class WookieeTyrusHandler(engine: WebSocketEngine) extends LoggingAdapter {
       ()
     }
 
-    endpointOpts.defaultHeaders.mappings.foreach {
+    endpointOpts.defaultHeaders.getMap.foreach {
       case (key, value) =>
         res.headers().add(key, value.asJava)
         requestContext.getHeaders.put(key, value.asJava)

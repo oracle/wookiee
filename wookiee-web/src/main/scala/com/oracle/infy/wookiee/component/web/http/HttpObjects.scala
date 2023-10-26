@@ -4,6 +4,7 @@ import org.json4s.JValue
 import org.json4s.jackson.JsonMethods.parse
 
 import java.nio.charset.Charset
+import java.util
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
@@ -84,7 +85,44 @@ object HttpObjects {
   }
 
   // Request/Response headers
-  case class Headers(mappings: Map[String, List[String]])
+  // Keys are case insensitive
+  case class Headers(private val mappings: Map[String, List[String]]) {
+
+    val caseInsensitiveMap: util.TreeMap[String, List[String]] = new util.TreeMap[String, List[String]](
+      String.CASE_INSENSITIVE_ORDER
+    )
+    caseInsensitiveMap.putAll(mappings.asJava)
+
+    def getMap: Map[String, List[String]] = mappings
+
+    def getJavaMap: java.util.Map[String, java.util.List[String]] =
+      mappings.map {
+        case (key, value) =>
+          key -> value.asJava
+      }.asJava
+
+    // Will return 'null' if the key doesn't exist
+    def getJavaValue(key: String): java.util.List[String] =
+      Option(caseInsensitiveMap.get(key)).map(_.asJava).getOrElse(new util.ArrayList[String]())
+    // Will return None if key doesn't exist
+    def maybeStringValue(key: String): Option[String] = Option(caseInsensitiveMap.get(key)).map(_.mkString(","))
+    // Will return "" if the key doesn't exist or value is empty
+    def getStringValue(key: String): String = Option(caseInsensitiveMap.get(key)).map(_.mkString(",")).getOrElse("")
+    // Will return None if key doesn't exist
+    def maybeValue(key: String): Option[List[String]] = Option(caseInsensitiveMap.get(key))
+    // Will return empty list if key doesn't exist or value is empty
+    def getValue(key: String): List[String] = Option(caseInsensitiveMap.get(key)).getOrElse(List())
+
+    def putValue(key: String, value: List[String]): Unit = {
+      caseInsensitiveMap.put(key, value)
+      ()
+    }
+
+    def putValue(key: String, value: java.util.List[String]): Unit = {
+      caseInsensitiveMap.put(key, value.asScala.toList)
+      ()
+    }
+  }
 
   object StatusCode {
     def apply(): StatusCode = StatusCode(200)
@@ -132,7 +170,6 @@ object HttpObjects {
     def getCreatedTime: Long = createdTime
 
     def contentString(): String = content.asString
-    def headerMap(): Map[String, List[String]] = headers.mappings
   }
 
   object WookieeResponse {
@@ -161,7 +198,6 @@ object HttpObjects {
   ) {
     def code(): Int = statusCode.code
     def contentString(): String = content.asString
-    def headerMap(): Map[String, List[String]] = headers.mappings
     def contentJson(): JValue = parse(contentString())
   }
 }

@@ -33,14 +33,14 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       response.contentString() mustEqual jsonContent
       Serialization.write(response.contentJson()) mustEqual jsonContent
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getValue("Content-Type").head mustEqual "application/json"
     }
 
     "handle a basic request in the client" in {
       val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
       response.contentString() mustEqual """{"content":""}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getJavaMap.get("Content-Type").get(0) mustEqual "application/json"
     }
 
     "handle a basic byte request in the client" in {
@@ -50,7 +50,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       )
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getStringValue("Content-Type") mustEqual "application/json"
     }
 
     "handle a basic object request in the client" in {
@@ -58,7 +58,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
         Await.result(WookieeWebClient.request(webClient.helidonClient, "GET", "/basic/endpoint", "test"), 5.seconds)
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getStringValue("Content-Type") mustEqual "application/json"
     }
 
     "handle a proxy request in the client" in {
@@ -66,7 +66,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       val currentCount = requestsSeen.get()
       val response = Await.result(webClient.request("GET", "/basic/endpoint"), 10.seconds)
       response.code() mustEqual 404
-      response.headerMap()("Content-Type").head mustEqual "text/plain"
+      response.headers.getStringValue("Content-Type") mustEqual "text/plain"
       ThreadUtil.awaitEvent({ requestsSeen.get() > currentCount })
     }
 

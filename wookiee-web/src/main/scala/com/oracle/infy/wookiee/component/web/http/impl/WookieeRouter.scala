@@ -82,7 +82,7 @@ object WookieeRouter extends LoggingAdapter {
       val response = errorHandler(e)
       res.status(response.statusCode.code)
       res.headers().add("Content-Type", response.contentType)
-      response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
+      response.headers.getMap.foreach(x => res.headers().add(x._1, x._2.asJava))
       res.send(response.content.value)
       ()
     } catch {
@@ -126,7 +126,7 @@ object WookieeRouter extends LoggingAdapter {
                   })
                   .map {
                     response =>
-                      val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
+                      val respHeaders = command.endpointOptions.defaultHeaders.getMap ++ response.headers.getMap
                       res.headers().add("Content-Type", response.contentType)
                       respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
                       res.status(response.statusCode.code)
@@ -342,9 +342,8 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Methods", handlers.keySet.mkString(","))
             res.headers().add("Access-Control-Allow-Credentials", "true")
-            res
-              .headers()
-              .add("Access-Control-Allow-Headers", allowedHeaders(handlers.values.toList, reqHeadersOpt).mkString(","))
+            val allowedHeads = allowedHeaders(handlers.values.toList, reqHeadersOpt)
+            res.headers().add("Access-Control-Allow-Headers", allowedHeads: _*)
             res.status(200).send("")
 
           case _ =>

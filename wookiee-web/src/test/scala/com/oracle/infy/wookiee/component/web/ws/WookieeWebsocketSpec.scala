@@ -378,7 +378,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
           implicit session: Session
       ): Unit =
         reply(
-          s"Got message: [$text], Header-1=${request.headers.mappings("Header-1").head}, Header-2=${request.headers.mappings("Header-2").head}"
+          s"Got message: [$text], Header-1=${request.headers.getStringValue("Header-1")}, Header-2=${request.headers.getStringValue("Header-2")}"
         )
 
       override def endpointType: EndpointType = EndpointType.BOTH
@@ -409,7 +409,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
             s"query=[${interface.request.queryParameters.getOrElse("param", "")}]"
         ),
       (request: WookieeRequest) => {
-        val authHeader = request.headers.mappings.get("Authorization").flatMap(_.headOption.map(AuthHolder.apply))
+        val authHeader = request.headers.maybeStringValue("Authorization").map(AuthHolder.apply)
         authHeader match {
           case Some(AuthHolder("fail"))       => Future.failed(new IllegalStateException("fail on purpose"))
           case Some(AuthHolder("inner-fail")) => throw new IllegalStateException("inner-fail on purpose")

@@ -89,7 +89,7 @@ class WebManagerSpec extends EndpointTestHelper {
       EndpointType.EXTERNAL, { request =>
         val segment = request.pathSegments.getOrElse("segment", "")
         val query = request.queryParameters.getOrElse("query", "")
-        val header = request.headers.mappings.getOrElse("header", List()).mkString(",")
+        val header = request.headers.getStringValue("header")
         Future.successful(
           InputObject(
             s"""{"segment":"$segment","query":"$query","header":"$header"}"""
@@ -339,7 +339,7 @@ class WebManagerSpec extends EndpointTestHelper {
     "gets coverage on case class objects" in {
       val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers())
       req.contentString() mustEqual "test"
-      req.headerMap() mustEqual Map()
+      req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
 
       val cors = AllowSome(List())
@@ -362,12 +362,25 @@ class WebManagerSpec extends EndpointTestHelper {
       WookieeWebException.unapply(webEx) must not be None
     }
 
-    "have java support in objects" in {
+    "have headers be case insensitive" in {
       val map = new java.util.HashMap[String, java.util.Collection[String]]()
-      map.put("test", List("header").asJava)
+      map.put("tESt", List("header").asJava)
       val javaHeaders = Headers(map)
-      javaHeaders.mappings("test").mkString(",") mustEqual "header"
+      javaHeaders.getJavaValue("test") mustEqual List("header").asJava
+      javaHeaders.getJavaValue("TEST") mustEqual List("header").asJava
+      javaHeaders.getJavaValue("Test") mustEqual List("header").asJava
+      javaHeaders.getStringValue("tEst") mustEqual "header"
+      javaHeaders.getStringValue("noThing") mustEqual ""
+      javaHeaders.maybeStringValue("notHing").isEmpty mustEqual true
+      javaHeaders.maybeValue("nothIng").isEmpty mustEqual true
+      javaHeaders.getValue("nothiNg") mustEqual List()
+      javaHeaders.putValue("tesT2", List("header2"))
+      javaHeaders.getValue("teSt2") mustEqual List("header2")
+      javaHeaders.putValue("test3", List("header3").asJava)
+      javaHeaders.getValue("tESt3") mustEqual List("header3")
+    }
 
+    "have java support in objects" in {
       val corsWhiteList = CorsWhiteList(List("test").asJava)
       corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
 
