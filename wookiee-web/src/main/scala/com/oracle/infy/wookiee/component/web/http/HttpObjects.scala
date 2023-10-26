@@ -141,7 +141,7 @@ object HttpObjects {
   case class WookieeRequest(
       content: Content,
       pathSegments: Map[String, String],
-      queryParameters: Map[String, String],
+      queryParameters: Map[String, String], // Keys will always be lowercase
       headers: Headers
   ) extends mutable.LinkedHashMap[String, Any] {
 

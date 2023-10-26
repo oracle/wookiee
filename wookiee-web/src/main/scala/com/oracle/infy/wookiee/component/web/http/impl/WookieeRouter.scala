@@ -105,8 +105,9 @@ object WookieeRouter extends LoggingAdapter {
           val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
           val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
 
-          // Get the query parameters on the request
-          val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.mkString(","))
+          // Get the query parameters on the request, lowercase them
+          val queryParams =
+            req.queryParams().toMap.asScala.toMap.map(x => x._1.toLowerCase -> x._2.asScala.mkString(","))
           req.content().as(classOf[Array[Byte]]).thenAccept {
             bytes =>
               try {

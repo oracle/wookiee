@@ -268,7 +268,7 @@ class WebManagerSpec extends EndpointTestHelper {
         oneOff(
           s"http://localhost:$externalPort",
           "POST",
-          "/api/segment/endpoint?query=param",
+          "/api/segment/endpoint?Query=param",
           jsonPayload,
           Map("header" -> "value")
         )
