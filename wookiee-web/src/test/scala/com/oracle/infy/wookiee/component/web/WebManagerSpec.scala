@@ -349,7 +349,7 @@ class WebManagerSpec extends EndpointTestHelper {
       cors2.allowed(List("anything")) mustEqual List("anything")
       AllowAll.unapply(cors2) must not be None
 
-      val eo = EndpointOptions()
+      val eo = EndpointOptions.apply(Headers(), None)
       EndpointOptions.unapply(eo) must not be None
 
       val con = Content("test")

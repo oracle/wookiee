@@ -19,16 +19,24 @@ object HttpObjects {
 
   // These are all of the more optional bits of configuring an endpoint
   object EndpointOptions {
-    val default: EndpointOptions = EndpointOptions()
+    val default: EndpointOptions = EndpointOptions(Headers(), None, None, None, None, None)
+
+    def apply(): EndpointOptions = default
+
+    def apply(
+        defaultHeaders: Headers, // Will show up on all responses
+        allowedHeaders: Option[CorsWhiteList] // CORS will report these as available headers, or all if empty
+    ): EndpointOptions =
+      EndpointOptions(defaultHeaders, allowedHeaders, None, None, None, None)
   }
 
   case class EndpointOptions(
       defaultHeaders: Headers = Headers(), // Will show up on all responses
       allowedHeaders: Option[CorsWhiteList] = None, // CORS will report these as available headers, or all if empty
-      routeTimerLabel: Option[String] = None, // Functional and Object Oriented: Time of entire request
-      requestHandlerTimerLabel: Option[String] = None, // Functional only: Time of requestHandler
-      businessLogicTimerLabel: Option[String] = None, // Functional only: Time of businessLogic
-      responseHandlerTimerLabel: Option[String] = None // Functional only: Time of responseHandler
+      routeTimerLabel: Option[String], // Functional and Object Oriented: Time of entire request
+      requestHandlerTimerLabel: Option[String], // Functional only: Time of requestHandler
+      businessLogicTimerLabel: Option[String], // Functional only: Time of businessLogic
+      responseHandlerTimerLabel: Option[String] // Functional only: Time of responseHandler
   )
 
   // The headers that are allowed for a particular endpoint

@@ -44,8 +44,7 @@ class CORSSpec extends EndpointTestHelper {
       "GET",
       HttpHandler(
         (_: ServerRequest, _: ServerResponse) => (),
-        EndpointOptions
-          .default
+        EndpointOptions()
           .copy(
             allowedHeaders = Some(
               CorsWhiteList(List("valid-header-1", "valid-header-2"))
