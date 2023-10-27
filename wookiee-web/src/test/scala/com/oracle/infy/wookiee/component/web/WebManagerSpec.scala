@@ -352,7 +352,7 @@ class WebManagerSpec extends EndpointTestHelper {
       val eo = EndpointOptions.apply(Headers(), None)
       EndpointOptions.unapply(eo) must not be None
 
-      val con = Content("test")
+      val con = Content()
       Content.unapply(con) must not be None
 
       val pConf = ProxyConfig("test", 1234)

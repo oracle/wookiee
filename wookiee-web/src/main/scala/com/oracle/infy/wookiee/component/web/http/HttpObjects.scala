@@ -69,6 +69,7 @@ object HttpObjects {
 
   // Request/Response body content
   object Content {
+    def apply(): Content = Content(Array.empty[Byte])
     def apply(content: String): Content = Content(content.getBytes(Charset.forName("UTF-8")))
   }
 
