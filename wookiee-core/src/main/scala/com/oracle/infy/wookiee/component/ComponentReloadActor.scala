@@ -144,7 +144,7 @@ class ComponentReloadActor(loader: HarnessClassLoader) extends HActor with Compo
 
   override def checkHealth: Future[HealthComponent] = {
     Future {
-      HealthComponent("Component Reload Actor", details = "Watching for changes in Component directories")
+      HealthComponent("Component Reload Actor", "Watching for changes in Component directories")
     }
   }
 }
