@@ -1,7 +1,8 @@
 package com.oracle.infy.wookiee.communication
 
-import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand
+import com.oracle.infy.wookiee.communication.command.{InternalDiscoverableCommand, InternalKafkaCommand}
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.InputHolder
+import com.oracle.infy.wookiee.communication.command.InternalKafkaCommand.TopicInfo
 import com.oracle.infy.wookiee.discovery.command.{DiscoverableCommandHelper, WookieeDiscoverableService}
 import com.typesafe.config.Config
 
@@ -14,6 +15,11 @@ class InternalWookieeService(config: Config) extends WookieeDiscoverableService(
   override def addDiscoverableCommands(implicit conf: Config, ec: ExecutionContext): Unit = {
     DiscoverableCommandHelper.registerDiscoverableCommand[InputHolder](
       new InternalDiscoverableCommand,
+      Some(InternalDiscoverableCommand.getInternalConfig(config, "bearer-token")),
+      List().asJava // Custom intercepts would go here
+    )
+    DiscoverableCommandHelper.registerDiscoverableCommand[TopicInfo](
+      new InternalKafkaCommand(config),
       Some(InternalDiscoverableCommand.getInternalConfig(config, "bearer-token")),
       List().asJava // Custom intercepts would go here
     )

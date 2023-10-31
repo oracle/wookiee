@@ -10,10 +10,6 @@ import scala.concurrent.{ExecutionContext, Future}
 
 case class AuthHolder(token: String, userId: String)
 
-object ExternalWSHandler {
-
-}
-
 // This is an example of a websocket handler that will be hosted on both internal and external ports
 class ExternalWSHandler(implicit ec: ExecutionContext) extends WookieeWebsocket[AuthHolder] {
   // WS path to host this endpoint, segments starting with '$' will be treated as wildcards

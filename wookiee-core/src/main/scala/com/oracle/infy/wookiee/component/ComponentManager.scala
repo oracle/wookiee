@@ -196,7 +196,7 @@ object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo
 class ComponentManager extends PrepareForShutdown {
   import ComponentManager._
 
-  registerMediator(getInstanceId(config), new ConcurrentHashMap[String, ComponentInfo]())
+  registerMediator(config, new ConcurrentHashMap[String, ComponentInfo]())
 
   private val componentTimeout: Timeout = AkkaUtil
     .getDefaultTimeout(config, HarnessConstants.KeyComponentStartTimeout, 20.seconds)
