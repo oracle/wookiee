@@ -14,13 +14,14 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
 
-/**
-  * Trait for executing discoverable commands. They should have first been registered
-  * on the target server using the registerDiscoverableCommand method in
-  * com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandHelper.
-  * @author Spencer Wood
-  */
-trait DiscoverableCommandExecution {
+object DiscoverableCommandExecution {
+
+  def executeDiscoverableCommand[Input <: Any: ClassTag, Output <: Any: ClassTag: TypeTag](
+      zkConfig: ZookeeperConfig, // See case class for details
+      commandName: String, // Used to find the command on the target server, result of DiscoverableCommand.commandName
+      input: Input // The actual input for the command, will be (de)serialized on send/receipt
+  )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] =
+    executeDiscoverableCommand[Input, Output](zkConfig, commandName, input, 4194304)
 
   /**
     * Executes a discoverable command where ever it may be located. The fields for this command
@@ -31,7 +32,7 @@ trait DiscoverableCommandExecution {
       zkConfig: ZookeeperConfig, // See case class for details
       commandName: String, // Used to find the command on the target server, result of DiscoverableCommand.commandName
       input: Input, // The actual input for the command, will be (de)serialized on send/receipt
-      maxMessageSize: Int = 4194304 // If needing to protect against large messages, or to allow them, use this
+      maxMessageSize: Int // If needing to protect against large messages, or to allow them, use this
   )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] = Future {
     val stub: GrpcDiscoverableStub = getGenericStub(
       zkConfig.zkPath,
@@ -57,6 +58,23 @@ trait DiscoverableCommandExecution {
     val channel = GrpcManager.getChannelFromMediator(zkPath, zkConnect, bearerToken, sslClientSettings, maxMessageSize)
     new GrpcDiscoverableStub(channel.managedChannel)
   }
+}
+
+/**
+  * Trait for executing discoverable commands. They should have first been registered
+  * on the target server using the registerDiscoverableCommand method in
+  * com.oracle.infy.wookiee.component.discovery.command.DiscoverableCommandHelper.
+  * @author Spencer Wood
+  */
+trait DiscoverableCommandExecution {
+
+  def executeDiscoverableCommand[Input <: Any: ClassTag, Output <: Any: ClassTag: TypeTag](
+      zkConfig: ZookeeperConfig, // See case class for details
+      commandName: String, // Used to find the command on the target server, result of DiscoverableCommand.commandName
+      input: Input, // The actual input for the command, will be (de)serialized on send/receipt
+      maxMessageSize: Int = 4194304 // If needing to protect against large messages, or to allow them, use this
+  )(implicit formats: Formats, config: Config, ec: ExecutionContext): Future[Output] =
+    DiscoverableCommandExecution.executeDiscoverableCommand[Input, Output](zkConfig, commandName, input, maxMessageSize)
 
   /**
     * Executes a discoverable command on every server that is hosting it

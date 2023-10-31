@@ -109,7 +109,7 @@ class DiscoverableCommandSpec
       command.isDefined mustBe true
 
       val result = Await.result(
-        executeDiscoverableCommand[TestInput, TestOutput](
+        DiscoverableCommandExecution.executeDiscoverableCommand[TestInput, TestOutput](
           ZookeeperConfig(zkPath, s"localhost:$zkPort", "not-used", None),
           "test-command-main",
           TestInput("input")
@@ -164,7 +164,7 @@ class DiscoverableCommandSpec
       val zkConfig = ZookeeperConfig(zkPath, s"localhost:$zkPort", "", None)
       ZookeeperConfig.unapply(zkConfig).get._1 mustEqual zkPath
 
-      val stub = getGenericStub(
+      val stub = DiscoverableCommandExecution.getGenericStub(
         zkPath,
         s"localhost:$zkPort",
         "",

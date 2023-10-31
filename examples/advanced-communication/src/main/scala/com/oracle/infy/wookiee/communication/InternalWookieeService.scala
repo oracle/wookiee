@@ -13,13 +13,13 @@ class InternalWookieeService(config: Config) extends WookieeDiscoverableService(
   override val name: String = "Internal Wookiee Service"
 
   override def addDiscoverableCommands(implicit conf: Config, ec: ExecutionContext): Unit = {
+    // This command will now be discoverable by other services on the configured 'zk-discovery-path'
     DiscoverableCommandHelper.registerDiscoverableCommand[InputHolder](
-      new InternalDiscoverableCommand,
-      Some(InternalDiscoverableCommand.getInternalConfig(config, "bearer-token")),
-      List().asJava // Custom intercepts would go here
+      new InternalDiscoverableCommand
     )
     DiscoverableCommandHelper.registerDiscoverableCommand[TopicInfo](
       new InternalKafkaCommand(config),
+      // If you'd like bearer token auth, put it here
       Some(InternalDiscoverableCommand.getInternalConfig(config, "bearer-token")),
       List().asJava // Custom intercepts would go here
     )
