@@ -1,8 +1,8 @@
 package com.oracle.infy.wookiee.kafka
 
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{AutoCloseableConsumer, MessageData, WookieeOffset, WookieeRecord}
 import com.oracle.infy.wookiee.kafka.WookieeKafka._
 import com.oracle.infy.wookiee.kafka.consume.WookieeKafkaConsumer
-import com.oracle.infy.wookiee.utils.ThreadUtil
 import org.apache.kafka.clients.producer.ProducerConfig
 import org.json4s.jackson.Serialization
 import org.json4s.{DefaultFormats, Formats}
@@ -42,7 +42,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         }
       )
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         producer.send("basic-topic", Some("key"), "value")
         Thread.sleep(1000L)
         receivedKey == "key" && receivedVal == "value"
@@ -68,7 +68,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         }
       )
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         producer.send("pattern-topic", Some("key"), "value")
         Thread.sleep(1000L)
         receivedKey == "key" && receivedVal == "value"
@@ -94,7 +94,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
 
       producer.send("partition-topic", Some("key".getBytes), "value".getBytes, Some(2))
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         rightPartition
       })
 
@@ -123,7 +123,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       producer.send("fail-topic", Some("outer-fail"), "value")
       producer.send("fail-topic", Some("key"), "value")
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         receivedKey == "key" && receivedVal == "value"
       })
 
@@ -157,7 +157,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         }
       }
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         errorHit
       })
     }
@@ -176,7 +176,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         producer.send("volume-topic", Some("key"), "value")
       }
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         messagesSeen.get() == toSend
       })
       Thread.sleep(1000L)
@@ -195,7 +195,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       // Create initial checkpoints
       consumer.poll(1000L)
 
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         producer.send("manual-topic", Some("key"), "value")
         val messages = consumer.poll(1000L)
         messages.nonEmpty && messages.head.getKey == "key" && messages.head.getValue == "value"
@@ -213,7 +213,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         case Left(_)  => exHit = true
         case Right(_) => ()
       }: Either[Exception, MessageData] => Unit)
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         exHit
       })
       @volatile var goodHit = false
@@ -222,7 +222,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         case Left(_)  => ()
         case Right(_) => goodHit = true
       }: Either[Exception, MessageData] => Unit)
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         goodHit
       })
       goodHit = false
@@ -233,7 +233,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
           case Right(msg) => goodHit = msg.partition === 2
         }: Either[Exception, MessageData] => Unit
       )
-      ThreadUtil.awaitEvent({
+      awaitEvent({
         goodHit
       })
       producer.underlying.close()

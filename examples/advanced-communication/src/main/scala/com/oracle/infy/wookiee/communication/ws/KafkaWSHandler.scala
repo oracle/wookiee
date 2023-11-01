@@ -9,12 +9,12 @@ import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.Endpo
 import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.{ZookeeperConfig, getZKConnectConfig}
+import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
 import com.oracle.infy.wookiee.kafka.WookieeKafka
-import com.oracle.infy.wookiee.kafka.WookieeKafka.WookieeRecord
 import com.typesafe.config.Config
 import org.json4s.{DefaultFormats, Formats}
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.concurrent.atomic.AtomicReference
 import javax.websocket.Session
 import scala.concurrent.{ExecutionContext, Future}
 

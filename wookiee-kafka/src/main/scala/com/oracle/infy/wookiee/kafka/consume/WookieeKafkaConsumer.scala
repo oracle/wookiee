@@ -1,7 +1,6 @@
 package com.oracle.infy.wookiee.kafka.consume
 
-import com.oracle.infy.wookiee.kafka.WookieeKafka.{WookieeOffset, WookieeRecord, WookieeTopicPartition}
-import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{WookieeOffset, WookieeRecord, WookieeTopicPartition}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
@@ -18,7 +17,7 @@ case class WookieeKafkaConsumer(
     enableAutoCommit: Boolean = true, // Auto-commit offsets? If false, can manually commit with consumer.commitSync()
     resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
     extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
-) extends LoggingAdapter {
+) {
 
   protected val props = new Properties()
   props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)

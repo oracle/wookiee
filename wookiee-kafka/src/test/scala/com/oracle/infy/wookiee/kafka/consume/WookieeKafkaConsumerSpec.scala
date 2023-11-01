@@ -1,9 +1,9 @@
 package com.oracle.infy.wookiee.kafka.consume
 
+import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
 import com.oracle.infy.wookiee.kafka.KafkaTestHelper
-import com.oracle.infy.wookiee.kafka.WookieeKafka.{WookieeRecord, createTopic}
+import com.oracle.infy.wookiee.kafka.WookieeKafka.createTopic
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
-import com.oracle.infy.wookiee.utils.ThreadUtil
 
 import java.util.Properties
 
@@ -39,7 +39,7 @@ class WookieeKafkaConsumerSpec extends KafkaTestHelper {
         )
       def pollForRecords(expectedKey: String, commitFunc: WookieeKafkaConsumer => Unit): Unit = {
         consumer.subscribe("commit-topic")
-        ThreadUtil.awaitEvent({
+        awaitEvent({
           val records = consumer.poll(1000L)
           records.size mustEqual 1
           records.head.getKey == expectedKey

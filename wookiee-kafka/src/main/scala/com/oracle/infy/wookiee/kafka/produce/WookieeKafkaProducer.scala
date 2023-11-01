@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.kafka.produce
 
-import com.oracle.infy.wookiee.kafka.WookieeKafka.{MessageData, WookieeRecord}
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{MessageData, WookieeRecord}
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerConfig, ProducerRecord, RecordMetadata}
 import org.apache.kafka.common.serialization.ByteArraySerializer
 

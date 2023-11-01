@@ -1,52 +1,21 @@
 package com.oracle.infy.wookiee.kafka
 
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{AutoCloseableConsumer, WookieeRecord}
 import com.oracle.infy.wookiee.kafka.consume.WookieeKafkaConsumer
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
-import com.oracle.infy.wookiee.logging.LoggingAdapter
-import com.oracle.infy.wookiee.test.TestHarness
 import kafka.server.KafkaConfig._
 import org.apache.kafka.clients.admin.{AdminClient, NewTopic}
 import org.joda.time.DateTime
-import org.json4s.JValue
-import org.json4s.jackson.JsonMethods.parse
 
+import java.net.ServerSocket
 import java.util.regex.Pattern
 import java.util.{Optional, Properties}
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
-import scala.util.{Failure, Random, Try}
+import scala.util.Random
 
-object WookieeKafka extends LoggingAdapter {
-  type WookieeTopicPartition = (String, Int) // (Topic, Partition)
-  type WookieeOffset = Long // Offset
-
-  object WookieeRecord {
-
-    def apply(key: String, value: String): WookieeRecord =
-      new WookieeRecord(key.getBytes, value.getBytes)
-  }
-
-  // This is a simple wrapper around a kafka message with helper methods
-  // This object will be used by both the producer and consumer
-  case class WookieeRecord(
-      key: Array[Byte],
-      value: Array[Byte],
-      partition: Option[Int] = None,
-      offset: Option[Long] = None,
-      topic: Option[String] = None
-  ) {
-    def getKey: String = new String(key)
-    def getValue: String = new String(value)
-    def jsonKey: JValue = parse(getKey)
-    def jsonValue: JValue = parse(getValue)
-
-    // Will be filled in by the consumer
-    def commitOffsets(): Unit =
-      log.warn("commitOffsets() not implemented for this message")
-  }
-
-  // For callbacks in the producer
-  case class MessageData(key: String, value: String, offset: Long, partition: Int, topic: String, timestamp: Long)
+object WookieeKafka {
+  /* Producer Methods */
 
   def startProducer(bootstrapServers: String): WookieeKafkaProducer =
     startProducer(bootstrapServers, new Properties())
@@ -56,6 +25,8 @@ object WookieeKafka extends LoggingAdapter {
       extraProps: Properties // Extra properties to pass to the Kafka producer
   ): WookieeKafkaProducer =
     WookieeKafkaProducer(bootstrapServers, extraProps)
+
+  /* Consumer Methods */
 
   def startConsumer(
       bootstrapServers: String, // Comma-separated list of Kafka brokers
@@ -104,46 +75,7 @@ object WookieeKafka extends LoggingAdapter {
     new AutoCloseableConsumer(consumer, processMessage, pollMs)
   }
 
-  protected[oracle] class AutoCloseableConsumer(
-      consumer: WookieeKafkaConsumer,
-      processMessage: WookieeRecord => Unit,
-      pollMs: Long
-  )(implicit ec: ExecutionContext)
-      extends AutoCloseable {
-
-    def logPollingError(ex: Throwable): Unit =
-      log.error("Error in `wookiee-kafka` while polling for messages.", ex)
-
-    @volatile private var shouldRun = true
-
-    // Start consuming and processing messages in a separate thread
-    Future {
-      while (shouldRun) {
-        try {
-          // Get next batch
-          val records: Seq[WookieeRecord] = consumer.poll(pollMs)
-
-          // Process messages
-          val allProcessed: Seq[Try[Unit]] = records.map(record => Try(processMessage(record)))
-
-          // Log failures
-          allProcessed.foreach {
-            case Failure(exception) =>
-              log.error("Error while processing message.", exception)
-            case _ => // Message processed successfully
-          }
-        } catch {
-          case ex: Throwable =>
-            logPollingError(ex)
-        }
-      }
-      consumer.close()
-    }
-
-    override def close(): Unit = {
-      shouldRun = false
-    }
-  }
+  /* Admin Methods */
 
   // For Java interop
   def createTopic(
@@ -191,6 +123,8 @@ object WookieeKafka extends LoggingAdapter {
     AdminClient.create(adminProps)
   }
 
+  /* Server Methods */
+
   // Easy-use methods for Java interop
   def startLocalKafkaServer(
       zkConnStr: String // Can get this via `new TestingServer(zkPort).getConnectString`
@@ -224,7 +158,7 @@ object WookieeKafka extends LoggingAdapter {
     // Setup Local Kafka Broker
     val props = new Properties()
     val kafkaDir: String = s"/tmp/kafka_dir-$kafkaPort-${DateTime.now.getMillis}"
-    val port = kafkaPort.getOrElse(TestHarness.getFreePort)
+    val port = kafkaPort.getOrElse(getFreePort)
 
     props.put(BrokerIdProp, Random.nextInt(100).toString)
     props.put("host.name", "localhost")
@@ -246,5 +180,14 @@ object WookieeKafka extends LoggingAdapter {
       server.shutdown()
       server.awaitShutdown()
     })
+  }
+
+  // Convenience method to find a free port
+  def getFreePort: Int = {
+    val socket = new ServerSocket(0)
+    try {
+      socket.setReuseAddress(true)
+      socket.getLocalPort
+    } finally if (socket != null) socket.close()
   }
 }

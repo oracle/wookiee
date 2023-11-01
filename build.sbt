@@ -147,8 +147,6 @@ lazy val `wookiee-kafka` = project
   .settings(
     libraryDependencies ++= Deps.build.wookieeKafka
   )
-  .dependsOn(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
-  .aggregate(`wookiee-core`, `wookiee-test`, `wookiee-metrics`)
 
 lazy val `java-service` = project
   .in(file("examples/java-service"))
