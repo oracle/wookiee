@@ -79,7 +79,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
     }
 
     "produce onto a certain partition" in {
-      createTopic(adminClient, "partition-topic", partitions = Some(3))
+      createTopic(adminClient, "partition-topic", compacted = false, partitions = Some(3))
       val expectedPartition = 2
       @volatile var rightPartition: Boolean = false
       val (producer, consumer) = getProducerAndConsumer(
@@ -217,7 +217,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         exHit
       })
       @volatile var goodHit = false
-      createTopic(adminClient, "callback-topic", partitions = Some(3))
+      createTopic(adminClient, "callback-topic", compacted = false, partitions = Some(3))
       producer.send("callback-topic", Some("key"), "value", {
         case Left(_)  => ()
         case Right(_) => goodHit = true

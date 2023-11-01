@@ -21,6 +21,12 @@ case class WookieeKafkaProducer(bootstrapServers: String, extraProps: Properties
 
   protected val producer = new KafkaProducer[Array[Byte], Array[Byte]](props)
 
+  def send(topic: String, key: String, value: String): Unit =
+    send(topic, Some(key.getBytes()), value.getBytes)
+
+  def send(topic: String, value: String): Unit =
+    send(topic, None, value.getBytes)
+
   // Sends a message with a key and value to the topic
   def send(topic: String, key: Option[Array[Byte]], value: Array[Byte]): Unit =
     send(topic, key, value, None)

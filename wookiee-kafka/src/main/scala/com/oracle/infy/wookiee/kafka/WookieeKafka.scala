@@ -48,16 +48,25 @@ object WookieeKafka extends LoggingAdapter {
   // For callbacks in the producer
   case class MessageData(key: String, value: String, offset: Long, partition: Int, topic: String, timestamp: Long)
 
+  def startProducer(bootstrapServers: String): WookieeKafkaProducer =
+    startProducer(bootstrapServers, new Properties())
+
   def startProducer(
       bootstrapServers: String, // Comma-separated list of Kafka brokers
-      extraProps: Properties = new Properties() // Extra properties to pass to the Kafka producer
+      extraProps: Properties // Extra properties to pass to the Kafka producer
   ): WookieeKafkaProducer =
     WookieeKafkaProducer(bootstrapServers, extraProps)
 
   def startConsumer(
       bootstrapServers: String, // Comma-separated list of Kafka brokers
+      groupId: String // Consumer group ID, set to unique if this consumer should see all messages
+  ): WookieeKafkaConsumer =
+    startConsumer(bootstrapServers, groupId, enableAutoCommit = true)
+
+  def startConsumer(
+      bootstrapServers: String, // Comma-separated list of Kafka brokers
       groupId: String, // Consumer group ID, set to unique if this consumer should see all messages
-      enableAutoCommit: Boolean = true, // Auto-commit offsets? If false, can manually commit with consumer.commitSync()
+      enableAutoCommit: Boolean, // Auto-commit offsets? If false, can manually commit with consumer.commitSync()
       resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
       extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
   ): WookieeKafkaConsumer =
@@ -136,12 +145,19 @@ object WookieeKafka extends LoggingAdapter {
     }
   }
 
+  // For Java interop
+  def createTopic(
+      adminClient: AdminClient,
+      topic: String
+  ): (Boolean, Int, Int) =
+    createTopic(adminClient, topic, compacted = false, None, None)
+
   // This is a helper function to create a kafka topic
   // The return value is a tuple containing (compacted, partitions, replication)
   def createTopic( // Creates topic in kafka
       adminClient: AdminClient, // Can get this via createAdminClient method in this class
       topic: String,
-      compacted: Boolean = false, // If true, this topic will be compacted (persistent)
+      compacted: Boolean, // If true, this topic will be compacted (persistent)
       partitions: Option[Int] = None, // If None, kafka server will use its default config
       replication: Option[Int] = None // If None, kafka server will use its default config
   ): (Boolean, Int, Int) = {
@@ -175,12 +191,31 @@ object WookieeKafka extends LoggingAdapter {
     AdminClient.create(adminProps)
   }
 
+  // Easy-use methods for Java interop
+  def startLocalKafkaServer(
+      zkConnStr: String // Can get this via `new TestingServer(zkPort).getConnectString`
+  ): (Int, AutoCloseable) =
+    startLocalKafkaServer(zkConnStr, None, false)
+
+  def startLocalKafkaServer(
+      zkConnStr: String, // Can get this via `new TestingServer(zkPort).getConnectString`
+      kafkaPort: Int, // Set this if you've already reserved a port for kafka
+      autoCreateTopics: Boolean // If false, topics will need to be manually made via the createTopic method in this class
+  ): (Int, AutoCloseable) =
+    startLocalKafkaServer(zkConnStr, Option(kafkaPort), autoCreateTopics)
+
+  def startLocalKafkaServer(
+      zkConnStr: String, // Can get this via `new TestingServer(zkPort).getConnectString`
+      autoCreateTopics: Boolean // If false, topics will need to be manually made via the createTopic method in this class
+  ): (Int, AutoCloseable) =
+    startLocalKafkaServer(zkConnStr, None, autoCreateTopics)
+
   // This is a helper function to start a local Kafka server for testing
   // Returns the hosting kafka port and the KafkaServer instance
   def startLocalKafkaServer(
       zkConnStr: String, // Can get this via `new TestingServer(zkPort).getConnectString`
-      kafkaPort: Option[Int] = None, // If kafkaPort is None, we'll pick a random free port and return it
-      // Defaults to false, so topics will need to be manually made via the createTopics method in this class
+      kafkaPort: Option[Int], // If kafkaPort is None, we'll pick a random free port and return it
+      // If false, topics will need to be manually made via the createTopics method in this class
       autoCreateTopics: Boolean = false
   ): (Int, AutoCloseable) = {
     // So that we don't need kafka as a runtime dep
