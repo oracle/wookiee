@@ -158,9 +158,9 @@ object HttpObjects {
   // Note that this object is also a mutable Map and can store any additional information
   case class WookieeRequest(
       content: Content,
-      pathSegments: Map[String, String],
+      pathSegments: Map[String, String], // Keys will be same case as in the 'path'
       queryParameters: Map[String, String], // Keys will always be lowercase
-      headers: Headers
+      headers: Headers // Keys are case insensitive
   ) extends mutable.LinkedHashMap[String, Any] {
 
     // Add a map of parameters to the request
