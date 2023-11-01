@@ -193,6 +193,9 @@ object HttpObjects {
   object WookieeResponse {
     def apply(): WookieeResponse = WookieeResponse(Content(""), StatusCode(), Headers(), "application/json")
 
+    def apply(statusCode: StatusCode): WookieeResponse =
+      WookieeResponse(Content(""), statusCode, Headers(), "application/json")
+
     def apply(content: Content): WookieeResponse =
       WookieeResponse(content, StatusCode(), Headers(), "application/json")
 
