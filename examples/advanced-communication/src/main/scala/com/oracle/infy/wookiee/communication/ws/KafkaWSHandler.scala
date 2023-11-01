@@ -12,6 +12,7 @@ import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.{Zook
 import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
 import com.oracle.infy.wookiee.kafka.WookieeKafka
 import com.typesafe.config.Config
+import org.apache.kafka.clients.admin.AdminClient
 import org.json4s.{DefaultFormats, Formats}
 
 import java.util.concurrent.atomic.AtomicReference
@@ -24,6 +25,8 @@ class KafkaWSHandler(
 ) extends WookieeWebsocket[AuthHolder]
     with DiscoverableCommandExecution {
   implicit val formats: Formats = DefaultFormats
+  private val kafkaPort: Int = config.getInt("kafka.port")
+  private lazy val adminClient: AdminClient = WookieeKafka.createAdminClient(s"localhost:$kafkaPort")
 
   private val kafkaConsumer: AtomicReference[Option[AutoCloseable]] =
     new AtomicReference[Option[AutoCloseable]](None)
@@ -47,7 +50,7 @@ class KafkaWSHandler(
   ): Unit = {
     val userId = authInfo.map(_.userId).getOrElse("no-auth")
     if (kafkaConsumer.get().isEmpty) {
-      val kafkaPort: Int = config.getInt("kafka.port")
+      WookieeKafka.createTopic(adminClient, s"internal-topic-$userId")
 
       // Start up a consumer to read internal messages and send them back to the client
       Future {

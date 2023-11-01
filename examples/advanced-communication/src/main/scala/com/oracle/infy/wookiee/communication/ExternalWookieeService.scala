@@ -87,8 +87,7 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
     // Start up a local kafka server to be used by both External and Internal services
     WookieeKafka.startLocalKafkaServer(
       config.getString("wookiee-zookeeper.quorum"),
-      Some(config.getInt("kafka.port")),
-      autoCreateTopics = true
+      Some(config.getInt("kafka.port"))
     )
     // Makes a request and reads from a responding topic produced on the Internal server
     WookieeEndpoints.registerWebsocket[AuthHolder](new KafkaWSHandler())
