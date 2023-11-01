@@ -142,7 +142,16 @@ object HttpObjects {
 
   object WookieeRequest {
     // Will return an empty request object, mainly useful for testing
-    def apply(): WookieeRequest = WookieeRequest(Content(""), Map(), Map(), Headers())
+    def apply(): WookieeRequest = new WookieeRequest(Content(""), Map(), Map(), Headers())
+    def apply(content: String): WookieeRequest = new WookieeRequest(Content(content), Map(), Map(), Headers())
+
+    def apply(
+        content: Content,
+        pathSegments: java.util.Map[String, String],
+        queryParameters: java.util.Map[String, String],
+        headers: Headers
+    ): WookieeRequest =
+      WookieeRequest(content, pathSegments.asScala.toMap, queryParameters.asScala.toMap, headers)
   }
 
   // Object holding all of the request information

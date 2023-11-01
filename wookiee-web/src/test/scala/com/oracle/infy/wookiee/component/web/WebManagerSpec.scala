@@ -337,7 +337,8 @@ class WebManagerSpec extends EndpointTestHelper {
     }
 
     "gets coverage on case class objects" in {
-      val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers())
+      val req =
+        WookieeRequest(Content("test"), Map.empty[String, String], Map.empty[String, String], HttpObjects.Headers())
       req.contentString() mustEqual "test"
       req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
