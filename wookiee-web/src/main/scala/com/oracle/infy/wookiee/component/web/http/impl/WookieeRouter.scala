@@ -43,6 +43,11 @@ object WookieeRouter extends LoggingAdapter {
   val FLUSH_BUFFER: ByteBuffer = ByteBuffer.allocateDirect(0)
   val REQUEST_HEADERS: String = "RequestHeaders"
 
+  case class EndpointMeta(
+      path: String,
+      method: String
+  )
+
   // Primary class of our Path Trie
   case class PathNode(
       // Will descend down the paths with a map at each segment
@@ -281,6 +286,29 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
 
     // If we found a handler, return it. Otherwise, return None
     handlers.get(upperMethod)
+  }
+
+  // Will return a list of all registered routes and methods
+  def listOfRoutes(): List[EndpointMeta] = {
+    def navigateNode(node: PathNode, pathSoFar: String): List[EndpointMeta] = {
+      val currentList = if (!node.handlers.isEmpty) {
+        (node
+          .handlers
+          .asScala
+          .map {
+            case (method: String, _: WookieeHandler) =>
+              EndpointMeta(pathSoFar, method)
+          })
+          .toList
+      } else List()
+
+      currentList ++ node.children.asScala.toList.flatMap {
+        case (segment, child) =>
+          navigateNode(child, s"$pathSoFar/$segment")
+      }
+    }
+
+    navigateNode(root, "")
   }
 
   // This is a Helidon Service method that is called by that library

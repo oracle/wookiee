@@ -6,14 +6,14 @@ import com.oracle.infy.wookiee.component.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.HttpHandler
+import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{EndpointMeta, HttpHandler}
 import com.oracle.infy.wookiee.component.web.http.{HttpCommand, HttpObjects}
 import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, OutputObject}
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
-import scala.jdk.CollectionConverters._
 
+import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
 
@@ -183,6 +183,13 @@ class WebManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe jsonPayload
+    }
+
+    "allow retrieval of registered endpoints" in {
+      val endpoints = WebManager.getEndpoints(conf, external = true)
+      // If we delete endpoints above, this might become smaller
+      endpoints.size >= 10 mustEqual true
+      endpoints.contains(EndpointMeta("POST", "/api/*/endpoint"))
     }
 
     "allow registration of basic endpoints" in {
