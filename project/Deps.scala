@@ -3,11 +3,11 @@ import sbt._
 object Deps {
 
   object versions {
-    val akkaVersion = "2.7.0"
+    val akkaVersion = "2.6.21"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
-    val scalametaVersion = "4.7.6"
-    val scalafmtDynVersion = "3.7.3"
+    val scalametaVersion = "4.8.12"
+    val scalafmtDynVersion = "3.7.15"
 
     val curatorVersion = "5.3.0"
     val catsVersion = "2.9.0"
@@ -28,7 +28,7 @@ object Deps {
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
 
-    val slf4jVersion = "2.0.5"
+    val slf4jVersion = "2.0.7"
     val slf4jImplVersion = "2.20.0"
     val logbackVersion = "1.3.6"
     val jodaTimeVersion = "2.12.2"
