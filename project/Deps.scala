@@ -22,7 +22,7 @@ object Deps {
     val guavaVersion = "32.1.1-jre"
     val finagleVersion = "22.12.0"
     val upickleVersion = "2.0.0"
-    val grpcVersion: String = "1.53.0"
+    val grpcVersion: String = "1.59.0"
     val nettyVersion: String = "4.1.100.Final"
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
