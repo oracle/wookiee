@@ -1,6 +1,11 @@
 package com.oracle.infy.wookiee.kafka.consume
 
-import com.oracle.infy.wookiee.kafka.KafkaObjects.{WookieeOffset, WookieeRecord, WookieeTopicPartition}
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{
+  AutoCloseableConsumer,
+  WookieeOffset,
+  WookieeRecord,
+  WookieeTopicPartition
+}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
@@ -8,6 +13,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import java.time.Duration
 import java.util.Properties
 import java.util.regex.Pattern
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 
 // Scala-friendly wrapper for Kafka Consumer functionality
@@ -73,6 +79,15 @@ case class WookieeKafkaConsumer(
   // Method to poll messages and wrap them into WookieeMessages
   def poll(durationMillis: Long): Seq[WookieeRecord] =
     poll(Duration.ofMillis(durationMillis))
+
+  // Start processing messages using this consumer
+  // This method assumes we've already called subscribe(..) for a topic
+  // Note: This could cause the group offset to update (depending on autoCommit settings)
+  def processMessages(
+      processMessage: WookieeRecord => Unit, // Each individual kafka message will go through this method
+      pollMs: Long = 1000L // How long to wait for each batch of messages
+  )(implicit ec: ExecutionContext): AutoCloseable =
+    new AutoCloseableConsumer(this, processMessage, pollMs)
 
   // Method to assign partitions to consume from
   def assign(partitions: Seq[WookieeTopicPartition]): Unit =
