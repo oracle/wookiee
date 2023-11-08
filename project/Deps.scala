@@ -22,7 +22,7 @@ object Deps {
     val guavaVersion = "32.1.1-jre"
     val finagleVersion = "22.12.0"
     val upickleVersion = "2.0.0"
-    val grpcVersion: String = "1.53.0"
+    val grpcVersion: String = "1.57.2"
     val nettyVersion: String = "4.1.100.Final"
     val nettyTCVersion: String = "2.0.54.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
@@ -41,9 +41,6 @@ object Deps {
     val http4sVersion = "0.23.18"
     val http4sBlazeVersion = "0.23.14"
     val dropwizardVersion = "4.2.19"
-    val akkaHttpVersion = "10.5.0"
-    val akkaHttpJson4sVersion = "1.39.2"
-    val akkaHttpCorsVersion = "1.2.0"
     val tyrusVersion = "1.20"
     val mockitoVersion = "5.3.1"
   }
@@ -107,16 +104,6 @@ object Deps {
 
     val akka
         : ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat_2.12") exclude ("org.scala-lang.modules", "scala-java8-compat_2.13")
-    val akkaStream: ModuleID = "com.typesafe.akka" %% "akka-stream" % akkaVersion
-
-    val akkaHttp: Seq[ModuleID] = Seq(
-      "com.typesafe.akka" %% "akka-http" % akkaHttpVersion,
-      "de.heikoseeberger" %% "akka-http-json4s" % akkaHttpJson4sVersion,
-      "ch.megard" %% "akka-http-cors" % akkaHttpCorsVersion,
-      "com.typesafe.akka" %% "akka-http-spray-json" % akkaHttpVersion % Test,
-      "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpVersion % Test,
-      logbackClassic
-    )
 
     val scalaMeta: ModuleID = "org.scalameta" %% "scalameta" % scalametaVersion
     val scalaFmtDyn: ModuleID = "org.scalameta" %% "scalafmt-dynamic" % scalafmtDynVersion
@@ -212,13 +199,6 @@ object Deps {
       test.scalatest
     ) ++ curatorLibs ++ cats ++ json4sLibs
 
-    val wookieeAkkaHttp: Seq[ModuleID] = Seq(
-      test.scalatest,
-      test.akkaTest,
-      akkaStream,
-      test.akkaStreamTest
-    ) ++ json4sLibs ++ akkaHttp
-
     val wookieeMetrics: Seq[ModuleID] = Seq(
       test.scalatest,
       test.akkaTest
@@ -243,8 +223,7 @@ object Deps {
     ) ++ circe ++ cats ++ grpc
 
     val wookieeCache: Seq[ModuleID] = Seq(
-      test.scalatest,
-      test.akkaTest
+      test.scalatest
     ) ++ json4sLibs
 
     val wookieeProto: Seq[ModuleID] = Seq(
@@ -278,7 +257,6 @@ object Deps {
     val µTest: ModuleID = "com.lihaoyi" %% "utest" % µTestVersion % Test
     val shapeless: ModuleID = "com.github.alexarchambault" %% "scalacheck-shapeless_1.15" % shapelessVersion % Test
     val curatorTest: ModuleID = "org.apache.curator" % "curator-test" % curatorVersion
-    val akkaStreamTest: ModuleID = "com.typesafe.akka" %% "akka-stream-testkit" % akkaVersion % Test
 
     val all: Seq[ModuleID] = Seq(
       scalacheck,
