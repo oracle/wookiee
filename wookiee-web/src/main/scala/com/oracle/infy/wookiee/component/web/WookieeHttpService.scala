@@ -17,7 +17,8 @@ abstract class WookieeHttpService(config: Config) extends ServiceV2(config) {
   override def onComponentReady(info: ComponentInfo): Unit = {
     super.onComponentReady(info)
     if (info.name == WebManager.ComponentName) {
-      addCommands(config, ThreadUtil.createEC(s"helidon-$name"))
+      log.info(s"Adding Web Commands for Service..")
+      addCommands(config, ThreadUtil.createEC(s"web-$name"))
     }
   }
 }

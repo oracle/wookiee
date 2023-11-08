@@ -24,7 +24,7 @@ import com.oracle.infy.wookiee.service.meta.{ServiceMetaData, ServiceMetaDetails
 
 import scala.concurrent.ExecutionContextExecutor
 
-trait Service extends WookieeService with HActor with CommandHelper with ComponentHelper {
+trait Service extends HActor with WookieeService with CommandHelper with ComponentHelper {
 
   implicit val executor: ExecutionContextExecutor = context.dispatcher
 

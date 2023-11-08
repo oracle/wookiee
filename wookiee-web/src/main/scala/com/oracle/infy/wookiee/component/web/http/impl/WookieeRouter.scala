@@ -43,6 +43,11 @@ object WookieeRouter extends LoggingAdapter {
   val FLUSH_BUFFER: ByteBuffer = ByteBuffer.allocateDirect(0)
   val REQUEST_HEADERS: String = "RequestHeaders"
 
+  case class EndpointMeta(
+      path: String,
+      method: String
+  )
+
   // Primary class of our Path Trie
   case class PathNode(
       // Will descend down the paths with a map at each segment
@@ -82,7 +87,7 @@ object WookieeRouter extends LoggingAdapter {
       val response = errorHandler(e)
       res.status(response.statusCode.code)
       res.headers().add("Content-Type", response.contentType)
-      response.headers.mappings.foreach(x => res.headers().add(x._1, x._2.asJava))
+      response.headers.getMap.foreach(x => res.headers().add(x._1, x._2.asJava))
       res.send(response.content.value)
       ()
     } catch {
@@ -96,7 +101,7 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
+  protected[oracle] def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
     HttpHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different
@@ -105,8 +110,9 @@ object WookieeRouter extends LoggingAdapter {
           val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
           val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
 
-          // Get the query parameters on the request
-          val queryParams = req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.mkString(","))
+          // Get the query parameters on the request, lowercase them
+          val queryParams =
+            req.queryParams().toMap.asScala.toMap.map(x => x._1.toLowerCase -> x._2.asScala.mkString(","))
           req.content().as(classOf[Array[Byte]]).thenAccept {
             bytes =>
               try {
@@ -126,7 +132,7 @@ object WookieeRouter extends LoggingAdapter {
                   })
                   .map {
                     response =>
-                      val respHeaders = command.endpointOptions.defaultHeaders.mappings ++ response.headers.mappings
+                      val respHeaders = command.endpointOptions.defaultHeaders.getMap ++ response.headers.getMap
                       res.headers().add("Content-Type", response.contentType)
                       respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
                       res.status(response.statusCode.code)
@@ -282,6 +288,29 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     handlers.get(upperMethod)
   }
 
+  // Will return a list of all registered routes and methods
+  def listOfRoutes(): List[EndpointMeta] = {
+    def navigateNode(node: PathNode, pathSoFar: String): List[EndpointMeta] = {
+      val currentList = if (!node.handlers.isEmpty) {
+        (node
+          .handlers
+          .asScala
+          .map {
+            case (method: String, _: WookieeHandler) =>
+              EndpointMeta(pathSoFar, method)
+          })
+          .toList
+      } else List()
+
+      currentList ++ node.children.asScala.toList.flatMap {
+        case (segment, child) =>
+          navigateNode(child, s"$pathSoFar/$segment")
+      }
+    }
+
+    navigateNode(root, "")
+  }
+
   // This is a Helidon Service method that is called by that library
   // whenever a request comes into the WebServer. Calls findHandler mainly
   override def update(rules: Routing.Rules): Unit = {
@@ -342,9 +371,8 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Methods", handlers.keySet.mkString(","))
             res.headers().add("Access-Control-Allow-Credentials", "true")
-            res
-              .headers()
-              .add("Access-Control-Allow-Headers", allowedHeaders(handlers.values.toList, reqHeadersOpt).mkString(","))
+            val allowedHeads = allowedHeaders(handlers.values.toList, reqHeadersOpt)
+            res.headers().add("Access-Control-Allow-Headers", allowedHeads: _*)
             res.status(200).send("")
 
           case _ =>

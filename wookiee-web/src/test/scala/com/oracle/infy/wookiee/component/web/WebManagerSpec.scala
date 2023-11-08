@@ -1,23 +1,23 @@
 package com.oracle.infy.wookiee.component.web
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.client.WookieeWebClient._
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.HttpHandler
+import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{EndpointMeta, HttpHandler}
 import com.oracle.infy.wookiee.component.web.http.{HttpCommand, HttpObjects}
 import com.oracle.infy.wookiee.component.web.util.EndpointTestHelper
 import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, OutputObject}
-import com.oracle.infy.wookiee.utils.ThreadUtil
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
+import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.AtomicBoolean
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 
 class WebManagerSpec extends EndpointTestHelper {
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
   private val directiveHit: AtomicBoolean = new AtomicBoolean(false)
 
   override def registerEndpoints(manager: WebManager): Unit = {
@@ -89,7 +89,7 @@ class WebManagerSpec extends EndpointTestHelper {
       EndpointType.EXTERNAL, { request =>
         val segment = request.pathSegments.getOrElse("segment", "")
         val query = request.queryParameters.getOrElse("query", "")
-        val header = request.headers.mappings.getOrElse("header", List()).mkString(",")
+        val header = request.headers.getStringValue("header")
         Future.successful(
           InputObject(
             s"""{"segment":"$segment","query":"$query","header":"$header"}"""
@@ -146,7 +146,7 @@ class WebManagerSpec extends EndpointTestHelper {
       "/error/bomb",
       EndpointType.BOTH,
       "GET",
-      WookieeRouter.handlerFromCommand(new ErrorBomb)
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb))
     )
 
   }
@@ -183,6 +183,13 @@ class WebManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe jsonPayload
+    }
+
+    "allow retrieval of registered endpoints" in {
+      val endpoints = WebManager.getEndpoints(conf, external = true)
+      // If we delete endpoints above, this might become smaller
+      endpoints.size >= 10 mustEqual true
+      endpoints.contains(EndpointMeta("POST", "/api/*/endpoint"))
     }
 
     "allow registration of basic endpoints" in {
@@ -268,7 +275,7 @@ class WebManagerSpec extends EndpointTestHelper {
         oneOff(
           s"http://localhost:$externalPort",
           "POST",
-          "/api/segment/endpoint?query=param",
+          "/api/segment/endpoint?Query=param",
           jsonPayload,
           Map("header" -> "value")
         )
@@ -337,9 +344,10 @@ class WebManagerSpec extends EndpointTestHelper {
     }
 
     "gets coverage on case class objects" in {
-      val req = WookieeRequest(Content("test"), Map(), Map(), HttpObjects.Headers(Map()))
+      val req =
+        WookieeRequest(Content("test"), Map.empty[String, String], Map.empty[String, String], HttpObjects.Headers())
       req.contentString() mustEqual "test"
-      req.headerMap() mustEqual Map()
+      req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
 
       val cors = AllowSome(List())
@@ -349,10 +357,10 @@ class WebManagerSpec extends EndpointTestHelper {
       cors2.allowed(List("anything")) mustEqual List("anything")
       AllowAll.unapply(cors2) must not be None
 
-      val eo = EndpointOptions()
+      val eo = EndpointOptions.apply(Headers(), None)
       EndpointOptions.unapply(eo) must not be None
 
-      val con = Content("test")
+      val con = Content()
       Content.unapply(con) must not be None
 
       val pConf = ProxyConfig("test", 1234)
@@ -360,6 +368,44 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val webEx = WookieeWebException("test", None, None)
       WookieeWebException.unapply(webEx) must not be None
+    }
+
+    "have headers be case insensitive" in {
+      val map = new java.util.HashMap[String, java.util.Collection[String]]()
+      map.put("tESt", List("header").asJava)
+      val javaHeaders = Headers(map)
+      javaHeaders.getJavaValue("test") mustEqual List("header").asJava
+      javaHeaders.getJavaValue("TEST") mustEqual List("header").asJava
+      javaHeaders.getJavaValue("Test") mustEqual List("header").asJava
+      javaHeaders.getStringValue("tEst") mustEqual "header"
+      javaHeaders.getStringValue("noThing") mustEqual ""
+      javaHeaders.maybeStringValue("notHing").isEmpty mustEqual true
+      javaHeaders.maybeValue("nothIng").isEmpty mustEqual true
+      javaHeaders.getValue("nothiNg") mustEqual List()
+      javaHeaders.putValue("tesT2", List("header2"))
+      javaHeaders.getValue("teSt2") mustEqual List("header2")
+      javaHeaders.putValue("test3", List("header3").asJava)
+      javaHeaders.getValue("tESt3") mustEqual List("header3")
+    }
+
+    "have java support in objects" in {
+      val corsWhiteList = CorsWhiteList(List("test").asJava)
+      corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
+
+      val wookResp = WookieeResponse()
+      wookResp.statusCode.code mustEqual 200
+
+      val wookContResp = WookieeResponse(Content("test"))
+      wookContResp.statusCode.code mustEqual 200
+
+      val wookCodeResp = WookieeResponse(Content("test"), StatusCode(500))
+      wookCodeResp.statusCode.code mustEqual 500
+
+      val wookHeadResp = WookieeResponse(Content("test"), StatusCode(), Headers())
+      wookHeadResp.statusCode.code mustEqual 200
+
+      val wookHeadOnlyResp = WookieeResponse(Content("test"), Headers())
+      wookHeadOnlyResp.statusCode.code mustEqual 200
     }
 
     "hit error handling in handler for commands" in {

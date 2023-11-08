@@ -20,7 +20,7 @@ trait BaseWookieeTest {
 
   def logLevel: Level = Level.INFO
 
-  def startupWait: FiniteDuration = 20.seconds
+  def startupWait: FiniteDuration = 30.seconds
 
   // Override to execute logic before we create our TestHarness,
   // good for starting up local kafka/zookeeper/etc.
@@ -28,12 +28,13 @@ trait BaseWookieeTest {
 
   beforeTestWookiee()
 
-  implicit val testWookiee: TestHarness =
+  implicit lazy val testWookiee: TestHarness =
     TestHarness(config, servicesMap, componentMap, logLevel, startupWait)
+  testWookiee
 
   Thread.sleep(1000)
-  implicit val system: ActorSystem = testWookiee.system
-  implicit val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
+  implicit lazy val system: ActorSystem = testWookiee.system
+  implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
 
   def getWookieeInstanceId: String = testWookiee.getInstanceId
   def shutdown(): Unit = TestHarness.shutdown()

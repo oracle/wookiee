@@ -129,20 +129,20 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
     "shutdown services and components" in {
       val shutdownsSeen = new AtomicInteger(0)
       val shutdownsSeen2 = new AtomicInteger(0)
-      val probe1 = new WookieeActor {
+      val probe1 = WookieeActor.actorOf(new WookieeActor {
         override protected def receive: Receive = {
           case "GotShutdown" =>
             shutdownsSeen.incrementAndGet()
             ()
         }
-      }
-      val probe2 = new WookieeActor {
+      })
+      val probe2 = WookieeActor.actorOf(new WookieeActor {
         override protected def receive: Receive = {
           case "GotShutdown" =>
             shutdownsSeen2.incrementAndGet()
             ()
         }
-      }
+      })
       val testService = sys.getService("testservice")
       val testComponent = sys.getComponentV2("testcomponent")
       val testService2 = sys2.getService("testservice")

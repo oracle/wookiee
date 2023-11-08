@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.web
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
 import com.oracle.infy.wookiee.component.web.http.HttpCommand
@@ -32,12 +33,14 @@ object WookieeEndpoints {
     * Will pull various functions and properties off of the WookieeHttpHandler and use them to
     * construct a handler registered at the specified path
     */
-  def registerEndpoint(command: HttpCommand)(implicit config: Config, ec: ExecutionContext): Unit = {
+  def registerEndpoint(command: => HttpCommand)(implicit config: Config, ec: ExecutionContext): Unit = {
     val mediator = WebManager.getMediator(config)
-    WookieeCommandExecutive.getMediator(config).registerCommand(command)
-    val handler = handlerFromCommand(command)
+    // Just one routee, can call this directly afterwards to register more
+    WookieeCommandExecutive.getMediator(config).registerCommand(command, 1)
+    val instance = WookieeActor.actorOf(command)
+    val handler = handlerFromCommand(instance)
 
-    mediator.registerEndpoint(command.path, command.endpointType, command.method, handler)
+    mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
   }
 
   /**
@@ -66,7 +69,7 @@ object WookieeEndpoints {
     val cmdType = endpointType
     val cmdErrors = errorHandler
     val cmdOptions = endpointOptions
-    val command = new HttpCommand {
+    registerEndpoint(new HttpCommand {
       override val name: String = commandName
 
       override def commandName: String = cmdName
@@ -94,9 +97,7 @@ object WookieeEndpoints {
                 .getOrElse(responseHandler(output))
           )
       }
-    }
-
-    registerEndpoint(command)
+    })
   }
 
   // Primary 'functional' entry point for registering an WS endpoint using Wookiee Helidon.

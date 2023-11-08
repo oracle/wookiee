@@ -2,7 +2,6 @@ package com.oracle.infy.wookiee.command
 
 import com.oracle.infy.wookiee.Mediator
 import com.oracle.infy.wookiee.actor.WookieeActor
-import com.oracle.infy.wookiee.actor.router.RoundRobinRouter
 import com.oracle.infy.wookiee.health.{ComponentState, HealthComponent, WookieeMonitor}
 import com.typesafe.config.Config
 
@@ -28,9 +27,17 @@ object WookieeCommandExecutive extends Mediator[WookieeCommandExecutive] {
     * Pass in an instantiator for the command, which we will use to create as many instances
     * of the command as specified in the config at 'wookiee-command.command-executive.command-instances'
     * @param command The command to register which has an execute() method
+    * @param nrRoutees Number of actor instance to have in router.
+    *                  If nrRoutees is None, we'll use the config at 'commands.default-nr-routees'
     */
-  def registerCommand(command: => WookieeCommand[_ <: Any, _ <: Any])(implicit config: Config): Unit =
-    getMediator(config).registerCommand(command)
+  def registerCommand(command: => WookieeCommand[_ <: Any, _ <: Any], nrRoutees: Option[Int] = None)(
+      implicit config: Config
+  ): Unit = nrRoutees match {
+    case Some(routees) =>
+      getMediator(config).registerCommand(command, routees)
+    case None =>
+      getMediator(config).registerCommand(command)
+  }
 }
 
 // This is the class that will be used to store and execute V2 commands
@@ -55,17 +62,18 @@ class WookieeCommandExecutive(override val name: String, config: Config) extends
     * Registers a command with the manager, if the command has already been registered
     * it will not be re-registered
     * @param command The command to register which has an execute() method
+    * @param nrRoutees The number of routees to register for load balancing
     */
-  def registerCommand(command: => WookieeCommand[_ <: Any, _ <: Any]): Unit = {
-    getCommand(command.commandName) match {
-      case Some(_) =>
-        log.warn(s"Command [${command.commandName}] has already been added, not re-adding it.")
-      case None =>
-        log.info(s"Registering command: [${command.commandName}]")
-        val nrRoutees = Try(config.getInt(KeyCommandsNrRoutees)).getOrElse(1)
-        commands.put(command.commandName, WookieeActor.withRouter(command, new RoundRobinRouter(nrRoutees)))
-        ()
-    }
+  def registerCommand(
+      command: => WookieeCommand[_ <: Any, _ <: Any],
+      nrRoutees: Int = Try(config.getInt(KeyCommandsNrRoutees)).getOrElse(1)
+  ): Unit = {
+    val nrRoutees = Try(config.getInt(KeyCommandsNrRoutees)).getOrElse(1)
+    val router = WookieeActor.withRouter(command, nrRoutees)
+    log.info(s"Registering command: [${router.commandName}] with [$nrRoutees] routees")
+
+    commands.put(router.commandName, router)
+    ()
   }
 
   // Call this to retrieve a previously registered command

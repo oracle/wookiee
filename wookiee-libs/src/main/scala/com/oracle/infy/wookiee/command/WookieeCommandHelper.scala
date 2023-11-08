@@ -11,8 +11,14 @@ object WookieeCommandHelper {
   // This method will register a command with the WookieeCommandManager
   // The command will be registered with the commandName as the name of the command
   // The config must contain 'instance-id' which it will by default in a Wookiee Service
-  def registerCommand(command: WookieeCommand[_, _])(implicit config: Config): Unit =
-    WookieeCommandExecutive.getMediator(config).registerCommand(command)
+  // If nrRoutees is None, we'll use the config at 'commands.default-nr-routees'
+  def registerCommand(command: => WookieeCommand[_, _], nrRoutees: Option[Int] = None)(implicit config: Config): Unit =
+    nrRoutees match {
+      case Some(routees) =>
+        WookieeCommandExecutive.getMediator(config).registerCommand(command, routees)
+      case None =>
+        WookieeCommandExecutive.getMediator(config).registerCommand(command)
+    }
 
   // This method will execute a command with the given name and input
   // It must have been previously registered using the registerCommand method

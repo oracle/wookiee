@@ -17,6 +17,7 @@ package com.oracle.infy.wookiee.service
 
 import akka.actor._
 import com.oracle.infy.wookiee.HarnessConstants
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.app.{HActor, HarnessClassLoader}
 import com.oracle.infy.wookiee.component.{ComponentInfo, ComponentReady}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
@@ -101,7 +102,7 @@ trait ServiceLoader { this: HActor with LoggingAdapter =>
         try {
           def initServiceV2(name: String, clazz: Class[_ <: ServiceV2]): ServiceMetaDataV2 = {
             log.info(s"WSL204: Loading V2 Service [$name]")
-            val serviceStart = ClassUtil.instantiateClass(clazz, config)
+            val serviceStart = WookieeActor.actorOf(ClassUtil.instantiateClass(clazz, config))
 
             serviceStart.propagateStart()
             componentInfos.foreach { info =>

@@ -11,8 +11,9 @@ import com.oracle.infy.wookiee.health.{HealthComponent, WookieeMonitor, Componen
 import com.oracle.infy.wookiee.service.messages.CheckHealth
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
-import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.concurrent.{PatienceConfiguration, ScalaFutures}
 import org.scalatest.matchers.must.Matchers
+import org.scalatest.time.{Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -115,7 +116,7 @@ class ComponentV2Spec
 
     "be able to get health of that component" in {
       val health = (componentManager ? CheckHealth).mapTo[HealthComponent]
-      whenReady(health) { result =>
+      whenReady(health, PatienceConfiguration.Timeout(Span(15, Seconds))) { result =>
         result.components must contain theSameElementsAs List(
           HealthComponent(
             "component-v2",

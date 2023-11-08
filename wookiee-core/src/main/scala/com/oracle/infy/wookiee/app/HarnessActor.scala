@@ -19,6 +19,7 @@ import akka.actor.SupervisorStrategy.{Escalate, Restart, Stop}
 import akka.actor._
 import akka.pattern._
 import akka.util.Timeout
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.app.HarnessActor.PrepareForShutdown
 import com.oracle.infy.wookiee.command.CommandManager
 import com.oracle.infy.wookiee.component._
@@ -170,8 +171,7 @@ class HarnessActor extends Actor with LoggingAdapter with Health with InternalHT
   private def initialize(): Unit =
     try {
       startHealth
-      configWatcher = Some(new ConfigWatcher(config, { self ! ConfigChange() }))
-      configWatcher.foreach(_.start())
+      configWatcher = Some(WookieeActor.actorOf(new ConfigWatcher(config, { self ! ConfigChange() })))
       if (!config.hasPath(HarnessConstants.KeyCommandsEnabled) || config.getBoolean(
             HarnessConstants.KeyCommandsEnabled
           )) {

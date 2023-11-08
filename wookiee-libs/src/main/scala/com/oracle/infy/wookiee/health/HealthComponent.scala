@@ -31,6 +31,7 @@ object ComponentState extends Enumeration {
 
 import ComponentState._
 import com.oracle.infy.wookiee.utils.{Json, JsonSerializable}
+import scala.jdk.CollectionConverters._
 
 import scala.collection.immutable.ListMap
 
@@ -66,4 +67,40 @@ case class HealthComponent(
   }
 
   def addComponent(component: HealthComponent): Unit = components = components :+ component
+}
+
+// Useful constructors for Java interop
+object HealthComponent {
+
+  def apply(
+      name: String,
+      state: ComponentState,
+      details: String,
+      components: java.util.List[HealthComponent]
+  ): HealthComponent =
+    new HealthComponent(name, state, details, None, components.asScala.toList)
+
+  def apply(
+      name: String,
+      state: ComponentState,
+      details: String,
+      extra: Option[AnyRef],
+      components: java.util.List[HealthComponent]
+  ): HealthComponent =
+    new HealthComponent(name, state, details, extra, components.asScala.toList)
+
+  def apply(name: String, state: ComponentState, extra: Option[AnyRef]): HealthComponent =
+    new HealthComponent(name, state, "", extra)
+
+  def apply(name: String, state: ComponentState, details: String, extra: Option[AnyRef]): HealthComponent =
+    new HealthComponent(name, state, details, extra)
+
+  def apply(name: String, state: ComponentState, details: String): HealthComponent =
+    new HealthComponent(name, state, details, None)
+
+  def apply(name: String, details: String): HealthComponent =
+    new HealthComponent(name, NORMAL, details, None)
+
+  def apply(name: String): HealthComponent =
+    new HealthComponent(name, NORMAL, "", None)
 }

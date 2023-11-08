@@ -4,7 +4,7 @@ import com.oracle.infy.wookiee.component.web.client.WookieeWebClient
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.{EndpointType, WookieeRequest}
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.HttpHandler
+import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{EndpointMeta, HttpHandler}
 import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
 import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
@@ -63,6 +63,27 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       router.findHandler("/api/version/endpoint", "GET") mustBe Some(handler2)
       router.findHandler("/api/v1/endpoint/something", "GET") mustBe Some(handler3)
       router.findHandler("/api/version/endpoint/value", "GET") mustBe Some(handler4)
+    }
+
+    "allow one to get all registered routes" in {
+      val router = new WookieeRouter
+      val handler = makeHandler
+      val handler2 = makeHandler
+      val handler3 = makeHandler
+      val handler4 = makeHandler
+
+      router.addRoute("/api/$version/endpoint/$value", "GET", handler3)
+      router.addRoute("/api/version/endpoint/value", "GET", handler4)
+      router.addRoute("/api/v1/endpoint", "GET", handler)
+      router.addRoute("/api/v1/endpoint", "POST", handler)
+      router.addRoute("/api/version/endpoint", "GET", handler2)
+      router.addRoute("/api/v1/endpoint/$something", "OPTIONS", handler3)
+      router.addRoute("/api/v1/endpoint/$something", "TRACE", handler3)
+      router.addRoute("/api/$version/endpoint/value", "PUT", handler4)
+
+      val endpoints = router.listOfRoutes()
+      endpoints.size mustBe 8
+      endpoints.contains(EndpointMeta("GET", "/api/*/endpoint/*"))
     }
 
     "return None when trying to find a handler for a path that does not exist" in {

@@ -6,9 +6,9 @@ import com.oracle.infy.wookiee.config.ConfigHelperV2
 import com.typesafe.config.Config
 
 case class ComponentV2(override val name: String, override val config: Config)
-    extends WookieeComponent
+    extends WookieeActor
+    with WookieeComponent
     with WookieeCommandHelper
-    with WookieeActor
     with ConfigHelperV2 {
   // Use this config if you expect the watched config file to change
   override var renewableConfig: Config = config

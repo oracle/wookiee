@@ -87,12 +87,15 @@ DiscoverableCommandHelper.registerDiscoverableCommand(new MyCommand, "my-auth-to
 Once you have registered your command, you can execute it from anywhere in the cluster (including from the hosting Service) by calling `executeDiscoverableCommand` on the [DiscoverableCommandExecution](src/main/scala/com/oracle/infy/wookiee/discovery/command/DiscoverableCommandExecution.scala) object.
 ```scala
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.ZookeeperConfig
 
 DiscoverableCommandHelper.executeDiscoverableCommand(
-  "/wookiee/internal", // the path the host specified at wookiee-grpc-component.grpc.zk-discovery-path
-  "zoo01.server.address:2181,zoo02.server.address:2181", // the zookeeper host to use for discovery 
-  "my-auth-token", // auth token if needed, can be anything or empty if not needed
-  None, // if using SSL, see below section 'SSL' for more details
+  ZookeeperConfig(
+    "/wookiee/internal", // the path the host specified at wookiee-grpc-component.grpc.zk-discovery-path
+    "zoo01.server.address:2181,zoo02.server.address:2181", // the zookeeper host to use for discovery 
+    "my-auth-token", // auth token if needed, can be anything or empty if not needed
+    None
+  ), // if using SSL, see below section 'SSL' for more details
   "my-command", // corresponds to the name of the command you registered
   InputHolder("Hello") // the actual input to the command, will need to be the same class type it expects
 )

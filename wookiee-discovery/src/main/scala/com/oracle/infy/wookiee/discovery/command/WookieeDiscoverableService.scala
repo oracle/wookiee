@@ -16,7 +16,7 @@ abstract class WookieeDiscoverableService(config: Config)
   // Generally this will contain calls to DiscoverableCommandHelper.registerDiscoverableCommand
   def addDiscoverableCommands(implicit conf: Config, ec: ExecutionContext): Unit
 
-  // Will kick off the addDiscoverableCommands method once wookiee-helidon component is ready
+  // Will kick off the addDiscoverableCommands method once wookiee-grpc component is ready
   // Be sure to call super.onComponentReady(info) if you override this method
   // Should contain a number of calls to registerDiscoverableCommand which is exposed by this trait
   override def onComponentReady(info: ComponentInfo): Unit = {

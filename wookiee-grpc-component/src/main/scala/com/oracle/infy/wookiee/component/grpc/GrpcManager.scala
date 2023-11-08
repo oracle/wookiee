@@ -1,6 +1,5 @@
 package com.oracle.infy.wookiee.component.grpc
 
-import akka.actor.ActorSystem
 import cats.data.{EitherT, NonEmptyList}
 import cats.effect.IO
 import cats.effect.std.Dispatcher
@@ -44,46 +43,34 @@ object GrpcManager extends Mediator[GrpcManager] {
 
   // This instance of GrpcManager
   // @throws IllegalStateException if manager has not been registered
-  def getGrpcManager(system: ActorSystem): GrpcManager = getGrpcManager(system.settings.config)
   def getGrpcManager(config: Config): GrpcManager = getMediator(config)
 
   /**
     * Convenience method to register a set of GrpcDefinitions, they will be added to the services already registered
-    * @param system Main Wookiee Actor System, should be accessible as system, context.system, or actorSystem in any Actor
+    * @param config Main Wookiee config object, should contain 'instance-id' at top level
     * @param groupName Name of this group of gRPC services, the value is arbitrary but should be unique for each list of definitions on a server
     * @param defs The list of GrpcDefinition objects we'll use to know what to register
     * @throws IllegalStateException If manager actor hasn't started yet, consider calling waitForManager(system) if this happens
     */
-  def registerGrpcService(system: ActorSystem, groupName: String, defs: java.util.List[GrpcDefinition]): Unit =
-    registerGrpcService(system, groupName, defs.asScala)
+  def registerGrpcService(config: Config, groupName: String, defs: java.util.List[GrpcDefinition]): Unit =
+    registerGrpcService(config, groupName, defs.asScala)
 
   def registerGrpcService(config: Config, groupName: String, defs: List[GrpcDefinition]): Unit = {
     val manager = getGrpcManager(config)
     manager ! GrpcServiceDefinition(groupName, defs.asJava)
   }
 
-  def registerGrpcService(system: ActorSystem, groupName: String, defs: List[GrpcDefinition]): Unit = {
-    val manager = getGrpcManager(system)
-    manager ! GrpcServiceDefinition(groupName, defs.asJava)
-  }
-
   // Tell a 'dirty' GrpcManager to initialize its endpoints right away instead of waiting for more
   // registrations to come in. Useful for unit tests and hot deploys, for example. Has no effect
   // if initialization has already happened without new registrations
-  def initializeGrpcNow(system: ActorSystem): Unit =
-    getGrpcManager(system) ! InitializeServers()
-
   def initializeGrpcNow(config: Config): Unit =
     getGrpcManager(config) ! InitializeServers()
 
-  def waitForManager(system: ActorSystem): Unit =
-    waitForManager(system, waitForClean = false)
+  def waitForManager(config: Config): Unit =
+    waitForManager(config, waitForClean = false)
 
-  def waitForManager(system: ActorSystem, waitForClean: Boolean): Unit =
-    waitForManager(system, waitForClean = waitForClean, 30)
-
-  def waitForManager(system: ActorSystem, waitForClean: Boolean, secondsToWait: Int): Unit =
-    waitForManager(system.settings.config, waitForClean = waitForClean, secondsToWait = secondsToWait)
+  def waitForManager(config: Config, waitForClean: Boolean): Unit =
+    waitForManager(config, waitForClean = waitForClean, 30)
 
   // Call this to ensure that gRPC Manager has finished registering gRPC services, useful for testing
   // Only use 'waitForClean = true' if you've already called registerGrpcService(..) and want to wait for gRPC to come up

@@ -21,8 +21,8 @@ object AccessLog extends LoggingAdapter {
     val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss").withZone(ZoneId.of("UTC"))
 
     val requestTime: String = formatter.format(instant)
-    val origin = request.flatMap(_.headers.mappings.get("origin")).getOrElse("-")
-    val userAgent = request.flatMap(_.headers.mappings.get("user-agent")).getOrElse("-")
+    val origin = request.map(_.headers.getStringValue("origin")).getOrElse("-")
+    val userAgent = request.map(_.headers.getStringValue("user-agent")).getOrElse("-")
 
     /*
         LogFormat "%h %t \"%r\" %>s %{ms}T %o %ua"

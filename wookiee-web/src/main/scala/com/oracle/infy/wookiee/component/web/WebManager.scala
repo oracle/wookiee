@@ -6,7 +6,12 @@ import com.oracle.infy.wookiee.component.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.{BOTH, EXTERNAL, EndpointType, INTERNAL}
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter
-import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{ServiceHolder, WebsocketHandler, WookieeHandler}
+import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{
+  EndpointMeta,
+  ServiceHolder,
+  WebsocketHandler,
+  WookieeHandler
+}
 import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentV2}
 import com.oracle.infy.wookiee.health.HealthCheckActor
 import com.oracle.infy.wookiee.utils.ThreadUtil
@@ -23,6 +28,15 @@ import scala.jdk.CollectionConverters._
 object WebManager extends Mediator[WebManager] {
   val ComponentName = "wookiee-web"
 
+  // Call this to get all the registered endpoints for a given instance
+  def getEndpoints(instanceId: String, external: Boolean): List[EndpointMeta] = {
+    val manager = getMediator(instanceId)
+    manager.getEndpoints(external)
+  }
+
+  def getEndpoints(config: Config, external: Boolean): List[EndpointMeta] =
+    getEndpoints(getInstanceId(config), external)
+
   case class WookieeWebException(msg: String, cause: Option[Throwable], code: Option[Int] = None)
       extends Exception(msg, cause.orNull)
 }
@@ -36,6 +50,13 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
 
   def internalPort: Int = config.getInt(s"${WebManager.ComponentName}.internal-port")
   def externalPort: Int = config.getInt(s"${WebManager.ComponentName}.external-port")
+
+  def getEndpoints(external: Boolean): List[EndpointMeta] =
+    if (external) {
+      externalServer.routingService.listOfRoutes()
+    } else {
+      internalServer.routingService.listOfRoutes()
+    }
 
   // Kick off both internal and external web services on startup
   def startService(): Unit = {

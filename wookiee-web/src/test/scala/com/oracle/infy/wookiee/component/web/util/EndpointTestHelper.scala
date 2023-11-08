@@ -1,10 +1,12 @@
 package com.oracle.infy.wookiee.component.web.util
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.web.WebManager
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointOptions
 import com.oracle.infy.wookiee.component.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.test.TestHarness.getFreePort
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.{Config, ConfigFactory}
 import io.helidon.webserver.{Routing, Service, WebServer}
 import org.glassfish.tyrus.client.ClientManager
@@ -15,7 +17,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.nio.ByteBuffer
 import javax.websocket.{Endpoint, EndpointConfig, MessageHandler, Session}
-import scala.concurrent.Promise
+import scala.concurrent.{ExecutionContext, Promise}
 
 trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAll {
   implicit val formats: Formats = DefaultFormats
@@ -23,6 +25,7 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
   protected lazy val internalPort: Int = getFreePort
   protected lazy val externalPort: Int = getFreePort
+  implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"web-manager-$internalPort")
   implicit def conf: Config = ConfigFactory.parseString(s"""
        |instance-id = "helidon-test-$internalPort"
        |wookiee-web {
@@ -57,7 +60,7 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
 
   override protected def beforeAll(): Unit = {
     new WookieeCommandExecutive("wookiee-command", conf)
-    manager = new WebManager("wookiee-web", conf)
+    manager = WookieeActor.actorOf(new WebManager("wookiee-web", conf))
     manager.start()
     registerEndpoints(manager)
 

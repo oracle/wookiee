@@ -6,6 +6,5 @@ import com.oracle.infy.wookiee.actor.WookieeActor
 // Implementations of this like RoundRobinRouter will mainly override the !, ?, and getHealth methods
 // Should be instantiated via the WookieeActor.withRouter method
 trait WookieeActorRouter extends WookieeActor {
-  // Call this with the actor creation code to initialize the router
-  def initialize(actorMaker: => WookieeActor): Unit
+  def commandName: String
 }

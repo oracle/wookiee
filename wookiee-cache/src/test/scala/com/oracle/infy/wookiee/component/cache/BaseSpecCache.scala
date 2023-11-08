@@ -18,13 +18,16 @@
  */
 package com.oracle.infy.wookiee.component.cache
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.component.cache.memory.MemoryManager
 import com.typesafe.config.ConfigFactory
 
 class BaseSpecCache {
-  val cacheRef: MemoryManager = new MemoryManager("cache-test", ConfigFactory.parseString("""
+
+  val cacheRef: MemoryManager =
+    WookieeActor.actorOf(new MemoryManager("cache-test", ConfigFactory.parseString("""
       |instance-id = "test-memory"
-      |""".stripMargin))
+      |""".stripMargin)))
 
   cacheRef ! CreateCache(
     CacheConfig(

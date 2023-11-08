@@ -4,6 +4,7 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.WookieeComponent
 import com.oracle.infy.wookiee.component.grpc.GrpcManager
 import com.oracle.infy.wookiee.component.grpc.utils.TestModels
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.ZookeeperConfig
 import com.oracle.infy.wookiee.discovery.command.{
   DiscoverableCommand,
   DiscoverableCommandExecution,
@@ -108,11 +109,8 @@ class DiscoverableCommandSpec
       command.isDefined mustBe true
 
       val result = Await.result(
-        executeDiscoverableCommand[TestInput, TestOutput](
-          zkPath,
-          s"localhost:$zkPort",
-          "not-used",
-          None,
+        DiscoverableCommandExecution.executeDiscoverableCommand[TestInput, TestOutput](
+          ZookeeperConfig(zkPath, s"localhost:$zkPort", "not-used", None),
           "test-command-main",
           TestInput("input")
         ),
@@ -127,10 +125,7 @@ class DiscoverableCommandSpec
 
       val result = Await.result(
         executeDiscoverableCommand[TestInput, TestOutput](
-          zkPath,
-          s"localhost:$zkPort",
-          "test-bearer",
-          None,
+          ZookeeperConfig(zkPath, s"localhost:$zkPort", "test-bearer", None),
           "test-command-token",
           TestInput("input")
         ),
@@ -141,10 +136,7 @@ class DiscoverableCommandSpec
       val exception = intercept[StatusRuntimeException](
         Await.result(
           executeDiscoverableCommand[TestInput, TestOutput](
-            zkPath,
-            s"localhost:$zkPort",
-            "bad-bearer-token",
-            None,
+            ZookeeperConfig(zkPath, s"localhost:$zkPort", "bad-bearer-token", None),
             "test-command-token",
             TestInput("input")
           ),
@@ -158,10 +150,7 @@ class DiscoverableCommandSpec
     "has support for interceptors" in ec.synchronized {
       val result = Await.result(
         executeDiscoverableCommand[TestInput, TestOutput](
-          zkPath,
-          s"localhost:$zkPort",
-          "",
-          None,
+          ZookeeperConfig(zkPath, s"localhost:$zkPort", "", None),
           "test-command-interceptor",
           TestInput("input")
         ),
@@ -172,7 +161,10 @@ class DiscoverableCommandSpec
     }
 
     "have support for generic stubs that can take anything" in ec.synchronized {
-      val stub = getGenericStub(
+      val zkConfig = ZookeeperConfig(zkPath, s"localhost:$zkPort", "", None)
+      ZookeeperConfig.unapply(zkConfig).get._1 mustEqual zkPath
+
+      val stub = DiscoverableCommandExecution.getGenericStub(
         zkPath,
         s"localhost:$zkPort",
         "",
@@ -187,10 +179,7 @@ class DiscoverableCommandSpec
       val ex = intercept[StatusRuntimeException] {
         Await.result(
           executeDiscoverableCommand[TestInput, TestOutput](
-            zkPath,
-            s"localhost:$zkPort",
-            "",
-            None,
+            ZookeeperConfig(zkPath, s"localhost:$zkPort", "", None),
             "test-command-main",
             TestInput("inner-fail")
           ),
@@ -205,10 +194,7 @@ class DiscoverableCommandSpec
       val ex = intercept[StatusRuntimeException] {
         Await.result(
           executeDiscoverableCommand[TestInput, TestOutput](
-            zkPath,
-            s"localhost:$zkPort",
-            "",
-            None,
+            ZookeeperConfig(zkPath, s"localhost:$zkPort", "", None),
             "test-command-main",
             TestInput("outer-fail")
           ),

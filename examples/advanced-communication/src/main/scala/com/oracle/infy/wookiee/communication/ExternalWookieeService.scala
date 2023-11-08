@@ -2,11 +2,12 @@ package com.oracle.infy.wookiee.communication
 
 import com.oracle.infy.wookiee.communication.command.ExternalHttpCommand
 import com.oracle.infy.wookiee.communication.command.InternalDiscoverableCommand.{InputHolder, OutputHolder}
-import com.oracle.infy.wookiee.communication.ws.{AuthHolder, ExternalWSHandler}
+import com.oracle.infy.wookiee.communication.ws.{AuthHolder, ExternalWSHandler, KafkaWSHandler}
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.ws.WebsocketInterface
 import com.oracle.infy.wookiee.component.web.{WookieeEndpoints, WookieeHttpService}
 import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandExecution
+import com.oracle.infy.wookiee.kafka.WookieeKafka
 import com.typesafe.config.Config
 import org.json4s.{DefaultFormats, Formats}
 
@@ -82,5 +83,13 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
     // Object Oriented method of WS registration
     // Exactly the same functionality as the functional method above (with some extra error demonstrations)
     WookieeEndpoints.registerWebsocket[AuthHolder](new ExternalWSHandler)
+
+    // Start up a local kafka server to be used by both External and Internal services
+    WookieeKafka.startLocalKafkaServer(
+      config.getString("wookiee-zookeeper.quorum"),
+      Some(config.getInt("kafka.port"))
+    )
+    // Makes a request and reads from a responding topic produced on the Internal server
+    WookieeEndpoints.registerWebsocket[AuthHolder](new KafkaWSHandler())
   }
 }

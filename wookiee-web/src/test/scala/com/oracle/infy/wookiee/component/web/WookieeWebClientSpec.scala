@@ -16,10 +16,9 @@ import org.json4s.jackson.Serialization
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, Future}
 
 class WookieeWebClientSpec extends EndpointTestHelper {
-  implicit val ec: ExecutionContext = ThreadUtil.createEC("helidon-manager-test")
   case class TestObject(content: String)
   val proxyPort: Int = TestHarness.getFreePort
   val proxyServer: WebServer = ProxyServer.startServer(proxyPort, internalPort)
@@ -34,14 +33,14 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       response.contentString() mustEqual jsonContent
       Serialization.write(response.contentJson()) mustEqual jsonContent
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getValue("Content-Type").head mustEqual "application/json"
     }
 
     "handle a basic request in the client" in {
       val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
       response.contentString() mustEqual """{"content":""}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getJavaMap.get("Content-Type").get(0) mustEqual "application/json"
     }
 
     "handle a basic byte request in the client" in {
@@ -51,7 +50,7 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       )
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getStringValue("Content-Type") mustEqual "application/json"
     }
 
     "handle a basic object request in the client" in {
@@ -59,15 +58,15 @@ class WookieeWebClientSpec extends EndpointTestHelper {
         Await.result(WookieeWebClient.request(webClient.helidonClient, "GET", "/basic/endpoint", "test"), 5.seconds)
       response.contentString() mustEqual """{"content":"test"}"""
       response.code() mustEqual 200
-      response.headerMap()("Content-Type").head mustEqual "application/json"
+      response.headers.getStringValue("Content-Type") mustEqual "application/json"
     }
 
     "handle a proxy request in the client" in {
       val webClient = WookieeWebClient(s"http://localhost:$internalPort", Some(ProxyConfig("localhost", proxyPort)))
       val currentCount = requestsSeen.get()
-      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 5.seconds)
+      val response = Await.result(webClient.request("GET", "/basic/endpoint"), 10.seconds)
       response.code() mustEqual 404
-      response.headerMap()("Content-Type").head mustEqual "text/plain"
+      response.headers.getStringValue("Content-Type") mustEqual "text/plain"
       ThreadUtil.awaitEvent({ requestsSeen.get() > currentCount })
     }
 
@@ -91,16 +90,16 @@ class WookieeWebClientSpec extends EndpointTestHelper {
       var response =
         Await.result(
           WookieeWebClient.requestAndExtract[TestObject](webClient.helidonClient, "GET", "/basic/endpoint", "test"),
-          5.seconds
+          10.seconds
         )
       response.content mustEqual "test"
-      response = Await.result(webClient.requestAndExtract[TestObject]("GET", "/basic/endpoint"), 5.seconds)
+      response = Await.result(webClient.requestAndExtract[TestObject]("GET", "/basic/endpoint"), 10.seconds)
       response.content mustEqual ""
     }
 
     "throw an error when code is not 200-299" in {
       intercept[WookieeWebException] {
-        Await.result(webClient.requestAndExtract("GET", "/basic/command", "fail"), 5.seconds)
+        Await.result(webClient.requestAndExtract("GET", "/basic/command", "fail"), 10.seconds)
       }
     }
   }

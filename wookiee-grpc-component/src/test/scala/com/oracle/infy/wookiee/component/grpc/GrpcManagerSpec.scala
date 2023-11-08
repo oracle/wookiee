@@ -58,19 +58,15 @@ class GrpcManagerSpec
       val testComp = testWookiee.getComponentV2("wookiee-grpc-component")
       assert(testComp.isDefined, "gRPC Manager wasn't registered")
 
-      testComp.foreach(
-        tc =>
-          whenReady(tc ? CleanCheck()) {
-            case resp: CleanResponse =>
-              resp.clean shouldEqual false
-            case _ => fail("gRPC Manager didn't respond with a CleanResponse")
-          }
-      )
+      testComp.foreach { tc =>
+        val resp = ThreadUtil.awaitResponse[CleanResponse](tc, CleanCheck())
+        resp.clean shouldEqual false
+      }
     }
 
     "register a simple gRPC service" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
-        system,
+        testWookiee.config,
         "manager-spec",
         List(
           new GrpcDefinition(new GrpcServiceOne().bindService()),
@@ -78,8 +74,8 @@ class GrpcManagerSpec
           new GrpcDefinition(new GrpcServiceThree().bindService())
         )
       )
-      GrpcManager.initializeGrpcNow(system)
-      GrpcManager.waitForManager(system, waitForClean = true)
+      GrpcManager.initializeGrpcNow(testWookiee.config)
+      GrpcManager.waitForManager(testWookiee.config, waitForClean = true)
 
       val channel = GrpcManager.createChannel("/grpc/local_dev", s"localhost:$zkPort", "")
       try {
@@ -96,14 +92,14 @@ class GrpcManagerSpec
 
     "handle a message over the default 4MB with max-message-size configured" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
-        system,
+        testWookiee.config,
         "message-size-spec",
         List(
           new GrpcDefinition(new GrpcServiceFour().bindService())
         )
       )
-      GrpcManager.initializeGrpcNow(system)
-      GrpcManager.waitForManager(system, waitForClean = true)
+      GrpcManager.initializeGrpcNow(testWookiee.config)
+      GrpcManager.waitForManager(testWookiee.config, waitForClean = true)
 
       val arraySize = 8000000 // ~8MB sized message
       val arrayBig = new Array[Char](arraySize)
@@ -121,14 +117,14 @@ class GrpcManagerSpec
 
     "allow closing of curators in channels" in zkPort.synchronized {
       GrpcManager.registerGrpcService(
-        system,
+        testWookiee.config,
         "closing-spec",
         List(
           new GrpcDefinition(new GrpcServiceOne().bindService())
         )
       )
-      GrpcManager.initializeGrpcNow(system)
-      GrpcManager.waitForManager(system, waitForClean = true)
+      GrpcManager.initializeGrpcNow(testWookiee.config)
+      GrpcManager.waitForManager(testWookiee.config, waitForClean = true)
 
       val curator = GRPCUtils.curatorFramework(
         s"localhost:$zkPort",

@@ -1,15 +1,15 @@
 package com.oracle.infy.wookiee.discovery
 
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.component.grpc.GrpcManager
+import com.oracle.infy.wookiee.component.{ComponentInfoV2, ComponentState}
+import com.oracle.infy.wookiee.discovery.command.DiscoverableCommandHelper.getZKConnectConfig
+import com.oracle.infy.wookiee.discovery.command.{DiscoverableCommandExecution, WookieeDiscoverableService}
+import com.typesafe.config.{Config, ConfigFactory}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.util.concurrent.atomic.AtomicBoolean
-import com.oracle.infy.wookiee.component.ComponentState
-import com.oracle.infy.wookiee.component.grpc.GrpcManager
-import com.typesafe.config.{Config, ConfigFactory}
-import com.oracle.infy.wookiee.component.ComponentInfoV2
-import com.oracle.infy.wookiee.discovery.command.{DiscoverableCommandExecution, WookieeDiscoverableService}
-
 import scala.concurrent.ExecutionContext
 
 object DiscoverableServiceSpec {
@@ -27,7 +27,7 @@ class TestDiscoverableService(config: Config) extends WookieeDiscoverableService
 class DiscoverableServiceSpec extends AnyWordSpec with Matchers with DiscoverableCommandExecution {
   "Discoverable Wookiee Services" should {
     "add commands when grpc manager comes up" in {
-      val service = new TestDiscoverableService(ConfigFactory.empty())
+      val service = WookieeActor.actorOf(new TestDiscoverableService(ConfigFactory.empty()))
       service.onComponentReady(ComponentInfoV2(GrpcManager.ComponentName, ComponentState.Started, null))
       DiscoverableServiceSpec.calledCommands.get() mustBe true
     }

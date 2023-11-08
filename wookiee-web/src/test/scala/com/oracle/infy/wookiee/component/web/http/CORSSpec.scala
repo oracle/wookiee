@@ -44,8 +44,7 @@ class CORSSpec extends EndpointTestHelper {
       "GET",
       HttpHandler(
         (_: ServerRequest, _: ServerResponse) => (),
-        EndpointOptions
-          .default
+        EndpointOptions()
           .copy(
             allowedHeaders = Some(
               CorsWhiteList(List("valid-header-1", "valid-header-2"))
@@ -60,7 +59,7 @@ class CORSSpec extends EndpointTestHelper {
       override def handleText(text: String, request: WookieeRequest, authInfo: Option[Any])(
           implicit session: Session
       ): Unit =
-        reply(s"Got message: [$text],Default-Header: [${request.headers.mappings("Default-Header").head}]")
+        reply(s"Got message: [$text],Default-Header: [${request.headers.getStringValue("Default-Header")}]")
 
       override def endpointType: EndpointType = EndpointType.BOTH
 
@@ -86,8 +85,8 @@ class CORSSpec extends EndpointTestHelper {
         )
 
       val methods = List("GET", "POST", "PATCH", "PUT", "DELETE")
-      val supportedMethods = response.headerMap()("Access-Control-Allow-Methods").mkString(",").split(",")
-      supportedMethods must contain theSameElementsAs methods
+      val supportedMethods = response.headers.getMap("Access-Control-Allow-Methods").mkString(",").split(",")
+      supportedMethods.diff(methods).isEmpty mustEqual true
     }
 
     "return access control headers in pre-flight" in {
@@ -101,9 +100,9 @@ class CORSSpec extends EndpointTestHelper {
         )
 
       val headers = List("valid-header-1", "valid-header-2")
-      val supportedHeaders = response.headerMap()("Access-Control-Allow-Headers").mkString(",").split(",")
+      val supportedHeaders = response.headers.getValue("Access-Control-Allow-Headers")
       supportedHeaders must contain theSameElementsAs headers
-      response.headerMap()("Access-Control-Allow-Origin").head mustEqual "*"
+      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "*"
     }
 
     "return origin headers in pre-flight" in {
@@ -116,8 +115,8 @@ class CORSSpec extends EndpointTestHelper {
           Map("Origin" -> "http://origin.safe")
         )
 
-      response.headerMap()("Access-Control-Allow-Origin").mkString(",") mustEqual "http://origin.safe"
-      response.headerMap()("Access-Control-Allow-Credentials").mkString(",") mustEqual "true"
+      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "http://origin.safe"
+      response.headers.getStringValue("Access-Control-Allow-Credentials") mustEqual "true"
     }
 
     "reject invalid origins" in {
@@ -144,8 +143,8 @@ class CORSSpec extends EndpointTestHelper {
           Map("Origin" -> "http://origin.safe")
         )
 
-      response.headerMap()("Access-Control-Allow-Origin").mkString(",") mustEqual "http://origin.safe"
-      response.headerMap()("Access-Control-Allow-Credentials").mkString(",") mustEqual "true"
+      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "http://origin.safe"
+      response.headers.getStringValue("Access-Control-Allow-Credentials") mustEqual "true"
     }
 
     "websockets have support for CORS" in {
@@ -157,10 +156,10 @@ class CORSSpec extends EndpointTestHelper {
           """{"key":"value"}""",
           Map("Origin" -> "http://origin.safe", "Access-Control-Request-Headers" -> "Header-1,Header-2,Bad-Header")
         )
-      response.headerMap()("Access-Control-Allow-Origin").mkString(",") mustEqual "http://origin.safe"
-      response.headerMap()("Access-Control-Allow-Credentials").mkString(",") mustEqual "true"
-      response.headerMap()("Access-Control-Allow-Methods").mkString(",") mustEqual "WS"
-      response.headerMap()("Access-Control-Allow-Headers").mkString(",") mustEqual "Header-1,Header-2"
+      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "http://origin.safe"
+      response.headers.getStringValue("Access-Control-Allow-Credentials") mustEqual "true"
+      response.headers.getStringValue("Access-Control-Allow-Methods") mustEqual "WS"
+      response.headers.getStringValue("Access-Control-Allow-Headers") mustEqual "Header-1,Header-2"
 
       val promise = Promise[String]()
 

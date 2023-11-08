@@ -26,7 +26,7 @@ you too much of being in college and you begin to doubt you've improved at all
 hundredth time because your cycles are more important, dang it!
 * ...want the new intern to be able to create their own new Services using a really simple
 template with tons of examples since your company runs all their Services on one framework
-* ...would rather focus on the functionality of your Akka Actors than worrying about
+* ...would rather focus on the functionality of your Actors than worrying about
 linking up health checks, starting everything up, and sending out PoisonPills on shutdown
 * ...have no appetite for creating a new logger variable for every single class you want to hear from
 * ...need to integrate a new technology but find it unsavory to write thirty lines of
@@ -219,8 +219,6 @@ wookiee-system {
   * Metrics that can be attached anywhere and sent to a metrics service
 * [Zookeeper Component](wookiee-zookeeper)
   * Provides Zookeeper connection management and service discovery
-* [Akka Http Component](wookiee-akka-http)
-  * Legacy Component for HTTP/WS services
 
 ### Configuring a component
 Each component loaded in Wookiee should provide a default configuration that will fit most situations.  The Wookiee Platform
@@ -300,6 +298,14 @@ class MyActor extends WookieeActor {
 }
 ```
 These WookieeActors have all the akka functionality including the ability to `become(receiver)` and use schedulers.
+To spin up an actor is easy and doesn't require an actor system or actor context.
+
+```scala
+import com.oracle.infy.wookiee.actors.WookieeActor
+
+val myActor = WookieeActor.actorOf(new MyActor)
+```
+
 One can also create a router of actors using the `WookieeActor.withRouter` method.
 
 ```scala

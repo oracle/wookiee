@@ -34,7 +34,7 @@ object ConfigWatcher extends Mediator[Config]
 class ConfigWatcher(initialConfig: Config, notifySystem: => Unit) extends WookieeActor {
   ConfigWatcher.registerMediator(initialConfig, initialConfig)
 
-  private val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
+  private lazy val configWatcher: WatchService = FileSystems.getDefault.newWatchService()
   private val configDir: Path = Paths.get(".")
   private val watchThread = new Thread(new DirectoryWatcher)
   private var configExists = false
