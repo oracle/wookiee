@@ -20,12 +20,15 @@ object Deps {
     val fs2Version = "3.6.1"
     val junitVersion = "4.13.2"
     val guavaVersion = "32.1.1-jre"
-    val finagleVersion = "22.12.0"
+    val finagleVersion = "23.11.0"
+    // This comes in from finagle but we want a higher version with less vulnerabilities
+    val snakeYamlVersion = "1.33"
     val upickleVersion = "2.0.0"
     val grpcVersion: String = "1.59.0"
     val nettyVersion: String = "4.1.100.Final"
     val nettyTCVersion: String = "2.0.62.Final"
     val scalaPbRuntimeVersion: String = "0.11.14"
+
     val helidonVersion = "2.6.4"
     val kafkaVersion = "3.5.1"
     val scalaCompatVersion = "1.0.2"
@@ -123,6 +126,7 @@ object Deps {
     val guava: ModuleID = "com.google.guava" % "guava" % guavaVersion
 
     val finagle: ModuleID = "com.twitter" %% "finagle-memcached" % finagleVersion
+    val snakeYaml: ModuleID = "org.yaml" % "snakeyaml" % snakeYamlVersion
     val upickle: ModuleID = "com.lihaoyi" %% "upickle" % upickleVersion
 
     val circeCore: ModuleID = "io.circe" %% "circe-core" % circeVersion
@@ -213,6 +217,7 @@ object Deps {
     val wookieeMemcache: Seq[ModuleID] = Seq(
       test.scalatest,
       finagle,
+      snakeYaml,
       upickle
     )
 
