@@ -12,6 +12,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 import java.time.Duration
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
@@ -24,6 +25,7 @@ case class WookieeKafkaConsumer(
     resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
     extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
 ) {
+  private val hasBeenClosed: AtomicBoolean = new AtomicBoolean(false)
 
   protected val props = new Properties()
   props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
@@ -169,8 +171,14 @@ case class WookieeKafkaConsumer(
   }
 
   // Method to close the consumer
-  def close(): Unit =
+  def close(): Unit = {
     consumer.close()
+    hasBeenClosed.set(true)
+  }
+
+  // Method to check if the consumer has been closed
+  def isClosed(): Boolean =
+    hasBeenClosed.get()
 
   // Provide an escape hatch while keeping it internal
   def underlying: KafkaConsumer[Array[Byte], Array[Byte]] = consumer
