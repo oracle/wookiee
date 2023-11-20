@@ -22,7 +22,7 @@ object Deps {
     val guavaVersion = "32.1.1-jre"
     val finagleVersion = "23.11.0"
     // This comes in from finagle but we want a higher version with less vulnerabilities
-    val snakeYamlVersion = "1.33"
+    val snakeYamlVersion = "2.2"
     val upickleVersion = "2.0.0"
     val grpcVersion: String = "1.59.0"
     val nettyVersion: String = "4.1.100.Final"
