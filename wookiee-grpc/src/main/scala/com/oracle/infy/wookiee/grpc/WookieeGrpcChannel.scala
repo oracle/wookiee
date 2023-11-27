@@ -150,7 +150,7 @@ object WookieeGrpcChannel {
   )(implicit logger: Logger[IO], dispatcher: Dispatcher[IO]): IO[ManagedChannel] = {
     for {
       // Without this the schemes can overlap due to the static nature of gRPC's APIs causing one channel to step on another
-      randomScheme <- IO.blocking { Random.shuffle(('a' to 'z') ++ ('A' to 'Z')).take(12).mkString("") }
+      randomScheme <- IO.blocking { Random.shuffle(('a' to 'z').toList).take(12).mkString("") }
       nameResolverRegistry <- IO.blocking { NameResolverRegistry.getDefaultRegistry }
       _ <- IO.blocking {
         nameResolverRegistry.register(
