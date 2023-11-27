@@ -6,8 +6,8 @@ object Deps {
     val akkaVersion = "2.6.20"
     val scalaStmVersion = "0.11.1"
     val shapelessVersion = "1.3.0"
-    val scalametaVersion = "4.7.6"
-    val scalafmtDynVersion = "3.7.11"
+    val scalametaVersion = "4.8.12"
+    val scalafmtDynVersion = "3.7.15"
 
     val curatorVersion = "5.5.0"
     val catsVersion = "2.9.0"
