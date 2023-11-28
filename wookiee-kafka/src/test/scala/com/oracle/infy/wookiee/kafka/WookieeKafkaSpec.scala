@@ -201,6 +201,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         messages.nonEmpty && messages.head.getKey == "key" && messages.head.getValue == "value"
       })
       consumer.close()
+      consumer.isClosed() mustEqual true
       producer.close()
     }
 

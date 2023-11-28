@@ -56,7 +56,7 @@ object WookieeKafka {
   )(implicit ec: ExecutionContext): AutoCloseable = {
     val consumer = startConsumer(bootstrapServers, groupId, enableAutoCommit, resetToLatest, extraProps)
     consumer.subscribe(topics: _*)
-    new AutoCloseableConsumer(consumer, processMessage, pollMs)
+    consumer.processMessages(processMessage, pollMs)
   }
 
   // Start a consumer that automatically processes messages with the provided function
@@ -72,7 +72,7 @@ object WookieeKafka {
   )(implicit ec: ExecutionContext): AutoCloseable = {
     val consumer = startConsumer(bootstrapServers, groupId, enableAutoCommit, resetToLatest, extraProps)
     consumer.subscribe(topicPattern)
-    new AutoCloseableConsumer(consumer, processMessage, pollMs)
+    consumer.processMessages(processMessage, pollMs)
   }
 
   /* Admin Methods */

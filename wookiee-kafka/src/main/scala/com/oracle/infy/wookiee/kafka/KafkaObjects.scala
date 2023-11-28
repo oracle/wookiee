@@ -77,6 +77,10 @@ object KafkaObjects {
           case ex: Throwable =>
             logPollingError(ex)
         }
+        if (consumer.isClosed()) {
+          log.warn("Saw that kafka consumer was closed, stopping processing.")
+          close()
+        }
       }
       consumer.close()
     }

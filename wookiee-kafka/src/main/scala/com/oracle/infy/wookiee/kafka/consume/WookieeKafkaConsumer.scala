@@ -1,13 +1,20 @@
 package com.oracle.infy.wookiee.kafka.consume
 
-import com.oracle.infy.wookiee.kafka.KafkaObjects.{WookieeOffset, WookieeRecord, WookieeTopicPartition}
+import com.oracle.infy.wookiee.kafka.KafkaObjects.{
+  AutoCloseableConsumer,
+  WookieeOffset,
+  WookieeRecord,
+  WookieeTopicPartition
+}
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 
 import java.time.Duration
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 
 // Scala-friendly wrapper for Kafka Consumer functionality
@@ -18,6 +25,7 @@ case class WookieeKafkaConsumer(
     resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
     extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
 ) {
+  private val hasBeenClosed: AtomicBoolean = new AtomicBoolean(false)
 
   protected val props = new Properties()
   props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
@@ -73,6 +81,15 @@ case class WookieeKafkaConsumer(
   // Method to poll messages and wrap them into WookieeMessages
   def poll(durationMillis: Long): Seq[WookieeRecord] =
     poll(Duration.ofMillis(durationMillis))
+
+  // Start processing messages using this consumer
+  // This method assumes we've already called subscribe(..) for a topic
+  // Note: This could cause the group offset to update (depending on autoCommit settings)
+  def processMessages(
+      processMessage: WookieeRecord => Unit, // Each individual kafka message will go through this method
+      pollMs: Long = 1000L // How long to wait for each batch of messages
+  )(implicit ec: ExecutionContext): AutoCloseable =
+    new AutoCloseableConsumer(this, processMessage, pollMs)
 
   // Method to assign partitions to consume from
   def assign(partitions: Seq[WookieeTopicPartition]): Unit =
@@ -154,8 +171,14 @@ case class WookieeKafkaConsumer(
   }
 
   // Method to close the consumer
-  def close(): Unit =
+  def close(): Unit = {
     consumer.close()
+    hasBeenClosed.set(true)
+  }
+
+  // Method to check if the consumer has been closed
+  def isClosed(): Boolean =
+    hasBeenClosed.get()
 
   // Provide an escape hatch while keeping it internal
   def underlying: KafkaConsumer[Array[Byte], Array[Byte]] = consumer
