@@ -55,7 +55,7 @@ object KafkaObjects {
     def logPollingError(ex: Throwable): Unit =
       log.error("Error in `wookiee-kafka` while polling for messages.", ex)
 
-    @volatile private var shouldRun = true
+    @volatile private[wookiee] var shouldRun = true
 
     // Start consuming and processing messages in a separate thread
     Future {

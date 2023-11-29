@@ -12,7 +12,7 @@ import java.util.regex.Pattern
 import java.util.{Optional, Properties}
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
-import scala.util.Random
+import scala.util.{Random, Using}
 
 object WookieeKafka {
   /* Producer Methods */
@@ -38,7 +38,7 @@ object WookieeKafka {
       bootstrapServers: String, // Comma-separated list of Kafka brokers
       groupId: String, // Consumer group ID, set to unique if this consumer should see all messages
       enableAutoCommit: Boolean, // Auto-commit offsets? If false, can manually commit with consumer.commitSync()
-      resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
+      resetToLatest: Boolean = false, // If no committed offset is found, reset to the latest offset (default) or earliest?
       extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
   ): WookieeKafkaConsumer =
     WookieeKafkaConsumer(bootstrapServers, groupId, enableAutoCommit, resetToLatest, extraProps)
@@ -51,7 +51,7 @@ object WookieeKafka {
       processMessage: WookieeRecord => Unit, // Each individual kafka message will go through this method
       pollMs: Long = 1000L, // How long to wait for each batch of messages
       enableAutoCommit: Boolean = true, // Auto-commit offsets? If false, can manually commit with wookieeRecord.commitOffsets()
-      resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
+      resetToLatest: Boolean = false, // If no committed offset is found, reset to the latest offset (default) or earliest?
       extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
   )(implicit ec: ExecutionContext): AutoCloseable = {
     val consumer = startConsumer(bootstrapServers, groupId, enableAutoCommit, resetToLatest, extraProps)
@@ -67,7 +67,7 @@ object WookieeKafka {
       processMessage: WookieeRecord => Unit, // Each individual kafka message will go through this method
       pollMs: Long = 1000L, // How long to wait for each batch of messages
       enableAutoCommit: Boolean = true, // Auto-commit offsets? If false, can manually commit with wookieeRecord.commitOffsets()
-      resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
+      resetToLatest: Boolean = false, // If no committed offset is found, reset to the latest offset (default) or earliest?
       extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
   )(implicit ec: ExecutionContext): AutoCloseable = {
     val consumer = startConsumer(bootstrapServers, groupId, enableAutoCommit, resetToLatest, extraProps)
@@ -129,14 +129,7 @@ object WookieeKafka {
   def startLocalKafkaServer(
       zkConnStr: String // Can get this via `new TestingServer(zkPort).getConnectString`
   ): (Int, AutoCloseable) =
-    startLocalKafkaServer(zkConnStr, None, false)
-
-  def startLocalKafkaServer(
-      zkConnStr: String, // Can get this via `new TestingServer(zkPort).getConnectString`
-      kafkaPort: Int, // Set this if you've already reserved a port for kafka
-      autoCreateTopics: Boolean // If false, topics will need to be manually made via the createTopic method in this class
-  ): (Int, AutoCloseable) =
-    startLocalKafkaServer(zkConnStr, Option(kafkaPort), autoCreateTopics)
+    startLocalKafkaServer(zkConnStr, None)
 
   def startLocalKafkaServer(
       zkConnStr: String, // Can get this via `new TestingServer(zkPort).getConnectString`
@@ -183,11 +176,9 @@ object WookieeKafka {
   }
 
   // Convenience method to find a free port
-  def getFreePort: Int = {
-    val socket = new ServerSocket(0)
-    try {
+  def getFreePort: Int =
+    Using(new ServerSocket(0)) { socket =>
       socket.setReuseAddress(true)
       socket.getLocalPort
-    } finally if (socket != null) socket.close()
-  }
+    }.get
 }

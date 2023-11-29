@@ -1,13 +1,13 @@
 package com.oracle.infy.wookiee.kafka.consume
 
 import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
-import com.oracle.infy.wookiee.kafka.KafkaTestHelper
+import com.oracle.infy.wookiee.kafka.TestHelper
 import com.oracle.infy.wookiee.kafka.WookieeKafka.createTopic
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
 
 import java.util.Properties
 
-class WookieeKafkaConsumerSpec extends KafkaTestHelper {
+class WookieeKafkaConsumerSpec extends TestHelper {
   "WookieeKafkaConsumer" should {
     "be able to subscribe in various ways" in {
       val consumer = WookieeKafkaConsumer("localhost:9092", "test-group")

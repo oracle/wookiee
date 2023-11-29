@@ -40,7 +40,7 @@ import java.lang.management.ManagementFactory
 import java.net.ServerSocket
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.util.{Random, Try}
+import scala.util.{Random, Try, Using}
 
 object TestHarness extends Mediator[TestHarness] {
 
@@ -63,13 +63,11 @@ object TestHarness extends Mediator[TestHarness] {
   }
 
   // Returns an unused port on the current system, useful for avoiding port conflicts
-  def getFreePort: Int = {
-    val socket = new ServerSocket(0)
-    try {
+  def getFreePort: Int =
+    Using(new ServerSocket(0)) { socket =>
       socket.setReuseAddress(true)
       socket.getLocalPort
-    } finally if (Option(socket).nonEmpty) socket.close()
-  }
+    }.get
 
   // Can use this (on linux systems only) to log how many file descriptors are currently held
   // by the jvm, useful for tracking down file/connection leaks

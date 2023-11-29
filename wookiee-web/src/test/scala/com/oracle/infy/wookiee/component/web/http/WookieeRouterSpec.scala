@@ -2,7 +2,7 @@ package com.oracle.infy.wookiee.component.web.http
 
 import com.oracle.infy.wookiee.component.web.client.WookieeWebClient
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.web.http.HttpObjects.{EndpointType, WookieeRequest}
+import com.oracle.infy.wookiee.component.web.http.HttpObjects.{Content, EndpointType, Headers, WookieeRequest}
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{EndpointMeta, HttpHandler}
 import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
@@ -155,6 +155,31 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
       bean("key") mustEqual "value"
       bean.appendMap(Map("key2" -> "value2"))
       bean("key2") mustEqual "value2"
+    }
+
+    "handle a normal locale string" in {
+      val req =
+        WookieeRequest(
+          Content(),
+          Map.empty[String, String],
+          Map.empty[String, String],
+          Headers(Map("accept-language" -> List("en-US,en;q=0.9,es;q=0.8")))
+        )
+      req.locales.size mustEqual 3
+
+      val req2 = WookieeRequest(Content(), Map.empty[String, String], Map.empty[String, String], Headers())
+      req2.locales.size mustEqual 0
+    }
+
+    "handle bogus language string without blowing up" in {
+      val req =
+        WookieeRequest(
+          Content(),
+          Map.empty[String, String],
+          Map.empty[String, String],
+          Headers(Map("accept-language" -> List("en-US,en;weight=0.8;q=0.9")))
+        )
+      req.locales.size mustEqual 0
     }
 
     "handle tons of registrations and finds" in {

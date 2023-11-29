@@ -104,6 +104,7 @@ object Deps {
     )
 
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
+    val logbackCore: ModuleID = "ch.qos.logback" % "logback-core" % logbackVersion
 
     val akka
         : ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat_2.12") exclude ("org.scala-lang.modules", "scala-java8-compat_2.13")
@@ -193,12 +194,14 @@ object Deps {
       scalaCompat,
       kafkaClient,
       kafka,
-      slf4jApi
+      slf4jApi,
+      logbackClassic % Test
     ) ++ json4sLibs
 
     val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
       logbackClassic,
+      logbackCore,
       scalaCollectionCompat,
       test.scalatest
     ) ++ curatorLibs ++ cats ++ json4sLibs
@@ -242,6 +245,7 @@ object Deps {
       akka,
       slf4jApi,
       logbackClassic,
+      logbackCore,
       jodaTime,
       scalaStm,
       guava,

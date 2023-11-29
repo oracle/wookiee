@@ -5,9 +5,12 @@ import org.json4s.jackson.JsonMethods.parse
 
 import java.nio.charset.Charset
 import java.util
+import java.util.Locale
+import java.util.Locale.LanguageRange
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
+import scala.util.Try
 
 object HttpObjects {
 
@@ -184,10 +187,26 @@ object HttpObjects {
       }
     }
 
+    def getQueryParameter(key: String): Option[String] =
+      queryParameters.get(key.toLowerCase)
+
     private val createdTime: Long = System.currentTimeMillis()
     def getCreatedTime: Long = createdTime
 
     def contentString(): String = content.asString
+
+    def locales: List[Locale] = {
+      val localeString = headers.getStringValue("accept-language")
+      if (localeString.nonEmpty)
+        Try {
+          LanguageRange
+            .parse(localeString)
+            .asScala
+            .map(language => Locale.forLanguageTag(language.getRange))
+            .toList
+        }.getOrElse(Nil)
+      else Nil
+    }
   }
 
   object WookieeResponse {

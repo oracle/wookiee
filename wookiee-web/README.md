@@ -146,6 +146,16 @@ WookieeEndpoints.registerEndpoint(
 )
 ```
 
+### Localization
+The WookieeRequest object that comes along with each HTTP request has a `locale` field that can be used to determine the locale of the request.
+This field is populated by the `Accept-Language` header of the request, and can be used to determine the locale of the request.
+```scala
+override def execute(input: WookieeRequest): Future[WookieeResponse] = {
+  val locales: List[Locale] = input.locale
+  // Do something with the locale info
+}
+```
+
 ## Websocket Endpoints
 ### Object-Oriented Registration
 To register a Websocket endpoint, you must first create a class that extends the [WookieeWebsocket](src/main/scala/com/oracle/infy/wookiee/component/web/ws/WookieeWebsocket.scala) class.

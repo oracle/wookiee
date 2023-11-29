@@ -24,7 +24,7 @@ case class WookieeKafkaConsumer(
     enableAutoCommit: Boolean = true, // Auto-commit offsets? If false, can manually commit with consumer.commitSync()
     resetToLatest: Boolean = true, // If no committed offset is found, reset to the latest offset (default) or earliest?
     extraProps: Properties = new Properties() // Extra properties to pass to the Kafka consumer
-) {
+) extends AutoCloseable {
   private val hasBeenClosed: AtomicBoolean = new AtomicBoolean(false)
 
   protected val props = new Properties()
@@ -171,7 +171,7 @@ case class WookieeKafkaConsumer(
   }
 
   // Method to close the consumer
-  def close(): Unit = {
+  override def close(): Unit = {
     consumer.close()
     hasBeenClosed.set(true)
   }

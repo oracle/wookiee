@@ -13,6 +13,7 @@ import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, Outp
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
+import java.util
 import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
@@ -88,7 +89,7 @@ class WebManagerSpec extends EndpointTestHelper {
       "POST",
       EndpointType.EXTERNAL, { request =>
         val segment = request.pathSegments.getOrElse("segment", "")
-        val query = request.queryParameters.getOrElse("query", "")
+        val query = request.getQueryParameter("query").getOrElse("")
         val header = request.headers.getStringValue("header")
         Future.successful(
           InputObject(
@@ -190,6 +191,8 @@ class WebManagerSpec extends EndpointTestHelper {
       // If we delete endpoints above, this might become smaller
       endpoints.size >= 10 mustEqual true
       endpoints.contains(EndpointMeta("POST", "/api/*/endpoint"))
+      val endpoints2 = WebManager.getEndpoints(conf, external = false)
+      endpoints2.size >= 10 mustEqual true
     }
 
     "allow registration of basic endpoints" in {
@@ -350,6 +353,17 @@ class WebManagerSpec extends EndpointTestHelper {
       req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
 
+      val req2 = WookieeRequest("test")
+      req2.contentString() mustEqual "test"
+
+      val req3 = WookieeRequest(
+        Content("test"),
+        new util.HashMap[String, String](),
+        new util.HashMap[String, String](),
+        Headers()
+      )
+      req3.contentString() mustEqual "test"
+
       val cors = AllowSome(List())
       AllowSome.unapply(cors) must not be None
 
@@ -394,6 +408,9 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val wookResp = WookieeResponse()
       wookResp.statusCode.code mustEqual 200
+
+      val wookStatus = WookieeResponse(StatusCode(204))
+      wookStatus.statusCode.code mustEqual 204
 
       val wookContResp = WookieeResponse(Content("test"))
       wookContResp.statusCode.code mustEqual 200
