@@ -13,7 +13,6 @@ import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, Outp
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
-import java.util
 import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
@@ -358,8 +357,8 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val req3 = WookieeRequest(
         Content("test"),
-        new util.HashMap[String, String](),
-        new util.HashMap[String, String](),
+        new java.util.HashMap[String, String](),
+        new java.util.HashMap[String, String](),
         Headers()
       )
       req3.contentString() mustEqual "test"

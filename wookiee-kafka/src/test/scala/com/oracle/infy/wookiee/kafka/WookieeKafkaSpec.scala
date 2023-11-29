@@ -78,7 +78,7 @@ class WookieeKafkaSpec extends TestHelper {
       )
 
       awaitEvent({
-        producer.send("pattern-topic", Some("key"), "value")
+        producer.send("pattern-topic", "key", "value")
         Thread.sleep(1000L)
         receivedKey == "key" && receivedVal == "value"
       })
@@ -186,7 +186,7 @@ class WookieeKafkaSpec extends TestHelper {
       })
 
       0.until(100).foreach { _ =>
-        producer.send("volume-topic", Some("key"), "value")
+        producer.send("volume-topic", "value")
       }
 
       awaitEvent({
