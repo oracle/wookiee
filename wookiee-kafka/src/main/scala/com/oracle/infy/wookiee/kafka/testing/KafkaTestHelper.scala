@@ -125,7 +125,7 @@ class KafkaTestHelper {
           KafkaObjects
             .log
             .info(s"Received records: [${recs.map(r => s"${r.getKey} -> ${r.getValue}").mkString(", ")}]")
-        records.addAll(recs)
+        records ++= recs
         records.size >= numberOfEvents
       },
       timeout,
