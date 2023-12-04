@@ -347,7 +347,7 @@ class WebManagerSpec extends EndpointTestHelper {
 
     "gets coverage on case class objects" in {
       val req =
-        WookieeRequest(Content("test"), Map.empty[String, String], Map.empty[String, String], HttpObjects.Headers())
+        WookieeRequest(Content("test"))
       req.contentString() mustEqual "test"
       req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
@@ -381,6 +381,45 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val webEx = WookieeWebException("test", None, None)
       WookieeWebException.unapply(webEx) must not be None
+
+      val headers = Headers()
+      Headers.unapply(headers) mustEqual Some(Map())
+
+      val resp = WookieeResponse()
+      WookieeResponse.unapply(resp).isEmpty mustEqual false
+
+      val sc = StatusCode()
+      StatusCode.unapply(sc) mustEqual Some(200)
+
+      val endpointMeta = EndpointMeta("a", "b")
+      EndpointMeta.unapply(endpointMeta) mustEqual Some(("a", "b"))
+    }
+
+    "have request be fully case insensitive" in {
+      val req = WookieeRequest(
+        Content("ignored"),
+        Map("tESt" -> "pValue"),
+        Map("tESt" -> "qValue"),
+        Headers(Map("tESt" -> List("hValue")))
+      )
+
+      req.pathSegments("test") mustEqual "pValue"
+      req.pathSegments("TEST") mustEqual "pValue"
+      req.pathSegment("test") mustEqual "pValue"
+      req.getPathSegment("TEST") mustEqual Some("pValue")
+
+      req.queryParameters("test") mustEqual "qValue"
+      req.queryParameters("TEST") mustEqual "qValue"
+      req.queryParameter("TesT") mustEqual "qValue"
+      req.getQueryParameter("TesT") mustEqual Some("qValue")
+
+      req.headers.getValue("test") mustEqual List("hValue")
+      req.headers.getValue("TEST") mustEqual List("hValue")
+      req.header("TesT") mustEqual List("hValue")
+      req.getHeader("TesT") mustEqual Some(List("hValue"))
+      req.headerValue("TesT") mustEqual "hValue"
+      req.getHeaderValue("TesT") mustEqual Some("hValue")
+
     }
 
     "have headers be case insensitive" in {

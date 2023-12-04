@@ -1,0 +1,121 @@
+package com.oracle.infy.wookiee.model
+
+import com.oracle.infy.wookiee.model.CaseInsensitiveMap.ciKey
+
+import java.util.{Map => JavaMap}
+import scala.jdk.CollectionConverters._
+
+case class CaseInsensitiveKey(key: String) {
+
+  // Case-insensitive equality check
+  override def equals(obj: Any): Boolean = obj match {
+    case other: CaseInsensitiveKey => key.equalsIgnoreCase(other.key)
+    case obj: String               => key.equalsIgnoreCase(obj)
+    case _                         => false
+  }
+
+  // Case-insensitive hash code
+  override def hashCode(): Int = key.toLowerCase.hashCode
+
+  override def toString: String = key
+}
+
+// This Map implementation is case insensitive for keys and can contain anything
+// It is thread safe and immutable (so save it to the same (or a new) variable after each update)
+// Note that calling any mapping function turns this into a normal Map, and all keys will be lower case
+// The exception is the map function, which also allows you to specify a new default value
+class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitiveKey, A], private val default: Option[A])
+    extends Map[String, A] {
+  override def get(key: String): Option[A] = underlying.get(ciKey(key))
+
+  override def iterator: Iterator[(String, A)] = underlying.iterator.map { case (ciKey, value) => (ciKey.key, value) }
+
+  override def +[B1 >: A](kv: (String, B1)): CaseInsensitiveMap[B1] =
+    new CaseInsensitiveMap(underlying + (ciKey(kv._1) -> kv._2), default)
+
+  override def removed(key: String): CaseInsensitiveMap[A] =
+    new CaseInsensitiveMap(underlying - ciKey(key), default)
+
+  override def contains(key: String): Boolean = underlying.contains(ciKey(key))
+
+  override def size: Int = underlying.size
+
+  override def updated[V1 >: A](key: String, value: V1): CaseInsensitiveMap[V1] =
+    new CaseInsensitiveMap(underlying.updated(ciKey(key), value), default)
+
+  override def empty: CaseInsensitiveMap[A] = new CaseInsensitiveMap(Map.empty, default)
+
+  override def removedAll(keys: IterableOnce[String]): CaseInsensitiveMap[A] = {
+    val keysToRemove = keys.iterator.map(ciKey).toSet
+    new CaseInsensitiveMap(underlying.view.filterKeys(!keysToRemove.contains(_)).toMap, default)
+  }
+
+  override def updatedWith[V1 >: A](key: String)(remappingFunction: Option[A] => Option[V1]): CaseInsensitiveMap[V1] = {
+    val ciKeyEntry = ciKey(key)
+    val updatedValue = remappingFunction(underlying.get(ciKeyEntry))
+
+    updatedValue match {
+      case Some(newValue) => new CaseInsensitiveMap(underlying + (ciKeyEntry -> newValue), default)
+      case None           => new CaseInsensitiveMap(underlying - ciKeyEntry, default)
+    }
+  }
+
+  // This method is the only safe mapping that will preserve case insensitivity
+  def map[V2](f: ((String, A)) => (String, V2), newDefault: Option[V2]): CaseInsensitiveMap[V2] = {
+    val newEntries = underlying.map {
+      case (key, value) =>
+        val (newKey, newValue) = f(key.key, value)
+        ciKey(newKey) -> newValue
+    }
+    new CaseInsensitiveMap(newEntries, newDefault)
+  }
+
+  override def foreach[U](f: ((String, A)) => U): Unit = underlying.foreach {
+    case (ciKey, value) => f(ciKey.key, value)
+  }
+
+  override def ++[V1 >: A](xs: IterableOnce[(String, V1)]): CaseInsensitiveMap[V1] = {
+    val combinedEntries = underlying.map { case (ciKey, value) => (ciKey.key, value: V1) } ++ xs
+    CaseInsensitiveMap(combinedEntries.toSeq: _*)
+  }
+
+  override def apply(key: String): A = get(key) match {
+    case None        => default(key)
+    case Some(value) => value
+  }
+
+  override def default(key: String): A =
+    default.getOrElse(underlying.default(ciKey(key)))
+
+  override def applyOrElse[K1 <: String, V1 >: A](key: K1, default: K1 => V1): V1 =
+    underlying.get(CaseInsensitiveKey(key)).map(value => value: V1).getOrElse(default(key))
+}
+
+object CaseInsensitiveMap {
+
+  def apply[A](map: Map[String, A], default: Option[A]): CaseInsensitiveMap[A] = {
+    val normalizedMap = map.map { case (k, v) => ciKey(k) -> v }
+    new CaseInsensitiveMap[A](normalizedMap, default)
+  }
+
+  def apply[A](map: Map[String, A]): CaseInsensitiveMap[A] =
+    CaseInsensitiveMap[A](map, None)
+
+  def empty[A]: CaseInsensitiveMap[A] =
+    CaseInsensitiveMap.empty[A](None)
+
+  def empty[A](default: Option[A]): CaseInsensitiveMap[A] =
+    CaseInsensitiveMap[A](Map.empty[String, A], default)
+
+  def apply[A](entries: (String, A)*): CaseInsensitiveMap[A] =
+    CaseInsensitiveMap[A](entries.toMap)
+
+  def apply[A](javaMap: JavaMap[String, A]): CaseInsensitiveMap[A] =
+    CaseInsensitiveMap[A](javaMap.asScala.toMap, None)
+
+  def apply[A](javaMap: JavaMap[String, A], default: A): CaseInsensitiveMap[A] =
+    CaseInsensitiveMap[A](javaMap.asScala.toMap, Some(default))
+
+  // Helper to create a CaseInsensitiveKey
+  protected[oracle] def ciKey(key: String): CaseInsensitiveKey = CaseInsensitiveKey(key)
+}

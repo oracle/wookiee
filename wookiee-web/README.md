@@ -179,8 +179,8 @@ class ExternalWSHandler(implicit conf: Config, ec: ExecutionContext) extends Woo
   override def handleText(text: String, request: WookieeRequest, authInfo: Option[AuthHolder])(
     implicit session: Session
   ): Unit = {
-    val pathSegment = input.pathSegments("somevalue")
-    val queryParam = input.queryParameters.getOrElse("query", "default")
+    val pathSegment = request.pathSegments("somevalue")
+    val queryParam = request.queryParameters.getOrElse("query", "default")
 
     if (text == "close") {
       close() // Close the websocket session
