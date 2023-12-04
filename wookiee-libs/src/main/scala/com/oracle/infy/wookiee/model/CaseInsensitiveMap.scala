@@ -45,11 +45,6 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
 
   override def empty: CaseInsensitiveMap[A] = new CaseInsensitiveMap(Map.empty, default)
 
-  override def removedAll(keys: IterableOnce[String]): CaseInsensitiveMap[A] = {
-    val keysToRemove = keys.iterator.map(ciKey).toSet
-    new CaseInsensitiveMap(underlying.view.filterKeys(!keysToRemove.contains(_)).toMap, default)
-  }
-
   override def updatedWith[V1 >: A](key: String)(remappingFunction: Option[A] => Option[V1]): CaseInsensitiveMap[V1] = {
     val ciKeyEntry = ciKey(key)
     val updatedValue = remappingFunction(underlying.get(ciKeyEntry))
@@ -74,9 +69,15 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
     case (ciKey, value) => f(ciKey.key, value)
   }
 
-  override def ++[V1 >: A](xs: IterableOnce[(String, V1)]): CaseInsensitiveMap[V1] = {
+  override def +[V1 >: A](elem1: (String, V1), elem2: (String, V1), elems: (String, V1)*): CaseInsensitiveMap[V1] = {
+    val combinedEntries = underlying.map { case (ciKey, value) => (ciKey.key, value: V1) } + elem1 + elem2 ++ elems
+    CaseInsensitiveMap(combinedEntries, default)
+  }
+
+  // Compatible with both Scala 2.12 and 2.13
+  def ++[V1 >: A](xs: Iterable[(String, V1)]): CaseInsensitiveMap[V1] = {
     val combinedEntries = underlying.map { case (ciKey, value) => (ciKey.key, value: V1) } ++ xs
-    CaseInsensitiveMap(combinedEntries.toSeq: _*)
+    CaseInsensitiveMap(combinedEntries, default)
   }
 
   override def apply(key: String): A = get(key) match {

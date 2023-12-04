@@ -3,21 +3,21 @@ package com.oracle.infy.wookiee.kafka.testing
 import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
 import com.oracle.infy.wookiee.kafka.consume.WookieeKafkaConsumer
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
-import com.oracle.infy.wookiee.kafka.{KafkaObjects, WookieeKafka}
 import com.oracle.infy.wookiee.kafka.testing.model._
+import com.oracle.infy.wookiee.kafka.{KafkaObjects, WookieeKafka}
 import org.apache.kafka.clients.admin.AdminClient
 
 import java.util.concurrent.Executors
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext
-import scala.util.{Random, Try, Using}
 import scala.jdk.CollectionConverters._
+import scala.util.{Random, Try, Using}
 
 // Meant to be used as an extensible trait but will work as an object as well
 class KafkaTestHelper {
 
   // Use this execution context for any async operations
-  implicit val ec: ExecutionContext =
+  val execContext: ExecutionContext =
     ExecutionContext.fromExecutor(Executors.newCachedThreadPool(Executors.defaultThreadFactory()))
 
   // When this method references kafkaPort, it will instantiate and start kafka and zookeeper
@@ -152,7 +152,7 @@ class KafkaTestHelper {
       Seq(topic),
       process,
       resetToLatest = resetToLatest
-    )
+    )(execContext)
     (producer, consumer)
   }
 

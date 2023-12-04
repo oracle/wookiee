@@ -1,6 +1,6 @@
 package com.oracle.infy.wookiee.kafka
 
-import com.oracle.infy.wookiee.kafka.KafkaObjects.{AutoCloseableConsumer, WookieeRecord}
+import com.oracle.infy.wookiee.kafka.KafkaObjects.WookieeRecord
 import com.oracle.infy.wookiee.kafka.consume.WookieeKafkaConsumer
 import com.oracle.infy.wookiee.kafka.produce.WookieeKafkaProducer
 import kafka.server.KafkaConfig._

@@ -85,8 +85,10 @@ class CaseInsensitiveMapSpec extends AnyWordSpec with Matchers {
 
       "remove all specified elements with removedAll" in {
         val newMap = map ++ Map("Three" -> 3, "Four" -> 4)
-        val afterRemoval = newMap.removedAll(List("One", "Four"))
-        afterRemoval.contains("One") mustBe false
+        val afterRemoval = newMap.removedAll(List("ONE", "FOUR"))
+        afterRemoval.contains("ONE") mustBe false
+        afterRemoval.contains("THREE") mustBe true
+        afterRemoval.contains("FOUR") mustBe false
         afterRemoval.contains("Four") mustBe false
       }
     }
