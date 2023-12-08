@@ -110,6 +110,12 @@ class CaseInsensitiveMapSpec extends AnyWordSpec with Matchers {
         newMap.size mustBe 3
       }
 
+      "add many elements with +" in {
+        val newMap = map.+("Three" -> 3, "Four" -> 4, "Five" -> 5)
+        newMap.get("FIVE") mustBe Some(5)
+        newMap.size mustBe 5
+      }
+
       "remove an element with removed" in {
         val newMap = map.removed("One")
         newMap.contains("One") mustBe false

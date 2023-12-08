@@ -33,8 +33,22 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
   override def +[B1 >: A](kv: (String, B1)): CaseInsensitiveMap[B1] =
     new CaseInsensitiveMap(underlying + (ciKey(kv._1) -> kv._2), default)
 
-  override def removed(key: String): CaseInsensitiveMap[A] =
-    new CaseInsensitiveMap(underlying - ciKey(key), default)
+  def -(key: Any): CaseInsensitiveMap[A] =
+    new CaseInsensitiveMap(underlying - ciKey(key.toString), default)
+
+  def --(keys: Iterable[String]): CaseInsensitiveMap[A] = {
+    val keysToRemove = keys.map(ciKey).toSet
+    new CaseInsensitiveMap(underlying.filter {
+      case (key, _) =>
+        !keysToRemove.contains(key)
+    }, default)
+  }
+
+  def removed(key: String): CaseInsensitiveMap[A] =
+    this - key
+
+  def removedAll(keys: Iterable[String]): CaseInsensitiveMap[A] =
+    this -- keys.iterator.to(Iterable)
 
   override def contains(key: String): Boolean = underlying.contains(ciKey(key))
 
@@ -59,14 +73,14 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
   def map[V2](f: ((String, A)) => (String, V2), newDefault: Option[V2]): CaseInsensitiveMap[V2] = {
     val newEntries = underlying.map {
       case (key, value) =>
-        val (newKey, newValue) = f(key.key, value)
+        val (newKey, newValue) = f((key.key, value))
         ciKey(newKey) -> newValue
     }
     new CaseInsensitiveMap(newEntries, newDefault)
   }
 
   override def foreach[U](f: ((String, A)) => U): Unit = underlying.foreach {
-    case (ciKey, value) => f(ciKey.key, value)
+    case (ciKey, value) => f((ciKey.key, value))
   }
 
   override def +[V1 >: A](elem1: (String, V1), elem2: (String, V1), elems: (String, V1)*): CaseInsensitiveMap[V1] = {

@@ -13,9 +13,9 @@ import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, Outp
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
-import scala.jdk.CollectionConverters._
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters._
 
 class WebManagerSpec extends EndpointTestHelper {
   private val directiveHit: AtomicBoolean = new AtomicBoolean(false)
@@ -188,7 +188,7 @@ class WebManagerSpec extends EndpointTestHelper {
     "allow retrieval of registered endpoints" in {
       val endpoints = WebManager.getEndpoints(conf, external = true)
       // If we delete endpoints above, this might become smaller
-      endpoints.size >= 10 mustEqual true
+      endpoints.size >= 3 mustEqual true
       endpoints.contains(EndpointMeta("POST", "/api/*/endpoint"))
       val endpoints2 = WebManager.getEndpoints(conf, external = false)
       endpoints2.size >= 10 mustEqual true

@@ -34,7 +34,7 @@ object Deps {
     val scalaCompatVersion = "1.0.2"
 
     val slf4jVersion = "2.0.7"
-    val logbackVersion = "1.3.6"
+    val logbackVersion = "1.3.14"
     val jodaTimeVersion = "2.12.2"
     val scalaCollectionCompatVersion = "2.9.0"
     val zookeeperVersion = "3.8.3"
@@ -62,6 +62,13 @@ object Deps {
         : ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper")
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
+    val nettyHandler: ModuleID = "io.netty" % "netty-handler" % nettyVersion
+
+    val netty: Seq[ModuleID] = Seq(
+      nettyAll,
+      nettyTC,
+      "io.netty" % "netty-transport-native-epoll" % nettyVersion
+    )
 
     val tyrus: Seq[ModuleID] = Seq(
       "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
@@ -74,9 +81,7 @@ object Deps {
         exclude ("javax.websocket", "javax.websocket-api")
     )
 
-    val curatorLibs: Seq[ModuleID] = Seq(
-      nettyAll,
-      nettyTC,
+    val curatorLibs: Seq[ModuleID] = netty ++ Seq(
       curator,
       zookeeper,
       "org.apache.curator" % "curator-framework" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper"),
@@ -195,6 +200,7 @@ object Deps {
       kafkaClient,
       kafka,
       slf4jApi,
+      nettyHandler,
       logbackClassic % Test
     ) ++ json4sLibs
 
@@ -234,9 +240,7 @@ object Deps {
       test.scalatest
     ) ++ json4sLibs
 
-    val wookieeProto: Seq[ModuleID] = Seq(
-      nettyAll,
-      nettyTC,
+    val wookieeProto: Seq[ModuleID] = netty ++ Seq(
       scalaPbRuntime
     )
 

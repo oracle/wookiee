@@ -215,7 +215,7 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
       override def commandName: String = cmdPath.split("/").last
       override def method: String = "GET"
       override def path: String = cmdPath
-      override def endpointType: EndpointType = EndpointType.BOTH
+      override def endpointType: EndpointType = EndpointType.INTERNAL
       override def execute(input: WookieeRequest): Future[WookieeResponse] = execution(input)
     })
   }
