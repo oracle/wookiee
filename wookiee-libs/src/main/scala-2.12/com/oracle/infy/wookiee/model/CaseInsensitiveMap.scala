@@ -37,6 +37,16 @@ class CaseInsensitiveMap[A] private (
   override def updated[V1 >: A](key: String, value: V1): CaseInsensitiveMap[V1] =
     new CaseInsensitiveMap(underlying.updated(ciKey(key), value), default)
 
+  def updatedWith[V1 >: A](key: String)(remappingFunction: Option[A] => Option[V1]): CaseInsensitiveMap[V1] = {
+    val ciKeyEntry = ciKey(key)
+    val updatedValue = remappingFunction(underlying.get(ciKeyEntry))
+
+    updatedValue match {
+      case Some(newValue) => new CaseInsensitiveMap(underlying + (ciKeyEntry -> newValue), default)
+      case None           => new CaseInsensitiveMap(underlying - ciKeyEntry, default)
+    }
+  }
+
   override def empty: CaseInsensitiveMap[A] = new CaseInsensitiveMap(Map.empty, default)
 
   // This method is the only safe mapping that will preserve case insensitivity
