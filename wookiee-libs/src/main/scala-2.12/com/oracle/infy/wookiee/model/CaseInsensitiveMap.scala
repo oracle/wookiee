@@ -13,6 +13,7 @@ class CaseInsensitiveMap[A] private (
     protected override val underlying: Map[CaseInsensitiveKey, A],
     protected override val default: Option[A]
 ) extends CaseInsensitiveMapLike[A] {
+
   override def +[B1 >: A](kv: (String, B1)): CaseInsensitiveMap[B1] =
     new CaseInsensitiveMap(underlying + (ciKey(kv._1) -> kv._2), default)
 
