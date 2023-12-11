@@ -62,14 +62,6 @@ object Deps {
         : ModuleID = "org.apache.curator" % "curator-recipes" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper")
     val nettyAll: ModuleID = "io.netty" % "netty-all" % nettyVersion
     val nettyTC: ModuleID = "io.netty" % "netty-tcnative" % nettyTCVersion
-    val nettyHandler: ModuleID = "io.netty" % "netty-handler" % nettyVersion
-
-    val netty: Seq[ModuleID] = Seq(
-      nettyAll,
-      nettyTC,
-      nettyHandler,
-      "io.netty" % "netty-transport-native-epoll" % nettyVersion
-    )
 
     val tyrus: Seq[ModuleID] = Seq(
       "org.glassfish.tyrus.ext" % "tyrus-extension-deflate" % tyrusVersion
@@ -82,7 +74,9 @@ object Deps {
         exclude ("javax.websocket", "javax.websocket-api")
     )
 
-    val curatorLibs: Seq[ModuleID] = netty ++ Seq(
+    val curatorLibs: Seq[ModuleID] = Seq(
+      nettyAll,
+      nettyTC,
       curator,
       zookeeper,
       "org.apache.curator" % "curator-framework" % curatorVersion exclude ("org.apache.zookeeper", "zookeeper"),
@@ -240,7 +234,9 @@ object Deps {
       test.scalatest
     ) ++ json4sLibs
 
-    val wookieeProto: Seq[ModuleID] = netty ++ Seq(
+    val wookieeProto: Seq[ModuleID] = Seq(
+      nettyAll,
+      nettyTC,
       scalaPbRuntime
     )
 
