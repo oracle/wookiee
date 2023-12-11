@@ -13,9 +13,6 @@ class CaseInsensitiveMap[A] private (
     protected override val underlying: Map[CaseInsensitiveKey, A],
     protected override val default: Option[A]
 ) extends CaseInsensitiveMapLike[A] {
-  override def get(key: String): Option[A] = underlying.get(ciKey(key))
-
-  override def iterator: Iterator[(String, A)] = underlying.iterator.map { case (ciKey, value) => (ciKey.key, value) }
 
   override def +[B1 >: A](kv: (String, B1)): CaseInsensitiveMap[B1] =
     new CaseInsensitiveMap(underlying + (ciKey(kv._1) -> kv._2), default)
@@ -34,10 +31,6 @@ class CaseInsensitiveMap[A] private (
   def removedAll(keys: Iterable[String]): CaseInsensitiveMap[A] =
     this -- keys
 
-  override def contains(key: String): Boolean = underlying.contains(ciKey(key))
-
-  override def size: Int = underlying.size
-
   override def updated[V1 >: A](key: String, value: V1): CaseInsensitiveMap[V1] =
     new CaseInsensitiveMap(underlying.updated(ciKey(key), value), default)
 
@@ -53,10 +46,6 @@ class CaseInsensitiveMap[A] private (
     new CaseInsensitiveMap(newEntries, newDefault)
   }
 
-  override def foreach[U](f: ((String, A)) => U): Unit = underlying.foreach {
-    case (ciKey, value) => f((ciKey.key, value))
-  }
-
   override def +[V1 >: A](elem1: (String, V1), elem2: (String, V1), elems: (String, V1)*): CaseInsensitiveMap[V1] = {
     val combinedEntries = underlying.map { case (ciKey, value) => (ciKey.key, value: V1) } + elem1 + elem2 ++ elems
     CaseInsensitiveMap(combinedEntries, default)
@@ -67,17 +56,6 @@ class CaseInsensitiveMap[A] private (
     val combinedEntries = underlying.map { case (ciKey, value) => (ciKey.key, value: V1) } ++ xs
     CaseInsensitiveMap(combinedEntries, default)
   }
-
-  override def apply(key: String): A = get(key) match {
-    case None        => default(key)
-    case Some(value) => value
-  }
-
-  override def default(key: String): A =
-    default.getOrElse(underlying.default(ciKey(key)))
-
-  override def applyOrElse[K1 <: String, V1 >: A](key: K1, default: K1 => V1): V1 =
-    underlying.get(CaseInsensitiveKey(key)).map(value => value: V1).getOrElse(default(key))
 }
 
 object CaseInsensitiveMap {

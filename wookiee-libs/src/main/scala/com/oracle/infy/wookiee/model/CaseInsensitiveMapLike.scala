@@ -2,9 +2,6 @@ package com.oracle.infy.wookiee.model
 
 import com.oracle.infy.wookiee.model.CaseInsensitiveMap.ciKey
 
-import java.util.{Map => JavaMap}
-import scala.jdk.CollectionConverters._
-
 case class CaseInsensitiveKey(key: String) {
 
   // Case-insensitive equality check
