@@ -48,7 +48,7 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
     this - key
 
   def removedAll(keys: Iterable[String]): CaseInsensitiveMap[A] =
-    this -- keys.iterator.to(Iterable)
+    this -- keys
 
   override def contains(key: String): Boolean = underlying.contains(ciKey(key))
 
