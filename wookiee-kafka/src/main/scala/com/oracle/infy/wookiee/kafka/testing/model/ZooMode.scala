@@ -39,7 +39,7 @@ object TestingClusterMode {
 
   def apply(ports: Array[Int]): TestingClusterMode = {
     val customInstanceSpecProps = new util.HashMap[String, Object]()
-    customInstanceSpecProps.put("admin.enableServer", false.asInstanceOf[Object]) //scalafix:ok
+    customInstanceSpecProps.put("admin.enableServer", false.asInstanceOf[Object])
 
     val specs: util.List[InstanceSpec] =
       ports
@@ -47,7 +47,7 @@ object TestingClusterMode {
         .map(
           (item: (Int, Int)) =>
             new InstanceSpec(
-              null, //scalafix:ok
+              null,
               item._1,
               -1, // random port
               -1, // random port

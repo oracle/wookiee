@@ -67,6 +67,7 @@ object Deps {
     val netty: Seq[ModuleID] = Seq(
       nettyAll,
       nettyTC,
+      nettyHandler,
       "io.netty" % "netty-transport-native-epoll" % nettyVersion
     )
 
@@ -200,7 +201,6 @@ object Deps {
       kafkaClient,
       kafka,
       slf4jApi,
-      nettyHandler,
       logbackClassic % Test
     ) ++ json4sLibs
 
