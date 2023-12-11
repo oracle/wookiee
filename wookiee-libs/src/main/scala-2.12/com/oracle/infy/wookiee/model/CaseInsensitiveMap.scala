@@ -5,36 +5,20 @@ import com.oracle.infy.wookiee.model.CaseInsensitiveMap.ciKey
 import java.util.{Map => JavaMap}
 import scala.jdk.CollectionConverters._
 
-case class CaseInsensitiveKey(key: String) {
-
-  // Case-insensitive equality check
-  override def equals(obj: Any): Boolean = obj match {
-    case other: CaseInsensitiveKey => key.equalsIgnoreCase(other.key)
-    case obj: String               => key.equalsIgnoreCase(obj)
-    case _                         => false
-  }
-
-  // Case-insensitive hash code
-  override def hashCode(): Int = key.toLowerCase.hashCode
-
-  override def toString: String = key
-}
-
 // This Map implementation is case insensitive for keys and can contain anything
 // It is thread safe and immutable (so save it to the same (or a new) variable after each update)
 // Note that calling any mapping function turns this into a normal Map, and all keys will be lower case
 // The exception is the map function, which also allows you to specify a new default value
-class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitiveKey, A], private val default: Option[A])
-    extends Map[String, A] {
+class CaseInsensitiveMap[A] private (
+    protected override val underlying: Map[CaseInsensitiveKey, A],
+    protected override val default: Option[A]
+) extends CaseInsensitiveMapLike[A] {
   override def get(key: String): Option[A] = underlying.get(ciKey(key))
 
   override def iterator: Iterator[(String, A)] = underlying.iterator.map { case (ciKey, value) => (ciKey.key, value) }
 
   override def +[B1 >: A](kv: (String, B1)): CaseInsensitiveMap[B1] =
     new CaseInsensitiveMap(underlying + (ciKey(kv._1) -> kv._2), default)
-
-  def -(key: Any): CaseInsensitiveMap[A] =
-    new CaseInsensitiveMap(underlying - ciKey(key.toString), default)
 
   def --(keys: Iterable[String]): CaseInsensitiveMap[A] = {
     val keysToRemove = keys.map(ciKey).toSet
@@ -44,11 +28,11 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
     }, default)
   }
 
-  def removed(key: String): CaseInsensitiveMap[A] =
-    this - key
+  override def -(key: Any): CaseInsensitiveMap[A] =
+    new CaseInsensitiveMap(underlying - ciKey(key.toString), default)
 
-  def removedAll(keys: Iterable[String]): CaseInsensitiveMap[A] =
-    this -- keys
+  def removed(key: String): CaseInsensitiveMap[A] =
+    new CaseInsensitiveMap[A](underlying - ciKey(key), default)
 
   override def contains(key: String): Boolean = underlying.contains(ciKey(key))
 
@@ -58,16 +42,6 @@ class CaseInsensitiveMap[A] private (private val underlying: Map[CaseInsensitive
     new CaseInsensitiveMap(underlying.updated(ciKey(key), value), default)
 
   override def empty: CaseInsensitiveMap[A] = new CaseInsensitiveMap(Map.empty, default)
-
-  override def updatedWith[V1 >: A](key: String)(remappingFunction: Option[A] => Option[V1]): CaseInsensitiveMap[V1] = {
-    val ciKeyEntry = ciKey(key)
-    val updatedValue = remappingFunction(underlying.get(ciKeyEntry))
-
-    updatedValue match {
-      case Some(newValue) => new CaseInsensitiveMap(underlying + (ciKeyEntry -> newValue), default)
-      case None           => new CaseInsensitiveMap(underlying - ciKeyEntry, default)
-    }
-  }
 
   // This method is the only safe mapping that will preserve case insensitivity
   def map[V2](f: ((String, A)) => (String, V2), newDefault: Option[V2]): CaseInsensitiveMap[V2] = {
