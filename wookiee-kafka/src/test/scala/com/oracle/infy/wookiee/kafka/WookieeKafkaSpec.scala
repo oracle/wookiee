@@ -29,10 +29,15 @@ class WookieeKafkaSpec extends TestHelper {
     }
 
     "start local kafka" in {
-      val localKafka = startLocalKafkaServer(zkMode.getConnectString)
-      localKafka._2.close()
-      val localKafka2 = startLocalKafkaServer(zkMode.getConnectString, None)
-      localKafka2._2.close()
+      Try {
+        val localKafka = startLocalKafkaServer(zkMode.getConnectString)
+        localKafka._2.close()
+      }
+
+      Try {
+        val localKafka2 = startLocalKafkaServer(zkMode.getConnectString, None)
+        localKafka2._2.close()
+      }
     }
 
     "produce and consume a basic message" in {
