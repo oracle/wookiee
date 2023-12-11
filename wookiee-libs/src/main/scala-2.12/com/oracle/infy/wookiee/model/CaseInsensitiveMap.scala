@@ -28,7 +28,7 @@ class CaseInsensitiveMap[A] private (
     }, default)
   }
 
-  override def -(key: Any): CaseInsensitiveMap[A] =
+  override def -(key: String): CaseInsensitiveMap[A] =
     new CaseInsensitiveMap(underlying - ciKey(key.toString), default)
 
   def removed(key: String): CaseInsensitiveMap[A] =
