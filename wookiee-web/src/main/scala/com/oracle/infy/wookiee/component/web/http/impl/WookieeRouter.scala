@@ -313,13 +313,13 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
   def listOfRoutes(): List[EndpointMeta] = {
     def navigateNode(node: PathNode, pathSoFar: String): List[EndpointMeta] = {
       val currentList = if (!node.handlers.isEmpty) {
-        (node
+        node
           .handlers
           .asScala
           .map {
             case (method: String, _: WookieeHandler) =>
               EndpointMeta(pathSoFar, method)
-          })
+          }
           .toList
       } else List()
 
