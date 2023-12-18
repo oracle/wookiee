@@ -5,6 +5,7 @@ import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 
 import scala.concurrent.Future
+import scala.util.Try
 
 /**
   * Trait to extend for each HTTP endpoint you want to expose, as an alternative to
@@ -36,8 +37,9 @@ trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
   // Any uncaught errors from the execute method or anywhere else in processing will
   // be passed to this handler to be converted into a response.
   // If a WookieeWebException is thrown we'll use its information to create the response.
-  def errorHandler(ex: Throwable): WookieeResponse = {
+  def errorHandler(request: WookieeRequest, ex: Throwable): WookieeResponse = {
     log.warn(s"WHH400: Error in HTTP handling of path [$path], method [$method]", ex)
+    Try(log.debug(s"WHH401: Detailed error in HTTP handling of path [$path], method [$method], request [$request]", ex))
     ex match {
       case WookieeWebException(msg, _, code) =>
         WookieeResponse(

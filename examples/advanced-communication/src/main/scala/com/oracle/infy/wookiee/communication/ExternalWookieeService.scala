@@ -34,7 +34,7 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
       },
       businessLogic = ExternalHttpCommand.businessLogicToCallInternalCommand,
       responseHandler = (output: OutputHolder) => WookieeResponse(Content(output.output)),
-      errorHandler = (err: Throwable) => WookieeResponse(Content(err.getMessage), StatusCode(500)),
+      errorHandler = (_: WookieeRequest, err: Throwable) => WookieeResponse(Content(err.getMessage), StatusCode(500)),
       endpointOptions = EndpointOptions
         .default
         .copy(defaultHeaders = Headers(Map("Default-Wookiee-Header" -> List("Default Header Value"))))

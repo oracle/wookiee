@@ -25,6 +25,12 @@ class CaseInsensitiveMapSpec extends AnyWordSpec with Matchers {
         val map = CaseInsensitiveMap(Map("One" -> 1), Some(0))
         map.default("anything") mustBe 0
       }
+
+      "handle being converted to Java and still keep case insensitivity" in {
+        val map = CaseInsensitiveMap(Map("One" -> 1), Some(0))
+        val javaMap = map.asJava
+        javaMap.get("one") mustBe 1
+      }
     }
 
     "accessing elements" should {

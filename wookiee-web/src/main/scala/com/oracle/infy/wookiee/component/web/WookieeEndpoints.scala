@@ -5,12 +5,7 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
 import com.oracle.infy.wookiee.component.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.web.http.HttpObjects.{
-  EndpointOptions,
-  EndpointType,
-  WookieeRequest,
-  WookieeResponse
-}
+import com.oracle.infy.wookiee.component.web.http.HttpObjects.{EndpointOptions, EndpointType, WookieeRequest, WookieeResponse}
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketHandler, handlerFromCommand}
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
@@ -56,7 +51,7 @@ object WookieeEndpoints {
       requestHandler: WookieeRequest => Future[Input], // Marshall the WookieeRequest into any generic Input type
       businessLogic: Input => Future[Output], // Main business logic, Output is any generic type
       responseHandler: Output => WookieeResponse, // Marshall the generic Output type into a WookieeResponse
-      errorHandler: Throwable => WookieeResponse, // If any errors happen at any point, how shall we respond
+      errorHandler: (WookieeRequest, Throwable) => WookieeResponse, // If any errors happen at any point, how shall we respond
       endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
   )(
       implicit config: Config, // This just need to have 'instance-id' set to any string
@@ -80,7 +75,8 @@ object WookieeEndpoints {
 
       override def endpointType: EndpointType = cmdType
 
-      override def errorHandler(ex: Throwable): WookieeResponse = cmdErrors(ex)
+      override def errorHandler(wookieeRequest: WookieeRequest, ex: Throwable): WookieeResponse =
+        cmdErrors(wookieeRequest, ex)
 
       override def endpointOptions: EndpointOptions = cmdOptions
 

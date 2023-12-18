@@ -49,7 +49,7 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (request, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )
@@ -70,7 +70,7 @@ class WebManagerSpec extends EndpointTestHelper {
       }, { output =>
         if (output.value.equals("output-fail")) throw new Exception("fail=output")
         else WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (request, throwable) =>
         if (throwable.getMessage.equals("fail=error")) throw new Exception("fail=error")
         else WookieeResponse(Content(throwable.getMessage))
       },
@@ -99,7 +99,7 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (request, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )

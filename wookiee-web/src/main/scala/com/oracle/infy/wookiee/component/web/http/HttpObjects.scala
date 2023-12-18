@@ -255,6 +255,16 @@ object HttpObjects {
         }.getOrElse(Nil)
       else Nil
     }
+
+    override def toString(): String = {
+      s"""Request:
+         |Content = [${Try(content.asString).getOrElse("Could not parse content as string")}]
+         |Headers = [${headers.getMap.mkString(", ")}]
+         |Query Parameters = [${queryParameters.mkString(", ")}]
+         |Path Segments = [${pathSegments.mkString(", ")}]
+         |Additional Parameters = [${this.mkString(", ")}]
+         |""".stripMargin
+    }
   }
 
   object WookieeResponse {

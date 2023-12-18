@@ -18,6 +18,7 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
+import scala.util.Try
 
 /**
   * This support object for WookieeRouter contains the handler creation logic that Helidon needs
@@ -78,13 +79,14 @@ object WookieeRouter extends LoggingAdapter {
   // in yet another try/catch block. This is because the error handling logic itself
   // can throw an error, and we want to make sure that we catch that and return a 500.
   def handleErrorAndRespond(
-      errorHandler: Throwable => WookieeResponse,
+      errorHandler: (WookieeRequest, Throwable) => WookieeResponse,
       res: ServerResponse,
+      req: WookieeRequest,
       e: Throwable
   ): Unit =
     try {
       // Go into error handling
-      val response = errorHandler(e)
+      val response = errorHandler(req, e)
       res.status(response.statusCode.code)
       res.headers().add("Content-Type", response.contentType)
       response.headers.getMap.foreach(x => res.headers().add(x._1, x._2.asJava))
@@ -99,6 +101,9 @@ object WookieeRouter extends LoggingAdapter {
         ()
     }
 
+  private def headersFromReq(req: ServerRequest): Headers =
+    Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
+
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
   protected[oracle] def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
@@ -109,10 +114,11 @@ object WookieeRouter extends LoggingAdapter {
         try {
           val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
           val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
+          val headers = headersFromReq(req)
 
           // Get the query parameters on the request, lowercase them
           val queryParams =
-            req.queryParams().toMap.asScala.toMap.map(x => x._1.toLowerCase -> x._2.asScala.mkString(","))
+            req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.mkString(","))
           req.content().as(classOf[Array[Byte]]).thenAccept {
             bytes =>
               try {
@@ -120,7 +126,7 @@ object WookieeRouter extends LoggingAdapter {
                   Content(bytes),
                   pathSegments,
                   queryParams,
-                  Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
+                  headers
                 )
 
                 // Main execution logic for this HTTP command
@@ -141,13 +147,18 @@ object WookieeRouter extends LoggingAdapter {
                   }
                   .recover {
                     case e: Throwable =>
-                      WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                      WookieeRouter.handleErrorAndRespond(command.errorHandler, res, wookieeRequest, e)
                       AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                 ()
               } catch {
                 case e: Throwable =>
-                  WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                  WookieeRouter.handleErrorAndRespond(
+                    command.errorHandler,
+                    res,
+                    WookieeRequest(Content(bytes), pathSegments, queryParams, headers),
+                    e
+                  )
                   AccessLog.logAccess(None, command.method, actualPath, res.status().code)
               }
           }
@@ -155,7 +166,17 @@ object WookieeRouter extends LoggingAdapter {
           ()
         } catch {
           case e: Throwable =>
-            WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+            WookieeRouter.handleErrorAndRespond(
+              command.errorHandler,
+              res,
+              WookieeRequest(
+                Content(),
+                Map.empty[String, String],
+                Map.empty[String, String],
+                Try(headersFromReq(req)).getOrElse(Headers())
+              ),
+              e
+            )
         }
       },
       command.endpointOptions
