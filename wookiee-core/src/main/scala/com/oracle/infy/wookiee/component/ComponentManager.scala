@@ -227,7 +227,7 @@ class ComponentManager extends PrepareForShutdown {
   def started: Receive = super.receive orElse {
     case Message(name, msg)                 => message(name, msg)
     case Request(name, msg)                 => pipe(request(name, msg)) to sender(); ()
-    case Broadcast(msg) => broadcast(msg)
+    case Broadcast(msg)                     => broadcast(msg)
     case GetComponent(name)                 => sender() ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
     case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()

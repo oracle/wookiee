@@ -18,7 +18,7 @@ trait LoggingAdapter {
 
   // Fire and forget, will also log the error if the input function throws one
   def asyncLogErrorAndForget[A](f: => A, messageOnFail: Option[String] = None, level: Level = WARNING)(
-    implicit ec: ExecutionContext = WookieeScheduler.schedulerEc
+      implicit ec: ExecutionContext = WookieeScheduler.schedulerEc
   ): Unit = {
     Future {
       tryAndLogError(f, messageOnFail, level)
