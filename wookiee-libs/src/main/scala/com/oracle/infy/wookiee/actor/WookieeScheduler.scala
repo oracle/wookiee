@@ -12,7 +12,7 @@ import scala.util.Try
 object WookieeScheduler extends LoggingAdapter {
 
   // Main processor for scheduled events
-  private lazy val schedulerEc: ExecutionContext =
+  private[wookiee] lazy val schedulerEc: ExecutionContext =
     ThreadUtil.createEC("wookiee-scheduler")
   private var timer: ScheduledExecutorService = Executors.newScheduledThreadPool(32)
 

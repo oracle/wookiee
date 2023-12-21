@@ -17,6 +17,7 @@ import org.scalatest.time.{Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
 
@@ -30,7 +31,7 @@ object TestComponentV2 {
   val innerShutdown: AtomicBoolean = new AtomicBoolean(false)
   val innerStart: AtomicBoolean = new AtomicBoolean(false)
   val innerCompReady: AtomicBoolean = new AtomicBoolean(false)
-  val gotMessage: AtomicBoolean = new AtomicBoolean(false)
+  val gotMessage: ListBuffer[String] = new ListBuffer[String]()
 }
 
 class TestComponentV2(name: String, config: Config) extends ComponentV2(name, config) {
@@ -76,7 +77,7 @@ class TestComponentV2(name: String, config: Config) extends ComponentV2(name, co
     Future.successful("request-reply")
 
   override def onMessage[T](msg: T): Unit =
-    gotMessage.set(true)
+    gotMessage.append(msg.toString)
 }
 
 class ComponentV2Spec
@@ -166,7 +167,14 @@ class ComponentV2Spec
 
     "receive a message" in {
       componentManager ! Message("component-v2", ComponentMessage("test"))
-      ThreadUtil.awaitResult({ if (gotMessage.get()) Some(true) else None }) mustBe true
+      ThreadUtil.awaitResult({
+        if (gotMessage.last.equals("test")) Some(true) else None
+      }) mustBe true
+    }
+
+    "all components receive a broadcast" in {
+      componentManager ! Broadcast(ComponentMessage(s"broad"))
+      ThreadUtil.awaitEvent(gotMessage.takeRight(2) == List("broad", "broad"))
     }
 
     "receive a request" in {

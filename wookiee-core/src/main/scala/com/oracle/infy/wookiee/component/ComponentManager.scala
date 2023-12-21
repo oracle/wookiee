@@ -43,6 +43,8 @@ import scala.util.{Failure, Success, Try}
 
 case class Request[T](name: String, msg: ComponentRequest[T])
 case class Message[T](name: String, msg: ComponentMessage[T])
+
+case class Broadcast[T](msg: ComponentMessage[T])
 case class InitializeComponents()
 case class LoadComponent(name: String, classPath: String, classLoader: Option[HarnessClassLoader] = None)
 case class ReloadComponent(file: File, classLoader: Option[HarnessClassLoader] = None)
@@ -90,15 +92,25 @@ object ComponentManager extends Mediator[ConcurrentHashMap[String, ComponentInfo
       case Some(info: ComponentInfoAkka) =>
         info.actorRef ! msg
       case Some(info: ComponentInfoV2) =>
-        tryAndLogError(
+        asyncLogErrorAndForget(
           info.component.onMessage(msg.msg),
           Some(s"Component [$name] message handling failed, message: [${msg.msg}]")
         )
-        ()
       case _ =>
         log.error(s"Didn't find component $name for messaging")
     }
   }
+
+  // Will send the given message to all registered Components
+  def messageBroadcast[T](msg: ComponentMessage[T])(implicit config: Config): Unit =
+    getMediator(config).values().asScala.foreach {
+      case info: ComponentInfoAkka => info.actorRef ! msg
+      case info: ComponentInfoV2 =>
+        asyncLogErrorAndForget(
+          info.component.onMessage(msg.msg),
+          Some(s"Failed to process component message [${msg.msg}] for component [${info.name}]")
+        )
+    }
 
   /**
     * A request can be sent from any where in the system to any component and get a response
@@ -215,6 +227,7 @@ class ComponentManager extends PrepareForShutdown {
   def started: Receive = super.receive orElse {
     case Message(name, msg)                 => message(name, msg)
     case Request(name, msg)                 => pipe(request(name, msg)) to sender(); ()
+    case Broadcast(msg) => broadcast(msg)
     case GetComponent(name)                 => sender() ! context.child(name)
     case LoadComponent(name, classPath, cl) => sender() ! loadComponentClass(name, classPath, cl)
     case ReloadComponent(file, cl)          => pipe(reloadComponent(file, cl)) to sender(); ()
@@ -354,6 +367,9 @@ class ComponentManager extends PrepareForShutdown {
 
   def request[T](name: String, msg: ComponentRequest[T]): Future[ComponentResponse[_]] =
     requestToComponent[T](name, msg)(config, context.dispatcher)
+
+  def broadcast[T](msg: ComponentMessage[T]): Unit =
+    messageBroadcast[T](msg)(config)
 
   private def validateComponentStartup(): Unit = {
     // Wait for the child actors above to be loaded before calling on the services
