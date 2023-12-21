@@ -218,6 +218,7 @@ object HttpObjects {
     def getQueryParameter(key: String): Option[String] =
       queryParameters.get(key)
 
+    // Should correspond to the path segments in the route
     def pathSegment(key: String): String =
       pathSegments(key)
 
@@ -256,6 +257,10 @@ object HttpObjects {
       else Nil
     }
 
+    // The query string and path, will look like '/path?query=string'
+    def getQuery: String =
+      this.get(queryKey).map(_.toString).getOrElse("")
+
     override def toString(): String = {
       s"""Request:
          |Content = [${Try(content.asString).getOrElse("Could not parse content as string")}]
@@ -265,6 +270,11 @@ object HttpObjects {
          |Additional Parameters = [${this.mkString(", ")}]
          |""".stripMargin
     }
+
+    private val queryKey = "wookiee-query"
+
+    private[wookiee] def appendQuery(query: String): Unit =
+      this.update(queryKey, query)
   }
 
   object WookieeResponse {

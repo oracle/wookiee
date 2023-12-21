@@ -13,6 +13,7 @@ import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, Outp
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
+import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
 import scala.jdk.CollectionConverters._
@@ -49,7 +50,7 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { (request, throwable) =>
+      }, { (_, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )
@@ -70,7 +71,7 @@ class WebManagerSpec extends EndpointTestHelper {
       }, { output =>
         if (output.value.equals("output-fail")) throw new Exception("fail=output")
         else WookieeResponse(Content(output.value))
-      }, { (request, throwable) =>
+      }, { (_, throwable) =>
         if (throwable.getMessage.equals("fail=error")) throw new Exception("fail=error")
         else WookieeResponse(Content(throwable.getMessage))
       },
@@ -99,7 +100,27 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { (request, throwable) =>
+      }, { (_, throwable) =>
+        WookieeResponse(Content(throwable.getMessage))
+      }
+    )
+
+    WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
+      "query-endpoint",
+      "/api/query/endpoint",
+      "GET",
+      EndpointType.EXTERNAL, { request =>
+        val query = request.queryParameters
+        Future.successful(
+          InputObject(
+            s"${request.getQuery}\n${query.mkString("[", ",", "]")}"
+          )
+        )
+      }, { input =>
+        Future.successful(OutputObject(input.value))
+      }, { output =>
+        WookieeResponse(Content(output.value))
+      }, { (_, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )
@@ -220,6 +241,29 @@ class WebManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe "50024"
+    }
+
+    "extract query params that are encoded" in {
+      val rawBadString = "&?=*()!"
+      val badString = URLEncoder.encode(rawBadString, "UTF-8")
+      val queryParams = s"$badString=$badString&q1=p1&q2=p2&q3=p3"
+
+      val query = s"/api/query/endpoint?$queryParams"
+      val responseContent = getContent(
+        oneOff(
+          s"http://localhost:$externalPort",
+          "GET",
+          query,
+          jsonPayload
+        )
+      )
+      val expected = s"""[$rawBadString -> $rawBadString,q1 -> p1,q2 -> p2,q3 -> p3]"""
+      val (queryContent, queryResponse) = responseContent.split("\n") match {
+        case Array(content, response) => (content, response)
+        case _                        => ("", "")
+      }
+      queryContent.replaceAll("%2A", "*") mustBe queryParams
+      queryResponse mustBe expected
     }
 
     "handle failures with error handler" in {
