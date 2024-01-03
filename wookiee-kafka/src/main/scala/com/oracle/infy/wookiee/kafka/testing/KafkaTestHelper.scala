@@ -114,7 +114,10 @@ class KafkaTestHelper {
       consumer: WookieeKafkaConsumer,
       timeout: Long
   ): List[WookieeRecord] = {
-    if (!consumer.subscription().contains(topic))
+    if (Try(!consumer.subscription().contains(topic)).getOrElse {
+      KafkaObjects.log.warn(s"Could not check if we were subscribed to topic [$topic], assuming we are")
+      false
+    })
       consumer.subscribe(topic)
 
     val records = new ListBuffer[WookieeRecord]()
