@@ -18,6 +18,7 @@ import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import io.helidon.webserver._
 import org.joda.time.{DateTime, DateTimeZone}
+import org.slf4j.bridge.SLF4JBridgeHandler
 
 import java.io.{FileInputStream, InputStream}
 import java.security.{KeyStore, SecureRandom}
@@ -146,6 +147,9 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
   }
 
   override def start(): Unit = {
+    // Redirect Helidon logging (which uses java.util.logging) to SLF4J
+    SLF4JBridgeHandler.removeHandlersForRootLogger()
+    SLF4JBridgeHandler.install()
     startService()
     log.info(s"Helidon Servers started on ports: [internal=$internalPort], [external=$externalPort]")
   }

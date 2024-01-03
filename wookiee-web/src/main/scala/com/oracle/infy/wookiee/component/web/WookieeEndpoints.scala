@@ -114,8 +114,8 @@ object WookieeEndpoints {
       // When this websocket is closed for any reason, this will be invoked
       onCloseHandler: Option[Auth] => Unit = (_: Option[Auth]) => (),
       // When this an error happens anywhere in the websocket, this will be invoked
-      wsErrorHandler: (WebsocketInterface, Option[Auth]) => Throwable => Unit =
-        (_: WebsocketInterface, _: Option[Auth]) => { _: Throwable => () },
+      wsErrorHandler: (WebsocketInterface, String, Option[Auth]) => Throwable => Unit =
+      (_: WebsocketInterface, _: String, _: Option[Auth]) => { _: Throwable => () },
       // Set of options including CORS allowed headers
       endpointOptions: EndpointOptions = EndpointOptions.default
   )(implicit config: Config): Unit = {
@@ -133,10 +133,10 @@ object WookieeEndpoints {
       override def onClosing(auth: Option[Auth]): Unit =
         onCloseHandler(auth)
 
-      override def handleError(request: WookieeRequest, authInfo: Option[Auth])(
+      override def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
           implicit session: Session
       ): Throwable => Unit =
-        wsErrorHandler(new WebsocketInterface(request), authInfo)
+        wsErrorHandler(new WebsocketInterface(request), message, authInfo)
 
       override def handleAuth(request: WookieeRequest): Future[Option[Auth]] =
         authHandler(request)

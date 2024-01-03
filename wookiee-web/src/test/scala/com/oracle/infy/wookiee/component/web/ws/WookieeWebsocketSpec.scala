@@ -194,7 +194,7 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
       session.close()
 
       assert(
-        messageFromServer == "Got error: [error on purpose]"
+        messageFromServer == "Got error: [error on purpose], message that caused it: [error]"
       )
       ThreadUtil.awaitResult({ if (onCloseCalled.get()) Some(true) else None }) mustBe true
     }
@@ -356,11 +356,11 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
           reply(s"Got message: [$text]")
       }
 
-      override def handleError(request: WookieeRequest, authInfo: Option[Any])(
+      override def handleError(request: WookieeRequest, message: String, authInfo: Option[Any])(
           implicit session: Session
       ): Throwable => Unit = {
         case e: IllegalStateException =>
-          super.handleError(request, authInfo)(session)(e)
+          super.handleError(request, message, authInfo)(session)(e)
           reply(s"Got error: [${e.getMessage}]")
           close(Some(("error", 1000)))
         case e: Exception =>
@@ -431,10 +431,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
             s"Got message: [$text]"
           ),
       onCloseHandler = (_: Option[AuthHolder]) => onCloseCalled.set(true),
-      wsErrorHandler = (interface: WebsocketInterface, _: Option[AuthHolder]) => {
+      wsErrorHandler = (interface: WebsocketInterface, msg: String, _: Option[AuthHolder]) => {
         t: Throwable =>
           interface.reply(
-            s"Got error: [${t.getMessage}]"
+            s"Got error: [${t.getMessage}], message that caused it: [$msg]"
           )
       }
     )

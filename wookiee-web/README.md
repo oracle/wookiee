@@ -256,10 +256,10 @@ WookieeEndpoints.registerWebsocket(
       )
     },
   onCloseHandler = (auth: Option[AuthHolder]) => (),
-  // Can access the WookieeRequest object via `interface.request`
-  wsErrorHandler = (interface: WebsocketInterface, _: Option[AuthHolder]) => {
+  // Can access the original WookieeRequest object via `interface.request`
+  wsErrorHandler = (interface: WebsocketInterface, message: String, _: Option[AuthHolder]) => {
     _: Throwable =>
-      log.info(s"Encountered an error on request [${interface.request}], closing socket")
+      log.info(s"Encountered an error on session [${interface.request}] and message [$message], closing socket")
       interface.close(Some(("Encountered an error, closing socket", 1008)))
   },
   endpointOptions = EndpointOptions.default

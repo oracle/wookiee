@@ -55,7 +55,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def handleText(text: String, request: WookieeRequest, authInfo: Option[Auth])(implicit session: Session): Unit
 
   // Called when any error occurs during handleText
-  def handleError(request: WookieeRequest, authInfo: Option[Auth])(
+  def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
       implicit session: Session
   ): Throwable => Unit = { throwable: Throwable =>
     log.error(s"WWS500: Error handling websocket message to path [$path]", throwable)
@@ -117,7 +117,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
                     s"WWS502: Error handling websocket on path [$path], request [$wookieeRequest], message [$message]",
                     e
                   )
-                  handleError(wookieeRequest, auth)(session)(e)
+                  handleError(wookieeRequest, message, auth)(session)(e)
               }
             }
           })
