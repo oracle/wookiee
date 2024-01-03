@@ -115,7 +115,7 @@ object WookieeEndpoints {
       onCloseHandler: Option[Auth] => Unit = (_: Option[Auth]) => (),
       // When this an error happens anywhere in the websocket, this will be invoked
       wsErrorHandler: (WebsocketInterface, String, Option[Auth]) => Throwable => Unit =
-      (_: WebsocketInterface, _: String, _: Option[Auth]) => { _: Throwable => () },
+        (_: WebsocketInterface, _: String, _: Option[Auth]) => { _: Throwable => () },
       // Set of options including CORS allowed headers
       endpointOptions: EndpointOptions = EndpointOptions.default
   )(implicit config: Config): Unit = {
