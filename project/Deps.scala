@@ -24,7 +24,7 @@ object Deps {
     // This comes in from finagle but we want a higher version with less vulnerabilities
     val snakeYamlVersion = "2.2"
     val upickleVersion = "2.0.0"
-    val grpcVersion: String = "1.59.0"
+    val grpcVersion: String = "1.59.1"
     val nettyVersion: String = "4.1.100.Final"
     val nettyTCVersion: String = "2.0.62.Final"
     val scalaPbRuntimeVersion: String = "0.11.14"
@@ -138,6 +138,7 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
+    val grpcAll: ModuleID = "io.grpc" % "grpc-all" % grpcVersion
     val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sBlazeVersion
@@ -170,7 +171,8 @@ object Deps {
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
       grpcProtoBuf,
-      grpcStub
+      grpcStub,
+      grpcAll
     )
 
     val http4s: Seq[ModuleID] = Seq(
