@@ -24,6 +24,7 @@ import com.oracle.infy.wookiee.actor.WookieeActor.Receive
 import com.oracle.infy.wookiee.app.HarnessActorSystem
 import com.oracle.infy.wookiee.command._
 import com.oracle.infy.wookiee.component.messages.StatusRequest
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.service.messages.Ready
 import com.oracle.infy.wookiee.service.meta.ServiceMetaDataV2
 import com.oracle.infy.wookiee.test.command.{WeatherCommand, WeatherData}
@@ -57,7 +58,7 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
 
   "test harnesses " should {
     "log logging classes successfully" in {
-      TestHarness.printLoggingClasses()
+      LoggingAdapter.printLoggingClasses()
     }
 
     "start up service manager for both " in {

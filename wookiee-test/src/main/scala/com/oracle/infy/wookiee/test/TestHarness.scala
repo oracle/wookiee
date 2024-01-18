@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory
 
 import java.lang.management.ManagementFactory
 import java.net.ServerSocket
-import java.util.ServiceLoader
 import scala.concurrent.duration._
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Random, Try, Using}
@@ -78,41 +77,6 @@ object TestHarness extends Mediator[TestHarness] {
       case bean: UnixOperatingSystemMXBean =>
         log.info(prefix + " open files = " + bean.getOpenFileDescriptorCount)
       case _ =>
-    }
-  }
-
-  // Call this to see where the logging classes are coming from
-  def printLoggingClasses(): Unit = {
-    println("Logging classpath and class information for diagnostics...")
-    logClassInformation("org.slf4j.LoggerFactory")
-    logClassInformation("ch.qos.logback.classic.LoggerContext")
-    logClassInformation("ch.qos.logback.core.util.StatusPrinter")
-    logSLF4JServiceProvider()
-  }
-
-  def logClassInformation(className: String): Unit = {
-    try {
-      val clazz = Class.forName(className)
-      val classLoader = clazz.getClassLoader
-      val location = classLoader.getResource(className.replace('.', '/') + ".class")
-      println(s"Class: $className, ClassLoader: $classLoader, Location: $location")
-    } catch {
-      case e: ClassNotFoundException => println(s"Class $className not found: ${e.getMessage}")
-      case e: Exception              => println(s"Error loading class $className: ${e.getMessage}")
-    }
-  }
-
-  def logSLF4JServiceProvider(): Unit = {
-    println("SLF4J Service Providers:")
-    try {
-      val serviceLoader = ServiceLoader.load(classOf[org.slf4j.spi.SLF4JServiceProvider])
-      serviceLoader.forEach { provider =>
-        println(
-          s"Provider: ${provider.getClass.getName}, sl4fj max version supported: ${provider.getRequestedApiVersion}"
-        )
-      }
-    } catch {
-      case e: Exception => println(s"Error loading SLF4J Service Providers: ${e.getMessage}")
     }
   }
 
