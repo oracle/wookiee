@@ -56,6 +56,10 @@ class TestHarnessSpec extends AnyWordSpecLike with Matchers with Inspectors {
   val actorSystem2: ActorSystem = sys2.system
 
   "test harnesses " should {
+    "log logging classes successfully" in {
+      TestHarness.printLoggingClasses()
+    }
+
     "start up service manager for both " in {
       sys.serviceManager.isDefined shouldBe true
       sys2.serviceManager.isDefined shouldBe true
