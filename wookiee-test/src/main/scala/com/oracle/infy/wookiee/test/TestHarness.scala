@@ -98,7 +98,7 @@ object TestHarness extends Mediator[TestHarness] {
       println(s"Class: $className, ClassLoader: $classLoader, Location: $location")
     } catch {
       case e: ClassNotFoundException => println(s"Class $className not found: ${e.getMessage}")
-      case e: Exception => println(s"Error loading class $className: ${e.getMessage}")
+      case e: Exception              => println(s"Error loading class $className: ${e.getMessage}")
     }
   }
 
