@@ -1,8 +1,8 @@
 package com.oracle.infy.wookiee.component.web.http
 
 import com.oracle.infy.wookiee.model.CaseInsensitiveMap
-import org.json4s.JValue
-import org.json4s.jackson.JsonMethods.parse
+import org.json4s.{JString, JValue}
+import org.json4s.jackson.JsonMethods.parseOpt
 
 import java.nio.charset.Charset
 import java.util
@@ -306,6 +306,6 @@ object HttpObjects {
   ) {
     def code(): Int = statusCode.code
     def contentString(): String = content.asString
-    def contentJson(): JValue = parse(contentString())
+    def contentJson(): JValue = parseOpt(contentString()).getOrElse(JString(contentString()))
   }
 }
