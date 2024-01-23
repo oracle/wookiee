@@ -139,13 +139,15 @@ class WebManagerSpec extends EndpointTestHelper {
 
       override def requestDirective(request: WookieeRequest): Future[WookieeRequest] = {
         directiveHit.set(true)
+        val header = request.headers
         if (request.content.asString.equals("fail-request")) throw new Exception("fail=directive")
+        request.getQueryParameter("header").foreach(header.putValue(_, List("changed")))
         Future.successful(request)
       }
 
       override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
         if (input.content.asString.equals("fail")) throw new Exception("fail=error")
-        else WookieeResponse(input.content)
+        else WookieeResponse(input.content, input.headers)
       }
     }
 
@@ -387,6 +389,27 @@ class WebManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe "There was an internal server error."
+    }
+
+    "replace value in headers with case insensitivity" in {
+      val headers = Headers(Map("test" -> List("value")))
+      headers.putValue("TEST", List("value2"))
+      headers.getValue("test") mustEqual List("value2")
+      headers.toString mustEqual "Map(test -> List(value2))"
+    }
+
+    "switch out default headers" in {
+      List("Header", "header", "hEaDeR").foreach { hValue =>
+        val response = oneOff(
+          s"http://localhost:$internalPort?header=$hValue",
+          "GET",
+          "/basic/command",
+          "success",
+          Map()
+        )
+
+        response.headers.getValue("header") mustEqual List("changed")
+      }
     }
 
     "gets coverage on case class objects" in {

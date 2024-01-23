@@ -139,9 +139,17 @@ object WookieeRouter extends LoggingAdapter {
                   })
                   .map {
                     response =>
-                      val respHeaders = command.endpointOptions.defaultHeaders.getMap ++ response.headers.getMap
+                      command.endpointOptions.defaultHeaders.getMap.foreach { dH =>
+                        // If the response already has a header with the same name, don't overwrite it
+                        if (!response.headers.getMap.contains(dH._1))
+                          response.headers.putValue(dH._1, dH._2)
+                      }
+
                       res.headers().add("Content-Type", response.contentType)
-                      respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
+                      response.headers.foreach { x =>
+                        res.headers().add(x._1, x._2.asJava)
+                        ()
+                      }
                       res.status(response.statusCode.code)
                       res.send(response.content.value)
                       AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)

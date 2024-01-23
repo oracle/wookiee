@@ -24,7 +24,7 @@ object HttpObjects {
 
   // These are all of the more optional bits of configuring an endpoint
   object EndpointOptions {
-    val default: EndpointOptions = EndpointOptions(Headers(), None, None, None, None, None)
+    def default: EndpointOptions = EndpointOptions(Headers(), None, None, None, None, None)
 
     def apply(): EndpointOptions = default
 
@@ -147,6 +147,10 @@ object HttpObjects {
       caseInsensitiveMap.updateAndGet(_.updated(key, value.asScala.toList))
       ()
     }
+
+    def foreach(f: ((String, List[String])) => Unit): Unit = caseInsensitiveMap.get().foreach(f)
+
+    override def toString: String = caseInsensitiveMap.toString
   }
 
   object StatusCode {
