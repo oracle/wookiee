@@ -94,6 +94,13 @@ object MetricBuilder extends LoggingAdapter {
   def remove(metric: com.oracle.infy.wookiee.component.metrics.metrictype.Metric): Boolean =
     registry.remove(metric.name)
 
+  /**
+   * Remove the metrics matching the given filter
+   * @param filter the filter to apply
+   */
+  def remove(filter: MetricFilter): Unit =
+    registry.removeMatching(filter)
+
   def registerJvmMetrics(): Unit = {
 
     val gcset = new GarbageCollectorMetricSet()
