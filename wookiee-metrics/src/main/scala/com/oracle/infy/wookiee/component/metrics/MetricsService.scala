@@ -19,7 +19,13 @@
 package com.oracle.infy.wookiee.component.metrics
 
 import com.codahale.metrics.MetricFilter
-import com.oracle.infy.wookiee.component.metrics.messages.{MeterObservation, MetricObservation, RemoveMatchingMetric, RemoveMetric, TimerObservation}
+import com.oracle.infy.wookiee.component.metrics.messages.{
+  MeterObservation,
+  MetricObservation,
+  RemoveMatchingMetric,
+  RemoveMetric,
+  TimerObservation
+}
 import com.oracle.infy.wookiee.component.metrics.metrictype.{Meter, Metric, Timer}
 
 private[metrics] class MetricsService {
@@ -28,7 +34,6 @@ private[metrics] class MetricsService {
     * Remove the given metric from the registry
     */
   def remove(metric: Metric): Unit = MetricsEventBus.publish(RemoveMetric(metric))
-
 
   def remove(filter: MetricFilter, metric: Metric): Unit = MetricsEventBus.publish(RemoveMatchingMetric(filter, metric))
 
@@ -78,8 +83,8 @@ trait MetricsAdapter {
   def remove(metric: Metric): Unit = metricsService.remove(metric)
 
   /**
-   * Remove the metrics matching the given metricFilter
-   */
+    * Remove the metrics matching the given metricFilter
+    */
   def remove(metricFilter: MetricFilter, metric: Metric): Unit = metricsService.remove(metricFilter, metric)
 
   /**

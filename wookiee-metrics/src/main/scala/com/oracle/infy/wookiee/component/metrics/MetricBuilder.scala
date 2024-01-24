@@ -95,9 +95,9 @@ object MetricBuilder extends LoggingAdapter {
     registry.remove(metric.name)
 
   /**
-   * Remove the metrics matching the given filter
-   * @param filter the filter to apply
-   */
+    * Remove the metrics matching the given filter
+    * @param filter the filter to apply
+    */
   def remove(filter: MetricFilter): Unit =
     registry.removeMatching(filter)
 
