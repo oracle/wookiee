@@ -65,6 +65,8 @@ class MetricsActor(settings: MonitoringSettings) extends Actor with ActorLogging
 
     case RemoveMetric(metric) => MetricBuilder.remove(metric); ()
 
+    case RemoveMatchingMetric(filter, _) => MetricBuilder.remove(filter);
+
     case o: MetricObservation =>
       o match {
         case o: CounterObservation =>
