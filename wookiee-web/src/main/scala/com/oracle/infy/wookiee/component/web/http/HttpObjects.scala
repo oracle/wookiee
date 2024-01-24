@@ -50,8 +50,9 @@ object HttpObjects {
   //   * Allowed methods is returned dynamically based on what endpoints are registered
   //   * Allowed origins is set at the global config level under wookiee-web.cors.allowed-origins = []
   object CorsWhiteList {
+    def allowAll: CorsWhiteList = CorsWhiteList()
     def apply(): CorsWhiteList = AllowAll()
-    def apply(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
+    def withList(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
     def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
@@ -74,6 +75,7 @@ object HttpObjects {
 
   // Request/Response body content
   object Content {
+    def empty: Content = Content()
     def apply(): Content = Content(Array.empty[Byte])
     def apply(content: String): Content = Content(content.getBytes(Charset.forName("UTF-8")))
   }
@@ -83,10 +85,12 @@ object HttpObjects {
   }
 
   object Headers {
+    def default: Headers = Headers()
+
     def apply(): Headers = Headers(Map.empty[String, List[String]])
 
     // For java interop
-    def apply(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
+    def withMappings(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
       Headers(
         mappings
           .asScala
@@ -154,6 +158,7 @@ object HttpObjects {
   }
 
   object StatusCode {
+    def ok: StatusCode = StatusCode()
     def apply(): StatusCode = StatusCode(200)
   }
 
@@ -162,6 +167,7 @@ object HttpObjects {
 
   object WookieeRequest {
     // Will return an empty request object, mainly useful for testing
+    def empty: WookieeRequest = WookieeRequest()
     def apply(): WookieeRequest = new WookieeRequest(Content(""), Map(), Map(), Headers())
 
     def apply(content: String): WookieeRequest =
@@ -175,7 +181,7 @@ object HttpObjects {
     ): WookieeRequest =
       new WookieeRequest(content, CaseInsensitiveMap(pathSegments), CaseInsensitiveMap(queryParameters), headers)
 
-    def apply(
+    def build(
         content: Content,
         pathSegments: java.util.Map[String, String],
         queryParameters: java.util.Map[String, String],
@@ -282,6 +288,7 @@ object HttpObjects {
   }
 
   object WookieeResponse {
+    def empty: WookieeResponse = WookieeResponse()
     def apply(): WookieeResponse = WookieeResponse(Content(""), StatusCode(), Headers(), "application/json")
 
     def apply(statusCode: StatusCode): WookieeResponse =

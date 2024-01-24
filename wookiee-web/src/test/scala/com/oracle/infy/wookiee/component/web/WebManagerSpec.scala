@@ -422,7 +422,7 @@ class WebManagerSpec extends EndpointTestHelper {
       val req2 = WookieeRequest("test")
       req2.contentString() mustEqual "test"
 
-      val req3 = WookieeRequest(
+      val req3 = WookieeRequest.build(
         Content("test"),
         new java.util.HashMap[String, String](),
         new java.util.HashMap[String, String](),
@@ -449,13 +449,13 @@ class WebManagerSpec extends EndpointTestHelper {
       val webEx = WookieeWebException("test", None, None)
       WookieeWebException.unapply(webEx) must not be None
 
-      val headers = Headers()
+      val headers = Headers.default
       Headers.unapply(headers) mustEqual Some(Map())
 
       val resp = WookieeResponse()
       WookieeResponse.unapply(resp).isEmpty mustEqual false
 
-      val sc = StatusCode()
+      val sc = StatusCode.ok
       StatusCode.unapply(sc) mustEqual Some(200)
 
       val endpointMeta = EndpointMeta("a", "b")
@@ -492,7 +492,7 @@ class WebManagerSpec extends EndpointTestHelper {
     "have headers be case insensitive" in {
       val map = new java.util.HashMap[String, java.util.Collection[String]]()
       map.put("tESt", List("header").asJava)
-      val javaHeaders = Headers(map)
+      val javaHeaders = Headers.withMappings(map)
       javaHeaders.getJavaValue("test") mustEqual List("header").asJava
       javaHeaders.getJavaValue("TEST") mustEqual List("header").asJava
       javaHeaders.getJavaValue("Test") mustEqual List("header").asJava
@@ -508,10 +508,10 @@ class WebManagerSpec extends EndpointTestHelper {
     }
 
     "have java support in objects" in {
-      val corsWhiteList = CorsWhiteList(List("test").asJava)
+      val corsWhiteList = CorsWhiteList.withList(List("test").asJava)
       corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
 
-      val wookResp = WookieeResponse()
+      val wookResp = WookieeResponse.empty
       wookResp.statusCode.code mustEqual 200
 
       val wookStatus = WookieeResponse(StatusCode(204))

@@ -104,7 +104,7 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
     // Check config for the settings of allowed Origin headers
     def getAllowedOrigins(portType: String): CorsWhiteList = {
       val origins = config.getStringList(s"${WebManager.ComponentName}.cors.$portType").asScala.toList
-      if (origins.isEmpty || origins.contains("*")) CorsWhiteList()
+      if (origins.isEmpty || origins.contains("*")) CorsWhiteList.allowAll
       else CorsWhiteList(origins)
     }
 

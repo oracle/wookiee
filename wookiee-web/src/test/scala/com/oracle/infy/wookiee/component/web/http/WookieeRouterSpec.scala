@@ -143,7 +143,7 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
     }
 
     "have request that acts as a bean" in {
-      val bean = WookieeRequest()
+      val bean = WookieeRequest.empty
       bean("test") = "test"
       bean("test") mustEqual "test"
       bean.getValue[String]("test").get mustEqual "test"
@@ -160,7 +160,7 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
     "handle a normal locale string" in {
       val req =
         WookieeRequest(
-          Content(),
+          Content.empty,
           Map.empty[String, String],
           Map.empty[String, String],
           Headers(Map("accept-language" -> List("en-US,en;q=0.9,es;q=0.8")))
