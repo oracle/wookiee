@@ -9,10 +9,10 @@ import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.actor.WookieeActor.Receive
 import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
-import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.{DEFAULT_MAX_MESSAGE_SIZE, createCurator}
+import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy, RoundRobinHashedPolicy, RoundRobinPolicy}
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy, RoundRobinHashedPolicy}
 import com.oracle.infy.wookiee.grpc.settings.{
   ChannelSettings,
   ClientAuthSettings,
