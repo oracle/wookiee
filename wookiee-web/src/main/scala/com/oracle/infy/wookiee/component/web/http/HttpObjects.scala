@@ -52,7 +52,8 @@ object HttpObjects {
   object CorsWhiteList {
     def allowAll: CorsWhiteList = CorsWhiteList()
     def apply(): CorsWhiteList = AllowAll()
-    def withList(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
+    def apply(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
+    def withList(toCheck: java.util.Collection[String]): CorsWhiteList = CorsWhiteList(toCheck)
     def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
@@ -90,7 +91,7 @@ object HttpObjects {
     def apply(): Headers = Headers(Map.empty[String, List[String]])
 
     // For java interop
-    def withMappings(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
+    def apply(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
       Headers(
         mappings
           .asScala
@@ -100,6 +101,9 @@ object HttpObjects {
           }
           .toMap
       )
+
+    def withMappings(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
+      Headers(mappings)
   }
 
   // Request/Response headers
@@ -181,13 +185,21 @@ object HttpObjects {
     ): WookieeRequest =
       new WookieeRequest(content, CaseInsensitiveMap(pathSegments), CaseInsensitiveMap(queryParameters), headers)
 
-    def build(
+    def apply(
         content: Content,
         pathSegments: java.util.Map[String, String],
         queryParameters: java.util.Map[String, String],
         headers: Headers
     ): WookieeRequest =
       WookieeRequest(content, pathSegments.asScala.toMap, queryParameters.asScala.toMap, headers)
+
+    def build(
+        content: Content,
+        pathSegments: java.util.Map[String, String],
+        queryParameters: java.util.Map[String, String],
+        headers: Headers
+    ): WookieeRequest =
+      WookieeRequest(content, pathSegments, queryParameters, headers)
   }
 
   // Object holding all of the request information
