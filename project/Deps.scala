@@ -171,8 +171,7 @@ object Deps {
     val grpc: Seq[ModuleID] = Seq(
       grpcNetty,
       grpcProtoBuf,
-      grpcStub,
-      grpcAll
+      grpcStub
     )
 
     val http4s: Seq[ModuleID] = Seq(
