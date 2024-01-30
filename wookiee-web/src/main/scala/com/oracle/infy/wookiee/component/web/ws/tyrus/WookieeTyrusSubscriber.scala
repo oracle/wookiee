@@ -7,9 +7,10 @@ import java.nio.ByteBuffer
 import java.util.concurrent.Flow
 import javax.websocket.CloseReason
 import javax.websocket.CloseReason.CloseCodes.{NORMAL_CLOSURE, UNEXPECTED_CONDITION}
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 // Based on io.helidon.webserver.tyrus.TyrusReaderSubscriber but in Scala and purpose-built for Wookiee
-class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[DataChunk] {
+class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[DataChunk] with LoggingAdapter {
   require(connection != null, "Connection cannot be null")
 
   protected val MaxRetries = 5
@@ -50,6 +51,7 @@ class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[Dat
     }
 
     if (retries == 0) {
+      log.info("DEBUG : WTS : Exhausted retires closing connection ")
       subscription.cancel()
       subscription = null
       connection.close(
@@ -58,8 +60,10 @@ class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[Dat
     }
   }
 
-  override def onError(throwable: Throwable): Unit =
+  override def onError(throwable: Throwable): Unit = {
+    log.info(s"DEBUG : WTS : Encountered error ${throwable.getMessage} ")
     connection.close(new CloseReason(UNEXPECTED_CONDITION, throwable.getMessage))
+  }
 
   override def onComplete(): Unit =
     connection.close(ConnectionClosed)

@@ -113,8 +113,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
           authInfo.set(auth)
 
           // Register this endpoint as a message handler for text messages
+          log.info(s"DEBUG : WM : Session here is ${session.getMaxIdleTimeout}");
           session.addMessageHandler(new MessageHandler.Whole[String] {
             override def onMessage(message: String): Unit = {
+              log.info(s"DEBUG : WM : Handling message ${message}")
               try {
                 handleText(message, wookieeRequest, auth)(session)
               } catch {
