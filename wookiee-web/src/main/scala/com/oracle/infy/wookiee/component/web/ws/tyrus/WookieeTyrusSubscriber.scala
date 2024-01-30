@@ -62,7 +62,7 @@ class WookieeTyrusSubscriber(connection: Connection) extends Flow.Subscriber[Dat
 
   override def onError(throwable: Throwable): Unit = {
     log.info(s"DEBUG : WTS : Encountered error ${throwable.getMessage} ")
-    log.info(s"${throwable.printStackTrace()}")
+    log.info(s"DEBUG : WTS : Dumping stack trace...${throwable.printStackTrace()}")
     connection.close(new CloseReason(UNEXPECTED_CONDITION, throwable.getMessage))
   }
 
