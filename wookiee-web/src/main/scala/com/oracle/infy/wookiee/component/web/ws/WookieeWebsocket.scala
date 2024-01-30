@@ -24,7 +24,6 @@ object WookieeWebsocket {
     */
   def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
     case None =>
-
       session.close()
     case Some((message, code)) =>
       session.close(
@@ -41,7 +40,9 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   /* OVERRIDEABLE METHODS */
 
   def path: String // WS path to host this endpoint, segments starting with '$' will be treated as wildcards
+
   def endpointType: EndpointType // Host this endpoint on internal or external port?
+
   def endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
 
   // Called when a new session is opened, can be used for authentication
