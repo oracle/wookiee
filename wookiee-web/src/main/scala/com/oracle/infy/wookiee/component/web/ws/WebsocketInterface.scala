@@ -33,8 +33,10 @@ class WebsocketInterface(
     * @param closeReason The optional `closeReason` will return a code (defaults to 1000) and message to the client. Available codes correspond
     *                    to Websocket standards and can be found here: [[javax.websocket.CloseReason.CloseCodes]]
     */
-  def close(closeReason: Option[(String, Int)] = None): Unit =
+  def close(closeReason: Option[(String, Int)] = None): Unit = {
+    log.info(s"DEBUG WW(WebsocketInterface) : Closing connection due to ${closeReason}")
     WookieeWebsocket.close(closeReason)
+  }
 
   // The query parameters from the request (i.e. ?param1=value1&param2=value2)
   def getQueryParams: Map[String, String] = request.queryParameters

@@ -66,8 +66,10 @@ class ExternalWSHandler(implicit ec: ExecutionContext) extends WookieeWebsocket[
     )
   }
 
-  override def onClosing(auth: Option[AuthHolder]): Unit =
+  override def onClosing(auth: Option[AuthHolder]): Unit = {
+    log.info(s"DEBUG : WW(ExternalESHandler) Closing websocket session from user [${auth.map(_.userId).getOrElse("no-auth")}]")
     log.info(s"Closing websocket session from user [${auth.map(_.userId).getOrElse("no-auth")}]")
+  }
 
   override def handleError(request: HttpObjects.WookieeRequest, message: String, authInfo: Option[AuthHolder])(
       implicit session: Session

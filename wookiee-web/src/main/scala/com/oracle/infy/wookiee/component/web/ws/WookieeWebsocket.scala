@@ -24,6 +24,7 @@ object WookieeWebsocket {
     */
   def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
     case None =>
+
       session.close()
     case Some((message, code)) =>
       session.close(
@@ -68,8 +69,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
     session.getBasicRemote.sendText(message)
 
   // Call this to close the current websocket session
-  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit =
+  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = {
+    log.info(s"DEBUG WW(WookieeWebsocket) : Closing ws due to ${closeReason}")
     WookieeWebsocket.close(closeReason)
+  }
 
   /* INTERNAL ONLY */
 
@@ -79,8 +82,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   protected[oracle] class InternalEndpoint extends Endpoint {
     val authInfo: AtomicReference[Option[Auth]] = new AtomicReference[Option[Auth]](None)
 
-    override def onClose(session: Session, closeReason: CloseReason): Unit =
+    override def onClose(session: Session, closeReason: CloseReason): Unit = {
+      log.info(s"DEBUG WW(WookieeWebsocket - onClose method) : Closing ws due to ${closeReason}")
       onClosing(authInfo.get())
+    }
 
     // Will forward messages on to the handleText method
     override def onOpen(session: Session, config: EndpointConfig): Unit = {

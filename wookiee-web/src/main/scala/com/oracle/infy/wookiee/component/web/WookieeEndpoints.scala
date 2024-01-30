@@ -130,13 +130,17 @@ object WookieeEndpoints {
 
       override def endpointOptions: EndpointOptions = wsEndpointOptions
 
-      override def onClosing(auth: Option[Auth]): Unit =
+      override def onClosing(auth: Option[Auth]): Unit = {
+        log.info("DEBUG WW : Closing websocket ...")
         onCloseHandler(auth)
+      }
 
       override def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
           implicit session: Session
-      ): Throwable => Unit =
+      ): Throwable => Unit = {
+        log.info(s"DEBUG WW : Handling Error in message ${message}")
         wsErrorHandler(new WebsocketInterface(request), message, authInfo)
+      }
 
       override def handleAuth(request: WookieeRequest): Future[Option[Auth]] =
         authHandler(request)
