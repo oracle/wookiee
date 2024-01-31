@@ -4,6 +4,7 @@ import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.Endpo
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.REQUEST_HEADERS
 import com.oracle.infy.wookiee.health.WookieeMonitor
+import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
 import java.util.concurrent.atomic.AtomicReference
@@ -13,7 +14,7 @@ import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 import scala.util.Try
 
-object WookieeWebsocket {
+object WookieeWebsocket extends LoggingAdapter {
   private[oracle] val ec: ExecutionContext = ThreadUtil.createEC("wookiee-websocket-ec")
 
   /**
@@ -24,8 +25,10 @@ object WookieeWebsocket {
     */
   def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
     case None =>
+      log.info("DEBUG : WWS : Closing without close reason")
       session.close()
     case Some((message, code)) =>
+      log.info(s"DEBUG : WWS : Closing with reason ${message}")
       session.close(
         new CloseReason(
           scala.util.Try(CloseReason.CloseCodes.getCloseCode(code)).getOrElse(CloseReason.CloseCodes.NORMAL_CLOSURE),
@@ -114,6 +117,8 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
 
           // Register this endpoint as a message handler for text messages
           log.info(s"DEBUG : WM : Session here is ${session.getMaxIdleTimeout}");
+          session.setMaxIdleTimeout(-1)
+          log.info(s"DEBUG : WM : Session is not set to ${session.getMaxIdleTimeout}");
           session.addMessageHandler(new MessageHandler.Whole[String] {
             override def onMessage(message: String): Unit = {
               log.info(s"DEBUG : WM : Handling message ${message}")
