@@ -12,6 +12,7 @@ import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import javax.websocket.HandshakeResponse
 import javax.websocket.server.{HandshakeRequest, ServerEndpointConfig}
 import scala.collection.mutable.ListBuffer
@@ -200,6 +201,8 @@ object WookieeRouter extends LoggingAdapter {
 case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extends Service {
   import WookieeRouter._
 
+  val allowedOriginsRef: AtomicReference[CorsWhiteList] = new AtomicReference[CorsWhiteList](allowedOrigins)
+
   val root: PathNode = PathNode(new ConcurrentHashMap[String, PathNode]())
   // Tyrus container that holds websocket endpoints
   protected[oracle] val engine: WookieeTyrusContainer = new WookieeTyrusContainer()
@@ -318,6 +321,9 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     handlers.get(upperMethod)
   }
 
+  def setAllowedOrigins(allowedOrigins: CorsWhiteList): Unit =
+    allowedOriginsRef.set(allowedOrigins)
+
   // Will return a list of all registered routes and methods
   def listOfRoutes(): List[EndpointMeta] = {
     def navigateNode(node: PathNode, pathSoFar: String): List[EndpointMeta] = {
@@ -357,7 +363,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // Origin of the request, header used by CORS
         val originOpt = Option(req.headers.value("Origin").orElse(null))
 
-        def isOriginAllowed: Boolean = allowedOrigins match {
+        def isOriginAllowed: Boolean = allowedOriginsRef.get match {
           case _: AllowAll      => true
           case allow: AllowSome =>
             // Return false if Origin wasn't on request

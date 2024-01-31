@@ -1,8 +1,8 @@
 package com.oracle.infy.wookiee.component.web.http
 
 import com.oracle.infy.wookiee.model.CaseInsensitiveMap
-import org.json4s.{JString, JValue}
 import org.json4s.jackson.JsonMethods.parseOpt
+import org.json4s.{JString, JValue}
 
 import java.nio.charset.Charset
 import java.util
@@ -67,11 +67,13 @@ object HttpObjects {
   // Let in anything, will always return the true for any hosts list
   case class AllowAll() extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck
+    override def toString: String = "*"
   }
 
   // Only let in the hosts specified in the white list
   case class AllowSome(whiteList: List[String]) extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck.intersect(whiteList)
+    override def toString: String = whiteList.mkString(", ")
   }
 
   // Request/Response body content

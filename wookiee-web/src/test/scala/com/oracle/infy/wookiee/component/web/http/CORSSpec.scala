@@ -133,6 +133,36 @@ class CORSSpec extends EndpointTestHelper {
       response.contentString() mustEqual "Origin not permitted."
     }
 
+    "allow change to origins list" in {
+      val response =
+        oneOff(
+          s"http://localhost:$externalPort",
+          "OPTIONS",
+          "/api/v1/endpoint",
+          """{"key":"value"}""",
+          Map("Origin" -> "http://bad.origin")
+        )
+
+      response.code() mustEqual 403
+      response.contentString() mustEqual "Origin not permitted."
+
+      try {
+        WebManager.setCORSAllowedOrigins(conf, CorsWhiteList(List("http://bad.origin")))
+        val response =
+          oneOff(
+            s"http://localhost:$externalPort",
+            "OPTIONS",
+            "/api/v1/endpoint",
+            """{"key":"value"}""",
+            Map("Origin" -> "http://bad.origin")
+          )
+
+        response.code() mustEqual 200
+      } finally {
+        WebManager.setCORSAllowedOrigins(conf, CorsWhiteList(externalOrigins))
+      }
+    }
+
     "return origin info on normal requests" in {
       val response =
         oneOff(
