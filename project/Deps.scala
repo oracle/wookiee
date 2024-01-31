@@ -28,9 +28,9 @@ object Deps {
     val nettyTCVersion: String = "2.0.62.Final"
     val scalaPbRuntimeVersion: String = "0.11.13"
 
-    val slf4jVersion = "2.0.7"
-    val slf4jImplVersion = "2.20.0"
-    val logbackVersion = "1.3.6"
+    val slf4jVersion = "1.7.36"
+    val slf4jImplVersion = "2.19.0"
+    val logbackVersion = "1.2.13"
     val jodaTimeVersion = "2.12.2"
     val scalaCollectionCompatVersion = "2.8.1"
     val zookeeperVersion = "3.8.1"
