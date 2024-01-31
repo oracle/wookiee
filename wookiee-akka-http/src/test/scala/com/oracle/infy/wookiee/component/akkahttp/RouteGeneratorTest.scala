@@ -196,6 +196,13 @@ class RouteGeneratorTest extends AnyWordSpecLike with ScalatestRouteTest with Pr
       }
     }
 
+    "deal with odd weight values in locale" in {
+      val locale = RouteGenerator.requestLocales(Map("accept-language" -> "en;q=0.8")).head
+      assert(locale.getLanguage.equals("en"))
+      val locale2 = RouteGenerator.requestLocales(Map("accept-language" -> "en-US,en;weight=0.8;q=0.9"))
+      assert(locale2.isEmpty)
+    }
+
     "route with Delete method without request body" in {
       val r = RouteGenerator.makeHttpRoute(
         "deleteTest",

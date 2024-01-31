@@ -46,7 +46,7 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
-import scala.util.{Failure, Success}
+import scala.util.{Failure, Success, Try}
 
 trait AkkaHttpParameters
 trait AkkaHttpPathSegments
@@ -320,11 +320,13 @@ object RouteGenerator {
   def requestLocales(headers: Map[String, String]): List[Locale] =
     headers.get("accept-language") match {
       case Some(localeString) if localeString.nonEmpty =>
-        LanguageRange
-          .parse(localeString)
-          .asScala
-          .map(language => Locale.forLanguageTag(language.getRange))
-          .toList
+        Try {
+          LanguageRange
+            .parse(localeString)
+            .asScala
+            .map(language => Locale.forLanguageTag(language.getRange))
+            .toList
+        }.getOrElse(Nil)
       case _ => Nil
     }
 
