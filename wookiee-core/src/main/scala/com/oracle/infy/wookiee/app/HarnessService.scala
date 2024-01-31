@@ -15,7 +15,7 @@
  */
 package com.oracle.infy.wookiee.app
 
-//import org.slf4j.bridge.SLF4JBridgeHandler
+import org.slf4j.bridge.SLF4JBridgeHandler
 
 object HarnessService extends App {
   execute()
@@ -24,9 +24,8 @@ object HarnessService extends App {
     // Main body which gets run at startup
     try {
       // Redirect any libraries using java.util.logging to use slf4j
-      // TODO This enabled Helidon logging, but the necessary dependencies caused issues for implementations
-//      SLF4JBridgeHandler.removeHandlersForRootLogger()
-//      SLF4JBridgeHandler.install()
+      SLF4JBridgeHandler.removeHandlersForRootLogger()
+      SLF4JBridgeHandler.install()
       Harness.externalLogger.info("Starting Wookiee...")
 
       val meta = Harness.startActorSystem()
