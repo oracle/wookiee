@@ -138,7 +138,6 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
-    val grpcAll: ModuleID = "io.grpc" % "grpc-all" % grpcVersion
     val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sBlazeVersion
@@ -150,13 +149,14 @@ object Deps {
       "io.helidon.webserver" % "helidon-webserver-tyrus" % helidonVersion,
       "io.helidon.webserver" % "helidon-webserver-cors" % helidonVersion,
       "io.helidon.webclient" % "helidon-webclient" % helidonVersion,
-      "io.helidon.logging" % "helidon-logging-slf4j" % helidonVersion,
+//      "io.helidon.logging" % "helidon-logging-slf4j" % helidonVersion,
       "io.helidon.config" % "helidon-config" % helidonVersion,
       "io.helidon.common" % "helidon-common-reactive" % helidonVersion
     ).map(
       _ exclude("javax.websocket", "javax.websocket-api")
     )
 
+    // Including this caused logging issues in implementations, hold off on using it for now
     val logging: Seq[ModuleID] = Seq(
       slf4jApi,
       julToSlf4j,
@@ -206,8 +206,10 @@ object Deps {
       logbackClassic % Test
     ) ++ json4sLibs
 
-    val wookieeLibs: Seq[ModuleID] = logging ++ Seq(
+    val wookieeLibs: Seq[ModuleID] = Seq(
       typesafe,
+      logbackCore,
+      logbackClassic,
       scalaCollectionCompat,
       test.scalatest
     ) ++ curatorLibs ++ cats ++ json4sLibs
@@ -246,9 +248,12 @@ object Deps {
       scalaPbRuntime
     )
 
-    val core: Seq[ModuleID] = logging ++ curatorLibs ++ Seq(
+    val core: Seq[ModuleID] = curatorLibs ++ Seq(
       scalaCompat,
       akka,
+      slf4jApi,
+      logbackCore,
+      logbackClassic,
       jodaTime,
       scalaStm,
       guava,
