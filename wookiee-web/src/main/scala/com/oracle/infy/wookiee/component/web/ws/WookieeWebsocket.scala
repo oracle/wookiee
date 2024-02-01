@@ -79,20 +79,24 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def reply(message: String)(implicit session: Session): Unit =
     session.getBasicRemote.sendText(message)
 
-  def sendPing()(implicit session: Session): Unit = {
+  // Send ping now and if that goes well, schedule the next ping after delay.
+  def sendPing(sendNextPingDelay: FiniteDuration)(implicit session: Session): Unit = {
     if (session.isOpen) {
       log.info("DEBUG : Sending Ping : Session is open....")
       session.getBasicRemote.sendPing(ByteBuffer.wrap("Ping".getBytes))
+      schedulePing(sendNextPingDelay)
     }
   }
 
   def schedulePing(delay: FiniteDuration)(implicit session: Session): Unit = {
-    schedule(delay, delay, new Runnable {
+    val pingRunnable = new Runnable {
       def run(): Unit = {
         log.info("DEBUG : PingSchedule : Sending Ping....")
-        sendPing()
+        sendPing(delay)
       }
-    })
+    }
+
+    scheduleOnce(delay, pingRunnable)
   }
 
   // Call this to close the current websocket session

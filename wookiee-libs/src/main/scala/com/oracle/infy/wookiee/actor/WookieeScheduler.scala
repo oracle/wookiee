@@ -66,24 +66,6 @@ trait WookieeScheduler {
     ()
   }
 
-  // This method schedules a recurring event that sends a message to the receiver after initial delay and at subsequent intervals
-  def schedule(delay: FiniteDuration, interval: FiniteDuration, runnable: Runnable): Unit = {
-    def recursiveSchedule(): Unit = {
-      sleep(interval).map { _ =>
-        runnable.run()
-        recursiveSchedule()
-      }(schedulerEc)
-      ()
-    }
-    // First, handle the initial delay
-    sleep(delay).map(_ => {
-      runnable.run()
-      // Then, start the recurring task
-      recursiveSchedule()
-    })(schedulerEc)
-    ()
-  }
-
   def scheduleOnce(delay: FiniteDuration)(f: => Unit): Unit =
     scheduleOnce(delay, () => f)
 
