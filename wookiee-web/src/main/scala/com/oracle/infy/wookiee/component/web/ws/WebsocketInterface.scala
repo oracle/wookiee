@@ -1,17 +1,20 @@
 package com.oracle.infy.wookiee.component.web.ws
 
+import com.oracle.infy.wookiee.actor.WookieeScheduler
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.WookieeRequest
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.nio.ByteBuffer
 import javax.websocket.Session
+import scala.concurrent.duration.FiniteDuration
 
 // Class used in the functional interface for the websocket endpoint, allows ability to send messages
 // and close the websocket. No need to worry about this class if using the WookieeWebsocket trait
 class WebsocketInterface(
     val request: WookieeRequest
 )(implicit val session: Session)
-    extends LoggingAdapter {
+    extends WookieeScheduler
+    with LoggingAdapter {
 
   /**
     * Main method to send an message up to the websocket client,

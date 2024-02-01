@@ -8,6 +8,7 @@ import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
 import java.nio.ByteBuffer
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.websocket._
 import scala.concurrent.duration.FiniteDuration
@@ -62,7 +63,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def handleText(text: String, request: WookieeRequest, authInfo: Option[Auth])(implicit session: Session): Unit
 
   def handlePongMessage(pong: PongMessage)(implicit session: Session): Unit = {
-    // Ignore Pong message
+    log.info(s"Received Pong Message ${pong.getApplicationData.toString}")
   }
 
   // Called when any error occurs during handleText
@@ -79,13 +80,16 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
     session.getBasicRemote.sendText(message)
 
   def sendPing()(implicit session: Session): Unit = {
-    if (session.isOpen)
+    if (session.isOpen) {
+      log.info("DEBUG : Sending Ping : Session is open....")
       session.getBasicRemote.sendPing(ByteBuffer.wrap("Ping".getBytes))
+    }
   }
 
   def schedulePing(delay: FiniteDuration)(implicit session: Session): Unit = {
     schedule(delay, delay, new Runnable {
       def run(): Unit = {
+        log.info("DEBUG : PingSchedule : Sending Ping....")
         sendPing()
       }
     })
@@ -133,6 +137,9 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
         // The session may be closed during this call if auth fails
         handleAuth(wookieeRequest).map { auth =>
           authInfo.set(auth)
+
+          log.info("DEBUG : WM : Scheduling a ping...")
+          schedulePing(FiniteDuration(30, TimeUnit.SECONDS))(session)
 
           // Register this endpoint as a message handler for text messages
           log.info(s"DEBUG : WM : Session here is ${session.getMaxIdleTimeout}");
