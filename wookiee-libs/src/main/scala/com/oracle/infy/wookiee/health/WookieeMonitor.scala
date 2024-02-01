@@ -67,20 +67,16 @@ trait WookieeMonitor extends WookieeScheduler with LoggingAdapter {
     * else, as the health of the children components would be handled by their own
     * getHealth function
     */
-  protected def getHealth: Future[HealthComponent] = {
-    log.info(s"DEBUG : WM : Getting health for ${name}")
+  protected def getHealth: Future[HealthComponent] =
     Future.successful(HealthComponent(name, ComponentState.NORMAL, "Healthy"))
-  }
 
   /**
     * Any logic to run once we get the shutdown message but before we begin killing executors.
     * Will be called for all dependent components as well. Be sure to call super.prepareForShutdown
     * after (or before if dependencies should shutdown first) any custom logic.
     */
-  def prepareForShutdown(): Unit = {
-    log.info(s"DEBUG : WM : Prepare for shutdown called on [$name]")
+  def prepareForShutdown(): Unit =
     log.debug(s"Prepare for shutdown called on [$name]")
-  }
 
   // Internal but called from outside
   def checkHealth: Future[HealthComponent] = {
@@ -90,7 +86,6 @@ trait WookieeMonitor extends WookieeScheduler with LoggingAdapter {
       case Success(s) =>
         p completeWith checkHealthOfChildren(s, this)
       case Failure(f) =>
-        log.info(s"DEBUG : WM : WM402: Failed to get health from component: [$name]", f)
         log.warn(s"WM402: Failed to get health from component: [$name]", f)
         p success HealthComponent(name, ComponentState.CRITICAL, f.getMessage)
     }
