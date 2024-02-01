@@ -69,7 +69,6 @@ object WookieeEndpoints {
     val cmdType = endpointType
     val cmdErrors = errorHandler
     val cmdOptions = endpointOptions
-
     registerEndpoint(new HttpCommand {
       override val name: String = commandName
 
@@ -155,7 +154,6 @@ object WookieeEndpoints {
   def registerWebsocket[Auth <: Any: ClassTag](
       helidonWebsocket: WookieeWebsocket[Auth]
   )(implicit config: Config): Unit = {
-
     val mediator = WebManager.getMediator(config)
     mediator.registerEndpoint(
       helidonWebsocket.path,
