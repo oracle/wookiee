@@ -1,20 +1,17 @@
 package com.oracle.infy.wookiee.component.web.ws
 
-import com.oracle.infy.wookiee.actor.WookieeScheduler
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.WookieeRequest
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.nio.ByteBuffer
 import javax.websocket.Session
-import scala.concurrent.duration.FiniteDuration
 
 // Class used in the functional interface for the websocket endpoint, allows ability to send messages
 // and close the websocket. No need to worry about this class if using the WookieeWebsocket trait
 class WebsocketInterface(
     val request: WookieeRequest
 )(implicit val session: Session)
-    extends WookieeScheduler
-    with LoggingAdapter {
+    extends LoggingAdapter {
 
   /**
     * Main method to send an message up to the websocket client,
@@ -36,10 +33,8 @@ class WebsocketInterface(
     * @param closeReason The optional `closeReason` will return a code (defaults to 1000) and message to the client. Available codes correspond
     *                    to Websocket standards and can be found here: [[javax.websocket.CloseReason.CloseCodes]]
     */
-  def close(closeReason: Option[(String, Int)] = None): Unit = {
-    log.info(s"DEBUG WW(WebsocketInterface) : Closing connection due to ${closeReason}")
+  def close(closeReason: Option[(String, Int)] = None): Unit =
     WookieeWebsocket.close(closeReason)
-  }
 
   // The query parameters from the request (i.e. ?param1=value1&param2=value2)
   def getQueryParams: Map[String, String] = request.queryParameters

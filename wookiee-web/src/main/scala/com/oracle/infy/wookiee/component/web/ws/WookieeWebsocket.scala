@@ -4,7 +4,6 @@ import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.Endpo
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.REQUEST_HEADERS
 import com.oracle.infy.wookiee.health.WookieeMonitor
-import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
 import java.nio.ByteBuffer
@@ -17,7 +16,7 @@ import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 import scala.util.Try
 
-object WookieeWebsocket extends LoggingAdapter {
+object WookieeWebsocket  {
   private[oracle] val ec: ExecutionContext = ThreadUtil.createEC("wookiee-websocket-ec")
 
   /**
@@ -28,10 +27,8 @@ object WookieeWebsocket extends LoggingAdapter {
     */
   def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = closeReason match {
     case None =>
-      log.info("DEBUG : WWS : Closing without close reason")
       session.close()
     case Some((message, code)) =>
-      log.info(s"DEBUG : WWS : Closing with reason ${message}")
       session.close(
         new CloseReason(
           scala.util.Try(CloseReason.CloseCodes.getCloseCode(code)).getOrElse(CloseReason.CloseCodes.NORMAL_CLOSURE),
@@ -62,10 +59,6 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   // Main handler for incoming messages
   def handleText(text: String, request: WookieeRequest, authInfo: Option[Auth])(implicit session: Session): Unit
 
-  def handlePongMessage(pong: PongMessage)(implicit session: Session): Unit = {
-    log.info(s"Received Pong Message ${pong.getApplicationData.toString}")
-  }
-
   // Called when any error occurs during handleText
   def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
       implicit session: Session
@@ -82,16 +75,15 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   // Send ping now and if that goes well, schedule the next ping after delay.
   def sendPing(sendNextPingDelay: FiniteDuration)(implicit session: Session): Unit = {
     if (session.isOpen) {
-      log.info("DEBUG : Sending Ping : Session is open....")
       session.getBasicRemote.sendPing(ByteBuffer.wrap("Ping".getBytes))
       schedulePing(sendNextPingDelay)
     }
   }
 
+  // Schedule ping after a delay to keep the WS alive.
   def schedulePing(delay: FiniteDuration)(implicit session: Session): Unit = {
     val pingRunnable = new Runnable {
       def run(): Unit = {
-        log.info("DEBUG : PingSchedule : Sending Ping....")
         sendPing(delay)
       }
     }
@@ -100,10 +92,8 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   }
 
   // Call this to close the current websocket session
-  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = {
-    log.info(s"DEBUG WW(WookieeWebsocket) : Closing ws due to ${closeReason}")
+  def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit =
     WookieeWebsocket.close(closeReason)
-  }
 
   /* INTERNAL ONLY */
 
@@ -113,10 +103,8 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   protected[oracle] class InternalEndpoint extends Endpoint {
     val authInfo: AtomicReference[Option[Auth]] = new AtomicReference[Option[Auth]](None)
 
-    override def onClose(session: Session, closeReason: CloseReason): Unit = {
-      log.info(s"DEBUG WW(WookieeWebsocket - onClose method) : Closing ws due to ${closeReason}")
+    override def onClose(session: Session, closeReason: CloseReason): Unit =
       onClosing(authInfo.get())
-    }
 
     // Will forward messages on to the handleText method
     override def onOpen(session: Session, config: EndpointConfig): Unit = {
@@ -142,13 +130,12 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
         handleAuth(wookieeRequest).map { auth =>
           authInfo.set(auth)
 
-          log.info("DEBUG : WM : Scheduling a ping...")
+          // Schedule ping to client to keep WS alive.
           schedulePing(FiniteDuration(30, TimeUnit.SECONDS))(session)
 
           // Register this endpoint as a message handler for text messages
           session.addMessageHandler(new MessageHandler.Whole[String] {
             override def onMessage(message: String): Unit = {
-              log.info(s"DEBUG : WM : Handling message ${message}")
               try {
                 handleText(message, wookieeRequest, auth)(session)
               } catch {

@@ -15,7 +15,7 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketH
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
 
-import javax.websocket.{PongMessage, Session}
+import javax.websocket.Session
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
@@ -131,17 +131,13 @@ object WookieeEndpoints {
 
       override def endpointOptions: EndpointOptions = wsEndpointOptions
 
-      override def onClosing(auth: Option[Auth]): Unit = {
-        log.info("DEBUG WW : Closing websocket ...")
+      override def onClosing(auth: Option[Auth]): Unit =
         onCloseHandler(auth)
-      }
 
       override def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
           implicit session: Session
-      ): Throwable => Unit = {
-        log.info(s"DEBUG WW : Handling Error in message ${message}")
+      ): Throwable => Unit =
         wsErrorHandler(new WebsocketInterface(request), message, authInfo)
-      }
 
       override def handleAuth(request: WookieeRequest): Future[Option[Auth]] =
         authHandler(request)
@@ -150,9 +146,6 @@ object WookieeEndpoints {
           implicit session: Session
       ): Unit =
         handleInMessage(text, new WebsocketInterface(request), authInfo)
-
-      override def handlePongMessage(pong: PongMessage)(implicit session: Session): Unit =
-        log.info(s"Handling pong message in session ${session.getId}")
     }
 
     registerWebsocket(websocket)
