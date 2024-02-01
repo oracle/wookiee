@@ -7,8 +7,10 @@ import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 import com.oracle.infy.wookiee.utils.ThreadUtil
 
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import javax.websocket._
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
@@ -59,6 +61,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   // Main handler for incoming messages
   def handleText(text: String, request: WookieeRequest, authInfo: Option[Auth])(implicit session: Session): Unit
 
+  def handlePongMessage(pong: PongMessage)(implicit session: Session): Unit = {
+    // Ignore Pong message
+  }
+
   // Called when any error occurs during handleText
   def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
       implicit session: Session
@@ -71,6 +77,19 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   // Call this to send back a message to the client
   def reply(message: String)(implicit session: Session): Unit =
     session.getBasicRemote.sendText(message)
+
+  def sendPing()(implicit session: Session): Unit = {
+    if (session.isOpen)
+      session.getBasicRemote.sendPing(ByteBuffer.wrap("Ping".getBytes))
+  }
+
+  def schedulePing(delay: FiniteDuration)(implicit session:Session): Unit = {
+    schedule(delay, delay, new Runnable {
+      def run(): Unit = {
+        sendPing()
+      }
+    })
+  }
 
   // Call this to close the current websocket session
   def close(closeReason: Option[(String, Int)] = None)(implicit session: Session): Unit = {

@@ -5,17 +5,12 @@ import com.oracle.infy.wookiee.command.WookieeCommandExecutive
 import com.oracle.infy.wookiee.component.metrics.TimerStopwatch
 import com.oracle.infy.wookiee.component.web.http.HttpCommand
 import com.oracle.infy.wookiee.component.web.http.HttpObjects.EndpointType.EndpointType
-import com.oracle.infy.wookiee.component.web.http.HttpObjects.{
-  EndpointOptions,
-  EndpointType,
-  WookieeRequest,
-  WookieeResponse
-}
+import com.oracle.infy.wookiee.component.web.http.HttpObjects.{EndpointOptions, EndpointType, WookieeRequest, WookieeResponse}
 import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketHandler, handlerFromCommand}
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
 
-import javax.websocket.Session
+import javax.websocket.{PongMessage, Session}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
@@ -69,6 +64,7 @@ object WookieeEndpoints {
     val cmdType = endpointType
     val cmdErrors = errorHandler
     val cmdOptions = endpointOptions
+
     registerEndpoint(new HttpCommand {
       override val name: String = commandName
 
@@ -149,6 +145,9 @@ object WookieeEndpoints {
           implicit session: Session
       ): Unit =
         handleInMessage(text, new WebsocketInterface(request), authInfo)
+
+      override def handlePongMessage(pong: PongMessage)(implicit session: Session): Unit =
+        log.info(s"Handling pong message in session ${session.getId}")
     }
 
     registerWebsocket(websocket)
@@ -158,6 +157,7 @@ object WookieeEndpoints {
   def registerWebsocket[Auth <: Any: ClassTag](
       helidonWebsocket: WookieeWebsocket[Auth]
   )(implicit config: Config): Unit = {
+
     val mediator = WebManager.getMediator(config)
     mediator.registerEndpoint(
       helidonWebsocket.path,
