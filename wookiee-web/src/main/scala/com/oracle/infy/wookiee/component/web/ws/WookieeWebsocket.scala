@@ -83,7 +83,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
       session.getBasicRemote.sendPing(ByteBuffer.wrap("Ping".getBytes))
   }
 
-  def schedulePing(delay: FiniteDuration)(implicit session:Session): Unit = {
+  def schedulePing(delay: FiniteDuration)(implicit session: Session): Unit = {
     schedule(delay, delay, new Runnable {
       def run(): Unit = {
         sendPing()
