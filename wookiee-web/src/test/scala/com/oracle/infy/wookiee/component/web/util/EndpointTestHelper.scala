@@ -36,6 +36,11 @@ trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAl
        |    internal-allowed-origins = []
        |    external-allowed-origins = [${externalOrigins.map(o => s""""$o"""").mkString(",")}]
        |  }
+       |
+       |  websocket-keep-alives {
+       |    enabled = false
+       |    interval = 30s
+       |  }
        |}
        |""".stripMargin)
 
