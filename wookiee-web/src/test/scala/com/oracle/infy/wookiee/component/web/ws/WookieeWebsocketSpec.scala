@@ -16,7 +16,7 @@ import java.net.URI
 import java.nio.ByteBuffer
 import java.util
 import java.util.Collections
-import java.util.concurrent.Flow
+import java.util.concurrent.{Flow, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.websocket._
 import javax.websocket.server.ServerEndpointConfig
@@ -369,6 +369,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
       }
 
       override def endpointType: EndpointType = EndpointType.BOTH
+
+      override def wsKeepAlive: Boolean = false
+
+      override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
     })
 
     WookieeEndpoints.registerWebsocket(new WookieeWebsocket[Any] {
@@ -382,6 +386,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         )
 
       override def endpointType: EndpointType = EndpointType.BOTH
+
+      override def wsKeepAlive: Boolean = false
+
+      override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
     })
 
     WookieeEndpoints.registerWebsocket(new WookieeWebsocket[Any] {
@@ -396,6 +404,10 @@ class WookieeWebsocketSpec extends EndpointTestHelper {
         )
 
       override def endpointType: EndpointType = EndpointType.BOTH
+
+      override def wsKeepAlive: Boolean = false
+
+      override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
     })
 
     case class AuthHolder(auth: String)

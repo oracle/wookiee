@@ -11,6 +11,7 @@ import io.helidon.webserver.{ServerRequest, ServerResponse}
 
 import java.net.URI
 import java.util
+import java.util.concurrent.TimeUnit
 import javax.websocket.{ClientEndpointConfig, DeploymentException, Session}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Promise}
@@ -70,6 +71,8 @@ class CORSSpec extends EndpointTestHelper {
             defaultHeaders = Headers(Map("Default-Header" -> List("default"))),
             allowedHeaders = Some(CorsWhiteList(List("Header-1", "Header-2")))
           )
+      override def wsKeepAlive: Boolean = false
+      override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
     })
   }
 

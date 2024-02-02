@@ -48,6 +48,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
 
   def endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
 
+  // These attributes below will determine if the websocket is to be kept alive with pings.
+  def wsKeepAlive: Boolean
+  def wsKeepAliveDuration: FiniteDuration
+
   // Called when a new session is opened, can be used for authentication
   // If an error is thrown or the Future fails then we'll close the session right away
   def handleAuth(request: WookieeRequest): Future[Option[Auth]] =
@@ -131,7 +135,11 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
           authInfo.set(auth)
 
           // Schedule ping to client to keep WS alive.
-          schedulePing(FiniteDuration(30, TimeUnit.SECONDS))(session)
+          log.debug(s"Websocket keep alive status : ${wsKeepAlive}")
+          if (wsKeepAlive) {
+            log.debug(s"Websocket will be kept alive with ping duration : ${wsKeepAliveDuration}")
+            schedulePing(wsKeepAliveDuration)(session)
+          }
 
           // Register this endpoint as a message handler for text messages
           session.addMessageHandler(new MessageHandler.Whole[String] {
