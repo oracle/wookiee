@@ -16,7 +16,7 @@ import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 import scala.util.Try
 
-object WookieeWebsocket  {
+object WookieeWebsocket {
   private[oracle] val ec: ExecutionContext = ThreadUtil.createEC("wookiee-websocket-ec")
 
   /**
@@ -47,6 +47,10 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def endpointType: EndpointType // Host this endpoint on internal or external port?
 
   def endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
+
+  // The config below determine if the websocket be kept alive with pings.
+  def wsKeepAlive: Boolean
+  def wsKeepAliveDuration: FiniteDuration
 
   // Called when a new session is opened, can be used for authentication
   // If an error is thrown or the Future fails then we'll close the session right away
@@ -131,7 +135,11 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
           authInfo.set(auth)
 
           // Schedule ping to client to keep WS alive.
-          schedulePing(FiniteDuration(30, TimeUnit.SECONDS))(session)
+          log.info(s"DEBUG : WWS : Should ws be kept alive ${wsKeepAlive}")
+          if (wsKeepAlive) {
+            log.info(s"DEBUG : WWS : Scheudling ping after ${wsKeepAliveDuration}")
+            schedulePing(wsKeepAliveDuration)(session)
+          }
 
           // Register this endpoint as a message handler for text messages
           session.addMessageHandler(new MessageHandler.Whole[String] {

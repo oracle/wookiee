@@ -15,7 +15,9 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketH
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
 
+import java.util.concurrent.TimeUnit
 import javax.websocket.Session
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
@@ -27,6 +29,8 @@ import scala.reflect.runtime.universe._
   * For both HTTP and WS there are provided both 'object-oriented' and 'functional' entry points.
   */
 object WookieeEndpoints {
+
+  val ComponentName = "wookiee-web"
 
   /**
     * Primary 'object-oriented' entry point for registering an HTTP endpoint using Wookiee Helidon.
@@ -145,6 +149,18 @@ object WookieeEndpoints {
           implicit session: Session
       ): Unit =
         handleInMessage(text, new WebsocketInterface(request), authInfo)
+
+      // Determine if the websocket is to be kept alive based on config settings.
+      // By default "keep-alive" is not enabled
+      log.info("DEBUG : WEP : Reading config file ...")
+      val result = config.hasPath(s"${WebManager.ComponentName}.websocket-keep-alives")
+      log.info(s"DEBUG : WEP : config has path ${result}")
+      override def wsKeepAlive: Boolean =
+        config.getBoolean(s"${WebManager.ComponentName}.websocket-keep-alives.enabled")
+      val keepAliveDurationConfig = config.getDuration(s"${WebManager.ComponentName}.websocket-keep-alives.interval")
+      override def wsKeepAliveDuration: FiniteDuration =
+        FiniteDuration.apply(keepAliveDurationConfig.toSeconds, TimeUnit.SECONDS)
+      log.info(s"DEBUG : WEP : Dumping values fetched from config ${wsKeepAlive} and ${wsKeepAliveDuration}")
     }
 
     registerWebsocket(websocket)
