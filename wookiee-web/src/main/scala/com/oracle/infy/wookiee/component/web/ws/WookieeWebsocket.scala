@@ -48,7 +48,7 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
 
   def endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
 
-  // The config below determine if the websocket be kept alive with pings.
+  // These attributes below will determine if the websocket is to be kept alive with pings.
   def wsKeepAlive: Boolean
   def wsKeepAliveDuration: FiniteDuration
 
@@ -135,9 +135,9 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
           authInfo.set(auth)
 
           // Schedule ping to client to keep WS alive.
-          log.info(s"DEBUG : WWS : Should ws be kept alive ${wsKeepAlive}")
+          log.debug(s"Websocket keep alive status : ${wsKeepAlive}")
           if (wsKeepAlive) {
-            log.info(s"DEBUG : WWS : Scheudling ping after ${wsKeepAliveDuration}")
+            log.debug(s"Websocket will be kept alive with ping duration : ${wsKeepAliveDuration}")
             schedulePing(wsKeepAliveDuration)(session)
           }
 

@@ -38,6 +38,22 @@ object WebManager extends Mediator[WebManager] {
   def getEndpoints(config: Config, external: Boolean): List[EndpointMeta] =
     getEndpoints(getInstanceId(config), external)
 
+  // Defaults to both servers, call this to change the white list of allowed origins via CORS
+  def setCORSAllowedOrigins(
+      config: Config,
+      allowedOrigins: CorsWhiteList,
+      endpointType: EndpointType = EndpointType.BOTH
+  ): Unit = {
+    val manager = getMediator(getInstanceId(config))
+    if (endpointType == EndpointType.EXTERNAL || endpointType == EndpointType.BOTH) {
+      manager.externalServer.routingService.setAllowedOrigins(allowedOrigins)
+    }
+    if (endpointType == EndpointType.INTERNAL || endpointType == EndpointType.BOTH) {
+      manager.internalServer.routingService.setAllowedOrigins(allowedOrigins)
+    }
+    log.info(s"CORS allowed origins updated to [$allowedOrigins]")
+  }
+
   case class WookieeWebException(msg: String, cause: Option[Throwable], code: Option[Int] = None)
       extends Exception(msg, cause.orNull)
 }

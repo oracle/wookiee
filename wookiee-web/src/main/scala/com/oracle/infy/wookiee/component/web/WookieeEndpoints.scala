@@ -152,15 +152,11 @@ object WookieeEndpoints {
 
       // Determine if the websocket is to be kept alive based on config settings.
       // By default "keep-alive" is not enabled
-      log.info("DEBUG : WEP : Reading config file ...")
-      val result = config.hasPath(s"${WebManager.ComponentName}.websocket-keep-alives")
-      log.info(s"DEBUG : WEP : config has path ${result}")
       override def wsKeepAlive: Boolean =
         config.getBoolean(s"${WebManager.ComponentName}.websocket-keep-alives.enabled")
       val keepAliveDurationConfig = config.getDuration(s"${WebManager.ComponentName}.websocket-keep-alives.interval")
       override def wsKeepAliveDuration: FiniteDuration =
         FiniteDuration.apply(keepAliveDurationConfig.toSeconds, TimeUnit.SECONDS)
-      log.info(s"DEBUG : WEP : Dumping values fetched from config ${wsKeepAlive} and ${wsKeepAliveDuration}")
     }
 
     registerWebsocket(websocket)
