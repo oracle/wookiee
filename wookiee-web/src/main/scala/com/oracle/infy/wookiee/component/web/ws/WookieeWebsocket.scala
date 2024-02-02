@@ -16,7 +16,7 @@ import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
 import scala.util.Try
 
-object WookieeWebsocket  {
+object WookieeWebsocket {
   private[oracle] val ec: ExecutionContext = ThreadUtil.createEC("wookiee-websocket-ec")
 
   /**
