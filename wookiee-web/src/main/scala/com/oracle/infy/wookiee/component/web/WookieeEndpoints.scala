@@ -43,7 +43,6 @@ object WookieeEndpoints {
     WookieeCommandExecutive.getMediator(config).registerCommand(command, 1)
     val instance = WookieeActor.actorOf(command)
     val handler = handlerFromCommand(instance)
-
     mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
   }
 

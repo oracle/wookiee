@@ -45,10 +45,13 @@ object WebManager extends Mediator[WebManager] {
       endpointType: EndpointType = EndpointType.BOTH
   ): Unit = {
     val manager = getMediator(getInstanceId(config))
+    log.info(s"DEBUG : Wookiee : In setCORSAllowedOrigins with ${endpointType}")
     if (endpointType == EndpointType.EXTERNAL || endpointType == EndpointType.BOTH) {
+      log.info(s"DEBUG : Wookiee : SEtting for external server..")
       manager.externalServer.routingService.setAllowedOrigins(allowedOrigins)
     }
     if (endpointType == EndpointType.INTERNAL || endpointType == EndpointType.BOTH) {
+      log.info(s"DEBUG : Wookiee : SEtting for internal server..")
       manager.internalServer.routingService.setAllowedOrigins(allowedOrigins)
     }
     log.info(s"CORS allowed origins updated to [$allowedOrigins]")
@@ -127,7 +130,9 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
     val internalOrigins = getAllowedOrigins("internal-allowed-origins")
     val externalOrigins = getAllowedOrigins("external-allowed-origins")
 
+    log.info(s"DEBUG : Webmanager : Creating internal server with ${internalOrigins}")
     internalServer = startServer(new WookieeRouter(internalOrigins), internalPort)
+    log.info(s"DEBUG : Webmanager : Creating external server with ${internalOrigins}")
     externalServer = startServer(new WookieeRouter(externalOrigins), externalPort)
     registerInternalEndpoints()
   }

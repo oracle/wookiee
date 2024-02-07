@@ -223,7 +223,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     */
   def addRoute(path: String, method: String, handler: WookieeHandler): Unit = root.synchronized {
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
-
+    log.info(s"DEBUG : Wookiee router adding route for ${path}")
     val segments = path.split("/").filter(_.nonEmpty)
     val upperMethod = method.toUpperCase
 
@@ -380,6 +380,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
 
         // Didn't match CORS Origin requirements
         if (!isOriginAllowed) {
+          log.info(s"DEBUG : Wookiee router : Origin is not allowed for request ${req.path()}")
           res.status(403).send("Origin not permitted.")
           AccessLog.logAccess(None, method, path, 403)
           return
