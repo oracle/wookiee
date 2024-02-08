@@ -381,7 +381,9 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // Didn't match CORS Origin requirements
         if (!isOriginAllowed) {
           log.info(s"DEBUG : Wookiee router : Origin is not allowed for request ${req.path()}")
-          log.info(s"DEBUG : Wookiee router : Details of the request ${req}")
+          log.info(s"DEBUG : Origin of this request ${originOpt}")
+          log.info(s"DEBUG : Wookiee router : Details of the request ${req} is being compared with ${allowedOriginsRef.get()}")
+          log.info(s"DEBUG : Dumping the entire request ${req}")
           res.status(403).send("Origin not permitted.")
           AccessLog.logAccess(None, method, path, 403)
           return
