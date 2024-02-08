@@ -388,7 +388,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
 //            s"DEBUG : Wookiee router : Details of the request ${req.webServer()} is being compared with ${allowedOriginsRef.get()}"
 //          )
           res.status(403).send("Origin not permitted.")
-       //   AccessLog.logAccess(None, method, path, 403)
+          //   AccessLog.logAccess(None, method, path, 403)
           return
         }
 

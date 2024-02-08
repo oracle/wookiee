@@ -55,10 +55,14 @@ object WebManager extends Mediator[WebManager] {
       manager.internalServer.routingService.setAllowedOrigins(allowedOrigins)
     }
     log.info(s"CORS allowed origins updated to [$allowedOrigins]")
-    log.info(s"DEBUG : Have we set correctly External is ${manager.externalServer.routingService.allowedOriginsRef} " +
-      s"and Internal is ${manager.internalServer.routingService.allowedOriginsRef}")
-    log.info(s"DEBUG : Comparing the 2 servers External ${manager.externalServer.routingService} " +
-      s"and Internal ${manager.internalServer.routingService}")
+    log.info(
+      s"DEBUG : Have we set correctly External is ${manager.externalServer.routingService.allowedOriginsRef} " +
+        s"and Internal is ${manager.internalServer.routingService.allowedOriginsRef}"
+    )
+    log.info(
+      s"DEBUG : Comparing the 2 servers External ${manager.externalServer.routingService} " +
+        s"and Internal ${manager.internalServer.routingService}"
+    )
   }
 
   case class WookieeWebException(msg: String, cause: Option[Throwable], code: Option[Int] = None)
