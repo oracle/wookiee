@@ -15,10 +15,12 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketH
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
 
+import java.time.Duration
 import javax.websocket.Session
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
+import scala.util.Try
 
 /**
   * This class is the main helper for registering HTTP and WS endpoints with Wookiee Helidon.
@@ -38,9 +40,19 @@ object WookieeEndpoints {
     // Just one routee, can call this directly afterwards to register more
     WookieeCommandExecutive.getMediator(config).registerCommand(command, 1)
     val instance = WookieeActor.actorOf(command)
-    val handler = handlerFromCommand(instance)
 
-    mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    if (instance.endpointType == EndpointType.INTERNAL || instance.endpointType == EndpointType.BOTH) {
+      val internalTimeout = Try(config.getDuration(s"${WebManager.ComponentName}.internal-request-timeout"))
+        .getOrElse(Duration.ofSeconds(120))
+      val handler = handlerFromCommand(instance, internalTimeout)
+      mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    }
+    if (instance.endpointType == EndpointType.EXTERNAL || instance.endpointType == EndpointType.BOTH) {
+      val externalTimeout = Try(config.getDuration(s"${WebManager.ComponentName}.external-request-timeout"))
+        .getOrElse(Duration.ofSeconds(90))
+      val handler = handlerFromCommand(instance, externalTimeout)
+      mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    }
   }
 
   /**

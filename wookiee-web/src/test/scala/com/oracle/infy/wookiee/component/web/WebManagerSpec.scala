@@ -169,9 +169,28 @@ class WebManagerSpec extends EndpointTestHelper {
       "/error/bomb",
       EndpointType.BOTH,
       "GET",
-      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb))
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb), java.time.Duration.ofSeconds(15))
     )
 
+    class TimerBomb extends HttpCommand {
+      override def method: String = "get"
+
+      override def path: String = "/error/timeout"
+
+      override def endpointType: EndpointType = EndpointType.INTERNAL
+
+      override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
+        Thread.sleep(5000L)
+        WookieeResponse(input.content)
+      }
+    }
+
+    manager.registerEndpoint(
+      "/error/timeout",
+      EndpointType.BOTH,
+      "GET",
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new TimerBomb), java.time.Duration.ofMillis(1))
+    )
   }
 
   override protected def afterAll(): Unit =
@@ -361,6 +380,19 @@ class WebManagerSpec extends EndpointTestHelper {
       responseContent mustBe jsonPayload
     }
 
+    "can timeout when request timeout setting is reached" in {
+      val response = oneOff(
+        s"http://localhost:$internalPort",
+        "GET",
+        "/error/timeout",
+        "test",
+        Map()
+      )
+
+      response.code() mustEqual 504
+      getContent(response) mustBe "Request timed out."
+    }
+
     "can fail gracefully in directive step" in {
       directiveHit.set(false)
       val responseContent = getContent(
@@ -436,6 +468,7 @@ class WebManagerSpec extends EndpointTestHelper {
       val cors2 = AllowAll()
       cors2.allowed(List("anything")) mustEqual List("anything")
       AllowAll.unapply(cors2) must not be None
+      cors2.toString mustEqual "*"
 
       val eo = EndpointOptions.apply(Headers(), None)
       EndpointOptions.unapply(eo) must not be None

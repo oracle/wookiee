@@ -38,11 +38,11 @@ object WebManager extends Mediator[WebManager] {
   def getEndpoints(config: Config, external: Boolean): List[EndpointMeta] =
     getEndpoints(getInstanceId(config), external)
 
-  // Defaults to both servers, call this to change the white list of allowed origins via CORS
+  // Call this to change the white list of allowed origins via CORS
   def setCORSAllowedOrigins(
       config: Config,
       allowedOrigins: CorsWhiteList,
-      endpointType: EndpointType = EndpointType.BOTH
+      endpointType: EndpointType
   ): Unit = {
     val manager = getMediator(getInstanceId(config))
     if (endpointType == EndpointType.EXTERNAL || endpointType == EndpointType.BOTH) {

@@ -4,19 +4,19 @@ import cats.effect.IO
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.implicits.global
 import cats.effect.unsafe.{IORuntime, IORuntimeConfig, Scheduler}
-import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.{WookieeActor, WookieeScheduler}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
 import java.util.concurrent._
 import scala.annotation.tailrec
-import scala.concurrent.duration.DurationLong
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.{Duration, DurationLong, FiniteDuration}
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.reflect.ClassTag
 import scala.util.{Failure, Success, Try}
 
-object ThreadUtil extends LoggingAdapter {
+object ThreadUtil extends LoggingAdapter with WookieeScheduler {
 
   // Be sure threadNames is unique or it could lead to deadlocks
   // If parallelism = None then we'll use a cached thread pool with no size limit, if Some(1) we'll use a single thread pool
@@ -170,6 +170,7 @@ object ThreadUtil extends LoggingAdapter {
   }
 
   // A helper method to wait for a future to be true, great for testing
+  // Note that this method does block, try `futureWithTimeout` if looking for an unblocking pod-ready solution
   // `f` has to be a function that returns a future, so that it re-evaluates every time
   // Example:
   // def futureToTest(): Future[Boolean] = Future { true }
@@ -202,6 +203,34 @@ object ThreadUtil extends LoggingAdapter {
     }
 
     retry()
+  }
+
+  // Highly performant and non-blocking helper function to return from a Future early if 'timeout' is reached before completion
+  // Note that Scala doesn't support Future cancellation so the original Future will continue its execution until completion (or hang forever, if it has a bug)
+  // @throws (as a Future Failure) java.util.concurrent.TimeoutException if original Future doesn't return in time
+  def futureWithTimeout[T](future: Future[T], timeout: java.time.Duration)(implicit ec: ExecutionContext): Future[T] =
+    futureWithTimeout(future, Duration.fromNanos(timeout.toNanos))
+
+  def futureWithTimeout[T](future: Future[T], timeout: FiniteDuration)(implicit ec: ExecutionContext): Future[T] = {
+    val promise = Promise[T]()
+
+    // Schedule a timeout
+    val runnable = new Runnable {
+      def run(): Unit = {
+        promise.tryFailure(new TimeoutException("Future timed out!"))
+        ()
+      }
+
+    }
+    scheduleOnce(timeout, runnable)
+
+    // Complete the promise with the future's result if it completes first
+    future.onComplete { result =>
+      promise.tryComplete(result)
+    }
+
+    // Return a future that either completes with the original future's result or the timeout
+    promise.future
   }
 
   // A helper method to ask an actor and wait for a response, great for testing

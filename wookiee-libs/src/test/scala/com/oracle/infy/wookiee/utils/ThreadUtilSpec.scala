@@ -1,10 +1,11 @@
 package com.oracle.infy.wookiee.utils
 
-import com.oracle.infy.wookiee.utils.ThreadUtil.awaitFuture
-import org.scalatest.matchers.should.Matchers
+import com.oracle.infy.wookiee.utils.ThreadUtil.{awaitFuture, futureWithTimeout}
+import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, ExecutionContext, Future, TimeoutException}
 
 class ThreadUtilSpec extends AnyWordSpec with Matchers {
 
@@ -71,6 +72,34 @@ class ThreadUtilSpec extends AnyWordSpec with Matchers {
       intercept[RuntimeException] {
         awaitFuture(futureToTest, waitMs = 1000, retryIntervalMs = 500)
       }
+    }
+
+    "wait on a future to complete successfully" in {
+      val future = Future {
+        true
+      }
+      Await.result(futureWithTimeout(future, 10.seconds), 15.seconds) mustEqual true
+    }
+
+    "return timeoutexception when future takes too long" in {
+      val future = Future {
+        Thread.sleep(5000L)
+      }
+      intercept[TimeoutException] {
+        Await.result(futureWithTimeout(future, 1.milliseconds), 15.seconds)
+      }
+    }
+
+    "process futures with timeouts in a performant fashion" in {
+      var currentTime = System.currentTimeMillis()
+      Await.result(Future.sequence(1.until(500).map(_ => Future { Thread.sleep(10L) }).toList), 15.seconds)
+      println(s"Normal future execution time: ${System.currentTimeMillis() - currentTime}")
+      currentTime = System.currentTimeMillis()
+      Await.result(
+        Future.sequence(1.until(500).map(_ => futureWithTimeout(Future { Thread.sleep(10L) }, 15.seconds))),
+        15.seconds
+      )
+      println(s"Timeout'd future execution time: ${System.currentTimeMillis() - currentTime}")
     }
   }
 }

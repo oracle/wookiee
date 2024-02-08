@@ -15,13 +15,17 @@ To use Wookiee Web, you must first add it as a dependency to your project.
 </dependency>
 ```
 
-Then you must add the following configuration to your `application.conf` file on the hosting server. See [reference.conf](src/main/resources/reference.conf) for more details.
+Then you must add the following configuration (which has mostly the below defaults) to your `application.conf` file on the hosting server. See [reference.conf](src/main/resources/reference.conf) for more details.
 ```hocon
 wookiee-web {
   # What port we host EndpointType.INTERNAL endpoints
   internal-port = 8080
   # What port we host EndpointType.EXTERNAL endpoints
   external-port = 8081
+  
+  # How long we wait for a request to complete
+  internal-request-timeout = 300 seconds
+  external-request-timeout = 60 seconds
     
   secure {
     # Set these to enable support of WSS and HTTPS
@@ -78,7 +82,7 @@ class ExternalHttpCommand(implicit config: Config, ec: ExecutionContext) extends
   // Optional: Can override this to provide custom error handling if any uncaught exceptions occur
   override def errorHandler(ex: Throwable): WookieeResponse = super.errorHandler(ex)
 
-  // Optional: Can override this to set default response headers and allowed headers for CORS
+  // Optional: Can override this to set default response headers and allowed headers and origins for CORS
   override def endpointOptions: EndpointOptions = super.endpointOptions
 }
 
@@ -209,8 +213,8 @@ class ExternalWSHandler(implicit conf: Config, ec: ExecutionContext) extends Woo
   // Optional: Will be automatically called after the session is closed for any reason
   override def onClosing(auth: Option[Auth]): Unit = ()
 
-  // Optional: Can override this to set default response headers and allowed headers for CORS
-  override def endpointOptions: EndpointOptions = EndpointOptions.default
+  // Optional: Can override this to set default response headers and allowed headers and origins for CORS
+  override def endpointOptions: EndpointOptions = EndpointOptions.default.copy(allowedOrigins = Some(AllowSome(List("http://origin.safe"))))
 }
 ```
 

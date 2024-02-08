@@ -4,6 +4,7 @@ import com.oracle.infy.wookiee.command.WookieeCommand
 import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 
+import java.util.concurrent.TimeoutException
 import scala.concurrent.Future
 import scala.util.Try
 
@@ -38,16 +39,24 @@ trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
   // be passed to this handler to be converted into a response.
   // If a WookieeWebException is thrown we'll use its information to create the response.
   def errorHandler(request: WookieeRequest, ex: Throwable): WookieeResponse = {
-    log.warn(s"WHH400: Error in HTTP handling of path [$path], method [$method]", ex)
-    Try(log.debug(s"WHH401: Detailed error in HTTP handling of path [$path], method [$method], request [$request]", ex))
+    Try(log.debug(s"WHH404: Detailed error in HTTP handling of path [$path], method [$method], request [$request]", ex))
     ex match {
       case WookieeWebException(msg, _, code) =>
+        log.warn(s"WHH400: Error in HTTP handling of path [$path], method [$method]", ex)
         WookieeResponse(
           Content(msg),
           HttpObjects.StatusCode(code.getOrElse(500)),
           endpointOptions.defaultHeaders
         )
+      case _: TimeoutException =>
+        log.warn(s"WHH401: Timeout in HTTP handling of path [$path], method [$method]")
+        WookieeResponse(
+          Content("Request timed out."),
+          HttpObjects.StatusCode(504),
+          endpointOptions.defaultHeaders
+        )
       case _ =>
+        log.warn(s"WHH402: Internal Error in HTTP handling of path [$path], method [$method]", ex)
         WookieeResponse(
           Content("There was an internal server error."),
           HttpObjects.StatusCode(500),

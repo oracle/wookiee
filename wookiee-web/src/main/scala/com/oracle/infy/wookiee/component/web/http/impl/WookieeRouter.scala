@@ -6,6 +6,8 @@ import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
 import com.oracle.infy.wookiee.component.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.component.web.{AccessLog, WookieeEndpoints}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.typesafe.config.Config
 import io.helidon.webserver._
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 
@@ -107,7 +109,10 @@ object WookieeRouter extends LoggingAdapter {
 
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  protected[oracle] def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
+  protected[oracle] def handlerFromCommand(
+      command: HttpCommand,
+      timeout: java.time.Duration
+  )(implicit ec: ExecutionContext, config: Config): HttpHandler =
     HttpHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different
@@ -134,9 +139,13 @@ object WookieeRouter extends LoggingAdapter {
                 // Main execution logic for this HTTP command
                 WookieeEndpoints
                   .maybeTimeF(command.endpointOptions.routeTimerLabel, {
-                    command
-                      .requestDirective(wookieeRequest)
-                      .flatMap(command.execute)
+                    ThreadUtil.futureWithTimeout(
+                      command
+                        .requestDirective(wookieeRequest)
+                        .flatMap(command.execute),
+                      timeout
+                    )
+
                   })
                   .map {
                     response =>
@@ -363,7 +372,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // Origin of the request, header used by CORS
         val originOpt = Option(req.headers.value("Origin").orElse(null))
 
-        def isOriginAllowed: Boolean = allowedOriginsRef.get match {
+        def isOriginAllowed(origins: CorsWhiteList): Boolean = origins match {
           case _: AllowAll      => true
           case allow: AllowSome =>
             // Return false if Origin wasn't on request
@@ -378,27 +387,39 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             headers.filter(head => allowed.forall(_.allowed(head).nonEmpty))
           }
 
+        // Returns true if the origin is not allowed and we rejected the call
+        def rejectUnallowedOrigins(origins: CorsWhiteList): Boolean =
+          if (!isOriginAllowed(origins)) {
+            res.status(403).send("Origin not permitted.")
+            AccessLog.logAccess(None, method, path, 403)
+            true
+          } else false
+
         // Didn't match CORS Origin requirements
-        if (!isOriginAllowed) {
-          res.status(403).send("Origin not permitted.")
-          AccessLog.logAccess(None, method, path, 403)
+        if (rejectUnallowedOrigins(allowedOriginsRef.get())) {
           return
         }
 
         // Main search function
         val handlers = findHandlers(path)
         handlers.get(method) match {
-          case Some(httpHandler: HttpHandler) => // Normal handling
+          case Some(httpHandler: HttpHandler)
+              if !rejectUnallowedOrigins(httpHandler.endpointOptions.allowedOrigins.getOrElse(AllowAll())) => // Normal handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
             httpHandler.handler.accept(req, res)
 
-          case Some(wsHandler: WebsocketHandler[_]) => // Websocket handling
+          case Some(wsHandler: WebsocketHandler[_])
+              if !rejectUnallowedOrigins(wsHandler.endpointOptions.allowedOrigins.getOrElse(AllowAll())) => // Websocket handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
             websocketHandler.acceptWithContext(req, res, wsHandler.endpointOptions)
 
-          case _ if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
+          // Check that this Origin is allowed for all handlers
+          case _
+              if handlers.nonEmpty && method == "OPTIONS" && !handlers
+                .values
+                .exists(h => rejectUnallowedOrigins(h.endpointOptions.allowedOrigins.getOrElse(AllowAll()))) => // This is a CORS pre-flight request
             val reqHeadersOpt =
               Option(req.headers.value("Access-Control-Request-Headers").orElse(null))
                 .map(_.split(",").map(_.trim).toList)
@@ -411,6 +432,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Headers", allowedHeads: _*)
             res.status(200).send("")
 
+          // Per-endpoint CORS Origins have already rejected this call with a 403
+          case None if handlers.nonEmpty && method == "OPTIONS" =>
+          case Some(_)                                          =>
+          // No handlers were found
           case _ =>
             res.status(404).send("Endpoint not found.")
         }
