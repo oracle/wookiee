@@ -223,7 +223,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     */
   def addRoute(path: String, method: String, handler: WookieeHandler): Unit = root.synchronized {
     if (path.isEmpty) throw new IllegalArgumentException("Path cannot be empty")
-    log.info(s"DEBUG : Wookiee router adding route for ${path}")
+    log.info(s"DEBUG : Wookiee router adding route for ${path} in ${this} with ${this.allowedOriginsRef}")
     val segments = path.split("/").filter(_.nonEmpty)
     val upperMethod = method.toUpperCase
 
@@ -361,8 +361,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
           else "WS" // This is an upgrade request
 
         // Origin of the request, header used by CORS
+        log.info(s"DEBUG : In update path is ${req.path()} router object is ${this} with ${this.allowedOriginsRef}")
         val originOpt = Option(req.headers.value("Origin").orElse(null))
-
+        log.info(s"DEBUG : some params of req remote address ${req.remoteAddress()} remote port ${req.remotePort()}")
+        log.info(s"DEBUG : other req params ${req.requestedUri()}")
         def isOriginAllowed: Boolean = allowedOriginsRef.get match {
           case _: AllowAll      => true
           case allow: AllowSome =>
@@ -380,14 +382,13 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
 
         // Didn't match CORS Origin requirements
         if (!isOriginAllowed) {
-          log.info(s"DEBUG : Wookiee router : Origin is not allowed for request ${req.path()}")
-          log.info(s"DEBUG : Origin of this request ${originOpt}")
-          log.info(
-            s"DEBUG : Wookiee router : Details of the request ${req} is being compared with ${allowedOriginsRef.get()}"
-          )
-          log.info(s"DEBUG : Dumping the entire request ${req}")
+//          log.info(s"DEBUG : Wookiee router : Origin is not allowed for request ${req.path()}")
+//          log.info(s"DEBUG : Origin of this request ${originOpt}")
+//          log.info(
+//            s"DEBUG : Wookiee router : Details of the request ${req.webServer()} is being compared with ${allowedOriginsRef.get()}"
+//          )
           res.status(403).send("Origin not permitted.")
-          AccessLog.logAccess(None, method, path, 403)
+       //   AccessLog.logAccess(None, method, path, 403)
           return
         }
 
