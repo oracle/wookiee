@@ -10,7 +10,9 @@ import io.helidon.webserver.{ServerRequest, ServerResponse}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import java.util.concurrent.TimeUnit
 import javax.websocket.Session
+import scala.concurrent.duration.FiniteDuration
 
 class WookieeRouterSpec extends AnyWordSpec with Matchers {
   "WookieeRouter" should {
@@ -113,6 +115,8 @@ class WookieeRouterSpec extends AnyWordSpec with Matchers {
             implicit session: Session
         ): Unit =
           ???
+        override def wsKeepAlive: Boolean = false
+        override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
       })
       WookieeRouter.WebsocketHandler.unapply(rt2) must not be None
     }
