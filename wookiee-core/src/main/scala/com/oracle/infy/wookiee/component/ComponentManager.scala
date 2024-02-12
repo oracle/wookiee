@@ -433,7 +433,7 @@ class ComponentManager extends PrepareForShutdown {
 
     val libList = libBuffer.toList
     val componentsLoaded = mutable.ListBuffer[String]()
-    val compList = cList ++ libList
+    val compList = libList ++ cList
     if (compList.length > 0) {
       // load up configured components
       log.info("Loading components...")
