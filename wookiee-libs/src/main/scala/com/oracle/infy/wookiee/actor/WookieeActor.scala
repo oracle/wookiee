@@ -91,7 +91,7 @@ object WookieeActor {
 trait WookieeActor extends WookieeActorBase with WookieeOperations with WookieeMonitor with WookieeDefaultMailbox {
   // Used to send this actor along as the sender() in classic actor methods
   implicit val thisActor: WookieeActor = this
-  private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
+  private[wookiee] val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
     new AtomicReference[Receive](receive)
