@@ -15,11 +15,11 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.{ActorSystem, PoisonPill}
-import com.oracle.infy.wookiee.app.HarnessActor
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.PoisonPill
 import com.oracle.infy.wookiee.component.ComponentV2
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
-import com.oracle.infy.wookiee.utils.{ActorWaitHelper, ThreadUtil}
+import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings._
 import com.typesafe.config.ConfigFactory
@@ -34,7 +34,6 @@ import scala.util.Try
 
 trait Zookeeper {
   this: ComponentV2 =>
-  implicit lazy val system: ActorSystem = HarnessActor.getMediator(config)
 
   private val resources: AtomicReference[(Closeable, Option[String])] =
     new AtomicReference[(Closeable, Option[String])]()
@@ -58,7 +57,7 @@ trait Zookeeper {
             case _: Throwable =>
               log.info("^^^ Ignore above error if using multiple mock servers")
               val mockZk = new TestingServer(port)
-              ZookeeperSettings.registerMediator(config, mockZk)
+              registerMediator(config, mockZk)
               resources.set((mockZk, Some(port.toString)))
               mockZk.getConnectString
           } finally {
@@ -71,20 +70,17 @@ trait Zookeeper {
           mockZk.getConnectString
       }
 
-      MockZookeeper(zookeeperSettings(Some(quorum)), clusterEnabled)
+      // Start up ZK Actor with mock settings
+      MockZookeeper(zookeeperSettings(Some(quorum)), clusterEnabled)(config)
     } else {
       // Start up ZK Actor as per normal, not mocking
-      ActorWaitHelper.awaitActor(
-        ZookeeperActor.props(zookeeperSettings(None), clusterEnabled),
-        system,
-        Some(Zookeeper.ZookeeperName)
-      )
+      WookieeActor.actorOf(ZookeeperActor(zookeeperSettings(None), clusterEnabled)(config))
     }
     ()
   }
 
   def stopZookeeper(): Unit = {
-    ZookeeperService.getMediator(system) ! PoisonPill
+    ZookeeperService.maybeGetMediator(config).foreach(_ ! PoisonPill)
     // Wait for the actor to stop before closing the server as it needs ZK for unregistering
     ThreadUtil.awaitEvent(ZookeeperService.maybeGetMediator(config).isEmpty, 5000L)
     Option(resources.get()) match {

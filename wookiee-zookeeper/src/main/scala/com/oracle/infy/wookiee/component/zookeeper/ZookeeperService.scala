@@ -15,17 +15,10 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.{ActorRef, ActorSystem}
 import com.oracle.infy.wookiee.Mediator
 import org.apache.zookeeper.CreateMode
 
-object ZookeeperService extends Mediator[ActorRef] {
-
-  private[oracle] def getMediator(system: ActorSystem): ActorRef =
-    getMediator(system.settings.config)
-
-  private[oracle] def unregisterMediator(system: ActorSystem): Unit =
-    unregisterMediator(system.settings.config)
+object ZookeeperService extends Mediator[ZookeeperActor] {
 
   @SerialVersionUID(1L) private[oracle] case class SetPathData(
       path: String,

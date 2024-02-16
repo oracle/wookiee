@@ -16,14 +16,11 @@
 
 package com.oracle.infy.wookiee.component.zookeeper.mock
 
-import akka.actor.{ActorSystem, PoisonPill, Props}
-import akka.util.Timeout
-import com.oracle.infy.wookiee.component.zookeeper.{ZookeeperActor, ZookeeperAdapterNonActor, ZookeeperService}
-import com.oracle.infy.wookiee.utils.ActorWaitHelper
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.PoisonPill
+import com.oracle.infy.wookiee.component.zookeeper.{ZookeeperActor, ZookeeperAdapter, ZookeeperService}
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.typesafe.config.Config
-
-import scala.concurrent.duration._
 
 /**
   * Use this object to spin up a local zookeeper for unit testing.
@@ -37,55 +34,40 @@ import scala.concurrent.duration._
   * Note: The clusterEnabled flag exists to support wookiee-cluster
   */
 object MockZookeeper {
-  case class MockZookeeper(override val zkActorSystem: ActorSystem) extends ZookeeperAdapterNonActor
-
-  private[oracle] def props(settings: ZookeeperSettings, clusterEnabled: Boolean = false)(
-      implicit system: ActorSystem
-  ): Props =
-    Props(classOf[ZookeeperActor], settings, clusterEnabled)
+  case class MockZookeeper(override val config: Config) extends ZookeeperAdapter
 
   // Only zkSettings is required
-  def apply(zkSettings: ZookeeperSettings, clusterEnabled: Boolean = false, actorName: Option[String] = None)(
-      implicit system: ActorSystem
-  ): ZookeeperAdapterNonActor = {
-    val zkActor = if (actorName.isDefined) {
-      system.actorOf(props(zkSettings, clusterEnabled), actorName.get)
-    } else system.actorOf(props(zkSettings, clusterEnabled))
-
-    ActorWaitHelper.awaitActorRef(zkActor, system)(Timeout(15.seconds))
-    MockZookeeper(system)
+  def apply(zkSettings: ZookeeperSettings, clusterEnabled: Boolean = false)(
+      implicit config: Config
+  ): ZookeeperAdapter = {
+    WookieeActor.actorOf(ZookeeperActor(zkSettings, clusterEnabled))
+    MockZookeeper(config)
   }
 
-  def apply(config: Config)(implicit system: ActorSystem): ZookeeperAdapterNonActor = {
-    apply(if (system.settings.config.hasPath("wookiee-zookeeper")) {
-      ZookeeperSettings(system.settings.config.getConfig("wookiee-zookeeper"))
+  def apply(config: Config): ZookeeperAdapter =
+    apply(if (config.hasPath("wookiee-zookeeper")) {
+      ZookeeperSettings(config.getConfig("wookiee-zookeeper"))
     } else {
-      ZookeeperSettings(system.settings.config)
-    })
-  }
+      ZookeeperSettings(config)
+    })(config)
 
-  def apply(zookeeperQuorum: String)(implicit system: ActorSystem): ZookeeperAdapterNonActor = {
+  def apply(zookeeperQuorum: String)(implicit config: Config): ZookeeperAdapter =
     apply(getTestConfig(zookeeperQuorum))
-  }
 
-  def getTestConfig(config: Config)(implicit system: ActorSystem): ZookeeperSettings = {
+  def getTestConfig(config: Config): ZookeeperSettings =
     ZookeeperSettings(config)
-  }
 
-  def getTestConfig(zookeeperQuorum: String)(implicit system: ActorSystem): ZookeeperSettings = {
+  def getTestConfig(zookeeperQuorum: String)(implicit config: Config): ZookeeperSettings =
     if (zookeeperQuorum.nonEmpty) {
       ZookeeperSettings("test", "pod", zookeeperQuorum)
     } else {
-      ZookeeperSettings(system.settings.config)
+      ZookeeperSettings(config)
     }
-  }
 
-  def stop(implicit system: ActorSystem): Unit = {
+  def stop(implicit config: Config): Unit =
     ZookeeperService
       .maybeGetMediator(
-        ZookeeperService
-          .getInstanceId(system.settings.config)
+        config
       )
       .foreach(_ ! PoisonPill)
-  }
 }

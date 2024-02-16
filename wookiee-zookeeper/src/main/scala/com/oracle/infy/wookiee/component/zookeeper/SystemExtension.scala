@@ -15,25 +15,15 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
+import com.typesafe.config.Config
+
 import java.net.InetAddress
-import akka.actor.{ActorSystem, Address, ExtendedActorSystem, Extension}
-
 import scala.util.Try
-
-class SystemExtension(system: ExtendedActorSystem) extends Extension {
-  def address: Address = system.provider.getDefaultAddress
-}
 
 object SystemExtension {
 
-  def getAddress(system: ActorSystem): String = {
-    val ext = new SystemExtension(system.asInstanceOf[ExtendedActorSystem])
-    ext.address.host.getOrElse(getLocalHost(system))
-  }
-
-  def getLocalHost(system: ActorSystem): String = {
-    Try(system.settings.config.getString(s"${ZookeeperManager.ComponentName}.host-fqdn")).getOrElse(
+  def getLocalHost(config: Config): String =
+    Try(config.getString(s"${ZookeeperManager.ComponentName}.host-fqdn")).getOrElse(
       InetAddress.getLocalHost.getCanonicalHostName
     )
-  }
 }

@@ -15,13 +15,14 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.{Actor, ActorRef}
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.Internal.{
   RegisterZookeeperEvent,
   UnregisterZookeeperEvent
 }
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperService.getMediator
-import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCacheListener, PathChildrenCacheEvent}
+import com.typesafe.config.Config
+import org.apache.curator.framework.recipes.cache.{ChildData, CuratorCacheListener}
 import org.apache.curator.framework.state.ConnectionState
 
 object ZookeeperEvent {
@@ -30,13 +31,13 @@ object ZookeeperEvent {
     * Marker interface for zookeeper registration types.
     */
   sealed trait ZookeeperEventRegistration {
-    def registrar: ActorRef
+    def registrar: WookieeActor
   }
 
   /**
     * Register for Zookeeper state changes
     */
-  @SerialVersionUID(1L) case class ZookeeperStateEventRegistration(registrar: ActorRef)
+  @SerialVersionUID(1L) case class ZookeeperStateEventRegistration(registrar: WookieeActor)
       extends ZookeeperEventRegistration
 
   /**
@@ -45,7 +46,7 @@ object ZookeeperEvent {
     * @param namespace the optional namespace
     */
   @SerialVersionUID(1L) case class ZookeeperChildEventRegistration(
-      registrar: ActorRef,
+      registrar: WookieeActor,
       path: String,
       namespace: Option[String] = None
   ) extends ZookeeperEventRegistration
@@ -56,7 +57,7 @@ object ZookeeperEvent {
     * @param namespace the optional namespace
     */
   @SerialVersionUID(1L) case class ZookeeperLeaderEventRegistration(
-      registrar: ActorRef,
+      registrar: WookieeActor,
       path: String,
       namespace: Option[String] = None
   ) extends ZookeeperEventRegistration
@@ -74,7 +75,6 @@ object ZookeeperEvent {
 
   /**
     * An event occurred for a child on a path we are watching
-    * @param event the event information
     */
   @SerialVersionUID(1L) case class ZookeeperChildEvent(
       `type`: CuratorCacheListener.Type,
@@ -89,33 +89,30 @@ object ZookeeperEvent {
 
   private[oracle] object Internal {
 
-    @SerialVersionUID(1L) case class RegisterZookeeperEvent(registrar: ActorRef, to: ZookeeperEventRegistration)
+    @SerialVersionUID(1L) case class RegisterZookeeperEvent(registrar: WookieeActor, to: ZookeeperEventRegistration)
 
-    @SerialVersionUID(1L) case class UnregisterZookeeperEvent(registrar: ActorRef, to: ZookeeperEventRegistration)
+    @SerialVersionUID(1L) case class UnregisterZookeeperEvent(registrar: WookieeActor, to: ZookeeperEventRegistration)
 
   }
 
 }
 
 trait ZookeeperEventAdapter {
-  this: Actor =>
-
   import ZookeeperEvent.ZookeeperEventRegistration
-  import context.system
 
   /**
     * Register for Zookeeper events.
     * @param registrar the actor that is to receive the events
     * @param to the class to register for
     */
-  def register(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
-    getMediator(system) ! RegisterZookeeperEvent(registrar, to)
+  def register(registrar: WookieeActor, to: ZookeeperEventRegistration)(implicit config: Config): Unit =
+    getMediator(config) ! RegisterZookeeperEvent(registrar, to)
 
   /**
     * Unregister for Zookeeper events.
     * @param registrar the actor that is to receive the events
     * @param to the class to register for
     */
-  def unregister(registrar: ActorRef, to: ZookeeperEventRegistration): Unit =
-    getMediator(system) ! UnregisterZookeeperEvent(registrar, to)
+  def unregister(registrar: WookieeActor, to: ZookeeperEventRegistration)(implicit config: Config): Unit =
+    getMediator(config) ! UnregisterZookeeperEvent(registrar, to)
 }

@@ -15,7 +15,6 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.ActorSystem
 import com.oracle.infy.wookiee.zookeeper.ZookeeperSettings
 import com.typesafe.config.Config
 
@@ -41,19 +40,18 @@ object NodeRegistration {
     * @param zookeeperSettings current ZK settings
     * @return the base path
     */
-  def getBasePath(zookeeperSettings: ZookeeperSettings): String = {
+  def getBasePath(zookeeperSettings: ZookeeperSettings): String =
     s"${zookeeperSettings.basePath}/${zookeeperSettings.dataCenter}_${zookeeperSettings.pod}/${zookeeperSettings.version}"
-  }
 
   /**
     * Return the address name this node will carry
     */
-  def getAddress(implicit system: ActorSystem): String = {
-    val addrHost = SystemExtension.getAddress(system)
+  def getAddress(implicit config: Config): String = {
+    val addrHost = SystemExtension.getLocalHost(config)
 
-    if (!ZookeeperSettings.isMock(system.settings.config) &&
+    if (!ZookeeperSettings.isMock(config) &&
         (addrHost.equalsIgnoreCase("localhost") || addrHost.equals("127.0.0.1"))) {
-      SystemExtension.getLocalHost(system)
+      SystemExtension.getLocalHost(config)
     } else {
       addrHost
     }

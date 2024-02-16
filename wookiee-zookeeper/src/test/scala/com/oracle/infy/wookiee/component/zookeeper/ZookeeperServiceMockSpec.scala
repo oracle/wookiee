@@ -1,27 +1,27 @@
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor.ActorSystem
-import akka.pattern.ask
-import akka.testkit.TestKit
-import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperService.{GetRegistrationPath, getMediator}
-import com.oracle.infy.wookiee.test.TestHarness
-import com.typesafe.config.ConfigFactory
+import com.oracle.infy.wookiee.test.BaseWookieeTest
+import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.zookeeper.KeeperException.NoNodeException
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
-import scala.concurrent.Await
+import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 class ZookeeperServiceMockSpec
     extends AnyWordSpecLike
     with Matchers
-    with ZookeeperAdapterNonActor
-    with BeforeAndAfterAll {
+    with ZookeeperAdapter
+    with BeforeAndAfterAll
+    with BaseWookieeTest {
 
-  val testHarness: TestHarness = TestHarness(ConfigFactory.parseString("""
+  lazy val testConfig: AtomicReference[Config] = new AtomicReference(
+    ConfigFactory.parseString("""
       |wookiee-zookeeper {
       |  enabled = true
       |  mock-enabled = true
@@ -30,16 +30,21 @@ class ZookeeperServiceMockSpec
       |  register-self = false
       |  host-fqdn = "localhost"
       |}
-    """.stripMargin))
-  override implicit val zkActorSystem: ActorSystem = testHarness.system
+    """.stripMargin)
+  )
+  override def config: Config = testConfig.get()
 
-  implicit val to: Timeout = Timeout(5.seconds)
-  val awaitResultTimeout: FiniteDuration = 5000.milliseconds
+  override protected def beforeAll(): Unit = {
+    super.beforeAll()
+    testConfig.set(testWookiee.config)
+  }
+
+  val awaitResultTimeout: FiniteDuration = 10000.milliseconds
 
   "The zookeeper mock service" should {
     "don't register self when not set to" in {
       val startPath =
-        Await.result((getMediator(zkActorSystem) ? GetRegistrationPath()).mapTo[String], awaitResultTimeout)
+        Await.result((getMediator(testWookiee.config) ? GetRegistrationPath()).mapTo[String], awaitResultTimeout)
       try {
         val res = Await.result(getData(startPath, None), awaitResultTimeout)
         startPath shouldEqual "localhost"
@@ -52,8 +57,9 @@ class ZookeeperServiceMockSpec
     }
 
     "allow callers to create a node for a valid path" in {
-      val res = Await.result(createNode("/test", ephemeral = false, Some("data".getBytes)), awaitResultTimeout)
-      res shouldEqual "/test"
+      def futureToTest(): Future[Boolean] =
+        createNode("/test", ephemeral = false, Some("data".getBytes)).map(_ == "/test")
+      ThreadUtil.awaitFuture(futureToTest)
     }
 
     "allow callers to create a node for a valid namespace and path" in {
@@ -138,5 +144,5 @@ class ZookeeperServiceMockSpec
   }
 
   override protected def afterAll(): Unit =
-    TestKit.shutdownActorSystem(zkActorSystem)
+    testWookiee.stop()
 }

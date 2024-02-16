@@ -15,32 +15,23 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import java.util.concurrent.TimeUnit
-import akka.actor.{Actor, ActorSystem}
-import akka.pattern.ask
-import akka.util.Timeout
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperService._
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.typesafe.config.Config
 import org.apache.curator.framework.recipes.atomic.DistributedAtomicLong
 import org.apache.zookeeper.CreateMode
 
+import java.util.concurrent.TimeUnit
 import scala.concurrent.Future
+import scala.concurrent.duration.{DurationLong, FiniteDuration}
+import scala.util.Try
 
-trait ZookeeperAdapter extends ZookeeperAdapterNonActor {
-  this: Actor =>
-  override val zkActorSystem: ActorSystem = this.context.system
-}
+trait ZookeeperAdapter extends LoggingAdapter {
+  def config: Config
 
-trait ZookeeperAdapterNonActor extends LoggingAdapter {
-  val zkActorSystem: ActorSystem
-
-  private[zookeeper] lazy val zkTimeout = Timeout(
-    zkActorSystem
-      .settings
-      .config
-      .getDuration(s"${ZookeeperManager.ComponentName}.default-send-timeout", TimeUnit.MILLISECONDS),
-    TimeUnit.MILLISECONDS
-  )
+  private[zookeeper] lazy implicit val zkTimeout: FiniteDuration =
+    Try(config.getDuration(s"${ZookeeperManager.ComponentName}.default-send-timeout", TimeUnit.MILLISECONDS).millis)
+      .getOrElse(10.seconds)
 
   /**
     * Set data in Zookeeper for the given path and optionally namespace
@@ -57,8 +48,8 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
       create: Boolean = false,
       ephemeral: Boolean = false,
       namespace: Option[String] = None
-  )(implicit timeout: akka.util.Timeout): Future[Int] = {
-    (getMediator(zkActorSystem) ? SetPathData(path, data, create, ephemeral, namespace)).mapTo[Int]
+  ): Future[Int] = {
+    (getMediator(config) ? SetPathData(path, data, create, ephemeral, namespace)).mapTo[Int]
   }
 
   /**
@@ -75,8 +66,8 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
       create: Boolean = false,
       ephemeral: Boolean = false,
       namespace: Option[String] = None
-  )(implicit timeout: akka.util.Timeout): Unit =
-    getMediator(zkActorSystem) ! SetPathData(path, data, create, ephemeral, namespace, async = true)
+  ): Unit =
+    getMediator(config) ! SetPathData(path, data, create, ephemeral, namespace, async = true)
 
   /**
     * Get Zookeeper data for the given path
@@ -84,10 +75,8 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return An instance of Array[Byte] or an empty array
     */
-  def getData(path: String, namespace: Option[String] = None)(
-      implicit timeout: akka.util.Timeout
-  ): Future[Array[Byte]] =
-    (getMediator(zkActorSystem) ? GetPathData(path, namespace)).mapTo[Array[Byte]]
+  def getData(path: String, namespace: Option[String] = None): Future[Array[Byte]] =
+    (getMediator(config) ? GetPathData(path, namespace)).mapTo[Array[Byte]]
 
   /**
     * Get the data in Zookeeper for the given path or set it if the path does not exist
@@ -97,10 +86,13 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return An instance of Array[Byte] or an empty array
     */
-  def getOrSetData(path: String, data: Array[Byte], ephemeral: Boolean = false, namespace: Option[String] = None)(
-      implicit timeout: akka.util.Timeout
+  def getOrSetData(
+      path: String,
+      data: Array[Byte],
+      ephemeral: Boolean = false,
+      namespace: Option[String] = None
   ): Future[Array[Byte]] =
-    (getMediator(zkActorSystem) ? GetOrSetPathData(path, data, ephemeral, namespace)).mapTo[Array[Byte]]
+    (getMediator(config) ? GetOrSetPathData(path, data, ephemeral, namespace)).mapTo[Array[Byte]]
 
   /**
     * Get the child nodes for the given path
@@ -109,10 +101,12 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return A Seq[String] or Nil is an error occurs or if there no children
     */
-  def getChildren(path: String, includeData: Boolean = false, namespace: Option[String] = None)(
-      implicit timeout: akka.util.Timeout
+  def getChildren(
+      path: String,
+      includeData: Boolean = false,
+      namespace: Option[String] = None
   ): Future[Seq[(String, Option[Array[Byte]])]] =
-    (getMediator(zkActorSystem) ? GetPathChildren(path, includeData, namespace))
+    (getMediator(config) ? GetPathChildren(path, includeData, namespace))
       .mapTo[Seq[(String, Option[Array[Byte]])]]
 
   /**
@@ -121,8 +115,8 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return true or false
     */
-  def nodeExists(path: String, namespace: Option[String] = None)(implicit timeout: akka.util.Timeout): Future[Boolean] =
-    (getMediator(zkActorSystem) ? GetNodeExists(path, namespace)).mapTo[Boolean]
+  def nodeExists(path: String, namespace: Option[String] = None): Future[Boolean] =
+    (getMediator(config) ? GetNodeExists(path, namespace)).mapTo[Boolean]
 
   /**
     * Create a node at the given path
@@ -132,11 +126,14 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return the full path to the newly created node
     */
-  def createNode(path: String, ephemeral: Boolean, data: Option[Array[Byte]], namespace: Option[String] = None)(
-      implicit timeout: akka.util.Timeout
+  def createNode(
+      path: String,
+      ephemeral: Boolean,
+      data: Option[Array[Byte]],
+      namespace: Option[String] = None
   ): Future[String] = {
     val mode = if (ephemeral) CreateMode.EPHEMERAL else CreateMode.PERSISTENT
-    (getMediator(zkActorSystem) ? CreateNode(path, mode, data, namespace)).mapTo[String]
+    (getMediator(config) ? CreateNode(path, mode, data, namespace)).mapTo[String]
   }
 
   /**
@@ -146,10 +143,8 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param data the data to set in the node
     * @return the full path to the newly created node
     */
-  def createNode(path: String, createMode: CreateMode, data: Option[Array[Byte]])(
-      implicit timeout: akka.util.Timeout
-  ): Future[String] =
-    (getMediator(zkActorSystem) ? CreateNode(path, createMode, data)).mapTo[String]
+  def createNode(path: String, createMode: CreateMode, data: Option[Array[Byte]]): Future[String] =
+    (getMediator(config) ? CreateNode(path, createMode, data)).mapTo[String]
 
   /**
     * Create a node at the given path
@@ -164,16 +159,16 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
       createMode: CreateMode,
       data: Option[Array[Byte]],
       namespace: Option[String] = None
-  )(implicit timeout: akka.util.Timeout): Future[String] =
-    (getMediator(zkActorSystem) ? CreateNode(path, createMode, data, namespace)).mapTo[String]
+  ): Future[String] =
+    (getMediator(config) ? CreateNode(path, createMode, data, namespace)).mapTo[String]
 
   /**
     * Create a counter that can be incremented and decremented
     * @param path the path in ZK to store the counter
     * @return distributed ZK long that can be incremented/decremented
     */
-  def createCounter(path: String)(implicit timeout: akka.util.Timeout): Future[DistributedAtomicLong] = {
-    (getMediator(zkActorSystem) ? CreateCounter(path)).mapTo[DistributedAtomicLong]
+  def createCounter(path: String): Future[DistributedAtomicLong] = {
+    (getMediator(config) ? CreateCounter(path)).mapTo[DistributedAtomicLong]
   }
 
   /**
@@ -182,13 +177,12 @@ trait ZookeeperAdapterNonActor extends LoggingAdapter {
     * @param namespace the optional name space
     * @return the full path to the newly created node
     */
-  def deleteNode(path: String, namespace: Option[String] = None)(implicit timeout: akka.util.Timeout): Future[String] =
-    (getMediator(zkActorSystem) ? DeleteNode(path, namespace)).mapTo[String]
+  def deleteNode(path: String, namespace: Option[String] = None): Future[String] =
+    (getMediator(config) ? DeleteNode(path, namespace)).mapTo[String]
 
   /**
     * Stops the zookeeper mediator (ZookeeperActor) associated with this system
     */
-  def stopZookeeper(): Unit = {
-    ZookeeperService.unregisterMediator(zkActorSystem)
-  }
+  def stopZookeeper(): Unit =
+    ZookeeperService.unregisterMediator(config)
 }

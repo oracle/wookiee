@@ -1,9 +1,7 @@
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.actor._
-import akka.pattern.ask
-import akka.testkit.TestKit
-import akka.util.Timeout
+import com.oracle.infy.wookiee.actor.WookieeActor
+import com.oracle.infy.wookiee.actor.WookieeActor.Receive
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperActor.GetSetWeightInterval
 import com.oracle.infy.wookiee.component.zookeeper.ZookeeperEvent.{ZookeeperChildEvent, ZookeeperChildEventRegistration}
 import com.oracle.infy.wookiee.component.zookeeper.mock.MockZookeeper
@@ -24,12 +22,21 @@ import scala.util.Try
 
 class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndAfterAll with PatienceConfiguration {
 
-  val zkServer: AtomicReference[TestingServer] = new AtomicReference()
-  val system: AtomicReference[ActorSystem] = new AtomicReference()
-  val service: AtomicReference[ZookeeperAdapterNonActor] = new AtomicReference()
-  val zkActor: AtomicReference[ActorRef] = new AtomicReference()
+  implicit lazy val loadConfig: Config = {
+    ConfigFactory.parseString("""
+      instance-id = "zk-test"
+      discoverability {
+        set-weight-interval = 2s
+      }
+      wookiee-zookeeper {
+        quorum = "%s"
+      }""".format(zkServer.get().getConnectString)).withFallback(ConfigFactory.load()).resolve
+  }
 
-  implicit val to: Timeout = Timeout(5.seconds)
+  val zkServer: AtomicReference[TestingServer] = new AtomicReference()
+  val service: AtomicReference[ZookeeperAdapter] = new AtomicReference()
+  val zkActor: AtomicReference[WookieeActor] = new AtomicReference()
+
   val awaitResultTimeout: FiniteDuration = 5000.milliseconds
 
   val deletedNodes = new ConcurrentLinkedQueue[String]()
@@ -39,10 +46,11 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
   override protected def beforeAll(): Unit = {
     super.beforeAll()
     zkServer.set(new TestingServer())
-    system.set(ActorSystem("zk-test", loadConfig))
-    service.set(MockZookeeper(zkServer.get().getConnectString)(system.get()))
-    zkActor.set(ZookeeperService.getMediator(system.get()))
-    system.get().actorOf(Props(new ZKEventWatcher()), "zk-event-watcher-test")
+    service.set(MockZookeeper(zkServer.get().getConnectString))
+    ThreadUtil.awaitEvent({ ZookeeperService.maybeGetMediator(loadConfig).isDefined })
+    zkActor.set(ZookeeperService.getMediator(loadConfig))
+    // Will register itself to receive events
+    WookieeActor.actorOf(new ZKEventWatcher())
     ()
   }
 
@@ -52,7 +60,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
     queue.contains(path)
   }
 
-  class ZKEventWatcher() extends Actor with ZookeeperEventAdapter {
+  class ZKEventWatcher() extends WookieeActor with ZookeeperEventAdapter {
 
     override def preStart(): Unit = {
       super.preStart()
@@ -158,19 +166,7 @@ class ZookeeperServiceSpec extends AnyWordSpecLike with Matchers with BeforeAndA
   }
 
   override protected def afterAll(): Unit = {
-    Try(TestKit.shutdownActorSystem(system.get()))
     Try(zkServer.get().close())
     ()
-  }
-
-  def loadConfig: Config = {
-    ConfigFactory.parseString("""
-      instance-id = "zk-test"
-      discoverability {
-        set-weight-interval = 2s
-      }
-      wookiee-zookeeper {
-        quorum = "%s"
-      }""".format(zkServer.get().getConnectString)).withFallback(ConfigFactory.load()).resolve
   }
 }

@@ -15,18 +15,12 @@
  */
 package com.oracle.infy.wookiee.component.zookeeper
 
-import akka.pattern.ask
-import akka.util.Timeout
 import com.oracle.infy.wookiee.component.ComponentV2
-import com.oracle.infy.wookiee.health.HealthComponent
-import com.oracle.infy.wookiee.service.messages.CheckHealth
-import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.oracle.infy.wookiee.health.WookieeMonitor
 import com.typesafe.config.Config
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.concurrent.duration.DurationInt
-
 class ZookeeperManager(name: String, config: Config) extends ComponentV2(name, config) with Zookeeper {
+  override def getDependents: Iterable[WookieeMonitor] = ZookeeperService.maybeGetMediator(config).toList
 
   override def start(): Unit = {
     if (!isClusterEnabled) {
@@ -40,21 +34,6 @@ class ZookeeperManager(name: String, config: Config) extends ComponentV2(name, c
   override def prepareForShutdown(): Unit = {
     stopZookeeper()
     super.prepareForShutdown()
-  }
-
-  override protected def getHealth: Future[HealthComponent] = super.getHealth.flatMap { health =>
-    implicit val timeout: Timeout = new Timeout(10.seconds)
-
-    // Ask underlying zookeeper actor for health
-    ZookeeperService
-      .maybeGetMediator(ZookeeperService.getInstanceId(config))
-      .map { zkActor =>
-        (zkActor ? CheckHealth).mapTo[HealthComponent].map { zkHealth =>
-          health.addComponent(zkHealth)
-        }
-      }
-      .getOrElse(Future.successful(()))
-      .map(_ => health)
   }
 }
 

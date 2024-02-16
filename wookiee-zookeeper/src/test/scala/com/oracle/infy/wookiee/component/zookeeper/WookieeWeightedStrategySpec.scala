@@ -1,8 +1,8 @@
 package com.oracle.infy.wookiee.component.zookeeper
 
 import com.oracle.infy.wookiee.zookeeper.{WookieeServiceDetails, WookieeWeightedStrategy}
+import org.apache.curator.x.discovery.ServiceInstance
 import org.apache.curator.x.discovery.details.InstanceProvider
-import org.apache.curator.x.discovery.{ServiceInstance, UriSpec}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
@@ -20,7 +20,6 @@ class WookieeWeightedStrategySpec extends AnyWordSpecLike with Matchers {
   def builderInstance(id: Int, weight: Int): ServiceInstance[WookieeServiceDetails] =
     ServiceInstance
       .builder[WookieeServiceDetails]()
-      .uriSpec(new UriSpec(s"akka.tcp://server@localhost:8080/"))
       .id(id.toString)
       .name(UUID.randomUUID().toString)
       .payload(new WookieeServiceDetails(weight))
