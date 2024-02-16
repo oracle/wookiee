@@ -49,8 +49,8 @@ abstract class WookieeWebsocket[Auth <: Any: ClassTag] extends WookieeMonitor {
   def endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
 
   // These attributes below will determine if the websocket is to be kept alive with pings.
-  def wsKeepAlive: Boolean
-  def wsKeepAliveDuration: FiniteDuration
+  def wsKeepAlive: Boolean = false
+  def wsKeepAliveDuration: FiniteDuration = FiniteDuration(60, TimeUnit.SECONDS)
 
   // Called when a new session is opened, can be used for authentication
   // If an error is thrown or the Future fails then we'll close the session right away
