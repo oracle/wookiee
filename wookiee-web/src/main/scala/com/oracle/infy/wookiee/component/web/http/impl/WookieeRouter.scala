@@ -134,7 +134,7 @@ object WookieeRouter extends LoggingAdapter {
                   queryParams,
                   headers
                 )
-                wookieeRequest.appendQuery(req.query())
+                Option(req.query()).foreach(wookieeRequest.appendQuery)
 
                 // Main execution logic for this HTTP command
                 WookieeEndpoints

@@ -2,12 +2,11 @@ package com.oracle.infy.wookiee.component.web.http
 
 import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommand
-import com.oracle.infy.wookiee.component.web.WebManager
 import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
 
 import java.util.concurrent.TimeoutException
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.util.Try
 
 /**
@@ -75,6 +74,4 @@ trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] with W
 
   // The main method to implement your business logic and response
   override def execute(input: WookieeRequest): Future[WookieeResponse]
-
-  override def executionContext(): ExecutionContext = WebManager.webEC
 }

@@ -28,7 +28,6 @@ import scala.jdk.CollectionConverters._
 
 object WebManager extends Mediator[WebManager] {
   val ComponentName = "wookiee-web"
-  protected[oracle] val webEC: ExecutionContext = ThreadUtil.createEC("wookiee-web-pool")
 
   // Call this to get all the registered endpoints for a given instance
   def getEndpoints(instanceId: String, external: Boolean): List[EndpointMeta] = {
