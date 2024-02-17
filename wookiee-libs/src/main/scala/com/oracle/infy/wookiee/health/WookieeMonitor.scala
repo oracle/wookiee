@@ -21,6 +21,8 @@ trait WookieeMonitor extends WookieeScheduler with LoggingAdapter {
   protected[wookiee] lazy val _ec: ExecutionContext = WookieeMonitor.ec
 
   def name: String = _name
+  // Use this one from Java, ec() isn't visible since there's no parenthesis below
+  def executionContext(): ExecutionContext = _ec
   implicit def ec: ExecutionContext = _ec
 
   /**

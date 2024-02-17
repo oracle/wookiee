@@ -10,7 +10,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 class ActorRouterSpec extends AnyWordSpec with Matchers {
   "Wookiee Actor Router" should {
@@ -25,6 +25,7 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
             seenMessages(thisActorNum) = true
         }
       })
+      router.executionContext().isInstanceOf[ExecutionContext] mustEqual true
       Await.result(router.checkHealth, 5.seconds).state mustEqual ComponentState.NORMAL
       1.to(5).foreach(_ => router ! "test")
       ThreadUtil.awaitEvent(seenMessages.forall(_ == true))
