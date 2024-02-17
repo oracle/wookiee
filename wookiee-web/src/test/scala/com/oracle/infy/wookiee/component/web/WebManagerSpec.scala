@@ -199,6 +199,12 @@ class WebManagerSpec extends EndpointTestHelper {
   "Helidon Manager" should {
     val jsonPayload = """{"key":"value"}"""
 
+    "can turn off and on access logging" in {
+      AccessLog.disableAccessLogging()
+      AccessLog.logAccess(None, "GET", "/path", 200)
+      AccessLog.enableAccessLogging()
+    }
+
     "handle a call to the '/api/test/endpoint' endpoint" in {
       val responseContent = getContent(
         oneOff(

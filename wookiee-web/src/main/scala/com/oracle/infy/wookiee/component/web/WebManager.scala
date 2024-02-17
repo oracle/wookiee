@@ -14,7 +14,7 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{
 }
 import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentV2}
 import com.oracle.infy.wookiee.health.HealthCheckActor
-import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.oracle.infy.wookiee.utils.{ConfigUtil, ThreadUtil}
 import com.typesafe.config.Config
 import io.helidon.webserver._
 import org.joda.time.{DateTime, DateTimeZone}
@@ -166,6 +166,10 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
     // Redirect Helidon logging (which uses java.util.logging) to SLF4J
     SLF4JBridgeHandler.removeHandlersForRootLogger()
     SLF4JBridgeHandler.install()
+    if (ConfigUtil.getDefaultValue("access-logging.enabled", config.getBoolean, true))
+      AccessLog.enableAccessLogging()
+    else AccessLog.disableAccessLogging()
+
     startService()
     log.info(s"Helidon Servers started on ports: [internal=$internalPort], [external=$externalPort]")
   }
