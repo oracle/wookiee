@@ -8,7 +8,7 @@ import com.oracle.infy.wookiee.test.BaseWookieeTest
 import com.oracle.infy.wookiee.utils.ThreadUtil
 import com.typesafe.config.Config
 import org.scalatest.matchers.must.Matchers
-import org.scalatest.wordspec.AnyWordSpec
+import org.scalatest.wordspec.AnyWordSpecLike
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.ExecutionContext
@@ -31,7 +31,7 @@ object WookieeHttpServiceSpec {
   val calledComponentCommands: AtomicReference[Boolean] = new AtomicReference(false)
 }
 
-class WookieeHttpServiceSpec extends AnyWordSpec with Matchers with BaseWookieeTest with EndpointTestHelper {
+class WookieeHttpServiceSpec extends EndpointTestHelper with AnyWordSpecLike with Matchers with BaseWookieeTest {
   override implicit lazy val ec: ExecutionContext = ThreadUtil.createEC(s"wookiee-test-${testWookiee.getInstanceId}")
 
   override def startupWait: FiniteDuration = 40.seconds

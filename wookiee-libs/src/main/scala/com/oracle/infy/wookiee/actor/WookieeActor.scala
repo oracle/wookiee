@@ -14,7 +14,7 @@ import scala.concurrent.{Future, Promise, TimeoutException}
 import scala.util.{Failure, Success}
 
 abstract class WookieeActorBase {
-  protected[wookiee] var properlyInitialized: Boolean = WookieeActor.isInsideActorOf.get()
+  protected[wookiee] lazy val properlyInitialized: Boolean = WookieeActor.isInsideActorOf.get()
 
   protected[wookiee] def initializationCheck(): Unit =
     if (!properlyInitialized) {

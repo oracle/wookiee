@@ -19,7 +19,7 @@ import java.nio.ByteBuffer
 import javax.websocket.{Endpoint, EndpointConfig, MessageHandler, Session}
 import scala.concurrent.{ExecutionContext, Promise}
 
-trait EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAll {
+abstract class EndpointTestHelper extends AnyWordSpec with Matchers with BeforeAndAfterAll {
   implicit val formats: Formats = DefaultFormats
   protected var manager: WebManager = _
 

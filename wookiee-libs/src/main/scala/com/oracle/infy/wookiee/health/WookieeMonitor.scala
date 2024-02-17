@@ -16,9 +16,12 @@ import scala.util.{Failure, Success}
   */
 trait WookieeMonitor extends WookieeScheduler with LoggingAdapter {
   // Override this with the name of the health component to show up in the check
-  val name: String = ClassUtil.getSimpleNameSafe(this.getClass)
+  protected[wookiee] lazy val _name: String = ClassUtil.getSimpleNameSafe(this.getClass)
   // One global thread pool for monitor and actor tasks
-  implicit val ec: ExecutionContext = WookieeMonitor.ec
+  protected[wookiee] lazy val _ec: ExecutionContext = WookieeMonitor.ec
+
+  def name: String = _name
+  implicit def ec: ExecutionContext = _ec
 
   /**
     * Only hit automatically within Component and Service classes

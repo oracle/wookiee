@@ -1,5 +1,6 @@
 package com.oracle.infy.wookiee.component.web.http
 
+import com.oracle.infy.wookiee.actor.WookieeActor
 import com.oracle.infy.wookiee.command.WookieeCommand
 import com.oracle.infy.wookiee.component.web.WebManager.WookieeWebException
 import com.oracle.infy.wookiee.component.web.http.HttpObjects._
@@ -13,8 +14,10 @@ import scala.util.Try
   * the functional method at HelidonManager.registerEndpoint. After implementing the
   * required methods, you can register the endpoint by calling:
   *   HelidonManager.registerEndpoint(command)
+  * Note that Java needs WookieeActor to be just one level up from the
+  * trait it implements which is why this mixes-in WookieeActor.
   */
-trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] {
+trait HttpCommand extends WookieeCommand[WookieeRequest, WookieeResponse] with WookieeActor {
   // Can be one of: GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE
   def method: String
 
