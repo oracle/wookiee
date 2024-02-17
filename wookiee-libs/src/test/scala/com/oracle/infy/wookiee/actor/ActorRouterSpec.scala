@@ -10,7 +10,7 @@ import org.scalatest.wordspec.AnyWordSpec
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{Await, Future}
 
 class ActorRouterSpec extends AnyWordSpec with Matchers {
   "Wookiee Actor Router" should {
