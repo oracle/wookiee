@@ -25,6 +25,7 @@ class ActorRouterSpec extends AnyWordSpec with Matchers {
             seenMessages(thisActorNum) = true
         }
       })
+      router.executionContext() != null mustEqual true
       Await.result(router.checkHealth, 5.seconds).state mustEqual ComponentState.NORMAL
       1.to(5).foreach(_ => router ! "test")
       ThreadUtil.awaitEvent(seenMessages.forall(_ == true))

@@ -14,7 +14,7 @@ import scala.concurrent.{Future, Promise, TimeoutException}
 import scala.util.{Failure, Success}
 
 abstract class WookieeActorBase {
-  protected[wookiee] var properlyInitialized: Boolean = WookieeActor.isInsideActorOf.get()
+  protected[wookiee] lazy val properlyInitialized: Boolean = WookieeActor.isInsideActorOf.get()
 
   protected[wookiee] def initializationCheck(): Unit =
     if (!properlyInitialized) {
@@ -90,8 +90,8 @@ object WookieeActor {
   */
 trait WookieeActor extends WookieeActorBase with WookieeOperations with WookieeMonitor with WookieeDefaultMailbox {
   // Used to send this actor along as the sender() in classic actor methods
-  implicit val thisActor: WookieeActor = this
-  private val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
+  implicit def thisActor: WookieeActor = this
+  protected[wookiee] lazy val lastSender: AtomicReference[WookieeActor] = new AtomicReference[WookieeActor](this)
 
   protected[wookiee] lazy val receiver: AtomicReference[Receive] =
     new AtomicReference[Receive](receive)

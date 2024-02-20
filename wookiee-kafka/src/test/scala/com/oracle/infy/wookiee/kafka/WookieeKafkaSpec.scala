@@ -9,8 +9,10 @@ import org.json4s.{DefaultFormats, Formats}
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters._
+import scala.util.Try
 
-class WookieeKafkaSpec extends KafkaTestHelper {
+class WookieeKafkaSpec extends TestHelper {
+  override def autoCreateTopics: Boolean = false
   case class ValueHolder(value: String)
 
   "WookieeKafka" should {
@@ -24,6 +26,18 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       parts2 mustEqual 1
       repl2 mustEqual 1
       adminClient.listTopics().names().get().asScala.contains("test-topic") mustEqual true
+    }
+
+    "start local kafka" in {
+      Try {
+        val localKafka = startLocalKafkaServer(zkMode.getConnectString)
+        localKafka._2.close()
+      }
+
+      Try {
+        val localKafka2 = startLocalKafkaServer(zkMode.getConnectString, None)
+        localKafka2._2.close()
+      }
     }
 
     "produce and consume a basic message" in {
@@ -69,7 +83,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       )
 
       awaitEvent({
-        producer.send("pattern-topic", Some("key"), "value")
+        producer.send("pattern-topic", "key", "value")
         Thread.sleep(1000L)
         receivedKey == "key" && receivedVal == "value"
       })
@@ -88,8 +102,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         msg => {
           rightPartition = msg.partition.get === expectedPartition
           ()
-        },
-        resetToLatest = false
+        }
       )
 
       producer.send("partition-topic", Some("key".getBytes), "value".getBytes, Some(2))
@@ -116,8 +129,7 @@ class WookieeKafkaSpec extends KafkaTestHelper {
           receivedKey = msg.getKey
           receivedVal = msg.getValue
           ()
-        },
-        resetToLatest = false
+        }
       )
 
       producer.send("fail-topic", Some("outer-fail"), "value")
@@ -136,18 +148,20 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       var autoCloseableConsumer: AutoCloseableConsumer = null
       def closeConsumer(): Unit = autoCloseableConsumer.close()
 
+      val specialConsumer = new WookieeKafkaConsumer(
+        s"localhost:$kafkaPort",
+        "basic-group",
+        enableAutoCommit = true,
+        resetToLatest = false
+      ) {
+        override def poll(durationMillis: WookieeOffset): Seq[WookieeRecord] = {
+          closeConsumer()
+          throw new RuntimeException("polling failure")
+        }
+      }
+
       autoCloseableConsumer = new AutoCloseableConsumer(
-        new WookieeKafkaConsumer(
-          s"localhost:$kafkaPort",
-          "basic-group",
-          enableAutoCommit = true,
-          resetToLatest = false
-        ) {
-          override def poll(durationMillis: WookieeOffset): Seq[WookieeRecord] = {
-            closeConsumer()
-            throw new RuntimeException("polling failure")
-          }
-        },
+        specialConsumer,
         _ => (),
         1000L
       ) {
@@ -160,6 +174,10 @@ class WookieeKafkaSpec extends KafkaTestHelper {
       awaitEvent({
         errorHit
       })
+      awaitEvent({
+        Try(specialConsumer.close())
+        !autoCloseableConsumer.shouldRun
+      })
     }
 
     "consume a number of messages" in {
@@ -170,10 +188,10 @@ class WookieeKafkaSpec extends KafkaTestHelper {
         messagesSeen.incrementAndGet()
         msg.commitOffsets()
         ()
-      }, resetToLatest = false)
+      })
 
       0.until(100).foreach { _ =>
-        producer.send("volume-topic", Some("key"), "value")
+        producer.send("volume-topic", "value")
       }
 
       awaitEvent({

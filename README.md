@@ -274,14 +274,6 @@ exact host that those services are on.
 * [Wookiee Discovery](wookiee-discovery)
 * [Example of Usage](examples/advanced-communication)
 
-# wookiee-grpc
-* [wookiee-grpc](#wookiee-grpc)
-## Installation
-wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
-```scala
-libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "2.2.8"
-```
-
 ## Wookiee Actors
 Wookiee formerly ran on akka Actors (and still will until version 2.5). There is an interface called the WookieeActor
 that emulates the functionality of an akka Actor. This can be used from anywhere in the Wookiee Platform and has all
@@ -314,6 +306,15 @@ import com.oracle.infy.wookiee.actors.router.RoundRobinRouter
 
 // Will create 10 instances of MyActor and round robin between them
 WookieeActor.withRouter(new MyActor, new RoundRobinRouter(10))
+```
+
+
+# wookiee-grpc
+* [wookiee-grpc](#wookiee-grpc)
+## Installation
+wookiee-grpc is available for Scala 2.12 and 2.13. There are no plans to support scala 2.11 or lower.
+```scala
+libraryDependencies += "com.oracle.infy" %% "wookiee-grpc" % "2.2.8"
 ```
 
 ## Setup ScalaPB

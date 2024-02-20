@@ -24,7 +24,7 @@ object Deps {
     // This comes in from finagle but we want a higher version with less vulnerabilities
     val snakeYamlVersion = "2.2"
     val upickleVersion = "2.0.0"
-    val grpcVersion: String = "1.59.0"
+    val grpcVersion: String = "1.59.1"
     val nettyVersion: String = "4.1.100.Final"
     val nettyTCVersion: String = "2.0.62.Final"
     val scalaPbRuntimeVersion: String = "0.11.14"
@@ -85,6 +85,7 @@ object Deps {
     )
 
     val slf4jApi: ModuleID = "org.slf4j" % "slf4j-api" % slf4jVersion
+    val julToSlf4j: ModuleID = "org.slf4j" % "jul-to-slf4j" % slf4jVersion
     val jodaTime: ModuleID = "joda-time" % "joda-time" % jodaTimeVersion
     val jacksonDatabind: ModuleID = "com.fasterxml.jackson.core" % "jackson-databind" % jacksonVersion
 
@@ -104,6 +105,7 @@ object Deps {
     )
 
     val logbackClassic: ModuleID = "ch.qos.logback" % "logback-classic" % logbackVersion
+    val logbackCore: ModuleID = "ch.qos.logback" % "logback-core" % logbackVersion
 
     val akka
         : ModuleID = "com.typesafe.akka" %% "akka-actor" % akkaVersion exclude ("org.scala-lang.modules", "scala-java8-compat_2.12") exclude ("org.scala-lang.modules", "scala-java8-compat_2.13")
@@ -136,6 +138,7 @@ object Deps {
     val grpcNetty: ModuleID = "io.grpc" % "grpc-netty-shaded" % grpcVersion
     val grpcProtoBuf: ModuleID = "io.grpc" % "grpc-protobuf" % grpcVersion
     val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % grpcVersion
+    val grpcAll: ModuleID = "io.grpc" % "grpc-all" % grpcVersion
     val scalaPbRuntime: ModuleID = "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalaPbRuntimeVersion
 
     val http4sServer: ModuleID = "org.http4s" %% "http4s-blaze-server" % http4sBlazeVersion
@@ -143,16 +146,22 @@ object Deps {
     val htt4sCirce: ModuleID = "org.http4s" %% "http4s-circe" % http4sVersion
 
     val helidon: Seq[ModuleID] = Seq(
-      "io.helidon.webserver" % "helidon-webserver" % helidonVersion
-        exclude ("javax.websocket", "javax.websocket-api"),
-      "io.helidon.webserver" % "helidon-webserver-tyrus" % helidonVersion
-        exclude ("javax.websocket", "javax.websocket-api"),
-      "io.helidon.webserver" % "helidon-webserver-cors" % helidonVersion
-        exclude ("javax.websocket", "javax.websocket-api"),
-      "io.helidon.webclient" % "helidon-webclient" % helidonVersion
-        exclude ("javax.websocket", "javax.websocket-api"),
+      "io.helidon.webserver" % "helidon-webserver" % helidonVersion,
+      "io.helidon.webserver" % "helidon-webserver-tyrus" % helidonVersion,
+      "io.helidon.webserver" % "helidon-webserver-cors" % helidonVersion,
+      "io.helidon.webclient" % "helidon-webclient" % helidonVersion,
+      "io.helidon.logging" % "helidon-logging-slf4j" % helidonVersion,
       "io.helidon.config" % "helidon-config" % helidonVersion,
       "io.helidon.common" % "helidon-common-reactive" % helidonVersion
+    ).map(
+      _ exclude("javax.websocket", "javax.websocket-api")
+    )
+
+    val logging: Seq[ModuleID] = Seq(
+      slf4jApi,
+      julToSlf4j,
+      logbackClassic,
+      logbackCore
     )
 
     val kafkaClient: ModuleID = "org.apache.kafka" % "kafka-clients" % kafkaVersion
@@ -188,17 +197,17 @@ object Deps {
     ) ++ helidon ++ tyrus ++ json4sLibs
 
     val wookieeKafka: Seq[ModuleID] = Seq(
+      slf4jApi,
       test.scalatest,
       test.curatorTest,
       scalaCompat,
       kafkaClient,
       kafka,
-      slf4jApi
+      logbackClassic % Test
     ) ++ json4sLibs
 
-    val wookieeLibs: Seq[ModuleID] = Seq(
+    val wookieeLibs: Seq[ModuleID] = logging ++ Seq(
       typesafe,
-      logbackClassic,
       scalaCollectionCompat,
       test.scalatest
     ) ++ curatorLibs ++ cats ++ json4sLibs
@@ -237,11 +246,9 @@ object Deps {
       scalaPbRuntime
     )
 
-    val core: Seq[ModuleID] = curatorLibs ++ Seq(
+    val core: Seq[ModuleID] = logging ++ curatorLibs ++ Seq(
       scalaCompat,
       akka,
-      slf4jApi,
-      logbackClassic,
       jodaTime,
       scalaStm,
       guava,

@@ -15,11 +15,15 @@ case class ComponentV2(override val name: String, override val config: Config)
 
   // When someone sends a ComponentRequest to this component, this method will be called
   // It is acceptable to return a Future[Any] from this method
-  def onRequest[T](msg: T): Any = self ? msg
+  def onRequest[T](msg: T): Any =
+    if (receiver.get().isDefinedAt(msg))
+      self ? msg
 
   // When someone sends a ComponentMessage to this component, this method will be called
   // Nothing will wait on a result from this method
-  def onMessage[T](msg: T): Unit = self ! msg
+  def onMessage[T](msg: T): Unit =
+    if (receiver.get().isDefinedAt(msg))
+      self ! msg
 
   /* Java Interop */
 

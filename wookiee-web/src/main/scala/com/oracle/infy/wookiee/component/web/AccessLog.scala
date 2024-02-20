@@ -9,10 +9,18 @@ import java.time.{Instant, ZoneId}
 // Will be called after each request to log the access
 object AccessLog extends LoggingAdapter {
   val host: String = java.net.InetAddress.getLocalHost.getHostName
+  @volatile private var accessLoggingEnabled: Boolean = true
+
+  // Use these to turn automatic access logging on and off, respectively
+  // It will be toggled to wookiee-web.access-logging = true
+  def enableAccessLogging(): Unit = accessLoggingEnabled = true
+  def disableAccessLogging(): Unit = accessLoggingEnabled = false
 
   def logAccess(request: Option[WookieeRequest], method: String, path: String, status: Int): Unit = {
     // Don't log default endpoint requests
-    if (path.contains("favicon.ico") || path.contains("healthcheck") || path.contains("metrics")) return
+    if (!accessLoggingEnabled || path.contains("favicon.ico") || path.contains("healthcheck") || path.contains(
+          "metrics"
+        )) return
 
     val responseTimestamp: Long = System.currentTimeMillis()
     val requestTimestamp: Long = request.map(_.getCreatedTime).getOrElse(responseTimestamp)

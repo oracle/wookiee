@@ -50,6 +50,13 @@ def commonSettings(warnUnused: Boolean): Seq[Setting[_]] = Seq(
   concurrentRestrictions in Global += Tags.limit(Tags.Test, 1),
   scalaVersion := LatestScalaVersion,
   crossScalaVersions := ScalaVersions,
+  Compile / unmanagedSourceDirectories ++= {
+    CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, 12)) => Seq(sourceDirectory.value / "main" / "scala-2.12")
+      case Some((2, 13)) => Seq(sourceDirectory.value / "main" / "scala-2.13")
+      case _             => Seq()
+    }
+  },
   version := projectVersion,
   organization := org,
   semanticdbEnabled := true,

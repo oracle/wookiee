@@ -38,7 +38,7 @@ case class ComponentInfoV2(name: String, state: ComponentState, component: Compo
 }
 
 trait WookieeComponent extends WookieeMonitor {
-  val name: String
+  def name: String
 }
 
 object WookieeComponent extends LoggingAdapter {

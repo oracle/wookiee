@@ -34,7 +34,7 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
       },
       businessLogic = ExternalHttpCommand.businessLogicToCallInternalCommand,
       responseHandler = (output: OutputHolder) => WookieeResponse(Content(output.output)),
-      errorHandler = (err: Throwable) => WookieeResponse(Content(err.getMessage), StatusCode(500)),
+      errorHandler = (_: WookieeRequest, err: Throwable) => WookieeResponse(Content(err.getMessage), StatusCode(500)),
       endpointOptions = EndpointOptions
         .default
         .copy(defaultHeaders = Headers(Map("Default-Wookiee-Header" -> List("Default Header Value"))))
@@ -68,11 +68,11 @@ class ExternalWookieeService(config: Config) extends WookieeHttpService(config) 
         },
       onCloseHandler = (auth: Option[AuthHolder]) =>
         log.info(s"Closing websocket session from user [${auth.map(_.userId).getOrElse("no-auth")}]"),
-      wsErrorHandler = (interface: WebsocketInterface, _: Option[AuthHolder]) => {
+      wsErrorHandler = (interface: WebsocketInterface, msg: String, _: Option[AuthHolder]) => {
         case _: IllegalArgumentException =>
           interface.close(Some(("You must be authenticated to use this websocket", 1008)))
         case _: Throwable =>
-          log.error(s"Unexpected error handling websocket message, skipping message")
+          log.error(s"Unexpected error handling websocket message [$msg], skipping message")
           interface.reply("Unexpected error handling websocket message, skipping message")
       },
       endpointOptions = EndpointOptions

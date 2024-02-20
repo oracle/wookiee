@@ -12,7 +12,7 @@ import com.oracle.infy.wookiee.component.grpc.server.GrpcServer
 import com.oracle.infy.wookiee.grpc.WookieeGrpcUtils.DEFAULT_MAX_MESSAGE_SIZE
 import com.oracle.infy.wookiee.grpc.errors.Errors._
 import com.oracle.infy.wookiee.grpc.impl.GRPCUtils.curatorFramework
-import com.oracle.infy.wookiee.grpc.model.LoadBalancers.RoundRobinPolicy
+import com.oracle.infy.wookiee.grpc.model.LoadBalancers.{LoadBalancingPolicy, RoundRobinHashedPolicy}
 import com.oracle.infy.wookiee.grpc.settings.{
   ChannelSettings,
   ClientAuthSettings,
@@ -169,6 +169,24 @@ object GrpcManager extends Mediator[GrpcManager] {
       sslClientSettings: Option[SSLClientSettings],
       maxMessageSize: Int
   ): WookieeGrpcChannel = {
+    createChannel(
+      zkPath,
+      curatorFramework,
+      bearerToken,
+      sslClientSettings,
+      maxMessageSize,
+      RoundRobinHashedPolicy
+    )
+  }
+
+  def createChannel(
+      zkPath: String,
+      curatorFramework: CuratorFramework,
+      bearerToken: String,
+      sslClientSettings: Option[SSLClientSettings],
+      maxMessageSize: Int,
+      lbPolicy: LoadBalancingPolicy
+  ): WookieeGrpcChannel = {
     import cats.effect.unsafe.implicits.global
 
     val ec: ExecutionContext = ThreadUtil.createEC(s"grpc-channel-${System.currentTimeMillis()}")
@@ -183,7 +201,7 @@ object GrpcManager extends Mediator[GrpcManager] {
         channelExecutionContext = ec,
         offloadExecutionContext = offloadEC,
         eventLoopGroupExecutionContextThreads = 4,
-        lbPolicy = RoundRobinPolicy,
+        lbPolicy = lbPolicy,
         curatorFramework = curatorFramework,
         sslClientSettings = sslClientSettings,
         clientAuthSettings = Option(bearerToken).filter(_.nonEmpty).map(ClientAuthSettings.apply)

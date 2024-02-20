@@ -11,13 +11,14 @@ import io.helidon.webserver.{ServerRequest, ServerResponse}
 
 import java.net.URI
 import java.util
+import java.util.concurrent.TimeUnit
 import javax.websocket.{ClientEndpointConfig, DeploymentException, Session}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Promise}
 
 class CORSSpec extends EndpointTestHelper {
 
-  override def externalOrigins: List[String] = List("http://origin.safe")
+  override def externalOrigins: List[String] = List("http://origin.safe", "http://other.origin")
 
   override def registerEndpoints(manager: WebManager): Unit = {
     List("GET", "POST", "PATCH", "PUT", "DELETE").foreach { method =>
@@ -26,12 +27,18 @@ class CORSSpec extends EndpointTestHelper {
         EndpointType.INTERNAL,
         method,
         HttpHandler(
-          (_: ServerRequest, _: ServerResponse) => (),
+          (_: ServerRequest, res: ServerResponse) => {
+            res.status(200).send("OK")
+            ()
+          },
           EndpointOptions
             .default
             .copy(
               allowedHeaders = Some(
                 CorsWhiteList(List("valid-header-1", "valid-header-2"))
+              ),
+              allowedOrigins = Some(
+                CorsWhiteList(List("http://origin.safe", s"http://other.origin.$method", "http://bad.origin"))
               )
             )
         )
@@ -43,11 +50,17 @@ class CORSSpec extends EndpointTestHelper {
       EndpointType.EXTERNAL,
       "GET",
       HttpHandler(
-        (_: ServerRequest, _: ServerResponse) => (),
+        (_: ServerRequest, res: ServerResponse) => {
+          res.status(200).send("OK")
+          ()
+        },
         EndpointOptions()
           .copy(
             allowedHeaders = Some(
               CorsWhiteList(List("valid-header-1", "valid-header-2"))
+            ),
+            allowedOrigins = Some(
+              CorsWhiteList(List("http://origin.safe", "http://bad.origin"))
             )
           )
       )
@@ -70,6 +83,8 @@ class CORSSpec extends EndpointTestHelper {
             defaultHeaders = Headers(Map("Default-Header" -> List("default"))),
             allowedHeaders = Some(CorsWhiteList(List("Header-1", "Header-2")))
           )
+      override def wsKeepAlive: Boolean = false
+      override def wsKeepAliveDuration: FiniteDuration = FiniteDuration.apply(30, TimeUnit.SECONDS)
     })
   }
 
@@ -81,7 +96,7 @@ class CORSSpec extends EndpointTestHelper {
           "OPTIONS",
           "/api/v1/endpoint",
           """{"key":"value"}""",
-          Map()
+          Map("Origin" -> "http://origin.safe")
         )
 
       val methods = List("GET", "POST", "PATCH", "PUT", "DELETE")
@@ -96,13 +111,16 @@ class CORSSpec extends EndpointTestHelper {
           "OPTIONS",
           "/api/v1/endpoint",
           """{"key":"value"}""",
-          Map("Access-Control-Request-Headers" -> "valid-header-1,valid-header-2,invalid-header-1")
+          Map(
+            "Access-Control-Request-Headers" -> "valid-header-1,valid-header-2,invalid-header-1",
+            "Origin" -> "http://origin.safe"
+          )
         )
 
       val headers = List("valid-header-1", "valid-header-2")
       val supportedHeaders = response.headers.getValue("Access-Control-Allow-Headers")
       supportedHeaders must contain theSameElementsAs headers
-      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "*"
+      response.headers.getStringValue("Access-Control-Allow-Origin") mustEqual "http://origin.safe"
     }
 
     "return origin headers in pre-flight" in {
@@ -127,6 +145,84 @@ class CORSSpec extends EndpointTestHelper {
           "/api/v1/endpoint",
           """{"key":"value"}""",
           Map("Origin" -> "http://bad.news")
+        )
+
+      response.code() mustEqual 403
+      response.contentString() mustEqual "Origin not permitted."
+    }
+
+    "allow change to origins list" in {
+      val response =
+        oneOff(
+          s"http://localhost:$externalPort",
+          "OPTIONS",
+          "/api/v1/endpoint",
+          """{"key":"value"}""",
+          Map("Origin" -> "http://bad.origin")
+        )
+
+      response.code() mustEqual 403
+      response.contentString() mustEqual "Origin not permitted."
+
+      try {
+        WebManager.setCORSAllowedOrigins(conf, CorsWhiteList(List("http://bad.origin")), EndpointType.EXTERNAL)
+        val response =
+          oneOff(
+            s"http://localhost:$externalPort",
+            "OPTIONS",
+            "/api/v1/endpoint",
+            """{"key":"value"}""",
+            Map("Origin" -> "http://bad.origin")
+          )
+
+        response.code() mustEqual 200
+      } finally {
+        WebManager.setCORSAllowedOrigins(conf, AllowAll(), EndpointType.BOTH)
+        WebManager.setCORSAllowedOrigins(conf, CorsWhiteList(externalOrigins), EndpointType.EXTERNAL)
+      }
+    }
+
+    "allow Origins on a per-endpoint basis" in {
+      var response =
+        oneOff(
+          s"http://localhost:$internalPort",
+          "GET",
+          "/api/v1/endpoint",
+          """{"key":"value"}""",
+          Map("Origin" -> "http://other.origin.GET")
+        )
+
+      response.code() mustEqual 200
+
+      response = oneOff(
+        s"http://localhost:$internalPort",
+        "GET",
+        "/api/v1/endpoint",
+        """{"key":"value"}""",
+        Map("Origin" -> "http://other.origin.POST")
+      )
+
+      response.code() mustEqual 403
+
+      response = oneOff(
+        s"http://localhost:$internalPort",
+        "POST",
+        "/api/v1/endpoint",
+        """{"key":"value"}""",
+        Map("Origin" -> "http://other.origin.POST")
+      )
+
+      response.code() mustEqual 200
+    }
+
+    "OPTIONs call should be rejected if Origin isn't in any one of that path's endpoint's allowed origins" in {
+      val response =
+        oneOff(
+          s"http://localhost:$internalPort",
+          "OPTIONS",
+          "/api/v1/endpoint",
+          """{"key":"value"}""",
+          Map("Origin" -> "http://other.origin.GET")
         )
 
       response.code() mustEqual 403

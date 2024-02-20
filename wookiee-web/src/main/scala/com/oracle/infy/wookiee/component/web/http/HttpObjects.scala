@@ -1,13 +1,18 @@
 package com.oracle.infy.wookiee.component.web.http
 
-import org.json4s.JValue
-import org.json4s.jackson.JsonMethods.parse
+import com.oracle.infy.wookiee.model.CaseInsensitiveMap
+import org.json4s.jackson.JsonMethods.parseOpt
+import org.json4s.{JString, JValue}
 
 import java.nio.charset.Charset
 import java.util
+import java.util.Locale
+import java.util.Locale.LanguageRange
+import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
+import scala.util.Try
 
 object HttpObjects {
 
@@ -19,7 +24,7 @@ object HttpObjects {
 
   // These are all of the more optional bits of configuring an endpoint
   object EndpointOptions {
-    val default: EndpointOptions = EndpointOptions(Headers(), None, None, None, None, None)
+    def default: EndpointOptions = EndpointOptions(Headers(), None, None, None, None, None, None)
 
     def apply(): EndpointOptions = default
 
@@ -27,12 +32,13 @@ object HttpObjects {
         defaultHeaders: Headers, // Will show up on all responses
         allowedHeaders: Option[CorsWhiteList] // CORS will report these as available headers, or all if empty
     ): EndpointOptions =
-      EndpointOptions(defaultHeaders, allowedHeaders, None, None, None, None)
+      EndpointOptions(defaultHeaders, allowedHeaders, None, None, None, None, None)
   }
 
   case class EndpointOptions(
       defaultHeaders: Headers = Headers(), // Will show up on all responses
       allowedHeaders: Option[CorsWhiteList] = None, // CORS will report these as available headers, or all if empty
+      allowedOrigins: Option[CorsWhiteList] = None, // CORS will 403 reject calls not from these origins, or accept all if empty
       routeTimerLabel: Option[String], // Functional and Object Oriented: Time of entire request
       requestHandlerTimerLabel: Option[String], // Functional only: Time of requestHandler
       businessLogicTimerLabel: Option[String], // Functional only: Time of businessLogic
@@ -45,8 +51,10 @@ object HttpObjects {
   //   * Allowed methods is returned dynamically based on what endpoints are registered
   //   * Allowed origins is set at the global config level under wookiee-web.cors.allowed-origins = []
   object CorsWhiteList {
+    def allowAll: CorsWhiteList = CorsWhiteList()
     def apply(): CorsWhiteList = AllowAll()
     def apply(toCheck: java.util.Collection[String]): CorsWhiteList = AllowSome(toCheck.asScala.toList)
+    def withList(toCheck: java.util.Collection[String]): CorsWhiteList = CorsWhiteList(toCheck)
     def apply(toCheck: List[String]): CorsWhiteList = AllowSome(toCheck)
   }
 
@@ -60,15 +68,18 @@ object HttpObjects {
   // Let in anything, will always return the true for any hosts list
   case class AllowAll() extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck
+    override def toString: String = "*"
   }
 
   // Only let in the hosts specified in the white list
   case class AllowSome(whiteList: List[String]) extends CorsWhiteList {
     override def allowed(toCheck: List[String]): List[String] = toCheck.intersect(whiteList)
+    override def toString: String = whiteList.mkString(", ")
   }
 
   // Request/Response body content
   object Content {
+    def empty: Content = Content()
     def apply(): Content = Content(Array.empty[Byte])
     def apply(content: String): Content = Content(content.getBytes(Charset.forName("UTF-8")))
   }
@@ -78,6 +89,8 @@ object HttpObjects {
   }
 
   object Headers {
+    def default: Headers = Headers()
+
     def apply(): Headers = Headers(Map.empty[String, List[String]])
 
     // For java interop
@@ -91,49 +104,68 @@ object HttpObjects {
           }
           .toMap
       )
+
+    def withMappings(mappings: java.util.Map[String, java.util.Collection[String]]): Headers =
+      Headers(mappings)
   }
 
   // Request/Response headers
   // Keys are case insensitive
   case class Headers(private val mappings: Map[String, List[String]]) {
 
-    val caseInsensitiveMap: util.TreeMap[String, List[String]] = new util.TreeMap[String, List[String]](
-      String.CASE_INSENSITIVE_ORDER
-    )
-    caseInsensitiveMap.putAll(mappings.asJava)
+    val caseInsensitiveMap: AtomicReference[CaseInsensitiveMap[List[String]]] =
+      new AtomicReference(CaseInsensitiveMap(mappings))
 
-    def getMap: Map[String, List[String]] = mappings
+    // Returned map has case insensitive keys (and updates will preserve this, just don't do mappings)
+    def getMap: Map[String, List[String]] = caseInsensitiveMap.get()
 
-    def getJavaMap: java.util.Map[String, java.util.List[String]] =
-      mappings.map {
-        case (key, value) =>
-          key -> value.asJava
-      }.asJava
+    // Returned map has case insensitive keys (and updates will preserve this)
+    def getJavaMap: java.util.Map[String, java.util.List[String]] = {
+      val ciMap: util.TreeMap[String, java.util.List[String]] =
+        new util.TreeMap[String, java.util.List[String]](
+          String.CASE_INSENSITIVE_ORDER
+        )
+      ciMap.putAll(
+        caseInsensitiveMap
+          .get
+          .map {
+            case (key, value) =>
+              key -> value.asJava
+          }
+          .asJava
+      )
+      ciMap
+    }
 
     // Will return 'null' if the key doesn't exist
     def getJavaValue(key: String): java.util.List[String] =
-      Option(caseInsensitiveMap.get(key)).map(_.asJava).getOrElse(new util.ArrayList[String]())
+      caseInsensitiveMap.get.get(key).map(_.asJava).getOrElse(new util.ArrayList[String]())
     // Will return None if key doesn't exist
-    def maybeStringValue(key: String): Option[String] = Option(caseInsensitiveMap.get(key)).map(_.mkString(","))
+    def maybeStringValue(key: String): Option[String] = caseInsensitiveMap.get.get(key).map(_.mkString(","))
     // Will return "" if the key doesn't exist or value is empty
-    def getStringValue(key: String): String = Option(caseInsensitiveMap.get(key)).map(_.mkString(",")).getOrElse("")
+    def getStringValue(key: String): String = caseInsensitiveMap.get.get(key).map(_.mkString(",")).getOrElse("")
     // Will return None if key doesn't exist
-    def maybeValue(key: String): Option[List[String]] = Option(caseInsensitiveMap.get(key))
+    def maybeValue(key: String): Option[List[String]] = caseInsensitiveMap.get.get(key)
     // Will return empty list if key doesn't exist or value is empty
-    def getValue(key: String): List[String] = Option(caseInsensitiveMap.get(key)).getOrElse(List())
+    def getValue(key: String): List[String] = caseInsensitiveMap.get.get(key).getOrElse(List())
 
     def putValue(key: String, value: List[String]): Unit = {
-      caseInsensitiveMap.put(key, value)
+      caseInsensitiveMap.updateAndGet(_.updated(key, value))
       ()
     }
 
     def putValue(key: String, value: java.util.List[String]): Unit = {
-      caseInsensitiveMap.put(key, value.asScala.toList)
+      caseInsensitiveMap.updateAndGet(_.updated(key, value.asScala.toList))
       ()
     }
+
+    def foreach(f: ((String, List[String])) => Unit): Unit = caseInsensitiveMap.get().foreach(f)
+
+    override def toString: String = caseInsensitiveMap.toString
   }
 
   object StatusCode {
+    def ok: StatusCode = StatusCode()
     def apply(): StatusCode = StatusCode(200)
   }
 
@@ -142,8 +174,19 @@ object HttpObjects {
 
   object WookieeRequest {
     // Will return an empty request object, mainly useful for testing
+    def empty: WookieeRequest = WookieeRequest()
     def apply(): WookieeRequest = new WookieeRequest(Content(""), Map(), Map(), Headers())
-    def apply(content: String): WookieeRequest = new WookieeRequest(Content(content), Map(), Map(), Headers())
+
+    def apply(content: String): WookieeRequest =
+      WookieeRequest(Content(content))
+
+    def apply(
+        content: Content,
+        pathSegments: Map[String, String] = Map(),
+        queryParameters: Map[String, String] = Map(),
+        headers: Headers = Headers()
+    ): WookieeRequest =
+      new WookieeRequest(content, CaseInsensitiveMap(pathSegments), CaseInsensitiveMap(queryParameters), headers)
 
     def apply(
         content: Content,
@@ -152,14 +195,23 @@ object HttpObjects {
         headers: Headers
     ): WookieeRequest =
       WookieeRequest(content, pathSegments.asScala.toMap, queryParameters.asScala.toMap, headers)
+
+    def build(
+        content: Content,
+        pathSegments: java.util.Map[String, String],
+        queryParameters: java.util.Map[String, String],
+        headers: Headers
+    ): WookieeRequest =
+      WookieeRequest(content, pathSegments, queryParameters, headers)
   }
 
   // Object holding all of the request information
+  // Not directly constructable (to ensure maps are case-insensitive ones), go through the 'apply' methods above
   // Note that this object is also a mutable Map and can store any additional information
-  case class WookieeRequest(
-      content: Content,
-      pathSegments: Map[String, String], // Keys will be same case as in the 'path'
-      queryParameters: Map[String, String], // Keys will always be lowercase
+  case class WookieeRequest private (
+      content: Content, // Actual content bytes of the request
+      pathSegments: Map[String, String], // Case insensitive map
+      queryParameters: Map[String, String], // Case insensitive map
       headers: Headers // Keys are case insensitive
   ) extends mutable.LinkedHashMap[String, Any] {
 
@@ -184,13 +236,74 @@ object HttpObjects {
       }
     }
 
+    // Below getters are all case insensitive
+    def queryParameter(key: String): String =
+      queryParameters(key)
+
+    def getQueryParameter(key: String): Option[String] =
+      queryParameters.get(key)
+
+    // Should correspond to the path segments in the route
+    def pathSegment(key: String): String =
+      pathSegments(key)
+
+    def getPathSegment(key: String): Option[String] =
+      pathSegments.get(key)
+
+    def header(key: String): List[String] =
+      headers.getValue(key)
+
+    def getHeader(key: String): Option[List[String]] =
+      headers.maybeValue(key)
+
+    // Will return "" if the key doesn't exist or value is empty
+    // Returns a comma-seperated list of values (as does getHeaderValue)
+    def headerValue(key: String): String =
+      headers.getStringValue(key)
+
+    def getHeaderValue(key: String): Option[String] =
+      headers.maybeStringValue(key)
+
     private val createdTime: Long = System.currentTimeMillis()
     def getCreatedTime: Long = createdTime
 
     def contentString(): String = content.asString
+
+    def locales: List[Locale] = {
+      val localeString = headers.getStringValue("accept-language")
+      if (localeString.nonEmpty)
+        Try {
+          LanguageRange
+            .parse(localeString)
+            .asScala
+            .map(language => Locale.forLanguageTag(language.getRange))
+            .toList
+        }.getOrElse(Nil)
+      else Nil
+    }
+
+    // The query string and path, will look like '/path?query=string'
+    def getQuery: String =
+      this.get(queryKey).map(_.toString).getOrElse("")
+
+    override def toString(): String = {
+      s"""Request:
+         |Content = [${Try(content.asString).getOrElse("Could not parse content as string")}]
+         |Headers = [${headers.getMap.mkString(", ")}]
+         |Query Parameters = [${queryParameters.mkString(", ")}]
+         |Path Segments = [${pathSegments.mkString(", ")}]
+         |Additional Parameters = [${this.mkString(", ")}]
+         |""".stripMargin
+    }
+
+    private val queryKey = "wookiee-query"
+
+    private[wookiee] def appendQuery(query: String): Unit =
+      this.update(queryKey, query)
   }
 
   object WookieeResponse {
+    def empty: WookieeResponse = WookieeResponse()
     def apply(): WookieeResponse = WookieeResponse(Content(""), StatusCode(), Headers(), "application/json")
 
     def apply(statusCode: StatusCode): WookieeResponse =
@@ -219,6 +332,6 @@ object HttpObjects {
   ) {
     def code(): Int = statusCode.code
     def contentString(): String = content.asString
-    def contentJson(): JValue = parse(contentString())
+    def contentJson(): JValue = parseOpt(contentString()).getOrElse(JString(contentString()))
   }
 }

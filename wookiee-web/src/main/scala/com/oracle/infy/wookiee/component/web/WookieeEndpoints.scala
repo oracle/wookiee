@@ -15,10 +15,14 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{WebsocketH
 import com.oracle.infy.wookiee.component.web.ws.{WebsocketInterface, WookieeWebsocket}
 import com.typesafe.config.Config
 
+import java.util.concurrent.TimeUnit
+import java.time.Duration
 import javax.websocket.Session
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe._
+import scala.util.Try
 
 /**
   * This class is the main helper for registering HTTP and WS endpoints with Wookiee Helidon.
@@ -27,6 +31,8 @@ import scala.reflect.runtime.universe._
   * For both HTTP and WS there are provided both 'object-oriented' and 'functional' entry points.
   */
 object WookieeEndpoints {
+
+  val ComponentName = "wookiee-web"
 
   /**
     * Primary 'object-oriented' entry point for registering an HTTP endpoint using Wookiee Helidon.
@@ -38,9 +44,19 @@ object WookieeEndpoints {
     // Just one routee, can call this directly afterwards to register more
     WookieeCommandExecutive.getMediator(config).registerCommand(command, 1)
     val instance = WookieeActor.actorOf(command)
-    val handler = handlerFromCommand(instance)
 
-    mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    if (instance.endpointType == EndpointType.INTERNAL || instance.endpointType == EndpointType.BOTH) {
+      val internalTimeout = Try(config.getDuration(s"${WebManager.ComponentName}.internal-request-timeout"))
+        .getOrElse(Duration.ofSeconds(120))
+      val handler = handlerFromCommand(instance, internalTimeout)
+      mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    }
+    if (instance.endpointType == EndpointType.EXTERNAL || instance.endpointType == EndpointType.BOTH) {
+      val externalTimeout = Try(config.getDuration(s"${WebManager.ComponentName}.external-request-timeout"))
+        .getOrElse(Duration.ofSeconds(90))
+      val handler = handlerFromCommand(instance, externalTimeout)
+      mediator.registerEndpoint(instance.path, instance.endpointType, instance.method, handler)
+    }
   }
 
   /**
@@ -56,7 +72,7 @@ object WookieeEndpoints {
       requestHandler: WookieeRequest => Future[Input], // Marshall the WookieeRequest into any generic Input type
       businessLogic: Input => Future[Output], // Main business logic, Output is any generic type
       responseHandler: Output => WookieeResponse, // Marshall the generic Output type into a WookieeResponse
-      errorHandler: Throwable => WookieeResponse, // If any errors happen at any point, how shall we respond
+      errorHandler: (WookieeRequest, Throwable) => WookieeResponse, // If any errors happen at any point, how shall we respond
       endpointOptions: EndpointOptions = EndpointOptions.default // Set of options including CORS allowed headers
   )(
       implicit config: Config, // This just need to have 'instance-id' set to any string
@@ -80,7 +96,8 @@ object WookieeEndpoints {
 
       override def endpointType: EndpointType = cmdType
 
-      override def errorHandler(ex: Throwable): WookieeResponse = cmdErrors(ex)
+      override def errorHandler(wookieeRequest: WookieeRequest, ex: Throwable): WookieeResponse =
+        cmdErrors(wookieeRequest, ex)
 
       override def endpointOptions: EndpointOptions = cmdOptions
 
@@ -113,8 +130,8 @@ object WookieeEndpoints {
       // When this websocket is closed for any reason, this will be invoked
       onCloseHandler: Option[Auth] => Unit = (_: Option[Auth]) => (),
       // When this an error happens anywhere in the websocket, this will be invoked
-      wsErrorHandler: (WebsocketInterface, Option[Auth]) => Throwable => Unit =
-        (_: WebsocketInterface, _: Option[Auth]) => { _: Throwable => () },
+      wsErrorHandler: (WebsocketInterface, String, Option[Auth]) => Throwable => Unit =
+        (_: WebsocketInterface, _: String, _: Option[Auth]) => { _: Throwable => () },
       // Set of options including CORS allowed headers
       endpointOptions: EndpointOptions = EndpointOptions.default
   )(implicit config: Config): Unit = {
@@ -122,7 +139,7 @@ object WookieeEndpoints {
     val wsEndpointType = endpointType
     val wsEndpointOptions = endpointOptions
 
-    val websocket = new WookieeWebsocket[Auth] {
+    val websocket: WookieeWebsocket[Auth] = new WookieeWebsocket[Auth] {
       override def path: String = wsPath
 
       override def endpointType: EndpointType = wsEndpointType
@@ -132,10 +149,10 @@ object WookieeEndpoints {
       override def onClosing(auth: Option[Auth]): Unit =
         onCloseHandler(auth)
 
-      override def handleError(request: WookieeRequest, authInfo: Option[Auth])(
+      override def handleError(request: WookieeRequest, message: String, authInfo: Option[Auth])(
           implicit session: Session
       ): Throwable => Unit =
-        wsErrorHandler(new WebsocketInterface(request), authInfo)
+        wsErrorHandler(new WebsocketInterface(request), message, authInfo)
 
       override def handleAuth(request: WookieeRequest): Future[Option[Auth]] =
         authHandler(request)
@@ -144,6 +161,15 @@ object WookieeEndpoints {
           implicit session: Session
       ): Unit =
         handleInMessage(text, new WebsocketInterface(request), authInfo)
+
+      // Determine if the websocket is to be kept alive based on config settings.
+      // By default "keep-alive" is not enabled
+      override def wsKeepAlive: Boolean =
+        config.getBoolean(s"${WebManager.ComponentName}.websocket-keep-alives.enabled")
+      val keepAliveDurationConfig: Duration =
+        config.getDuration(s"${WebManager.ComponentName}.websocket-keep-alives.interval")
+      override def wsKeepAliveDuration: FiniteDuration =
+        FiniteDuration.apply(keepAliveDurationConfig.toSeconds, TimeUnit.SECONDS)
     }
 
     registerWebsocket(websocket)

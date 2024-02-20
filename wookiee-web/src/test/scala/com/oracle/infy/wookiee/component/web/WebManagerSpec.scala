@@ -13,9 +13,10 @@ import com.oracle.infy.wookiee.component.web.util.TestObjects.{InputObject, Outp
 import io.helidon.webclient.WebClient
 import org.json4s.jackson.JsonMethods._
 
-import scala.jdk.CollectionConverters._
+import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters._
 
 class WebManagerSpec extends EndpointTestHelper {
   private val directiveHit: AtomicBoolean = new AtomicBoolean(false)
@@ -49,7 +50,7 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (_, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )
@@ -70,7 +71,7 @@ class WebManagerSpec extends EndpointTestHelper {
       }, { output =>
         if (output.value.equals("output-fail")) throw new Exception("fail=output")
         else WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (_, throwable) =>
         if (throwable.getMessage.equals("fail=error")) throw new Exception("fail=error")
         else WookieeResponse(Content(throwable.getMessage))
       },
@@ -88,7 +89,7 @@ class WebManagerSpec extends EndpointTestHelper {
       "POST",
       EndpointType.EXTERNAL, { request =>
         val segment = request.pathSegments.getOrElse("segment", "")
-        val query = request.queryParameters.getOrElse("query", "")
+        val query = request.getQueryParameter("query").getOrElse("")
         val header = request.headers.getStringValue("header")
         Future.successful(
           InputObject(
@@ -99,7 +100,27 @@ class WebManagerSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (_, throwable) =>
+        WookieeResponse(Content(throwable.getMessage))
+      }
+    )
+
+    WookieeEndpoints.registerEndpoint[InputObject, OutputObject](
+      "query-endpoint",
+      "/api/query/endpoint",
+      "GET",
+      EndpointType.EXTERNAL, { request =>
+        val query = request.queryParameters
+        Future.successful(
+          InputObject(
+            s"${request.getQuery}\n${query.mkString("[", ",", "]")}"
+          )
+        )
+      }, { input =>
+        Future.successful(OutputObject(input.value))
+      }, { output =>
+        WookieeResponse(Content(output.value))
+      }, { (_, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )
@@ -118,13 +139,15 @@ class WebManagerSpec extends EndpointTestHelper {
 
       override def requestDirective(request: WookieeRequest): Future[WookieeRequest] = {
         directiveHit.set(true)
+        val header = request.headers
         if (request.content.asString.equals("fail-request")) throw new Exception("fail=directive")
+        request.getQueryParameter("header").foreach(header.putValue(_, List("changed")))
         Future.successful(request)
       }
 
       override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
         if (input.content.asString.equals("fail")) throw new Exception("fail=error")
-        else WookieeResponse(input.content)
+        else WookieeResponse(input.content, input.headers)
       }
     }
 
@@ -146,9 +169,28 @@ class WebManagerSpec extends EndpointTestHelper {
       "/error/bomb",
       EndpointType.BOTH,
       "GET",
-      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb))
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new ErrorBomb), java.time.Duration.ofSeconds(15))
     )
 
+    class TimerBomb extends HttpCommand {
+      override def method: String = "get"
+
+      override def path: String = "/error/timeout"
+
+      override def endpointType: EndpointType = EndpointType.INTERNAL
+
+      override def execute(input: HttpObjects.WookieeRequest): Future[WookieeResponse] = Future.successful {
+        Thread.sleep(5000L)
+        WookieeResponse(input.content)
+      }
+    }
+
+    manager.registerEndpoint(
+      "/error/timeout",
+      EndpointType.BOTH,
+      "GET",
+      WookieeRouter.handlerFromCommand(WookieeActor.actorOf(new TimerBomb), java.time.Duration.ofMillis(1))
+    )
   }
 
   override protected def afterAll(): Unit =
@@ -156,6 +198,12 @@ class WebManagerSpec extends EndpointTestHelper {
 
   "Helidon Manager" should {
     val jsonPayload = """{"key":"value"}"""
+
+    "can turn off and on access logging" in {
+      AccessLog.disableAccessLogging()
+      AccessLog.logAccess(None, "GET", "/path", 200)
+      AccessLog.enableAccessLogging()
+    }
 
     "handle a call to the '/api/test/endpoint' endpoint" in {
       val responseContent = getContent(
@@ -188,8 +236,10 @@ class WebManagerSpec extends EndpointTestHelper {
     "allow retrieval of registered endpoints" in {
       val endpoints = WebManager.getEndpoints(conf, external = true)
       // If we delete endpoints above, this might become smaller
-      endpoints.size >= 10 mustEqual true
+      endpoints.size >= 3 mustEqual true
       endpoints.contains(EndpointMeta("POST", "/api/*/endpoint"))
+      val endpoints2 = WebManager.getEndpoints(conf, external = false)
+      endpoints2.size >= 10 mustEqual true
     }
 
     "allow registration of basic endpoints" in {
@@ -218,6 +268,29 @@ class WebManagerSpec extends EndpointTestHelper {
       )
 
       responseContent mustBe "50024"
+    }
+
+    "extract query params that are encoded" in {
+      val rawBadString = "&?=*()!"
+      val badString = URLEncoder.encode(rawBadString, "UTF-8")
+      val queryParams = s"$badString=$badString&q1=p1&q2=p2&q3=p3"
+
+      val query = s"/api/query/endpoint?$queryParams"
+      val responseContent = getContent(
+        oneOff(
+          s"http://localhost:$externalPort",
+          "GET",
+          query,
+          jsonPayload
+        )
+      )
+      val expected = s"""[$rawBadString -> $rawBadString,q1 -> p1,q2 -> p2,q3 -> p3]"""
+      val (queryContent, queryResponse) = responseContent.split("\n") match {
+        case Array(content, response) => (content, response)
+        case _                        => ("", "")
+      }
+      queryContent.replaceAll("%2A", "*") mustBe queryParams
+      queryResponse mustBe expected
     }
 
     "handle failures with error handler" in {
@@ -313,6 +386,19 @@ class WebManagerSpec extends EndpointTestHelper {
       responseContent mustBe jsonPayload
     }
 
+    "can timeout when request timeout setting is reached" in {
+      val response = oneOff(
+        s"http://localhost:$internalPort",
+        "GET",
+        "/error/timeout",
+        "test",
+        Map()
+      )
+
+      response.code() mustEqual 504
+      getContent(response) mustBe "Request timed out."
+    }
+
     "can fail gracefully in directive step" in {
       directiveHit.set(false)
       val responseContent = getContent(
@@ -343,12 +429,44 @@ class WebManagerSpec extends EndpointTestHelper {
       responseContent mustBe "There was an internal server error."
     }
 
+    "replace value in headers with case insensitivity" in {
+      val headers = Headers(Map("test" -> List("value")))
+      headers.putValue("TEST", List("value2"))
+      headers.getValue("test") mustEqual List("value2")
+      headers.toString mustEqual "Map(test -> List(value2))"
+    }
+
+    "switch out default headers" in {
+      List("Header", "header", "hEaDeR").foreach { hValue =>
+        val response = oneOff(
+          s"http://localhost:$internalPort?header=$hValue",
+          "GET",
+          "/basic/command",
+          "success",
+          Map()
+        )
+
+        response.headers.getValue("header") mustEqual List("changed")
+      }
+    }
+
     "gets coverage on case class objects" in {
       val req =
-        WookieeRequest(Content("test"), Map.empty[String, String], Map.empty[String, String], HttpObjects.Headers())
+        WookieeRequest(Content("test"))
       req.contentString() mustEqual "test"
       req.headers.getValue("anything") mustEqual List()
       WookieeRequest.unapply(req) must not be None
+
+      val req2 = WookieeRequest("test")
+      req2.contentString() mustEqual "test"
+
+      val req3 = WookieeRequest.build(
+        Content("test"),
+        new java.util.HashMap[String, String](),
+        new java.util.HashMap[String, String](),
+        Headers()
+      )
+      req3.contentString() mustEqual "test"
 
       val cors = AllowSome(List())
       AllowSome.unapply(cors) must not be None
@@ -356,6 +474,7 @@ class WebManagerSpec extends EndpointTestHelper {
       val cors2 = AllowAll()
       cors2.allowed(List("anything")) mustEqual List("anything")
       AllowAll.unapply(cors2) must not be None
+      cors2.toString mustEqual "*"
 
       val eo = EndpointOptions.apply(Headers(), None)
       EndpointOptions.unapply(eo) must not be None
@@ -368,12 +487,51 @@ class WebManagerSpec extends EndpointTestHelper {
 
       val webEx = WookieeWebException("test", None, None)
       WookieeWebException.unapply(webEx) must not be None
+
+      val headers = Headers.default
+      Headers.unapply(headers) mustEqual Some(Map())
+
+      val resp = WookieeResponse()
+      WookieeResponse.unapply(resp).isEmpty mustEqual false
+
+      val sc = StatusCode.ok
+      StatusCode.unapply(sc) mustEqual Some(200)
+
+      val endpointMeta = EndpointMeta("a", "b")
+      EndpointMeta.unapply(endpointMeta) mustEqual Some(("a", "b"))
+    }
+
+    "have request be fully case insensitive" in {
+      val req = WookieeRequest(
+        Content("ignored"),
+        Map("tESt" -> "pValue"),
+        Map("tESt" -> "qValue"),
+        Headers(Map("tESt" -> List("hValue")))
+      )
+
+      req.pathSegments("test") mustEqual "pValue"
+      req.pathSegments("TEST") mustEqual "pValue"
+      req.pathSegment("test") mustEqual "pValue"
+      req.getPathSegment("TEST") mustEqual Some("pValue")
+
+      req.queryParameters("test") mustEqual "qValue"
+      req.queryParameters("TEST") mustEqual "qValue"
+      req.queryParameter("TesT") mustEqual "qValue"
+      req.getQueryParameter("TesT") mustEqual Some("qValue")
+
+      req.headers.getValue("test") mustEqual List("hValue")
+      req.headers.getValue("TEST") mustEqual List("hValue")
+      req.header("TesT") mustEqual List("hValue")
+      req.getHeader("TesT") mustEqual Some(List("hValue"))
+      req.headerValue("TesT") mustEqual "hValue"
+      req.getHeaderValue("TesT") mustEqual Some("hValue")
+
     }
 
     "have headers be case insensitive" in {
       val map = new java.util.HashMap[String, java.util.Collection[String]]()
       map.put("tESt", List("header").asJava)
-      val javaHeaders = Headers(map)
+      val javaHeaders = Headers.withMappings(map)
       javaHeaders.getJavaValue("test") mustEqual List("header").asJava
       javaHeaders.getJavaValue("TEST") mustEqual List("header").asJava
       javaHeaders.getJavaValue("Test") mustEqual List("header").asJava
@@ -389,11 +547,14 @@ class WebManagerSpec extends EndpointTestHelper {
     }
 
     "have java support in objects" in {
-      val corsWhiteList = CorsWhiteList(List("test").asJava)
+      val corsWhiteList = CorsWhiteList.withList(List("test").asJava)
       corsWhiteList.allowed(List("test", "other").asJava) mustEqual List("test")
 
-      val wookResp = WookieeResponse()
+      val wookResp = WookieeResponse.empty
       wookResp.statusCode.code mustEqual 200
+
+      val wookStatus = WookieeResponse(StatusCode(204))
+      wookStatus.statusCode.code mustEqual 204
 
       val wookContResp = WookieeResponse(Content("test"))
       wookContResp.statusCode.code mustEqual 200

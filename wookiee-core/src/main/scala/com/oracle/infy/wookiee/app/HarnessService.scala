@@ -15,12 +15,17 @@
  */
 package com.oracle.infy.wookiee.app
 
+import org.slf4j.bridge.SLF4JBridgeHandler
+
 object HarnessService extends App {
   execute()
 
   def execute(): Unit = {
     // Main body which gets run at startup
     try {
+      // Redirect any libraries using java.util.logging to use slf4j
+      SLF4JBridgeHandler.removeHandlersForRootLogger()
+      SLF4JBridgeHandler.install()
       Harness.externalLogger.info("Starting Wookiee...")
 
       val meta = Harness.startActorSystem()

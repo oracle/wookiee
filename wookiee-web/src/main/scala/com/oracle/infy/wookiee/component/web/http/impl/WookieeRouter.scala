@@ -6,18 +6,22 @@ import com.oracle.infy.wookiee.component.web.ws.WookieeWebsocket
 import com.oracle.infy.wookiee.component.web.ws.tyrus.{WookieeTyrusContainer, WookieeTyrusHandler}
 import com.oracle.infy.wookiee.component.web.{AccessLog, WookieeEndpoints}
 import com.oracle.infy.wookiee.logging.LoggingAdapter
+import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.typesafe.config.Config
 import io.helidon.webserver._
 import org.glassfish.tyrus.ext.extension.deflate.PerMessageDeflateExtension
 
 import java.nio.ByteBuffer
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import javax.websocket.HandshakeResponse
 import javax.websocket.server.{HandshakeRequest, ServerEndpointConfig}
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters._
 import scala.reflect.ClassTag
+import scala.util.Try
 
 /**
   * This support object for WookieeRouter contains the handler creation logic that Helidon needs
@@ -78,13 +82,14 @@ object WookieeRouter extends LoggingAdapter {
   // in yet another try/catch block. This is because the error handling logic itself
   // can throw an error, and we want to make sure that we catch that and return a 500.
   def handleErrorAndRespond(
-      errorHandler: Throwable => WookieeResponse,
+      errorHandler: (WookieeRequest, Throwable) => WookieeResponse,
       res: ServerResponse,
+      req: WookieeRequest,
       e: Throwable
   ): Unit =
     try {
       // Go into error handling
-      val response = errorHandler(e)
+      val response = errorHandler(req, e)
       res.status(response.statusCode.code)
       res.headers().add("Content-Type", response.contentType)
       response.headers.getMap.foreach(x => res.headers().add(x._1, x._2.asJava))
@@ -99,9 +104,15 @@ object WookieeRouter extends LoggingAdapter {
         ()
     }
 
+  private def headersFromReq(req: ServerRequest): Headers =
+    Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
+
   // This is the conversion method that takes a WookieeHttpHandler command and converts it into
   // a Helidon Handler. This is the method that HelidonManager calls when it needs to register an endpoint.
-  protected[oracle] def handlerFromCommand(command: HttpCommand)(implicit ec: ExecutionContext): HttpHandler =
+  protected[oracle] def handlerFromCommand(
+      command: HttpCommand,
+      timeout: java.time.Duration
+  )(implicit ec: ExecutionContext, config: Config): HttpHandler =
     HttpHandler(
       { (req, res) =>
         // There are three catch and recovery points in this method as there are three different
@@ -109,10 +120,11 @@ object WookieeRouter extends LoggingAdapter {
         try {
           val actualPath = req.path().toString.split("\\?").headOption.getOrElse("")
           val pathSegments = WookieeRouter.getPathSegments(command.path, actualPath)
+          val headers = headersFromReq(req)
 
           // Get the query parameters on the request, lowercase them
           val queryParams =
-            req.queryParams().toMap.asScala.toMap.map(x => x._1.toLowerCase -> x._2.asScala.mkString(","))
+            req.queryParams().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.mkString(","))
           req.content().as(classOf[Array[Byte]]).thenAccept {
             bytes =>
               try {
@@ -120,34 +132,52 @@ object WookieeRouter extends LoggingAdapter {
                   Content(bytes),
                   pathSegments,
                   queryParams,
-                  Headers(req.headers().toMap.asScala.toMap.map(x => x._1 -> x._2.asScala.toList))
+                  headers
                 )
+                Option(req.query()).foreach(wookieeRequest.appendQuery)
 
                 // Main execution logic for this HTTP command
                 WookieeEndpoints
                   .maybeTimeF(command.endpointOptions.routeTimerLabel, {
-                    command
-                      .requestDirective(wookieeRequest)
-                      .flatMap(command.execute)
+                    ThreadUtil.futureWithTimeout(
+                      command
+                        .requestDirective(wookieeRequest)
+                        .flatMap(command.execute),
+                      timeout
+                    )
+
                   })
                   .map {
                     response =>
-                      val respHeaders = command.endpointOptions.defaultHeaders.getMap ++ response.headers.getMap
+                      command.endpointOptions.defaultHeaders.getMap.foreach { dH =>
+                        // If the response already has a header with the same name, don't overwrite it
+                        if (!response.headers.getMap.contains(dH._1))
+                          response.headers.putValue(dH._1, dH._2)
+                      }
+
                       res.headers().add("Content-Type", response.contentType)
-                      respHeaders.foreach(x => res.headers().add(x._1, x._2.asJava))
+                      response.headers.foreach { x =>
+                        res.headers().add(x._1, x._2.asJava)
+                        ()
+                      }
                       res.status(response.statusCode.code)
                       res.send(response.content.value)
                       AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                   .recover {
                     case e: Throwable =>
-                      WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                      WookieeRouter.handleErrorAndRespond(command.errorHandler, res, wookieeRequest, e)
                       AccessLog.logAccess(Some(wookieeRequest), command.method, actualPath, res.status().code)
                   }
                 ()
               } catch {
                 case e: Throwable =>
-                  WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+                  WookieeRouter.handleErrorAndRespond(
+                    command.errorHandler,
+                    res,
+                    WookieeRequest(Content(bytes), pathSegments, queryParams, headers),
+                    e
+                  )
                   AccessLog.logAccess(None, command.method, actualPath, res.status().code)
               }
           }
@@ -155,7 +185,17 @@ object WookieeRouter extends LoggingAdapter {
           ()
         } catch {
           case e: Throwable =>
-            WookieeRouter.handleErrorAndRespond(command.errorHandler, res, e)
+            WookieeRouter.handleErrorAndRespond(
+              command.errorHandler,
+              res,
+              WookieeRequest(
+                Content(),
+                Map.empty[String, String],
+                Map.empty[String, String],
+                Try(headersFromReq(req)).getOrElse(Headers())
+              ),
+              e
+            )
         }
       },
       command.endpointOptions
@@ -169,6 +209,8 @@ object WookieeRouter extends LoggingAdapter {
   */
 case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extends Service {
   import WookieeRouter._
+
+  val allowedOriginsRef: AtomicReference[CorsWhiteList] = new AtomicReference[CorsWhiteList](allowedOrigins)
 
   val root: PathNode = PathNode(new ConcurrentHashMap[String, PathNode]())
   // Tyrus container that holds websocket endpoints
@@ -288,17 +330,20 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
     handlers.get(upperMethod)
   }
 
+  def setAllowedOrigins(allowedOrigins: CorsWhiteList): Unit =
+    allowedOriginsRef.set(allowedOrigins)
+
   // Will return a list of all registered routes and methods
   def listOfRoutes(): List[EndpointMeta] = {
     def navigateNode(node: PathNode, pathSoFar: String): List[EndpointMeta] = {
       val currentList = if (!node.handlers.isEmpty) {
-        (node
+        node
           .handlers
           .asScala
           .map {
             case (method: String, _: WookieeHandler) =>
               EndpointMeta(pathSoFar, method)
-          })
+          }
           .toList
       } else List()
 
@@ -327,7 +372,7 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
         // Origin of the request, header used by CORS
         val originOpt = Option(req.headers.value("Origin").orElse(null))
 
-        def isOriginAllowed: Boolean = allowedOrigins match {
+        def isOriginAllowed(origins: CorsWhiteList): Boolean = origins match {
           case _: AllowAll      => true
           case allow: AllowSome =>
             // Return false if Origin wasn't on request
@@ -342,27 +387,39 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             headers.filter(head => allowed.forall(_.allowed(head).nonEmpty))
           }
 
+        // Returns true if the origin is not allowed and we rejected the call
+        def rejectUnallowedOrigins(origins: CorsWhiteList): Boolean =
+          if (!isOriginAllowed(origins)) {
+            res.status(403).send("Origin not permitted.")
+            AccessLog.logAccess(None, method, path, 403)
+            true
+          } else false
+
         // Didn't match CORS Origin requirements
-        if (!isOriginAllowed) {
-          res.status(403).send("Origin not permitted.")
-          AccessLog.logAccess(None, method, path, 403)
+        if (rejectUnallowedOrigins(allowedOriginsRef.get())) {
           return
         }
 
         // Main search function
         val handlers = findHandlers(path)
         handlers.get(method) match {
-          case Some(httpHandler: HttpHandler) => // Normal handling
+          case Some(httpHandler: HttpHandler)
+              if !rejectUnallowedOrigins(httpHandler.endpointOptions.allowedOrigins.getOrElse(AllowAll())) => // Normal handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
             httpHandler.handler.accept(req, res)
 
-          case Some(wsHandler: WebsocketHandler[_]) => // Websocket handling
+          case Some(wsHandler: WebsocketHandler[_])
+              if !rejectUnallowedOrigins(wsHandler.endpointOptions.allowedOrigins.getOrElse(AllowAll())) => // Websocket handling
             res.headers().add("Access-Control-Allow-Origin", originOpt.getOrElse("*"))
             res.headers().add("Access-Control-Allow-Credentials", "true")
             websocketHandler.acceptWithContext(req, res, wsHandler.endpointOptions)
 
-          case _ if handlers.nonEmpty && method == "OPTIONS" => // This is a CORS pre-flight request
+          // Check that this Origin is allowed for all handlers
+          case _
+              if handlers.nonEmpty && method == "OPTIONS" && !handlers
+                .values
+                .exists(h => rejectUnallowedOrigins(h.endpointOptions.allowedOrigins.getOrElse(AllowAll()))) => // This is a CORS pre-flight request
             val reqHeadersOpt =
               Option(req.headers.value("Access-Control-Request-Headers").orElse(null))
                 .map(_.split(",").map(_.trim).toList)
@@ -375,6 +432,10 @@ case class WookieeRouter(allowedOrigins: CorsWhiteList = CorsWhiteList()) extend
             res.headers().add("Access-Control-Allow-Headers", allowedHeads: _*)
             res.status(200).send("")
 
+          // Per-endpoint CORS Origins have already rejected this call with a 403
+          case None if handlers.nonEmpty && method == "OPTIONS" =>
+          case Some(_)                                          =>
+          // No handlers were found
           case _ =>
             res.status(404).send("Endpoint not found.")
         }

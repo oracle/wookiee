@@ -14,10 +14,11 @@ import com.oracle.infy.wookiee.component.web.http.impl.WookieeRouter.{
 }
 import com.oracle.infy.wookiee.component.{ComponentManager, ComponentRequest, ComponentV2}
 import com.oracle.infy.wookiee.health.HealthCheckActor
-import com.oracle.infy.wookiee.utils.ThreadUtil
+import com.oracle.infy.wookiee.utils.{ConfigUtil, ThreadUtil}
 import com.typesafe.config.Config
 import io.helidon.webserver._
 import org.joda.time.{DateTime, DateTimeZone}
+import org.slf4j.bridge.SLF4JBridgeHandler
 
 import java.io.{FileInputStream, InputStream}
 import java.security.{KeyStore, SecureRandom}
@@ -36,6 +37,22 @@ object WebManager extends Mediator[WebManager] {
 
   def getEndpoints(config: Config, external: Boolean): List[EndpointMeta] =
     getEndpoints(getInstanceId(config), external)
+
+  // Call this to change the white list of allowed origins via CORS
+  def setCORSAllowedOrigins(
+      config: Config,
+      allowedOrigins: CorsWhiteList,
+      endpointType: EndpointType
+  ): Unit = {
+    val manager = getMediator(getInstanceId(config))
+    if (endpointType == EndpointType.EXTERNAL || endpointType == EndpointType.BOTH) {
+      manager.externalServer.routingService.setAllowedOrigins(allowedOrigins)
+    }
+    if (endpointType == EndpointType.INTERNAL || endpointType == EndpointType.BOTH) {
+      manager.internalServer.routingService.setAllowedOrigins(allowedOrigins)
+    }
+    log.info(s"CORS allowed origins updated to [$allowedOrigins]")
+  }
 
   case class WookieeWebException(msg: String, cause: Option[Throwable], code: Option[Int] = None)
       extends Exception(msg, cause.orNull)
@@ -103,7 +120,7 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
     // Check config for the settings of allowed Origin headers
     def getAllowedOrigins(portType: String): CorsWhiteList = {
       val origins = config.getStringList(s"${WebManager.ComponentName}.cors.$portType").asScala.toList
-      if (origins.isEmpty || origins.contains("*")) CorsWhiteList()
+      if (origins.isEmpty || origins.contains("*")) CorsWhiteList.allowAll
       else CorsWhiteList(origins)
     }
 
@@ -146,6 +163,13 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
   }
 
   override def start(): Unit = {
+    // Redirect Helidon logging (which uses java.util.logging) to SLF4J
+    SLF4JBridgeHandler.removeHandlersForRootLogger()
+    SLF4JBridgeHandler.install()
+    if (ConfigUtil.getDefaultValue("access-logging.enabled", config.getBoolean, true))
+      AccessLog.enableAccessLogging()
+    else AccessLog.disableAccessLogging()
+
     startService()
     log.info(s"Helidon Servers started on ports: [internal=$internalPort], [external=$externalPort]")
   }
@@ -215,7 +239,7 @@ class WebManager(name: String, config: Config) extends ComponentV2(name, config)
       override def commandName: String = cmdPath.split("/").last
       override def method: String = "GET"
       override def path: String = cmdPath
-      override def endpointType: EndpointType = EndpointType.BOTH
+      override def endpointType: EndpointType = EndpointType.INTERNAL
       override def execute(input: WookieeRequest): Future[WookieeResponse] = execution(input)
     })
   }

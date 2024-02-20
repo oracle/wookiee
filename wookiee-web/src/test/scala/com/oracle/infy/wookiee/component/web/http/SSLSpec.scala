@@ -39,7 +39,7 @@ class SSLSpec extends EndpointTestHelper {
         Future.successful(OutputObject(input.value))
       }, { output =>
         WookieeResponse(Content(output.value))
-      }, { throwable =>
+      }, { (request, throwable) =>
         WookieeResponse(Content(throwable.getMessage))
       }
     )

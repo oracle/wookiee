@@ -96,3 +96,60 @@ val closeable: AutoCloseable = WookieeKafka.startConsumerAndProcess(
 // When you want to close it up
 closeable.close()
 ```
+
+### Kafka Testing Support
+To test Kafka consumers and producers, you can use the `KafkaTestHelper` trait.
+NOTE: By default the `KafkaTestHelper` class will use the same topic name for all methods, be careful to avoid collisions if not specifying a specific topic name across multiple unit tests.
+
+```scala
+import com.oracle.infy.wookiee.kafka.testing.KafkaTestHelper
+
+class MyTest extends KafkaTestHelper with SomeUnitTestSuite {
+  // Adapt this to your testing framework
+  def beforeAll(): Unit =
+    startKafka()
+  
+  // Adapt this to your testing framework
+  def afterAll(): Unit =
+    stopKafka()
+  
+  
+  
+  test("seed a kafka topic, get a subscribed consumer back, expect 3 messages from it") {
+    val testTopic = getFreshTopicName
+    val consumer = getSeededKafkaConsumer(
+      List(
+        ("key1".getBytes, "value1".getBytes),
+        ("key2".getBytes, "value2".getBytes),
+        ("key3".getBytes, "value3".getBytes)
+      ), testTopic
+    )
+
+    // Could be more than 3 events due to other tests
+    val records = getNEvents(3, testTopic, consumer, 15000L)
+    records.size mustEqual 3
+  }
+  
+  test("same test as above but without passing around a consumer") {
+    val testTopic = seedKafkaTopic(
+      List(
+        ("key1".getBytes, "value1".getBytes),
+        ("key2".getBytes, "value2".getBytes),
+        ("key3".getBytes, "value3".getBytes)
+      )
+    )
+
+    val records = getNEvents(3, testTopic)
+    records.size mustEqual 3
+  }
+
+  // Defaults to true, but can be overridden to require manual topic creation
+  override def autoCreateTopics = true
+    
+  // Optional: If using slf4j-api this trick will suppress the crazy amount of logs kafka/zk produce
+  Try { // Set logger to INFO level
+    val loggerContext = LoggerFactory.getILoggerFactory.asInstanceOf[LoggerContext]
+    loggerContext.getLoggerList.forEach(logger => logger.setLevel(Level.INFO))
+  }
+}
+```

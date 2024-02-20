@@ -15,13 +15,17 @@ To use Wookiee Web, you must first add it as a dependency to your project.
 </dependency>
 ```
 
-Then you must add the following configuration to your `application.conf` file on the hosting server. See [reference.conf](src/main/resources/reference.conf) for more details.
+Then you must add the following configuration (which has mostly the below defaults) to your `application.conf` file on the hosting server. See [reference.conf](src/main/resources/reference.conf) for more details.
 ```hocon
 wookiee-web {
   # What port we host EndpointType.INTERNAL endpoints
   internal-port = 8080
   # What port we host EndpointType.EXTERNAL endpoints
   external-port = 8081
+  
+  # How long we wait for a request to complete
+  internal-request-timeout = 300 seconds
+  external-request-timeout = 60 seconds
     
   secure {
     # Set these to enable support of WSS and HTTPS
@@ -36,6 +40,13 @@ wookiee-web {
     internal-allowed-origins = ["http://origin.safe"]
     # Corresponding allowed Origins list applied only to external endpoints
     external-allowed-origins = []
+  }
+
+  # Override these values if you want the websocket to be kept alive.
+  # interval will decide the frequency of ping message that is used to keep the websocket alive.
+  websocket-keep-alives {
+    enabled = false
+    interval = 30s
   }
 }
 ```
@@ -78,7 +89,7 @@ class ExternalHttpCommand(implicit config: Config, ec: ExecutionContext) extends
   // Optional: Can override this to provide custom error handling if any uncaught exceptions occur
   override def errorHandler(ex: Throwable): WookieeResponse = super.errorHandler(ex)
 
-  // Optional: Can override this to set default response headers and allowed headers for CORS
+  // Optional: Can override this to set default response headers and allowed headers and origins for CORS
   override def endpointOptions: EndpointOptions = super.endpointOptions
 }
 
@@ -146,6 +157,16 @@ WookieeEndpoints.registerEndpoint(
 )
 ```
 
+### Localization
+The WookieeRequest object that comes along with each HTTP request has a `locale` field that can be used to determine the locale of the request.
+This field is populated by the `Accept-Language` header of the request, and can be used to determine the locale of the request.
+```scala
+override def execute(input: WookieeRequest): Future[WookieeResponse] = {
+  val locales: List[Locale] = input.locale
+  // Do something with the locale info
+}
+```
+
 ## Websocket Endpoints
 ### Object-Oriented Registration
 To register a Websocket endpoint, you must first create a class that extends the [WookieeWebsocket](src/main/scala/com/oracle/infy/wookiee/component/web/ws/WookieeWebsocket.scala) class.
@@ -169,8 +190,8 @@ class ExternalWSHandler(implicit conf: Config, ec: ExecutionContext) extends Woo
   override def handleText(text: String, request: WookieeRequest, authInfo: Option[AuthHolder])(
     implicit session: Session
   ): Unit = {
-    val pathSegment = input.pathSegments("somevalue")
-    val queryParam = input.queryParameters.getOrElse("query", "default")
+    val pathSegment = request.pathSegments("somevalue")
+    val queryParam = request.queryParameters.getOrElse("query", "default")
 
     if (text == "close") {
       close() // Close the websocket session
@@ -199,8 +220,8 @@ class ExternalWSHandler(implicit conf: Config, ec: ExecutionContext) extends Woo
   // Optional: Will be automatically called after the session is closed for any reason
   override def onClosing(auth: Option[Auth]): Unit = ()
 
-  // Optional: Can override this to set default response headers and allowed headers for CORS
-  override def endpointOptions: EndpointOptions = EndpointOptions.default
+  // Optional: Can override this to set default response headers and allowed headers and origins for CORS
+  override def endpointOptions: EndpointOptions = EndpointOptions.default.copy(allowedOrigins = Some(AllowSome(List("http://origin.safe"))))
 }
 ```
 
@@ -246,8 +267,11 @@ WookieeEndpoints.registerWebsocket(
       )
     },
   onCloseHandler = (auth: Option[AuthHolder]) => (),
-  wsErrorHandler = (interface: WebsocketInterface, _: Option[AuthHolder]) => {
-    _: Throwable => interface.close(Some(("Encountered an error, closing socket", 1008)))
+  // Can access the original WookieeRequest object via `interface.request`
+  wsErrorHandler = (interface: WebsocketInterface, message: String, _: Option[AuthHolder]) => {
+    _: Throwable =>
+      log.info(s"Encountered an error on session [${interface.request}] and message [$message], closing socket")
+      interface.close(Some(("Encountered an error, closing socket", 1008)))
   },
   endpointOptions = EndpointOptions.default
 )

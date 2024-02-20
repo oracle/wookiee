@@ -18,6 +18,7 @@
  */
 package com.oracle.infy.wookiee.component.metrics.messages
 
+import com.codahale.metrics.MetricFilter
 import com.oracle.infy.wookiee.component.metrics.metrictype.Metric
 
 trait MetricMessage {
@@ -25,3 +26,5 @@ trait MetricMessage {
 }
 
 case class RemoveMetric(metric: Metric) extends MetricMessage
+
+case class RemoveMatchingMetric(filter: MetricFilter, metric: Metric) extends MetricMessage
